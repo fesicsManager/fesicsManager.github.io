@@ -55,6 +55,32 @@ th{color:var(--ink-soft);font-weight:700;font-size:18px;letter-spacing:.02em;}
 .feedback.ok{background:#eefaf1;border:1px solid #b7e2c3;color:#1e5c34;}
 .feedback.no{background:#fdeceb;border:1px solid #e2b2ac;color:#8a2f27;}
 footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:18px;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
+
+.tab-btn{transition:background .15s ease,color .15s ease,transform .1s ease;}
+.tab-btn:hover{background:rgba(23,50,56,0.08);}
+.tab-btn.active:hover{background:#0e2429;}
+.tab-btn:active{transform:scale(0.97);}
+.subtab-btn{transition:border-color .15s ease,color .15s ease,background .15s ease;}
+.subtab-btn:hover{border-color:var(--brass);color:var(--brass-dark);}
+.mat-btn{transition:border-color .15s ease,color .15s ease,background .15s ease,transform .1s ease;}
+.mat-btn:hover{border-color:var(--teal);color:var(--teal);}
+.mat-btn.active:hover{background:#0e2429;}
+.mat-btn:active{transform:scale(0.97);}
+button.action{transition:filter .15s ease,transform .1s ease;}
+button.action:hover:not(:disabled){filter:brightness(1.08);}
+button.action:active:not(:disabled){transform:translateY(1px);}
+.btn-ghost:hover:not(:disabled){filter:none;background:#e2e8e5;}
+.choice-btn{transition:background .15s ease,transform .1s ease;}
+.choice-btn:hover:not(:disabled){background:#eef2f0;}
+.choice-btn:active:not(:disabled){transform:scale(0.97);}
 </style>
 </head>
 <body>
@@ -64,7 +90,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -74,7 +100,6 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
     <div class="mat-row" id="matRow"></div>
     <canvas id="litmusCanvas" width="300" height="220"></canvas>
     <button class="action" id="testBtn">🧪 종이 담그기</button>
-    <button class="action btn-ghost" id="addPoint" disabled>📍 이 결과 기록하기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
     <div class="hint">💡 서로 다른 물질 4가지 이상을 시험해 보세요.</div>
   </section>
@@ -127,11 +152,11 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
 }));
 
 const MATERIALS=[
-  {name:'레몬즙', acid:true},
-  {name:'식초', acid:true},
-  {name:'탄산음료', acid:true},
-  {name:'비눗물', acid:false},
-  {name:'유리세정제', acid:false},
+  {name:'레몬즙', acid:true, liquid:'rgba(240,220,90,0.55)'},
+  {name:'식초', acid:true, liquid:'rgba(225,225,205,0.35)'},
+  {name:'탄산음료', acid:true, liquid:'rgba(90,55,25,0.55)'},
+  {name:'비눗물', acid:false, liquid:'rgba(225,240,245,0.55)'},
+  {name:'유리세정제', acid:false, liquid:'rgba(80,160,220,0.5)'},
 ];
 let matIdx=0;
 const matRow=document.getElementById('matRow');
@@ -142,23 +167,34 @@ MATERIALS.forEach((m,i)=>{
   matRow.appendChild(b);
 });
 
-let tested=false, curChanged=null;
-function resetTest(){ tested=false; curChanged=null; document.getElementById('addPoint').disabled=true; }
+let tested=false, curChanged=null, dipProgress=0;
+function resetTest(){ tested=false; curChanged=null; dipProgress=0; }
 document.getElementById('testBtn').addEventListener('click',()=>{
-  tested=true;
-  curChanged = MATERIALS[matIdx].acid;
-  document.getElementById('addPoint').disabled=false;
+  canvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('testBtn');
+  btn.disabled=true;
+  const duration=1200;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    dipProgress=p;
+    if(p>=0.5) tested=true, curChanged=MATERIALS[matIdx].acid;
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      const m=MATERIALS[matIdx];
+      if(!points.some(pt=>pt.name===m.name) && points.length<5){
+        points.push({name:m.name, acid:m.acid, result:m.acid?'파랑→빨강 (변함)':'변화 없음', color:colors[points.length%colors.length]});
+        renderTable();
+        maybeShowDataPopup(points.length);
+      }
+    }
+  }
+  requestAnimationFrame(frame);
 });
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b'];
 let points=[];
-document.getElementById('addPoint').addEventListener('click',()=>{
-  const m=MATERIALS[matIdx];
-  if(points.some(p=>p.name===m.name)){ alert('이미 기록한 물질이에요.'); return; }
-  if(points.length>=5){ alert('모든 물질을 기록했어요!'); return; }
-  points.push({name:m.name, acid:m.acid, result:m.acid?'파랑→빨강 (변함)':'변화 없음', color:colors[points.length%colors.length]});
-  renderTable();
-});
 document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
 function renderTable(){
   const body=document.getElementById('dataBody'); body.innerHTML='';
@@ -174,14 +210,19 @@ function draw(){
   const CW=canvas.width, CH=canvas.height;
   ctx.clearRect(0,0,CW,CH);
   const left=CW/2-50, right=CW/2+50, top=30, bottom=CH-30;
-  ctx.fillStyle='rgba(200,200,200,0.15)';
+  ctx.fillStyle=MATERIALS[matIdx].liquid;
   ctx.fillRect(left,top,right-left,bottom-top);
   ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
   ctx.strokeRect(left,top,right-left,bottom-top);
+
+  // 담그는 애니메이션: 종이가 용액 위에서 아래로 내려갔다가 다시 살짝 올라옴
+  let dipY;
+  if(dipProgress<0.5){ dipY = (top-40) + (top+15 - (top-40))*(dipProgress/0.5); }
+  else{ dipY = top+15; }
   const paperColor = tested ? (curChanged ? '#c1443c' : '#4a7fd6') : '#4a7fd6';
   ctx.fillStyle=paperColor;
-  ctx.fillRect(CW/2-14,top+15,28,70);
-  ctx.strokeStyle='#173238'; ctx.lineWidth=1.5; ctx.strokeRect(CW/2-14,top+15,28,70);
+  ctx.fillRect(CW/2-14,dipY,28,70);
+  ctx.strokeStyle='#173238'; ctx.lineWidth=1.5; ctx.strokeRect(CW/2-14,dipY,28,70);
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
   ctx.fillText(MATERIALS[matIdx].name, CW/2, bottom+20);
   ctx.textAlign='left';
@@ -223,6 +264,28 @@ document.getElementById('propChoices').addEventListener('click',(e)=>{
     ? '정답입니다! 레몬즙, 식초, 탄산음료처럼 파란 리트머스 종이를 빨갛게 바꾼 물질들은 모두 신맛이 나는 산성 물질입니다.'
     : '내가 기록한 산성 물질(레몬즙, 식초 등)은 모두 신맛이 나는 공통점이 있습니다.';
 });
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 확인 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

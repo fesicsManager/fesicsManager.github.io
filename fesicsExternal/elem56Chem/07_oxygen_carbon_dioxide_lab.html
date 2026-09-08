@@ -55,6 +55,32 @@ th{color:var(--ink-soft);font-weight:700;font-size:18px;letter-spacing:.02em;}
 .feedback.ok{background:#eefaf1;border:1px solid #b7e2c3;color:#1e5c34;}
 .feedback.no{background:#fdeceb;border:1px solid #e2b2ac;color:#8a2f27;}
 footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:18px;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
+
+.tab-btn{transition:background .15s ease,color .15s ease,transform .1s ease;}
+.tab-btn:hover{background:rgba(23,50,56,0.08);}
+.tab-btn.active:hover{background:#0e2429;}
+.tab-btn:active{transform:scale(0.97);}
+.subtab-btn{transition:border-color .15s ease,color .15s ease,background .15s ease;}
+.subtab-btn:hover{border-color:var(--brass);color:var(--brass-dark);}
+.mat-btn{transition:border-color .15s ease,color .15s ease,background .15s ease,transform .1s ease;}
+.mat-btn:hover{border-color:var(--teal);color:var(--teal);}
+.mat-btn.active:hover{background:#0e2429;}
+.mat-btn:active{transform:scale(0.97);}
+button.action{transition:filter .15s ease,transform .1s ease;}
+button.action:hover:not(:disabled){filter:brightness(1.08);}
+button.action:active:not(:disabled){transform:translateY(1px);}
+.btn-ghost:hover:not(:disabled){filter:none;background:#e2e8e5;}
+.choice-btn{transition:background .15s ease,transform .1s ease;}
+.choice-btn:hover:not(:disabled){background:#eef2f0;}
+.choice-btn:active:not(:disabled){transform:scale(0.97);}
 </style>
 </head>
 <body>
@@ -64,7 +90,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -73,9 +99,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
     <h2>기체 성질 시험하기</h2>
     <div class="mat-row" id="gasRow"></div>
     <canvas id="gasCanvas" width="440" height="200"></canvas>
-    <button class="action" id="candleBtn">🕯️ 촛불 넣어보기</button>
-    <button class="action btn-ghost" id="limeBtn">🥛 석회수에 통과시키기</button>
-    <button class="action btn-ghost" id="addPoint" disabled>📍 이 결과 기록하기</button>
+    <button class="action" id="testBtn">🔬 촛불 넣고 석회수 통과시키기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
     <div class="hint">💡 서로 다른 기체 4가지 이상을 시험해 보세요.</div>
   </section>
@@ -142,35 +166,45 @@ GASES.forEach((g,i)=>{
   gasRow.appendChild(b);
 });
 
-let candleResult=null, limeResult=null, curCandleFlame='normal';
+let candleResult=null, limeResult=null, curCandleFlame='normal', testProgress=null, curLimeCloudy=false;
 function resetTest(){
-  candleResult=null; limeResult=null; curCandleFlame='normal';
-  document.getElementById('addPoint').disabled=true;
+  candleResult=null; limeResult=null; curCandleFlame='normal'; testProgress=null; curLimeCloudy=false;
 }
-document.getElementById('candleBtn').addEventListener('click',()=>{
+document.getElementById('testBtn').addEventListener('click',()=>{
+  canvas.scrollIntoView({behavior:'smooth', block:'center'});
   const g=GASES[gasIdx];
-  candleResult=g.candle;
-  curCandleFlame = g.key==='o2' ? 'big' : (g.key==='air' ? 'normal' : 'out');
-  checkReady();
+  const btn=document.getElementById('testBtn');
+  btn.disabled=true;
+  const duration=1800;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    testProgress=p;
+    if(p<0.45){
+      curCandleFlame='normal';
+    }else{
+      candleResult=g.candle;
+      curCandleFlame = g.key==='o2' ? 'big' : (g.key==='air' ? 'normal' : 'out');
+    }
+    if(p>=0.55){
+      limeResult=g.lime;
+      curLimeCloudy = g.lime.includes('흐려짐');
+    }
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      if(!points.some(pt=>pt.key===g.key) && points.length<4){
+        points.push({key:g.key, name:g.name, candle:candleResult, lime:limeResult, color:colors[points.length%colors.length]});
+        renderTable();
+        maybeShowDataPopup(points.length);
+      }
+    }
+  }
+  requestAnimationFrame(frame);
 });
-document.getElementById('limeBtn').addEventListener('click',()=>{
-  const g=GASES[gasIdx];
-  limeResult=g.lime;
-  checkReady();
-});
-function checkReady(){
-  if(candleResult && limeResult) document.getElementById('addPoint').disabled=false;
-}
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd'];
 let points=[];
-document.getElementById('addPoint').addEventListener('click',()=>{
-  const g=GASES[gasIdx];
-  if(points.some(p=>p.key===g.key)){ alert('이미 기록한 기체예요.'); return; }
-  if(points.length>=4){ alert('모든 기체를 기록했어요!'); return; }
-  points.push({key:g.key, name:g.name, candle:candleResult, lime:limeResult, color:colors[points.length%colors.length]});
-  renderTable();
-});
 document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
 function renderTable(){
   const body=document.getElementById('dataBody'); body.innerHTML='';
@@ -185,21 +219,46 @@ const canvas=document.getElementById('gasCanvas'), ctx=canvas.getContext('2d');
 function draw(){
   const CW=canvas.width, CH=canvas.height;
   ctx.clearRect(0,0,CW,CH);
-  const jarLeft=CW/2-50, jarRight=CW/2+50, jarTop=30, jarBottom=CH-30;
+
+  // 왼쪽: 촛불 시험용 유리병
+  const jarLeft=30, jarRight=170, jarTop=25, jarBottom=CH-30;
   ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
   ctx.strokeRect(jarLeft,jarTop,jarRight-jarLeft,jarBottom-jarTop);
+  const cx1=(jarLeft+jarRight)/2;
   if(curCandleFlame!=='out'){
     const flameH = curCandleFlame==='big' ? 40 : 22;
     ctx.strokeStyle='#4a4a4a'; ctx.lineWidth=4;
-    ctx.beginPath(); ctx.moveTo(CW/2,jarBottom-10); ctx.lineTo(CW/2,jarBottom-10-30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx1,jarBottom-10); ctx.lineTo(cx1,jarBottom-10-30); ctx.stroke();
     ctx.fillStyle='#d98e3b';
-    ctx.beginPath(); ctx.ellipse(CW/2,jarBottom-40-flameH/2,10,flameH/2,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx1,jarBottom-40-flameH/2,10,flameH/2,0,0,Math.PI*2); ctx.fill();
   } else {
     ctx.strokeStyle='#4a4a4a'; ctx.lineWidth=4;
-    ctx.beginPath(); ctx.moveTo(CW/2,jarBottom-10); ctx.lineTo(CW/2,jarBottom-10-30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx1,jarBottom-10); ctx.lineTo(cx1,jarBottom-10-30); ctx.stroke();
   }
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
-  ctx.fillText(GASES[gasIdx].name, CW/2, jarBottom+20);
+  ctx.fillText('촛불', cx1, jarBottom+20);
+
+  // 오른쪽: 석회수 시험관
+  const tubeLeft=260, tubeRight=380, tubeTop=25, tubeBottom=CH-30;
+  const cx2=(tubeLeft+tubeRight)/2;
+  ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
+  ctx.strokeRect(tubeLeft,tubeTop,tubeRight-tubeLeft,tubeBottom-tubeTop);
+  ctx.fillStyle = curLimeCloudy ? 'rgba(220,220,220,0.85)' : 'rgba(220,235,240,0.35)';
+  ctx.fillRect(tubeLeft+3,tubeTop+3,tubeRight-tubeLeft-6,tubeBottom-tubeTop-6);
+  // 기체 방울이 석회수를 통과하는 모습 (테스트 진행 중일 때만)
+  if(testProgress!==null && testProgress>=0.55 && testProgress<1){
+    const bp=(testProgress-0.55)/0.45;
+    ctx.strokeStyle='#8fa8a3'; ctx.lineWidth=1.5;
+    [0,-14,14].forEach((off,i)=>{
+      const by = tubeBottom-6-((bp+i*0.2)%1)*(tubeBottom-tubeTop-16);
+      ctx.beginPath(); ctx.arc(cx2+off,by,3,0,Math.PI*2); ctx.stroke();
+    });
+  }
+  ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
+  ctx.fillText('석회수', cx2, tubeBottom+20);
+
+  ctx.fillStyle='#173238'; ctx.font='bold 14px "Noto Sans KR", sans-serif';
+  ctx.fillText(GASES[gasIdx].name, CW/2, 14);
   ctx.textAlign='left';
   requestAnimationFrame(draw);
 }
@@ -239,6 +298,28 @@ document.getElementById('extinguishChoices').addEventListener('click',(e)=>{
     ? '정답입니다! 내 데이터에서 이산화 탄소는 촛불을 꺼뜨렸습니다. 이 성질을 이용해 화재를 끄는 이산화 탄소 소화기를 만듭니다.'
     : '내 데이터를 다시 보면, 이산화 탄소가 든 통에서 촛불이 꺼졌을 것입니다. 불을 꺼뜨리는 성질이 있어야 소화기에 쓸 수 있습니다.';
 });
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 확인 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

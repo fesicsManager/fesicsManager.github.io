@@ -55,6 +55,32 @@ th{color:var(--ink-soft);font-weight:700;font-size:18px;letter-spacing:.02em;}
 .feedback.ok{background:#eefaf1;border:1px solid #b7e2c3;color:#1e5c34;}
 .feedback.no{background:#fdeceb;border:1px solid #e2b2ac;color:#8a2f27;}
 footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:18px;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
+
+.tab-btn{transition:background .15s ease,color .15s ease,transform .1s ease;}
+.tab-btn:hover{background:rgba(23,50,56,0.08);}
+.tab-btn.active:hover{background:#0e2429;}
+.tab-btn:active{transform:scale(0.97);}
+.subtab-btn{transition:border-color .15s ease,color .15s ease,background .15s ease;}
+.subtab-btn:hover{border-color:var(--brass);color:var(--brass-dark);}
+.mat-btn{transition:border-color .15s ease,color .15s ease,background .15s ease,transform .1s ease;}
+.mat-btn:hover{border-color:var(--teal);color:var(--teal);}
+.mat-btn.active:hover{background:#0e2429;}
+.mat-btn:active{transform:scale(0.97);}
+button.action{transition:filter .15s ease,transform .1s ease;}
+button.action:hover:not(:disabled){filter:brightness(1.08);}
+button.action:active:not(:disabled){transform:translateY(1px);}
+.btn-ghost:hover:not(:disabled){filter:none;background:#e2e8e5;}
+.choice-btn{transition:background .15s ease,transform .1s ease;}
+.choice-btn:hover:not(:disabled){background:#eef2f0;}
+.choice-btn:active:not(:disabled){transform:scale(0.97);}
 </style>
 </head>
 <body>
@@ -64,7 +90,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -74,7 +100,6 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
     <div class="mat-row" id="matRow"></div>
     <canvas id="cupCanvas" width="300" height="240"></canvas>
     <button class="action" id="mixBtn">💧 물에 넣기</button>
-    <button class="action btn-ghost" id="addPoint" disabled>📍 이 결과 기록하기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
     <div class="hint">💡 서로 다른 물질 4가지 이상을 넣어보고 기록해 보세요.</div>
   </section>
@@ -142,25 +167,54 @@ MATERIALS.forEach((m,i)=>{
   matRow.appendChild(b);
 });
 
-let mixed=false, curResult=null;
-function resetMix(){ mixed=false; curResult=null; document.getElementById('addPoint').disabled=true; }
+let mixing=false;
+function resetMix(){ mixing=false; particles=[]; }
+
+let particles=[];
+function spawnParticles(m){
+  particles=[];
+  const n = 22;
+  for(let i=0;i<n;i++){
+    particles.push({
+      x: CW_C()/2 - 60 + 10 + Math.random()*100,
+      y: 15 + Math.random()*10,
+      targetX: null, targetY: null,
+      vx: (Math.random()-0.5)*0.6,
+      settled:false
+    });
+  }
+}
+function CW_C(){ return canvas.width; }
+
 document.getElementById('mixBtn').addEventListener('click',()=>{
-  mixed=true;
+  canvas.scrollIntoView({behavior:'smooth', block:'center'});
   const m=MATERIALS[matIdx];
-  curResult=m.dissolves ? '투명하게 사라짐 (용해)' : '뿌옇게 흐려지고 가라앉음';
-  document.getElementById('addPoint').disabled=false;
+  const btn=document.getElementById('mixBtn');
+  btn.disabled=true;
+  spawnParticles(m);
+  mixing=true;
+  const duration=1600;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    animateParticles(p, m);
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      mixing=false;
+      const curResult = m.dissolves ? '투명하게 사라짐 (용해)' : '뿌옇게 흐려지고 가라앉음';
+      if(!points.some(pt=>pt.name===m.name) && points.length<5){
+        points.push({name:m.name, result:curResult, dissolves:m.dissolves, color:colors[points.length%colors.length]});
+        renderTable();
+        maybeShowDataPopup(points.length);
+      }
+    }
+  }
+  requestAnimationFrame(frame);
 });
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b'];
 let points=[];
-document.getElementById('addPoint').addEventListener('click',()=>{
-  if(!curResult) return;
-  const m=MATERIALS[matIdx];
-  if(points.some(p=>p.name===m.name)){ alert('이미 기록한 물질이에요.'); return; }
-  if(points.length>=5){ alert('모든 물질을 기록했어요!'); return; }
-  points.push({name:m.name, result:curResult, dissolves:m.dissolves, color:colors[points.length%colors.length]});
-  renderTable();
-});
 document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
 function renderTable(){
   const body=document.getElementById('dataBody'); body.innerHTML='';
@@ -172,7 +226,35 @@ function renderTable(){
 }
 
 const canvas=document.getElementById('cupCanvas'), ctx=canvas.getContext('2d');
-function draw(){
+function animateParticles(progress, m){
+  const CW=canvas.width, CH=canvas.height;
+  const left=CW/2-60, right=CW/2+60, top=40, bottom=CH-30;
+  particles.forEach((pt,i)=>{
+    if(progress<0.45){
+      // 낙하 단계: 위에서 물속으로 떨어짐
+      const fp = progress/0.45;
+      pt.y = top + (bottom-40-top)*fp + (i%5)*3;
+      pt.x += pt.vx;
+    }else{
+      const sp = (progress-0.45)/0.55;
+      if(m.dissolves){
+        // 용해 단계: 알갱이가 점점 퍼지고 서로 움직이며 옅어짐(사라짐)
+        if(pt.targetX===null){ pt.targetX = left+15+Math.random()*(right-left-30); pt.targetY = top+20+Math.random()*(bottom-top-40); }
+        pt.x += (pt.targetX-pt.x)*0.06 + Math.sin((progress*20)+i)*0.4;
+        pt.y += (pt.targetY-pt.y)*0.06 + Math.cos((progress*17)+i)*0.4;
+        pt.alpha = Math.max(0, 1-sp*1.15);
+      }else{
+        // 가라앉음: 바닥에 쌓여 계속 보임
+        const floorY = bottom - 6 - (i%4)*3;
+        pt.y += (floorY-pt.y)*0.25;
+        pt.x += (pt.x-CW/2)*0.02; // 살짝 퍼짐
+        pt.alpha = 1;
+      }
+    }
+  });
+  drawCup(progress>0, m);
+}
+function drawCup(mixed, m){
   const CW=canvas.width, CH=canvas.height;
   ctx.clearRect(0,0,CW,CH);
   const left=CW/2-60, right=CW/2+60, top=40, bottom=CH-30;
@@ -180,25 +262,23 @@ function draw(){
   ctx.fillRect(left,top,right-left,bottom-top);
   ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
   ctx.strokeRect(left,top,right-left,bottom-top);
+
   if(mixed){
-    const m=MATERIALS[matIdx];
-    if(m.dissolves){
-      ctx.fillStyle='rgba(255,255,255,0.15)';
-      ctx.fillRect(left,top,right-left,bottom-top);
-    } else {
-      ctx.fillStyle=m.color;
-      ctx.fillRect(left,top,right-left,bottom-top);
-      ctx.fillStyle='#a5713c';
-      for(let i=0;i<25;i++){
-        const x=left+8+Math.random()*(right-left-16);
-        const y=bottom-8-Math.random()*15;
-        ctx.beginPath(); ctx.arc(x,y,2,0,Math.PI*2); ctx.fill();
-      }
-    }
+    particles.forEach(pt=>{
+      const alpha = pt.alpha!=null ? pt.alpha : 1;
+      if(alpha<=0.02) return;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = m.dissolves ? '#ffffff' : (m.name==='모래'?'#a5713c':'#e8dcc8');
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha=1;
   }
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
   ctx.fillText(MATERIALS[matIdx].name+(mixed?' 넣음':''), CW/2, bottom+20);
   ctx.textAlign='left';
+}
+function draw(){
+  if(!mixing) drawCup(false, MATERIALS[matIdx]);
   requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
@@ -237,6 +317,28 @@ document.getElementById('solutionChoices').addEventListener('click',(e)=>{
     ? '정답입니다! 내가 기록한 데이터에서 설탕, 소금처럼 투명하게 골고루 섞인 것만 용액입니다. 밀가루나 모래처럼 뿌옇게 흐려지고 가라앉는 것은 용해가 아니라 그냥 흩어진 것입니다.'
     : '내 데이터를 다시 보면, 투명하게 사라진 물질(설탕, 소금 등)이 진짜 "용해"되어 용액이 된 것입니다.';
 });
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 확인 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

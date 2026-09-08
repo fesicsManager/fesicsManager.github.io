@@ -56,6 +56,32 @@ th{color:var(--ink-soft);font-weight:700;font-size:18px;letter-spacing:.02em;}
 .feedback.ok{background:#eefaf1;border:1px solid #b7e2c3;color:#1e5c34;}
 .feedback.no{background:#fdeceb;border:1px solid #e2b2ac;color:#8a2f27;}
 footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:18px;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
+
+.tab-btn{transition:background .15s ease,color .15s ease,transform .1s ease;}
+.tab-btn:hover{background:rgba(23,50,56,0.08);}
+.tab-btn.active:hover{background:#0e2429;}
+.tab-btn:active{transform:scale(0.97);}
+.subtab-btn{transition:border-color .15s ease,color .15s ease,background .15s ease;}
+.subtab-btn:hover{border-color:var(--brass);color:var(--brass-dark);}
+.mat-btn{transition:border-color .15s ease,color .15s ease,background .15s ease,transform .1s ease;}
+.mat-btn:hover{border-color:var(--teal);color:var(--teal);}
+.mat-btn.active:hover{background:#0e2429;}
+.mat-btn:active{transform:scale(0.97);}
+button.action{transition:filter .15s ease,transform .1s ease;}
+button.action:hover:not(:disabled){filter:brightness(1.08);}
+button.action:active:not(:disabled){transform:translateY(1px);}
+.btn-ghost:hover:not(:disabled){filter:none;background:#e2e8e5;}
+.choice-btn{transition:background .15s ease,transform .1s ease;}
+.choice-btn:hover:not(:disabled){background:#eef2f0;}
+.choice-btn:active:not(:disabled){transform:scale(0.97);}
 </style>
 </head>
 <body>
@@ -65,7 +91,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -82,7 +108,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
       <input type="range" id="baseSlider" min="0" max="60" step="5" value="30">
     </div>
     <div class="readout"><span>섞은 결과</span><b id="resultVal">-</b></div>
-    <button class="action" id="addPoint">📍 이 조합 기록하기</button>
+    <button class="action" id="addPoint">🧪 섞어서 기록하기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
   </section>
   <section class="card">
@@ -155,10 +181,27 @@ update();
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b','#c1447f','#4a637a','#a86825'];
 let points=[];
+let mixProgress=null; // null = 섞기 전(두 컵 분리), 0~1 = 섞는 애니메이션
 document.getElementById('addPoint').addEventListener('click',()=>{
   if(points.length>=8){ alert('최대 8개까지 측정할 수 있어요.'); return; }
-  points.push({acid:curAcid, base:curBase, result:curResult, color:colors[points.length%colors.length]});
-  renderTable();
+  canvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('addPoint');
+  btn.disabled=true;
+  const duration=1300;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    mixProgress=p;
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      points.push({acid:curAcid, base:curBase, result:curResult, color:colors[points.length%colors.length]});
+      renderTable();
+      maybeShowDataPopup(points.length);
+      mixProgress=null;
+    }
+  }
+  requestAnimationFrame(frame);
 });
 document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
 function renderTable(){
@@ -171,21 +214,58 @@ function renderTable(){
 }
 
 const canvas=document.getElementById('neutralCanvas'), ctx=canvas.getContext('2d');
+function resultColor(result){
+  if(result==='산성') return [193,68,60];
+  if(result==='염기성') return [47,143,157];
+  return [150,150,150];
+}
+function lerpColor(a,b,t){ return [Math.round(a[0]+(b[0]-a[0])*t), Math.round(a[1]+(b[1]-a[1])*t), Math.round(a[2]+(b[2]-a[2])*t)]; }
 function draw(){
   const CW=canvas.width, CH=canvas.height;
   ctx.clearRect(0,0,CW,CH);
-  const left=CW/2-70, right=CW/2+70, top=30, bottom=CH-30;
-  let fillColor;
-  if(curResult==='산성') fillColor='rgba(193,68,60,0.4)';
-  else if(curResult==='염기성') fillColor='rgba(47,143,157,0.4)';
-  else fillColor='rgba(160,160,160,0.3)';
-  ctx.fillStyle=fillColor;
-  ctx.fillRect(left,top,right-left,bottom-top);
-  ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
-  ctx.strokeRect(left,top,right-left,bottom-top);
-  ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
-  ctx.fillText('산성 '+curAcid+'mL + 염기성 '+curBase+'mL', CW/2, bottom+20);
-  ctx.fillText('결과: '+curResult, CW/2, bottom+40);
+  const top=30, bottom=CH-30;
+
+  if(mixProgress===null){
+    // 섞기 전: 산성 용액과 염기성 용액을 담은 두 개의 컵
+    const leftL=CW/2-140, leftR=CW/2-20, rightL=CW/2+20, rightR=CW/2+140;
+    ctx.fillStyle='rgba(193,68,60,0.4)';
+    ctx.fillRect(leftL,top,leftR-leftL,bottom-top);
+    ctx.fillStyle='rgba(47,143,157,0.4)';
+    ctx.fillRect(rightL,top,rightR-rightL,bottom-top);
+    ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
+    ctx.strokeRect(leftL,top,leftR-leftL,bottom-top);
+    ctx.strokeRect(rightL,top,rightR-rightL,bottom-top);
+    ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
+    ctx.fillText('산성 '+curAcid+'mL', (leftL+leftR)/2, bottom+20);
+    ctx.fillText('염기성 '+curBase+'mL', (rightL+rightR)/2, bottom+20);
+  }else if(mixProgress<0.5){
+    // 두 컵이 가운데로 다가감
+    const p=mixProgress/0.5;
+    const leftL=CW/2-140+p*90, leftR=CW/2-20+p*90;
+    const rightL=CW/2+20-p*90, rightR=CW/2+140-p*90;
+    ctx.fillStyle='rgba(193,68,60,0.4)';
+    ctx.fillRect(leftL,top,leftR-leftL,bottom-top);
+    ctx.fillStyle='rgba(47,143,157,0.4)';
+    ctx.fillRect(rightL,top,rightR-rightL,bottom-top);
+    ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
+    ctx.strokeRect(leftL,top,leftR-leftL,bottom-top);
+    ctx.strokeRect(rightL,top,rightR-rightL,bottom-top);
+    ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
+    ctx.fillText('섞는 중...', CW/2, bottom+20);
+  }else{
+    // 하나로 합쳐지며 색이 섞임
+    const p=(mixProgress-0.5)/0.5;
+    const target=resultColor(curResult);
+    const leftColor=lerpColor([193,68,60],target,p);
+    const rightColor=lerpColor([47,143,157],target,p);
+    const left=CW/2-70, right=CW/2+70;
+    ctx.fillStyle='rgba('+leftColor.join(',')+',0.4)'; ctx.fillRect(left,top,70,bottom-top);
+    ctx.fillStyle='rgba('+rightColor.join(',')+',0.4)'; ctx.fillRect(CW/2,top,70,bottom-top);
+    ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
+    ctx.strokeRect(left,top,right-left,bottom-top);
+    ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
+    if(p>=1) ctx.fillText('결과: '+curResult, CW/2, bottom+20);
+  }
   ctx.textAlign='left';
   requestAnimationFrame(draw);
 }
@@ -226,6 +306,28 @@ document.getElementById('neutralChoices').addEventListener('click',(e)=>{
     ? '정답입니다! 내 데이터에서 산성 양과 염기성 양이 거의 같을 때(차이 0에 가까울 때) 중성이 되었습니다. 이것이 중화 반응입니다.'
     : '내 데이터를 다시 보면, 산성과 염기성의 양이 같을 때 중성이 되었을 것입니다. 한쪽이 더 많으면 그쪽 성질이 남습니다.';
 });
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 확인 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>
