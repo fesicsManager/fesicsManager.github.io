@@ -85,6 +85,13 @@ th{color:var(--ink-soft);font-weight:700;font-size:1rem;letter-spacing:.02em;}
 .reflect-box p{margin:0 0 10px;font-size:1rem;line-height:1.5;color:var(--ink);}
 .reflect-box p b{color:var(--brass-dark);}
 footer{margin-top:16px;font-size:1rem;color:var(--ink-soft);text-align:center;}
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -107,8 +114,8 @@ footer{margin-top:16px;font-size:1rem;color:var(--ink-soft);text-align:center;}
       <input type="range" id="tempSlider" min="35" max="40" step="1" value="37">
     </div>
     <div class="readout"><span>부화까지 걸리는 시간</span><b id="hatchVal">- 일</b></div>
-    <button class="action" id="addPoint">📍 이 온도에서 측정하기</button>
-    <button class="action btn-ghost" id="resetPoints">초기화</button>
+    <button class="action" id="hatchBtn">🥚 부화 시켜보기 ▶</button>
+    <div class="hint" id="hatchResult" style="margin-top:10px;">온도를 정하고 부화시켜보세요.</div>
   </section>
   <section class="card">
     <h2>측정 데이터</h2>
@@ -165,19 +172,13 @@ function updateTemp(){
   curHatch=hatchFor(curTemp);
   tempVal.textContent=curTemp+' ℃';
   hatchVal.textContent=curHatch.toFixed(1)+' 일';
+  document.getElementById('hatchResult').textContent='온도를 정하고 부화시켜보세요.';
+  drawEgg(0);
 }
 tempSlider.addEventListener('input',updateTemp);
-updateTemp();
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b','#c1447f'];
 let points=[];
-document.getElementById('addPoint').addEventListener('click',()=>{
-  if(points.some(p=>p.temp===curTemp)){ alert('이미 기록한 온도예요.'); return; }
-  if(points.length>=6){ alert('최대 6개까지 측정할 수 있어요.'); return; }
-  points.push({temp:curTemp, hatch:curHatch, color:colors[points.length%colors.length]});
-  renderTable();
-});
-document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
 function renderTable(){
   const body=document.getElementById('dataBody'); body.innerHTML='';
   points.forEach((p,i)=>{
@@ -188,19 +189,70 @@ function renderTable(){
 }
 
 const canvas=document.getElementById('eggCanvas'), ctx=canvas.getContext('2d');
-function draw(){
+function drawEgg(progress){
+  // progress 0~0.7: 알이 흔들림(부화 임박) / 0.7~1: 껍질이 갈라지며 병아리 등장
   const CW=canvas.width, CH=canvas.height, cx=CW/2, cy=CH/2;
   ctx.clearRect(0,0,CW,CH);
-  ctx.fillStyle='#f0e6c8';
-  ctx.beginPath(); ctx.ellipse(cx,cy,45,55,0,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
-  ctx.beginPath(); ctx.ellipse(cx,cy,45,55,0,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle='#eef2f0'; ctx.fillRect(0,0,CW,CH);
+
+  if(progress < 0.7){
+    const shakeP = progress/0.7;
+    const wobble = Math.sin(shakeP*40)*4*shakeP;
+    ctx.save();
+    ctx.translate(cx+wobble, cy);
+    ctx.fillStyle='#f0e6c8';
+    ctx.beginPath(); ctx.ellipse(0,0,45,55,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.ellipse(0,0,45,55,0,0,Math.PI*2); ctx.stroke();
+    if(shakeP>0.5){
+      // 금 가기 시작
+      ctx.strokeStyle='#a86825'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(-10,-30); ctx.lineTo(5,-8); ctx.lineTo(-8,10); ctx.lineTo(6,30); ctx.stroke();
+    }
+    ctx.restore();
+  }else{
+    // 껍질이 갈라지고 병아리 등장
+    const hatchP = (progress-0.7)/0.3;
+    ctx.fillStyle='#f0e6c8';
+    ctx.beginPath(); ctx.ellipse(cx-30,cy+30,22,26,0.3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+30,cy+30,22,26,-0.3,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#173238'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.ellipse(cx-30,cy+30,22,26,0.3,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx+30,cy+30,22,26,-0.3,0,Math.PI*2); ctx.stroke();
+    ctx.font=(30+hatchP*40)+'px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('🐣', cx, cy+10-hatchP*15);
+  }
+
   ctx.fillStyle='#4a636a'; ctx.font='20px "IBM Plex Mono", monospace'; ctx.textAlign='center';
-  ctx.fillText(curTemp+'℃ 인큐베이터', cx, CH-14);
+  ctx.fillText(curTemp+'℃ 인큐베이터', cx, CH-10);
   ctx.textAlign='left';
-  requestAnimationFrame(draw);
 }
-requestAnimationFrame(draw);
+drawEgg(0);
+updateTemp();
+
+document.getElementById('hatchBtn').addEventListener('click', ()=>{
+  canvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('hatchBtn');
+  btn.disabled=true;
+  // 온도별 체감 차이를 극단적으로 과장: 낮은 온도(21일)는 아주 느리게, 높은 온도(15일)는 아주 빠르게
+  const minHatch=hatchFor(40), maxHatch=hatchFor(35); // 15 ~ 21
+  const ratio = (curHatch-minHatch)/(maxHatch-minHatch); // 0(빠름)~1(느림)
+  const duration = 400 + ratio*2600; // 400ms ~ 3000ms
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    drawEgg(p);
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      document.getElementById('hatchResult').innerHTML = `🐣 <b>${curHatch.toFixed(1)}일</b> 만에 부화했어요! (${curTemp}℃)`;
+      points.push({temp:curTemp, hatch:curHatch, color:colors[points.length%colors.length]});
+      renderTable();
+      maybeShowDataPopup(points.length);
+    }
+  }
+  requestAnimationFrame(frame);
+});
 
 function linregress(pts){
   const n=pts.length;
@@ -243,6 +295,28 @@ document.getElementById('checkBtn').addEventListener('click',()=>{
     ? `잘 예측했습니다! 내 데이터 경향으로 계산한 값은 <b>${truth.toFixed(1)}일</b>입니다. 온도가 높을수록 부화가 더 빨리 이루어집니다.`
     : `내 데이터 경향으로 계산한 값은 <b>${truth.toFixed(1)}일</b>입니다. 표의 흐름을 다시 살펴보세요.`;
 });
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

@@ -80,6 +80,14 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -163,27 +171,51 @@ const CFG = {
 
 
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
-function drawTrack(x){
+function drawTrack(x, runProgress){
   dctx.clearRect(0,0,440,300);
   dctx.strokeStyle='#cddad6'; dctx.lineWidth=2;
   dctx.beginPath(); dctx.moveTo(40,180); dctx.lineTo(400,180); dctx.stroke();
   dctx.strokeStyle='#173238'; dctx.lineWidth=3;
   dctx.beginPath(); dctx.moveTo(400,140); dctx.lineTo(400,220); dctx.stroke();
   const speed=100/x;
-  const pos=Math.min(340,speed*34);
-  dctx.fillStyle='#c1443c'; dctx.beginPath(); dctx.arc(60+pos,180,14,0,Math.PI*2); dctx.fill();
+  const finalPos=Math.min(340,speed*34);
+  const pos = runProgress!=null ? finalPos*runProgress : finalPos;
+  // 달리는 사람 (다리 벌어짐으로 달리는 느낌 표현)
+  const legPhase = runProgress!=null && runProgress<1 ? Math.sin(runProgress*40) : 0;
+  dctx.save();
+  dctx.translate(60+pos,180);
+  dctx.strokeStyle='#c1443c'; dctx.lineWidth=4; dctx.lineCap='round';
+  dctx.beginPath(); dctx.moveTo(0,0); dctx.lineTo(4*legPhase,16); dctx.stroke();
+  dctx.beginPath(); dctx.moveTo(0,0); dctx.lineTo(-4*legPhase,16); dctx.stroke();
+  dctx.fillStyle='#c1443c'; dctx.beginPath(); dctx.arc(0,-14,14,0,Math.PI*2); dctx.fill();
+  dctx.restore();
   dctx.fillStyle='#4a636a'; dctx.font='16px "IBM Plex Mono", monospace'; dctx.textAlign='center';
   dctx.fillText('걸린 시간 '+x+'초 (거리 100m)', 220, 250);
   dctx.textAlign='left';
 }
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
 let curX=20;
-xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; drawTrack(curX); });
-drawTrack(curX);
+xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; drawTrack(curX,0); });
+drawTrack(curX,0);
 document.getElementById('measureBtn').addEventListener('click',()=>{
-  const y=Math.max(0, 100/curX+(Math.random()*0.4-0.2));
-  yVal.textContent=y.toFixed(2)+' m/초';
-  recordPoint(curX,y);
+  deviceCanvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('measureBtn');
+  btn.disabled=true;
+  const finalY=Math.max(0, 100/curX+(Math.random()*0.4-0.2));
+  // 시간이 짧을수록 애니메이션도 빠르게(체감), 길수록 느리게: 400ms~2200ms
+  const duration = 400 + Math.min(1, curX/100)*1800;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    drawTrack(curX,p);
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      yVal.textContent=finalY.toFixed(2)+' m/초';
+      recordPoint(curX,finalY);
+    }
+  }
+  requestAnimationFrame(frame);
 });
 
 
@@ -194,6 +226,7 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybeShowDataPopup(points.length);
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
@@ -337,6 +370,28 @@ document.getElementById('checkBtn').addEventListener('click', () => {
 
 
 
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

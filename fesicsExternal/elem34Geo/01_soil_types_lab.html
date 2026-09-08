@@ -56,6 +56,9 @@ th{color:var(--ink-soft);font-weight:700;font-size:18px;letter-spacing:.02em;}
 .feedback.ok{background:#eefaf1;border:1px solid #b7e2c3;color:#1e5c34;}
 .feedback.no{background:#fdeceb;border:1px solid #e2b2ac;color:#8a2f27;}
 footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
+
+.toast-msg{position:fixed;transform:translate(-50%,-100%);background:#173238;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;padding:9px 16px;border-radius:10px;box-shadow:0 6px 16px rgba(23,50,56,.3);opacity:0;pointer-events:none;transition:opacity .25s ease, transform .25s ease;white-space:nowrap;z-index:200;}
+.toast-msg.show{opacity:1;transform:translate(-50%,-115%);}
 </style>
 </head>
 <body>
@@ -65,7 +68,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -76,9 +79,8 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
     <canvas id="soilCanvas" width="440" height="200"></canvas>
     <button class="action" id="pourBtn">💧 물 붓기</button>
     <div class="readout"><span>물이 다 빠지는 시간</span><b id="drainVal">- 초</b></div>
-    <button class="action btn-ghost" id="addPoint" disabled>📍 이 결과 기록하기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
-    <div class="hint">💡 서로 다른 흙 4가지 이상을 시험해 보세요.</div>
+    <div class="hint">💡 서로 다른 흙 4가지 이상을 시험해 보세요. 물을 부으면 자동으로 측정·기록됩니다.</div>
   </section>
   <section class="card">
     <h2>측정 데이터</h2>
@@ -122,7 +124,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 <script>
 const tabBtns=document.querySelectorAll('.tab-btn');
 const exploreTab=document.getElementById('exploreTab'), verifyTab=document.getElementById('verifyTab');
-tabBtns.forEach(b=>b.addEventListener('click',()=>{
+tabBtns.forEach(b=>b.addEventListener('click',(e)=>{
   tabBtns.forEach(x=>x.classList.remove('active')); b.classList.add('active');
   if(b.dataset.tab==='explore'){exploreTab.classList.remove('hidden');verifyTab.classList.add('hidden');}
   else{exploreTab.classList.add('hidden');verifyTab.classList.remove('hidden'); renderVerify();}
@@ -139,29 +141,40 @@ const soilRow=document.getElementById('soilRow');
 SOILS.forEach((s,i)=>{
   const b=document.createElement('button');
   b.className='mat-btn'+(i===0?' active':''); b.textContent=s.name;
-  b.addEventListener('click',()=>{ soilIdx=i; document.querySelectorAll('#soilRow .mat-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); resetPour(); });
+  b.addEventListener('click',(e)=>{ soilIdx=i; document.querySelectorAll('#soilRow .mat-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); resetPour(); });
   soilRow.appendChild(b);
 });
 
-let poured=false, curDrain=null;
-function resetPour(){ poured=false; curDrain=null; document.getElementById('drainVal').textContent='- 초'; document.getElementById('addPoint').disabled=true; }
-document.getElementById('pourBtn').addEventListener('click',()=>{
-  poured=true;
-  curDrain=SOILS[soilIdx].drain;
-  document.getElementById('drainVal').textContent=curDrain+' 초';
-  document.getElementById('addPoint').disabled=false;
-});
-
+let poured=false, curDrain=null, waterLevel=0, draining=false;
+function resetPour(){ poured=false; curDrain=null; waterLevel=0; draining=false; document.getElementById('drainVal').textContent='- 초'; document.getElementById('pourBtn').disabled=false; }
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd'];
 let points=[];
-document.getElementById('addPoint').addEventListener('click',()=>{
-  const s=SOILS[soilIdx];
-  if(points.some(p=>p.key===s.key)){ alert('이미 기록한 흙이에요.'); return; }
-  if(points.length>=4){ alert('모든 흙을 기록했어요!'); return; }
-  points.push({key:s.key, name:s.name, drain:curDrain, color:colors[points.length%colors.length]});
-  renderTable();
+document.getElementById('pourBtn').addEventListener('click',(e)=>{
+  const pourBtn=e.currentTarget;
+  pourBtn.disabled=true;
+  poured=true; waterLevel=1; draining=true;
+  curDrain=SOILS[soilIdx].drain;
+  document.getElementById('drainVal').textContent='물이 스며드는 중...';
+  const animMs=Math.min(2400, 400+curDrain*90);
+  const startTime=performance.now();
+  function step(now){
+    const t=Math.min(1,(now-startTime)/animMs);
+    waterLevel=1-t;
+    if(t<1){ requestAnimationFrame(step); }
+    else {
+      draining=false; waterLevel=0;
+      document.getElementById('drainVal').textContent=curDrain+' 초';
+      pourBtn.disabled=false;
+      const s=SOILS[soilIdx];
+      if(points.some(p=>p.key===s.key)){ showToast('이미 기록한 흙이에요.', pourBtn); return; }
+      if(points.length>=4){ showToast('모든 흙을 기록했어요!', pourBtn); return; }
+      points.push({key:s.key, name:s.name, drain:curDrain, color:colors[points.length%colors.length]});
+      renderTable();
+    }
+  }
+  requestAnimationFrame(step);
 });
-document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
+document.getElementById('resetPoints').addEventListener('click',(e)=>{ points=[]; renderTable(); });
 function renderTable(){
   const body=document.getElementById('dataBody'); body.innerHTML='';
   points.forEach((p,i)=>{
@@ -182,8 +195,17 @@ function draw(){
   ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
   ctx.strokeRect(potLeft,potTop,potRight-potLeft,potBottom-potTop);
   if(poured){
-    ctx.fillStyle='rgba(127,184,224,0.5)';
-    ctx.fillRect(potLeft,potTop-10,potRight-potLeft,10);
+    const puddleH=waterLevel*14;
+    ctx.fillStyle='rgba(127,184,224,0.6)';
+    ctx.fillRect(potLeft,potTop-puddleH,potRight-potLeft,puddleH);
+    if(draining){
+      ctx.strokeStyle='rgba(90,150,190,0.55)'; ctx.lineWidth=2;
+      const seepDepth=(1-waterLevel)*(potBottom-potTop-10);
+      for(let i=0;i<4;i++){
+        const sx=potLeft+18+i*30;
+        ctx.beginPath(); ctx.moveTo(sx,potTop); ctx.lineTo(sx,potTop+seepDepth); ctx.stroke();
+      }
+    }
   }
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
   ctx.fillText(s.name, CW/2, potBottom+18);
@@ -225,6 +247,23 @@ document.getElementById('plantChoices').addEventListener('click',(e)=>{
     ? '정답입니다! 밭흙은 물을 적당히 머금으면서도 부드러워서 식물이 뿌리를 내리고 자라기에 알맞습니다. 모래흙은 물을 너무 빨리 흘려보내서 식물이 물을 흡수하기 전에 빠져나갑니다.'
     : '내 데이터를 다시 보면, 밭흙은 물이 너무 빠르지도 느리지도 않게 적당히 빠집니다. 이런 흙이 식물이 자라기에 알맞습니다.';
 });
+
+function showToast(text, anchorEl){
+  let toast = document.getElementById('toastMsg');
+  if (!toast){
+    toast = document.createElement('div');
+    toast.id = 'toastMsg';
+    toast.className = 'toast-msg';
+    document.body.appendChild(toast);
+  }
+  const rect = (anchorEl || document.body).getBoundingClientRect();
+  toast.style.left = (rect.left + rect.width/2) + 'px';
+  toast.style.top = rect.top + 'px';
+  toast.textContent = text;
+  toast.classList.add('show');
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(()=>{ toast.classList.remove('show'); }, 1700);
+}
 </script>
 </body>
 </html>

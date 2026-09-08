@@ -80,6 +80,14 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -163,26 +171,58 @@ const CFG = {
 
 
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
-function drawChopstick(x){
+function heatColor(h){
+  return 'rgb('+Math.round(150+h*43)+','+Math.round(150-h*82)+','+Math.round(150-h*90)+')';
+}
+function drawSetup(x, warmProgress){
   dctx.clearRect(0,0,440,300);
+  // 국그릇
+  dctx.fillStyle='#f0d9a0';
+  dctx.beginPath(); dctx.ellipse(75,190,55,24,0,0,Math.PI*2); dctx.fill();
+  dctx.strokeStyle='#a86825'; dctx.lineWidth=3; dctx.stroke();
+  dctx.fillStyle='rgba(217,142,59,0.55)';
+  dctx.beginPath(); dctx.ellipse(75,184,48,17,0,0,Math.PI*2); dctx.fill();
+  dctx.fillStyle='#173238'; dctx.font='14px "Noto Sans KR", sans-serif'; dctx.textAlign='center';
+  dctx.fillText('뜨거운 국물', 75, 235);
+
+  // 젓가락: 왼쪽 끝(국그릇 속)은 빠르게, 오른쪽 끝(바깥)은 가열 시간만큼 서서히 전체적으로 빨개짐
+  const startX=55, endX=390;
   const heat=Math.min(1,x/30);
-  const grad=dctx.createLinearGradient(60,150,380,150);
-  grad.addColorStop(0,'rgb(193,68,60)');
-  grad.addColorStop(1,'rgb('+Math.round(150+heat*70)+','+Math.round(150-heat*80)+','+Math.round(150-heat*70)+')');
-  dctx.fillStyle=grad;
-  dctx.fillRect(60,140,320,20);
-  dctx.fillStyle='#4a636a'; dctx.font='18px "IBM Plex Mono", monospace'; dctx.textAlign='center';
-  dctx.fillText('가열 '+x+'초', 220, 200);
+  const heatLeft = Math.min(1, warmProgress*2.2);
+  const heatRight = heat*warmProgress;
+  const grad=dctx.createLinearGradient(startX,150,endX,150);
+  grad.addColorStop(0, heatColor(heatLeft));
+  grad.addColorStop(1, heatColor(heatRight));
+  dctx.fillStyle=grad; dctx.fillRect(startX,140,endX-startX,20);
+  dctx.strokeStyle='#4a636a'; dctx.lineWidth=1.5;
+  dctx.strokeRect(startX,140,endX-startX,20);
+
+  dctx.fillStyle='#4a636a'; dctx.font='16px "IBM Plex Mono", monospace'; dctx.textAlign='center';
+  dctx.fillText('가열 '+x+'초', 220, 230);
   dctx.textAlign='left';
 }
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
 let curX=10;
-xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; drawChopstick(curX); });
-drawChopstick(curX);
+xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; drawSetup(curX,1); });
+drawSetup(curX,1);
 document.getElementById('measureBtn').addEventListener('click',()=>{
-  const y=Math.max(20, 20+2*curX+(Math.random()*3-1.5));
-  yVal.textContent=y.toFixed(1)+' ℃';
-  recordPoint(curX,y);
+  deviceCanvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('measureBtn');
+  btn.disabled=true;
+  const finalY=Math.max(20, 20+2*curX+(Math.random()*3-1.5));
+  const duration=1300;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    drawSetup(curX, p);
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      yVal.textContent=finalY.toFixed(1)+' ℃';
+      recordPoint(curX,finalY);
+    }
+  }
+  requestAnimationFrame(frame);
 });
 
 
@@ -193,6 +233,7 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybeShowDataPopup(points.length);
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
@@ -328,6 +369,28 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
 
 
 
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

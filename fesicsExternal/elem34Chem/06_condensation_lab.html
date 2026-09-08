@@ -80,6 +80,15 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+.modal-overlay{position:fixed;inset:0;background:rgba(23,50,56,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal-overlay.hidden{display:none !important;}
+.modal-box{background:#fff;border-radius:20px;padding:32px 34px;max-width:440px;width:100%;box-shadow:0 12px 40px rgba(23,50,56,.3);text-align:center;}
+.modal-box .modal-emoji{font-size:38px;margin-bottom:10px;}
+.modal-box h3{font-family:'Space Grotesk',sans-serif;font-size:22px;margin:0 0 12px;color:var(--ink);}
+.modal-box p{font-size:18px;color:var(--ink-soft);line-height:1.6;margin:0 0 22px;}
+.modal-actions{display:flex;gap:10px;}
+.modal-actions button{flex:1;}
+
 </style>
 </head>
 <body>
@@ -149,6 +158,18 @@ footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 <footer>Condensation Lab · 초3-4 과학 · 6화 유리컵의 눈물</footer>
 </div>
 
+<div id="verifyPromptOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-emoji">📊</div>
+    <h3>데이터가 충분히 모였어요!</h3>
+    <p>지금까지 기록한 데이터로 관계를 분석할 수 있어요.<br>데이터 확인 탭으로 가볼까요?</p>
+    <div class="modal-actions">
+      <button class="action btn-ghost" id="promptStayBtn">더 기록할게요</button>
+      <button class="action" id="promptGoBtn">데이터 확인 탭으로 가기</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const CFG = {
   xLabel: "컵 속 물의 온도(℃)", yLabel: "물방울 개수(개)", yUnit: "개",
@@ -165,18 +186,41 @@ const CFG = {
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
 function drawCup(x){
   dctx.clearRect(0,0,440,260);
+
+  dctx.beginPath();
+  dctx.moveTo(155,50); dctx.lineTo(175,210); dctx.lineTo(265,210); dctx.lineTo(285,50);
+  dctx.closePath();
+  dctx.fillStyle='rgba(199,214,210,0.25)';
+  dctx.fill();
   dctx.strokeStyle='#173238'; dctx.lineWidth=3;
-  dctx.strokeRect(170,60,100,160);
-  dctx.fillStyle='rgba(47,143,157,0.4)';
-  dctx.fillRect(173,63,94,154);
-  const dropN=Math.round(Math.max(0,25-x)/2);
-  dctx.fillStyle='#c9d6d2';
-  for(let i=0;i<dropN;i++){
-    const dx=180+Math.random()*80, dy=70+Math.random()*140;
-    dctx.beginPath(); dctx.arc(dx,dy,3,0,Math.PI*2); dctx.fill();
+  dctx.stroke();
+
+  dctx.strokeStyle='#173238'; dctx.lineWidth=2;
+  dctx.beginPath(); dctx.ellipse(220,50,65,8,0,0,Math.PI*2); dctx.stroke();
+
+  dctx.save();
+  dctx.beginPath();
+  dctx.moveTo(158,65); dctx.lineTo(176,205); dctx.lineTo(264,205); dctx.lineTo(282,65);
+  dctx.closePath(); dctx.clip();
+  dctx.fillStyle='rgba(47,143,157,0.45)';
+  dctx.fillRect(150,65,180,150);
+  dctx.restore();
+
+  dctx.strokeStyle='rgba(255,255,255,0.6)'; dctx.lineWidth=6;
+  dctx.beginPath(); dctx.moveTo(190,60); dctx.lineTo(181,195); dctx.stroke();
+
+  const dropN = Math.round(Math.max(0,25-x)/1.6);
+  for (let i=0;i<dropN;i++){
+    const dx = 165+Math.random()*110, dy = 70+Math.random()*130;
+    const r = 3+Math.random()*3;
+    dctx.fillStyle='rgba(90,160,185,0.9)';
+    dctx.beginPath(); dctx.arc(dx,dy,r,0,Math.PI*2); dctx.fill();
+    dctx.fillStyle='rgba(255,255,255,0.85)';
+    dctx.beginPath(); dctx.arc(dx-r*0.3,dy-r*0.3,r*0.3,0,Math.PI*2); dctx.fill();
   }
+
   dctx.fillStyle='#4a636a'; dctx.font='18px "IBM Plex Mono", monospace'; dctx.textAlign='center';
-  dctx.fillText('물 온도 '+x+'℃', 220, 240);
+  dctx.fillText('물 온도 '+x+'℃', 220, 238);
   dctx.textAlign='left';
 }
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
@@ -197,10 +241,26 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybePromptVerify();
 }
-function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
+function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); verifyPrompted = false; }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
 function updateCount(){ document.getElementById('countNum').textContent = points.length; }
+
+let verifyPrompted = false;
+function maybePromptVerify(){
+  if (!verifyPrompted && points.length >= CFG.minPoints) {
+    verifyPrompted = true;
+    document.getElementById('verifyPromptOverlay').classList.remove('hidden');
+  }
+}
+document.getElementById('promptStayBtn').addEventListener('click', ()=>{
+  document.getElementById('verifyPromptOverlay').classList.add('hidden');
+});
+document.getElementById('promptGoBtn').addEventListener('click', ()=>{
+  document.getElementById('verifyPromptOverlay').classList.add('hidden');
+  document.querySelector('.tab-btn[data-tab="verify"]').click();
+});
 
 function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
@@ -311,7 +371,7 @@ function drawVerifyChart(sorted){
   const steps = 60, span = (CFG.chartXMax-CFG.chartXMin)/steps;
   for (let i=0;i<=steps;i++){
     const x = CFG.chartXMin+i*span;
-    let y = Math.max(CFG.chartYMin, Math.min(CFG.chartYMax, slope*x+intercept));
+    let y = slope*x+intercept;
     const xy = toPx(x,y);
     if (i===0) cc.moveTo(xy[0],xy[1]); else cc.lineTo(xy[0],xy[1]);
   }

@@ -80,6 +80,14 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -163,19 +171,42 @@ const CFG = {
 
 
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
+const LENS_X=120, PX_PER_CM=8.7, FOCAL_CM=15;
 function drawLensFocus(x){
   dctx.clearRect(0,0,440,300);
+  const focalX = LENS_X + FOCAL_CM*PX_PER_CM;
   dctx.strokeStyle='#2f8f9d'; dctx.lineWidth=6;
-  dctx.beginPath(); dctx.ellipse(120,150,18,70,0,0,Math.PI*2); dctx.stroke();
-  const sx=140+(x/30)*260;
-  dctx.strokeStyle='#cddad6'; dctx.lineWidth=3;
+  dctx.beginPath(); dctx.ellipse(LENS_X,150,18,70,0,0,Math.PI*2);
+  dctx.fillStyle='rgba(143,208,224,0.55)'; dctx.fill();
+  dctx.stroke();
+
+  const sx = LENS_X + x*PX_PER_CM;
+
+  // 초점은 렌즈의 고유 성질이라 스크린 위치와 상관없이 항상 같은 자리에 점선으로 표시
+  dctx.strokeStyle='rgba(193,68,60,0.55)'; dctx.setLineDash([4,4]); dctx.lineWidth=1.5;
+  dctx.beginPath(); dctx.moveTo(focalX,55); dctx.lineTo(focalX,245); dctx.stroke();
+  dctx.setLineDash([]);
+  dctx.fillStyle='#c1443c'; dctx.font='13px "IBM Plex Mono", monospace'; dctx.textAlign='center';
+  dctx.fillText('초점(15cm, 렌즈 고유 성질)', focalX, 48);
+
+  // 스크린
+  dctx.strokeStyle='#173238'; dctx.lineWidth=3;
   dctx.beginPath(); dctx.moveTo(sx,60); dctx.lineTo(sx,240); dctx.stroke();
+
+  // 광선: 렌즈를 지나 반드시 초점(focalX)을 통과하도록 기하학적으로 계산 후, 그 직선을 스크린까지 연장
   [-40,-20,0,20,40].forEach(off=>{
     dctx.strokeStyle='#d98e3b'; dctx.lineWidth=1.5;
-    dctx.beginPath(); dctx.moveTo(40,150+off); dctx.lineTo(120,150+off*0.3);
-    dctx.lineTo(sx,150+off*(x<15? -0.3:0.3));
+    const lensY = 150+off*0.3;
+    dctx.beginPath();
+    dctx.moveTo(40,150+off);
+    dctx.lineTo(LENS_X,lensY);
+    // 렌즈~초점 직선의 기울기를 이용해 스크린 위치(sx)에서의 y값을 계산 (초점 지나면 자연스럽게 반대편으로 발산)
+    const t = (sx-LENS_X)/(focalX-LENS_X);
+    const y = lensY + (150-lensY)*t;
+    dctx.lineTo(sx,y);
     dctx.stroke();
   });
+
   const brightness=100*Math.exp(-Math.pow((x-15)/4,2));
   dctx.fillStyle='rgba(217,142,59,'+(brightness/100).toFixed(2)+')';
   dctx.beginPath(); dctx.arc(sx,150,10,0,Math.PI*2); dctx.fill();
@@ -201,6 +232,7 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybeShowDataPopup(points.length);
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
@@ -336,6 +368,28 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
 
 
 
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

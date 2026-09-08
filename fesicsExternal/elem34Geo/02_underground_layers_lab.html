@@ -54,6 +54,9 @@ th{color:var(--ink-soft);font-weight:700;font-size:18px;letter-spacing:.02em;}
 .feedback.ok{background:#eefaf1;border:1px solid #b7e2c3;color:#1e5c34;}
 .feedback.no{background:#fdeceb;border:1px solid #e2b2ac;color:#8a2f27;}
 footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
+
+.toast-msg{position:fixed;transform:translate(-50%,-100%);background:#173238;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;padding:9px 16px;border-radius:10px;box-shadow:0 6px 16px rgba(23,50,56,.3);opacity:0;pointer-events:none;transition:opacity .25s ease, transform .25s ease;white-space:nowrap;z-index:200;}
+.toast-msg.show{opacity:1;transform:translate(-50%,-115%);}
 </style>
 </head>
 <body>
@@ -63,7 +66,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -119,7 +122,7 @@ footer{margin-top:16px;font-size:18px;color:var(--ink-soft);text-align:center;}
 <script>
 const tabBtns=document.querySelectorAll('.tab-btn');
 const exploreTab=document.getElementById('exploreTab'), verifyTab=document.getElementById('verifyTab');
-tabBtns.forEach(b=>b.addEventListener('click',()=>{
+tabBtns.forEach(b=>b.addEventListener('click',(e)=>{
   tabBtns.forEach(x=>x.classList.remove('active')); b.classList.add('active');
   if(b.dataset.tab==='explore'){exploreTab.classList.remove('hidden');verifyTab.classList.add('hidden');}
   else{exploreTab.classList.add('hidden');verifyTab.classList.remove('hidden'); renderVerify();}
@@ -128,6 +131,7 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
 function hardnessFor(depth){ return depth*0.8; }
 const depthSlider=document.getElementById('depthSlider'), depthVal=document.getElementById('depthVal'), hardnessVal=document.getElementById('hardnessVal');
 let curDepth=10, curHardness=hardnessFor(10);
+let drillFrac=0.1, drilling=false, shakeAmt=0;
 function updateDepth(){
   curDepth=parseFloat(depthSlider.value);
   curHardness=hardnessFor(curDepth);
@@ -139,13 +143,30 @@ updateDepth();
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b','#c1447f'];
 let points=[];
-document.getElementById('addPoint').addEventListener('click',()=>{
-  if(points.some(p=>p.depth===curDepth)){ alert('이미 기록한 깊이예요.'); return; }
-  if(points.length>=8){ alert('최대 8개까지 측정할 수 있어요.'); return; }
-  points.push({depth:curDepth, hardness:curHardness, color:colors[points.length%colors.length]});
-  renderTable();
+document.getElementById('addPoint').addEventListener('click',(e)=>{
+  const btn=e.currentTarget;
+  btn.disabled=true;
+  drilling=true;
+  const startFrac=drillFrac, targetFrac=curDepth/100;
+  const animMs=Math.min(2200, 500+curDepth*10);
+  const startTime=performance.now();
+  function step(now){
+    const t=Math.min(1, (now-startTime)/animMs);
+    drillFrac = startFrac + (targetFrac-startFrac)*t;
+    shakeAmt = t<1 ? (curDepth/100) : 0;
+    if (t<1){ requestAnimationFrame(step); }
+    else {
+      drilling=false; shakeAmt=0;
+      if (points.some(p=>p.depth===curDepth)){ showToast('이미 기록한 깊이예요.', btn); btn.disabled=false; return; }
+      if (points.length>=8){ showToast('최대 8개까지 측정할 수 있어요.', btn); btn.disabled=false; return; }
+      points.push({depth:curDepth, hardness:curHardness, color:colors[points.length%colors.length]});
+      renderTable();
+      btn.disabled=false;
+    }
+  }
+  requestAnimationFrame(step);
 });
-document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
+document.getElementById('resetPoints').addEventListener('click',(e)=>{ points=[]; renderTable(); });
 function renderTable(){
   const body=document.getElementById('dataBody'); body.innerHTML='';
   points.forEach((p,i)=>{
@@ -160,7 +181,6 @@ function draw(){
   const CW=canvas.width, CH=canvas.height;
   ctx.clearRect(0,0,CW,CH);
   const left=CW/2-70, right=CW/2+70, top=10, bottom=CH-10;
-  const frac=curDepth/100;
   const grad=ctx.createLinearGradient(0,top,0,bottom);
   grad.addColorStop(0,'#c9a06a');
   grad.addColorStop(1,'#4a3020');
@@ -168,9 +188,17 @@ function draw(){
   ctx.fillRect(left,top,right-left,bottom-top);
   ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
   ctx.strokeRect(left,top,right-left,bottom-top);
-  const drillY=top+(bottom-top)*frac;
+  const drillY=top+(bottom-top)*drillFrac;
+  const shakeX = drilling ? (Math.random()*2-1)*shakeAmt*6 : 0;
+  if (drilling){
+    ctx.fillStyle='rgba(217,142,59,'+Math.min(0.8,0.2+shakeAmt).toFixed(2)+')';
+    for (let i=0;i<Math.round(shakeAmt*6);i++){
+      const dx=CW/2+shakeX+(Math.random()*20-10), dy=drillY+(Math.random()*10-5);
+      ctx.beginPath(); ctx.arc(dx,dy,2,0,Math.PI*2); ctx.fill();
+    }
+  }
   ctx.fillStyle='#d98e3b';
-  ctx.beginPath(); ctx.arc(CW/2,drillY,10,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(CW/2+shakeX,drillY,10,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
   ctx.fillText('깊이 '+curDepth+'m', CW/2, bottom+22);
   ctx.textAlign='left';
@@ -207,7 +235,7 @@ function renderVerify(){
   renderVerify._slope=slope; renderVerify._intercept=intercept;
 }
 
-document.getElementById('checkBtn').addEventListener('click',()=>{
+document.getElementById('checkBtn').addEventListener('click',(e)=>{
   const val=parseFloat(document.getElementById('predictInput').value);
   const slope=renderVerify._slope, intercept=renderVerify._intercept;
   const truth=slope*150+intercept;
@@ -219,6 +247,23 @@ document.getElementById('checkBtn').addEventListener('click',()=>{
     ? `잘 예측했습니다! 내 추세선으로 계산한 값은 <b>${truth.toFixed(1)}</b>입니다. 깊이 내려갈수록 땅은 점점 더 단단해집니다.`
     : `내 추세선으로 계산한 값은 <b>${truth.toFixed(1)}</b>입니다. 기울기를 이용해 다시 계산해 보세요.`;
 });
+
+function showToast(text, anchorEl){
+  let toast = document.getElementById('toastMsg');
+  if (!toast){
+    toast = document.createElement('div');
+    toast.id = 'toastMsg';
+    toast.className = 'toast-msg';
+    document.body.appendChild(toast);
+  }
+  const rect = (anchorEl || document.body).getBoundingClientRect();
+  toast.style.left = (rect.left + rect.width/2) + 'px';
+  toast.style.top = rect.top + 'px';
+  toast.textContent = text;
+  toast.classList.add('show');
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(()=>{ toast.classList.remove('show'); }, 1700);
+}
 </script>
 </body>
 </html>

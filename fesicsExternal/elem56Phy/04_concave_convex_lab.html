@@ -80,6 +80,14 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -168,12 +176,44 @@ const changeRate={1:40,2:-30};
 let curX=null;
 function drawLensCompare(x){
   dctx.clearRect(0,0,440,260);
-  if(!x){ dctx.fillStyle='#4a636a'; dctx.font='18px "Noto Sans KR"'; dctx.fillText('렌즈를 선택하세요', 120, 130); return; }
-  const r=x===1? 55 : 30;
-  dctx.fillStyle='#c1443c';
-  dctx.beginPath(); dctx.arc(220,130,r,0,Math.PI*2); dctx.fill();
-  dctx.fillStyle='#173238'; dctx.font='20px "Space Grotesk"'; dctx.textAlign='center';
-  dctx.fillText(lensNames[x], 220, 220);
+  if(!x){ dctx.fillStyle='#4a636a'; dctx.font='18px "Noto Sans KR"'; dctx.textAlign='left'; dctx.fillText('렌즈를 선택하세요', 120, 130); return; }
+  const baseR = 34; // 실제 크기(기준)
+  const scale = 1 + changeRate[x]/100;
+  const viewR = baseR*scale;
+
+  // 실제 크기 (왼쪽, 항상 동일)
+  dctx.fillStyle='#8fa8a3';
+  dctx.beginPath(); dctx.arc(85,140,baseR,0,Math.PI*2); dctx.fill();
+  dctx.strokeStyle='#4a636a'; dctx.lineWidth=2; dctx.stroke();
+
+  // 렌즈 (가운데) - 유리처럼 보이도록 옅은 색을 채움
+  if(x===1){
+    dctx.beginPath();
+    dctx.ellipse(220,140,20,62,0,0,Math.PI*2);
+    dctx.fillStyle='rgba(143,208,224,0.55)'; dctx.fill();
+    dctx.strokeStyle='#2f8f9d'; dctx.lineWidth=5; dctx.stroke();
+  }else{
+    dctx.beginPath();
+    dctx.moveTo(210,80); dctx.quadraticCurveTo(232,140,210,200);
+    dctx.lineTo(230,200); dctx.quadraticCurveTo(208,140,230,80);
+    dctx.closePath();
+    dctx.fillStyle='rgba(143,208,224,0.55)'; dctx.fill();
+    dctx.strokeStyle='#2f8f9d'; dctx.lineWidth=5;
+    dctx.beginPath();
+    dctx.moveTo(210,80); dctx.quadraticCurveTo(232,140,210,200);
+    dctx.moveTo(230,80); dctx.quadraticCurveTo(208,140,230,200);
+    dctx.stroke();
+  }
+
+  // 렌즈로 본 크기 (오른쪽)
+  dctx.fillStyle= x===1 ? 'rgba(193,68,60,0.85)' : 'rgba(47,143,157,0.85)';
+  dctx.beginPath(); dctx.arc(340,140,Math.max(6,viewR),0,Math.PI*2); dctx.fill();
+  dctx.strokeStyle='#173238'; dctx.lineWidth=2; dctx.stroke();
+
+  dctx.fillStyle='#173238'; dctx.font='15px "Noto Sans KR", sans-serif'; dctx.textAlign='center';
+  dctx.fillText('실제 크기', 85, 195);
+  dctx.fillText('렌즈로 본 크기', 340, 195);
+  dctx.fillText(lensNames[x]+' ('+(changeRate[x]>0?'+':'')+changeRate[x]+'%)', 220, 230);
   dctx.textAlign='left';
 }
 drawLensCompare(null);
@@ -201,6 +241,7 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybeShowDataPopup(points.length);
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
@@ -334,8 +375,86 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
   result.innerHTML = (ok ? '정답입니다! 👏' : '다시 생각해 보세요.') + '<br><br>' + CFG.finalExplain;
 });
 
+/* ===== 이 실험은 x가 '볼록·오목' 두 범주라서, 숫자 회귀 그래프 대신
+   카테고리(막대) 그래프로 다시 그립니다. 아래 함수들이 위의 공통 엔진 함수를 덮어씁니다. ===== */
+function catCenterFrac(cat){ return cat===1 ? 0.28 : 0.72; }
+function drawCategoryAxes(c, ctxc, yMin, yMax, yLabel, pad){
+  const w=c.width, h=c.height;
+  ctxc.clearRect(0,0,w,h);
+  ctxc.strokeStyle='#d5e0dc'; ctxc.lineWidth=1;
+  for(let i=0;i<=5;i++){
+    const gy = pad+i*(h-2*pad)/5;
+    ctxc.beginPath(); ctxc.moveTo(pad,gy); ctxc.lineTo(w-pad,gy); ctxc.stroke();
+  }
+  ctxc.strokeStyle='#173238'; ctxc.lineWidth=1.5;
+  ctxc.beginPath(); ctxc.moveTo(pad,h-pad); ctxc.lineTo(w-pad,h-pad); ctxc.stroke();
+  ctxc.beginPath(); ctxc.moveTo(pad,pad); ctxc.lineTo(pad,h-pad); ctxc.stroke();
+  ctxc.fillStyle='#4a636a'; ctxc.font='15px "IBM Plex Mono", monospace'; ctxc.textAlign='right';
+  for(let i=0;i<=5;i++){
+    const gy=pad+i*(h-2*pad)/5;
+    ctxc.fillText(Math.round(yMax-i*(yMax-yMin)/5).toString(), pad-10, gy+5);
+  }
+  ctxc.textAlign='center'; ctxc.font='17px "Noto Sans KR", sans-serif'; ctxc.fillStyle='#173238';
+  ctxc.fillText('볼록 렌즈', pad+(w-2*pad)*0.28, h-pad+28);
+  ctxc.fillText('오목 렌즈', pad+(w-2*pad)*0.72, h-pad+28);
+  ctxc.font='15px "Noto Sans KR", sans-serif'; ctxc.save();
+  ctxc.translate(16, pad-6); ctxc.rotate(-Math.PI/2); ctxc.textAlign='left'; ctxc.fillText(yLabel,0,0); ctxc.restore();
+  const zeroY = h-pad-(0-yMin)/(yMax-yMin)*(h-2*pad);
+  ctxc.strokeStyle='#8a9d98'; ctxc.setLineDash([3,3]);
+  ctxc.beginPath(); ctxc.moveTo(pad,zeroY); ctxc.lineTo(w-pad,zeroY); ctxc.stroke();
+  ctxc.setLineDash([]);
+  return function(cat,val){
+    const cx = pad + (w-2*pad)*catCenterFrac(cat);
+    const cy = h-pad-(val-yMin)/(yMax-yMin)*(h-2*pad);
+    return [cx,cy];
+  };
+}
+function drawExploreChart(){
+  const c=document.getElementById('chartCanvas'), cc=c.getContext('2d');
+  const toPx = drawCategoryAxes(c,cc,CFG.chartYMin,CFG.chartYMax,CFG.yLabel,56);
+  points.forEach(p=>{ const xy=toPx(p.x,p.y); cc.fillStyle='#c1443c'; cc.beginPath(); cc.arc(xy[0],xy[1],5,0,Math.PI*2); cc.fill(); });
+}
+drawExploreChart();
+function drawVerifyChart(sorted){
+  const c=document.getElementById('verifyChart'), cc=c.getContext('2d');
+  const toPx = drawCategoryAxes(c,cc,CFG.chartYMin,CFG.chartYMax,CFG.yLabel,60);
+  [1,2].forEach(cat=>{
+    const catPts = sorted.filter(p=>p.x===cat);
+    if(catPts.length===0) return;
+    const avg = catPts.reduce((a,p)=>a+p.y,0)/catPts.length;
+    const zero = toPx(cat,0), top = toPx(cat,avg);
+    cc.fillStyle = cat===1 ? 'rgba(47,143,157,0.35)' : 'rgba(193,68,60,0.35)';
+    cc.fillRect(top[0]-35, Math.min(zero[1],top[1]), 70, Math.max(2,Math.abs(zero[1]-top[1])));
+    cc.strokeStyle = cat===1 ? '#2f8f9d' : '#c1443c'; cc.lineWidth=2;
+    cc.strokeRect(top[0]-35, Math.min(zero[1],top[1]), 70, Math.max(2,Math.abs(zero[1]-top[1])));
+  });
+  sorted.forEach(p=>{ const xy=toPx(p.x,p.y); cc.fillStyle='#173238'; cc.beginPath(); cc.arc(xy[0],xy[1],4,0,Math.PI*2); cc.fill(); });
+}
 
 
+
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

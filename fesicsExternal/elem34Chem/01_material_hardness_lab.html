@@ -80,6 +80,18 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+.modal-overlay{position:fixed;inset:0;background:rgba(23,50,56,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal-overlay.hidden{display:none !important;}
+.modal-box{background:#fff;border-radius:20px;padding:32px 34px;max-width:440px;width:100%;box-shadow:0 12px 40px rgba(23,50,56,.3);text-align:center;}
+.modal-box .modal-emoji{font-size:38px;margin-bottom:10px;}
+.modal-box h3{font-family:'Space Grotesk',sans-serif;font-size:22px;margin:0 0 12px;color:var(--ink);}
+.modal-box p{font-size:18px;color:var(--ink-soft);line-height:1.6;margin:0 0 22px;}
+.modal-actions{display:flex;gap:10px;}
+.modal-actions button{flex:1;}
+
+.toast-msg{position:fixed;transform:translate(-50%,-100%);background:#173238;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;padding:9px 16px;border-radius:10px;box-shadow:0 6px 16px rgba(23,50,56,.3);opacity:0;pointer-events:none;transition:opacity .25s ease, transform .25s ease;white-space:nowrap;z-index:200;}
+.toast-msg.show{opacity:1;transform:translate(-50%,-115%);}
+
 </style>
 </head>
 <body>
@@ -90,7 +102,7 @@ footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -113,12 +125,12 @@ footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>재료 종류(1나무·2철·3고무·4플라스틱)</th><th>눌린 깊이(mm)</th></tr></thead>
+          <thead><tr><th>#</th><th>재료 종류</th><th>눌린 깊이(mm)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
       <canvas id="chartCanvas" class="chart" width="900" height="440"></canvas>
-      <div class="hint">기록: <b id="countNum">0</b>개 (최소 <b>4</b>개 이상 기록하면 [데이터 검증] 탭에서 분석할 수 있어요)</div>
+      <div class="hint">기록: <b id="countNum">0</b>개 (최소 <b>4</b>개 이상 기록하면 [데이터 확인] 탭에서 분석할 수 있어요)</div>
     </div>
   </div>
 </div>
@@ -130,7 +142,7 @@ footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>재료 종류(1나무·2철·3고무·4플라스틱)</th><th>눌린 깊이(mm)</th><th>단단한 정도 판정</th></tr></thead>
+        <thead><tr><th>#</th><th>재료 종류</th><th>눌린 깊이(mm)</th><th>단단한 정도 판정</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -151,6 +163,18 @@ footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 <footer>Material Hardness Lab · 초3-4 과학 · 1화 물건들의 자기소개</footer>
 </div>
 
+<div id="verifyPromptOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-emoji">📊</div>
+    <h3>데이터가 충분히 모였어요!</h3>
+    <p>지금까지 기록한 데이터로 관계를 분석할 수 있어요.<br>데이터 확인 탭으로 가볼까요?</p>
+    <div class="modal-actions">
+      <button class="action btn-ghost" id="promptStayBtn">더 기록할게요</button>
+      <button class="action" id="promptGoBtn">데이터 확인 탭으로 가기</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const CFG = {
   xLabel: "재료 종류(1나무·2철·3고무·4플라스틱)", yLabel: "눌린 깊이(mm)", yUnit: "mm",
@@ -166,14 +190,26 @@ const CFG = {
 
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
 const matNames={1:'나무',2:'철',3:'고무',4:'플라스틱'};
-const matColor={1:'#a86825',2:'#8a97a0',3:'#173238',4:'#2f8f9d'};
+const matColor={1:'#a86825',2:'#8a97a0',3:'#c1443c',4:'#2f8f9d'};
 const pressVal={1:3,2:1,3:18,4:6};
 let curX=null;
-function drawMaterial(x){
+function drawMaterial(x, dentPx){
+  dentPx = dentPx || 0;
   dctx.clearRect(0,0,440,260);
   if(!x){ dctx.fillStyle='#4a636a'; dctx.font='18px "Noto Sans KR"'; dctx.fillText('재료를 선택하세요', 130, 130); return; }
   dctx.fillStyle=matColor[x];
   dctx.fillRect(140,90,160,80);
+  if (dentPx > 1){
+    dctx.fillStyle='rgba(0,0,0,0.22)';
+    dctx.beginPath();
+    dctx.ellipse(220, 90+dentPx*0.25, 46, Math.max(4,dentPx), 0, 0, Math.PI*2);
+    dctx.fill();
+  }
+  const headBottom = 90 + dentPx;
+  dctx.fillStyle='#4a636a';
+  dctx.fillRect(210, 12, 20, headBottom-12-14);
+  dctx.fillStyle='#173238';
+  dctx.fillRect(178, headBottom-14, 84, 14);
   dctx.fillStyle='#173238'; dctx.font='20px "Space Grotesk"'; dctx.textAlign='center';
   dctx.fillText(matNames[x], 220, 210);
   dctx.textAlign='left';
@@ -184,15 +220,52 @@ document.querySelectorAll('.mat-btn').forEach(btn=>{
     document.querySelectorAll('.mat-btn').forEach(b=>{b.style.background='';b.style.color='';});
     btn.style.background='#173238'; btn.style.color='#fff';
     curX=parseInt(btn.dataset.x);
-    drawMaterial(curX);
+    drawMaterial(curX, 0);
     document.getElementById('measureBtn').disabled=false;
   });
 });
+function showToast(text){
+  let toast = document.getElementById('toastMsg');
+  if (!toast){
+    toast = document.createElement('div');
+    toast.id = 'toastMsg';
+    toast.className = 'toast-msg';
+    document.body.appendChild(toast);
+  }
+  const btn = document.getElementById('measureBtn');
+  const rect = btn.getBoundingClientRect();
+  toast.style.left = (rect.left + rect.width/2) + 'px';
+  toast.style.top = rect.top + 'px';
+  toast.textContent = text;
+  toast.classList.add('show');
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(()=>{ toast.classList.remove('show'); }, 1700);
+}
+
 document.getElementById('measureBtn').addEventListener('click',()=>{
   if(!curX) return;
+  if (points.length >= 10){ showToast('최대 10개까지 기록할 수 있어요!'); return; }
+  const alreadyMeasured = points.some(p => p.x === curX);
+  const measureBtn=document.getElementById('measureBtn');
+  measureBtn.disabled=true;
   const y=Math.max(0, pressVal[curX]+(Math.random()*1.4-0.7));
-  document.getElementById('yVal').textContent=y.toFixed(1)+' mm';
-  recordPoint(curX,y);
+  const finalDent=Math.min(35, y*1.6);
+  let t=0;
+  const anim=setInterval(()=>{
+    t+=1;
+    const progress=Math.min(1, t/10);
+    const eased=1-Math.pow(1-progress,3);
+    drawMaterial(curX, finalDent*eased);
+    if (progress>=1){
+      clearInterval(anim);
+      document.getElementById('yVal').textContent=y.toFixed(1)+' mm';
+      recordPoint(curX,y);
+      measureBtn.disabled=false;
+      if (alreadyMeasured){
+        showToast('이미 '+matNames[curX]+' 데이터가 있어요! 새 값도 추가했어요');
+      }
+    }
+  }, 45);
 });
 
 
@@ -200,19 +273,37 @@ document.getElementById('measureBtn').addEventListener('click',()=>{
 let points = [];
 
 function recordPoint(x,y){
-  if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
+  if (points.length >= 10) { showToast('최대 10개까지 기록할 수 있어요!'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybePromptVerify();
 }
-function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
+function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); verifyPrompted = false; }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
 function updateCount(){ document.getElementById('countNum').textContent = points.length; }
+
+let verifyPrompted = false;
+function maybePromptVerify(){
+  if (!verifyPrompted && points.length >= CFG.minPoints) {
+    verifyPrompted = true;
+    document.getElementById('verifyPromptOverlay').classList.remove('hidden');
+  }
+}
+document.getElementById('promptStayBtn').addEventListener('click', ()=>{
+  document.getElementById('verifyPromptOverlay').classList.add('hidden');
+});
+document.getElementById('promptGoBtn').addEventListener('click', ()=>{
+  document.getElementById('verifyPromptOverlay').classList.add('hidden');
+  document.querySelector('.tab-btn[data-tab="verify"]').click();
+});
 
 function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    const color = matColor[p.x] || '#c1443c';
+    const name = matNames[p.x] || p.x;
+    tr.innerHTML = '<td>' + (i+1) + '</td><td><span class="dot" style="background:' + color + '"></span>' + name + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -260,11 +351,61 @@ function drawAxes(c, ctxc, xMin, xMax, yMin, yMax, xLabel, yLabel, pad){
   };
 }
 
-function drawExploreChart(){
-  const c = document.getElementById('chartCanvas'), cc = c.getContext('2d');
-  const toPx = drawAxes(c,cc,CFG.chartXMin,CFG.chartXMax,CFG.chartYMin,CFG.chartYMax,CFG.xLabel,CFG.yLabel,56);
-  points.forEach(p => { const xy = toPx(p.x,p.y); cc.fillStyle = '#c1443c'; cc.beginPath(); cc.arc(xy[0],xy[1],5,0,Math.PI*2); cc.fill(); });
+function groupByCategory(){
+  const groups = {};
+  points.forEach(p=>{ if(!groups[p.x]) groups[p.x]=[]; groups[p.x].push(p.y); });
+  return groups;
 }
+
+function drawCategoryChart(canvasId){
+  const c = document.getElementById(canvasId), cc = c.getContext('2d');
+  const w = c.width, h = c.height, pad = 70;
+  cc.clearRect(0,0,w,h);
+  const yMin = CFG.chartYMin, yMax = CFG.chartYMax;
+
+  cc.strokeStyle = '#e4ebe8'; cc.lineWidth = 1;
+  cc.fillStyle = '#4a636a'; cc.font = '15px "IBM Plex Mono", monospace'; cc.textAlign = 'right';
+  for (let i=0;i<=5;i++){
+    const gy = pad + i*(h-2*pad)/5;
+    const val = yMax - i*(yMax-yMin)/5;
+    cc.beginPath(); cc.moveTo(pad,gy); cc.lineTo(w-pad,gy); cc.stroke();
+    cc.fillText(fmtTick(val, yMax-yMin), pad-10, gy+5);
+  }
+  cc.textAlign = 'left';
+
+  cc.strokeStyle = '#173238'; cc.lineWidth = 1.5;
+  cc.beginPath(); cc.moveTo(pad,h-pad); cc.lineTo(w-pad,h-pad); cc.stroke();
+  cc.beginPath(); cc.moveTo(pad,pad); cc.lineTo(pad,h-pad); cc.stroke();
+
+  const keys = Object.keys(matNames).map(Number).sort((a,b)=>a-b);
+  const bw = (w-2*pad)/keys.length;
+  const groups = groupByCategory();
+
+  keys.forEach((k,i)=>{
+    const cx = pad + bw*i + bw/2;
+    const vals = groups[k] || [];
+    if (vals.length){
+      const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+      const barH = Math.max(0, (avg-yMin)/(yMax-yMin)) * (h-2*pad);
+      cc.fillStyle = matColor[k];
+      cc.fillRect(cx-bw*0.26, h-pad-barH, bw*0.52, barH);
+      vals.forEach(v=>{
+        const py = h-pad-((v-yMin)/(yMax-yMin))*(h-2*pad);
+        cc.strokeStyle = '#173238'; cc.lineWidth = 1.5;
+        cc.beginPath(); cc.arc(cx,py,4,0,Math.PI*2); cc.stroke();
+      });
+    }
+    cc.fillStyle = '#173238'; cc.font = '16px "Space Grotesk", sans-serif'; cc.textAlign = 'center';
+    cc.fillText(matNames[k], cx, h-pad+28);
+    cc.textAlign = 'left';
+  });
+
+  cc.fillStyle = '#173238'; cc.font = '15px "IBM Plex Mono", monospace'; cc.textAlign = 'left';
+  cc.fillText(CFG.yLabel, 14, 24);
+  cc.textAlign = 'left';
+}
+
+function drawExploreChart(){ drawCategoryChart('chartCanvas'); }
 drawExploreChart();
 
 /* ===== 탭 전환 ===== */
@@ -294,35 +435,19 @@ function renderVerify(){
   notEnough.classList.add('hidden'); content.classList.remove('hidden');
 
   const sorted = [...points].sort((a,b)=>a.x-b.x);
-  regResult = linregress(sorted);
 
   const body = document.getElementById('verifyBody'); body.innerHTML = '';
   sorted.forEach((p,i) => {
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
+    const color = matColor[p.x] || '#c1443c';
+    const name = matNames[p.x] || p.x;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td>' + (i+1) + '</td><td><span class="dot" style="background:' + color + '"></span>' + name + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
-  drawVerifyChart(sorted);
-}
-
-function drawVerifyChart(sorted){
-  const c = document.getElementById('verifyChart'), cc = c.getContext('2d');
-  const toPx = drawAxes(c,cc,CFG.chartXMin,CFG.chartXMax,CFG.chartYMin,CFG.chartYMax,CFG.xLabel,CFG.yLabel,60);
-  const slope = regResult.slope, intercept = regResult.intercept;
-  cc.strokeStyle = '#2f8f9d'; cc.setLineDash([6,5]); cc.lineWidth = 2;
-  cc.beginPath();
-  const steps = 60, span = (CFG.chartXMax-CFG.chartXMin)/steps;
-  for (let i=0;i<=steps;i++){
-    const x = CFG.chartXMin+i*span;
-    let y = Math.max(CFG.chartYMin, Math.min(CFG.chartYMax, slope*x+intercept));
-    const xy = toPx(x,y);
-    if (i===0) cc.moveTo(xy[0],xy[1]); else cc.lineTo(xy[0],xy[1]);
-  }
-  cc.stroke(); cc.setLineDash([]);
-  sorted.forEach(p => { const xy = toPx(p.x,p.y); cc.fillStyle = '#c1443c'; cc.beginPath(); cc.arc(xy[0],xy[1],5,0,Math.PI*2); cc.fill(); });
+  drawCategoryChart('verifyChart');
 }
 
 

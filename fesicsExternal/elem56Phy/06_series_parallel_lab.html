@@ -80,6 +80,14 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -166,20 +174,79 @@ const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.ge
 const connNames={1:'직렬 연결',2:'병렬 연결'};
 const brightVal={1:40,2:85};
 let curX=null;
-function drawConn(x){
+
+function drawBulb(cx,cy,r,brightness){
+  const glow=dctx.createRadialGradient(cx,cy,2,cx,cy,r*1.9);
+  glow.addColorStop(0,'rgba(232,208,96,'+(0.15+brightness*0.5).toFixed(2)+')');
+  glow.addColorStop(1,'rgba(232,208,96,0)');
+  dctx.fillStyle=glow; dctx.beginPath(); dctx.arc(cx,cy,r*1.9,0,Math.PI*2); dctx.fill();
+
+  dctx.fillStyle='rgba(217,142,59,'+(0.25+brightness*0.65).toFixed(2)+')';
+  dctx.beginPath(); dctx.arc(cx,cy,r,0,Math.PI*2); dctx.fill();
+  dctx.strokeStyle='#173238'; dctx.lineWidth=2;
+  dctx.beginPath(); dctx.arc(cx,cy,r,0,Math.PI*2); dctx.stroke();
+  dctx.strokeStyle='#a86825'; dctx.lineWidth=1.3;
+  dctx.beginPath();
+  dctx.moveTo(cx-r*0.4,cy+r*0.3); dctx.lineTo(cx-r*0.2,cy-r*0.3);
+  dctx.lineTo(cx,cy+r*0.2); dctx.lineTo(cx+r*0.2,cy-r*0.3); dctx.lineTo(cx+r*0.4,cy+r*0.3);
+  dctx.stroke();
+  dctx.fillStyle='#8a9d98';
+  dctx.fillRect(cx-r*0.35,cy+r*0.95, r*0.7, r*0.55);
+}
+function drawBatterySymbol(x,y){
+  // 세로 방향 건전지 기호: 위쪽 긴 선(+), 아래쪽 짧고 굵은 선(-) - 같은 축 위에 배치해 배선이 자연스럽게 연결됨
+  dctx.strokeStyle='#173238'; dctx.lineWidth=4;
+  dctx.beginPath(); dctx.moveTo(x-14,y-14); dctx.lineTo(x+14,y-14); dctx.stroke();
+  dctx.lineWidth=8;
+  dctx.beginPath(); dctx.moveTo(x-8,y+14); dctx.lineTo(x+8,y+14); dctx.stroke();
+  dctx.strokeStyle='#173238'; dctx.lineWidth=3;
+  dctx.beginPath(); dctx.moveTo(x,y-30); dctx.lineTo(x,y-14); dctx.stroke();
+  dctx.beginPath(); dctx.moveTo(x,y+14); dctx.lineTo(x,y+30); dctx.stroke();
+  dctx.fillStyle='#173238'; dctx.font='bold 13px "Space Grotesk", sans-serif'; dctx.textAlign='left';
+  dctx.fillText('+', x+18, y-9);
+  dctx.fillText('−', x+18, y+19);
+  dctx.fillStyle='#4a636a'; dctx.font='12px "Noto Sans KR", sans-serif'; dctx.textAlign='center';
+  dctx.fillText('전지', x, y+48);
+}
+function drawConn(x, brightnessOverride){
   dctx.clearRect(0,0,440,260);
-  if(!x){ dctx.fillStyle='#4a636a'; dctx.font='18px "Noto Sans KR"'; dctx.fillText('연결 방법을 선택하세요', 110, 130); return; }
-  const b=brightVal[x]/100;
-  for(let i=0;i<3;i++){
-    const cx = x===1? 120+i*90 : 120+i*90;
-    const cy = x===1? 130 : 80+i*60;
-    dctx.fillStyle='rgba(217,142,59,'+(0.3+b*0.7).toFixed(2)+')';
-    dctx.beginPath(); dctx.arc(cx,cy,26,0,Math.PI*2); dctx.fill();
-    dctx.strokeStyle='#173238'; dctx.lineWidth=2;
-    dctx.beginPath(); dctx.arc(cx,cy,26,0,Math.PI*2); dctx.stroke();
+  if(!x){ dctx.fillStyle='#4a636a'; dctx.font='18px "Noto Sans KR"'; dctx.textAlign='left'; dctx.fillText('연결 방법을 선택하세요', 110, 130); return; }
+  const b = brightnessOverride!=null ? brightnessOverride : 0;
+  dctx.strokeStyle='#4a636a'; dctx.lineWidth=3;
+  const topY=70, botY=190, leftX=60, rightX=380;
+
+  if(x===1){
+    // 직렬: 배터리 -> 전구1 -> 전구2 -> 전구3 -> 배터리 로 이어지는 하나의 고리
+    dctx.beginPath();
+    dctx.moveTo(leftX,topY); dctx.lineTo(150-22,topY);
+    dctx.moveTo(150+22,topY); dctx.lineTo(220-22,topY);
+    dctx.moveTo(220+22,topY); dctx.lineTo(290-22,topY);
+    dctx.moveTo(290+22,topY); dctx.lineTo(rightX,topY);
+    dctx.lineTo(rightX,botY);
+    dctx.lineTo(leftX,botY);
+    dctx.lineTo(leftX,160);
+    dctx.moveTo(leftX,topY); dctx.lineTo(leftX,100);
+    dctx.stroke();
+    drawBatterySymbol(leftX,130);
+    [150,220,290].forEach(cx=> drawBulb(cx,topY,22,b));
+  }else{
+    // 병렬: 위/아래 공통 선(레일) 사이에 전구 3개가 각각 독립된 가지로 연결
+    dctx.beginPath();
+    dctx.moveTo(leftX,topY); dctx.lineTo(rightX,topY);
+    dctx.moveTo(leftX,botY); dctx.lineTo(rightX,botY);
+    [150,220,290].forEach(cx=>{
+      dctx.moveTo(cx,topY); dctx.lineTo(cx,130-22);
+      dctx.moveTo(cx,130+22); dctx.lineTo(cx,botY);
+    });
+    dctx.moveTo(leftX,topY); dctx.lineTo(leftX,100);
+    dctx.moveTo(leftX,botY); dctx.lineTo(leftX,160);
+    dctx.stroke();
+    drawBatterySymbol(leftX,130);
+    [150,220,290].forEach(cx=> drawBulb(cx,130,22,b));
   }
+
   dctx.fillStyle='#173238'; dctx.font='18px "Space Grotesk"'; dctx.textAlign='center';
-  dctx.fillText(connNames[x], 220, 230);
+  dctx.fillText(connNames[x], 220, 245);
   dctx.textAlign='left';
 }
 drawConn(null);
@@ -188,15 +255,30 @@ document.querySelectorAll('.conn-btn').forEach(btn=>{
     document.querySelectorAll('.conn-btn').forEach(b=>{b.style.background='';b.style.color='';});
     btn.style.background='#173238'; btn.style.color='#fff';
     curX=parseInt(btn.dataset.x);
-    drawConn(curX);
+    drawConn(curX, 0);
     document.getElementById('measureBtn').disabled=false;
   });
 });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   if(!curX) return;
-  const y=Math.max(0, brightVal[curX]+(Math.random()*6-3));
-  document.getElementById('yVal').textContent=y.toFixed(0)+' %';
-  recordPoint(curX,y);
+  deviceCanvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('measureBtn');
+  btn.disabled=true;
+  const targetB = brightVal[curX]/100;
+  const finalY = Math.max(0, brightVal[curX]+(Math.random()*6-3));
+  const duration=900;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    drawConn(curX, targetB*p);
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      document.getElementById('yVal').textContent=finalY.toFixed(0)+' %';
+      recordPoint(curX,finalY);
+    }
+  }
+  requestAnimationFrame(frame);
 });
 
 
@@ -207,6 +289,7 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybeShowDataPopup(points.length);
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
@@ -342,6 +425,28 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
 
 
 
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

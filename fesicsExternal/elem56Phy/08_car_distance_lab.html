@@ -80,6 +80,14 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -169,25 +177,55 @@ const CFG = {
 
 
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
-function drawCar(x){
+function drawCarShape(cx,cy,bounce){
+  dctx.save();
+  dctx.translate(cx,cy+bounce);
+  dctx.fillStyle='#c1443c';
+  dctx.beginPath();
+  dctx.moveTo(-25,10); dctx.lineTo(-20,-8); dctx.lineTo(-8,-16); dctx.lineTo(12,-16); dctx.lineTo(22,-8); dctx.lineTo(28,10);
+  dctx.closePath(); dctx.fill();
+  dctx.strokeStyle='#173238'; dctx.lineWidth=1.5; dctx.stroke();
+  dctx.fillStyle='#8fd0e0';
+  dctx.beginPath(); dctx.moveTo(-14,-8); dctx.lineTo(-6,-14); dctx.lineTo(8,-14); dctx.lineTo(14,-8); dctx.closePath(); dctx.fill();
+  dctx.fillStyle='#173238';
+  dctx.beginPath(); dctx.arc(-14,12,7,0,Math.PI*2); dctx.fill();
+  dctx.beginPath(); dctx.arc(16,12,7,0,Math.PI*2); dctx.fill();
+  dctx.restore();
+}
+function drawCar(x, runProgress){
   dctx.clearRect(0,0,440,300);
   dctx.strokeStyle='#cddad6'; dctx.lineWidth=2;
   dctx.beginPath(); dctx.moveTo(40,180); dctx.lineTo(400,180); dctx.stroke();
-  const pos=Math.min(340,(x/3)*340);
-  dctx.fillStyle='#c1443c';
-  dctx.fillRect(40+pos,160,50,30);
+  const finalPos=Math.min(340,(x/3)*340);
+  const pos = runProgress!=null ? finalPos*runProgress : finalPos;
+  const bounce = runProgress!=null && runProgress<1 ? Math.sin(runProgress*30)*2 : 0;
+  drawCarShape(65+pos,175,bounce);
   dctx.fillStyle='#4a636a'; dctx.font='16px "IBM Plex Mono", monospace'; dctx.textAlign='center';
   dctx.fillText('달린 시간 '+x.toFixed(1)+'시간 (속력 60km/시 고정)', 220, 250);
   dctx.textAlign='left';
 }
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
 let curX=1;
-xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX.toFixed(1); drawCar(curX); });
-drawCar(curX);
+xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX.toFixed(1); drawCar(curX,null); });
+drawCar(curX,null);
 document.getElementById('measureBtn').addEventListener('click',()=>{
-  const y=Math.max(0, 60*curX+(Math.random()*4-2));
-  yVal.textContent=y.toFixed(1)+' km';
-  recordPoint(curX,y);
+  deviceCanvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('measureBtn');
+  btn.disabled=true;
+  const finalY=Math.max(0, 60*curX+(Math.random()*4-2));
+  const duration = 400 + Math.min(1, curX/3)*1800;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    drawCar(curX,p);
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      yVal.textContent=finalY.toFixed(1)+' km';
+      recordPoint(curX,finalY);
+    }
+  }
+  requestAnimationFrame(frame);
 });
 
 
@@ -198,6 +236,7 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybeShowDataPopup(points.length);
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
@@ -347,6 +386,28 @@ thinkBtn.addEventListener('click', () => {
   thinkBtn.textContent = showing ? '힌트 숨기기' : '힌트 보기';
 });
 
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>

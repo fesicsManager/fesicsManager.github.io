@@ -80,6 +80,14 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+.data-popup{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;z-index:9999;padding:16px;pointer-events:none;}
+.data-popup-inner{pointer-events:auto;background:#fff;border:2px solid var(--teal);border-radius:14px;padding:16px 20px;box-shadow:0 6px 20px rgba(0,0,0,0.18);max-width:520px;width:100%;display:flex;flex-direction:column;gap:10px;font-size:1.05rem;animation:popupIn .25s ease;}
+.data-popup-actions{display:flex;gap:10px;}
+.data-popup-actions button{flex:1;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;border:2px solid var(--grid);font-family:'Space Grotesk',sans-serif;}
+.data-popup-actions button.go{background:var(--teal);color:#fff;border-color:transparent;}
+.data-popup-actions button.later{background:#fff;color:var(--ink-soft);}
+@keyframes popupIn{from{transform:translateY(20px);opacity:0;} to{transform:translateY(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -163,12 +171,15 @@ const CFG = {
 
 
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
+function hotColorOf(x){ return [Math.round(80+(x/95)*150), 80, Math.round(140-(x/95)*110)]; }
+const COLD_COLOR = [80,140,220];
+function lerpColor(a,b,t){ return [Math.round(a[0]+(b[0]-a[0])*t), Math.round(a[1]+(b[1]-a[1])*t), Math.round(a[2]+(b[2]-a[2])*t)]; }
 function drawCups(x){
   dctx.clearRect(0,0,440,300);
-  const hotR=Math.round(80+ (x/95)*150), hotB=Math.round(140-(x/95)*110);
-  dctx.fillStyle='rgb('+hotR+',80,'+hotB+')';
+  const hot = hotColorOf(x);
+  dctx.fillStyle='rgb('+hot.join(',')+')';
   dctx.fillRect(80,100,110,150);
-  dctx.fillStyle='rgb(80,140,220)';
+  dctx.fillStyle='rgb('+COLD_COLOR.join(',')+')';
   dctx.fillRect(250,100,110,150);
   dctx.strokeStyle='#173238'; dctx.lineWidth=3;
   dctx.strokeRect(80,100,110,150);
@@ -178,14 +189,60 @@ function drawCups(x){
   dctx.fillText('서늘이 10℃', 305, 270);
   dctx.textAlign='left';
 }
+/* 두 컵이 가운데로 모여 하나로 합쳐지며 색이 섞이는 애니메이션 */
+function drawMixing(progress, x, finalY){
+  dctx.clearRect(0,0,440,300);
+  const hot = hotColorOf(x);
+  const mixed = finalY!=null ? lerpColor(hot,COLD_COLOR,0.5) : lerpColor(hot,COLD_COLOR,0.5);
+  if(progress<0.55){
+    const p = progress/0.55;
+    const leftX = 80+p*85, rightX = 250-p*85; // 165에서 서로 붙음
+    dctx.fillStyle='rgb('+hot.join(',')+')'; dctx.fillRect(leftX,100,110,150);
+    dctx.fillStyle='rgb('+COLD_COLOR.join(',')+')'; dctx.fillRect(rightX,100,110,150);
+    dctx.strokeStyle='#173238'; dctx.lineWidth=3;
+    dctx.strokeRect(leftX,100,110,150); dctx.strokeRect(rightX,100,110,150);
+    dctx.fillStyle='#4a636a'; dctx.font='16px "IBM Plex Mono", monospace'; dctx.textAlign='center';
+    dctx.fillText('물을 가까이 붓는 중...', 220, 270);
+  }else{
+    const p = (progress-0.55)/0.45; // 0~1 블렌딩
+    const leftColor = lerpColor(hot, mixed, p);
+    const rightColor = lerpColor(COLD_COLOR, mixed, p);
+    dctx.fillStyle='rgb('+leftColor.join(',')+')'; dctx.fillRect(110,100,110,150);
+    dctx.fillStyle='rgb('+rightColor.join(',')+')'; dctx.fillRect(220,100,110,150);
+    dctx.strokeStyle='#173238'; dctx.lineWidth=3; dctx.strokeRect(110,100,220,150);
+    if(p<0.9){
+      dctx.strokeStyle='rgba(255,255,255,0.55)'; dctx.lineWidth=2;
+      for(let i=0;i<3;i++){
+        dctx.beginPath(); dctx.arc(150+i*70,120+ (i%2)*70,10+i*3,0.2,Math.PI*1.3); dctx.stroke();
+      }
+    }
+    dctx.fillStyle='#4a636a'; dctx.font='16px "IBM Plex Mono", monospace'; dctx.textAlign='center';
+    if(p>=1){ dctx.fillText('섞였음' + (finalY!=null? ' ('+finalY.toFixed(1)+'℃)':''), 220, 270); }
+  }
+  dctx.textAlign='left';
+}
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
 let curX=85;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; drawCups(curX); });
 drawCups(curX);
 document.getElementById('measureBtn').addEventListener('click',()=>{
-  const y=Math.max(0, (curX+10)/2+(Math.random()*2-1));
-  yVal.textContent=y.toFixed(1)+' ℃';
-  recordPoint(curX,y);
+  deviceCanvas.scrollIntoView({behavior:'smooth', block:'center'});
+  const btn=document.getElementById('measureBtn');
+  btn.disabled=true;
+  const finalY = Math.max(0, (curX+10)/2+(Math.random()*2-1));
+  const duration=1400;
+  const t0=performance.now();
+  function frame(now){
+    const p=Math.min(1,(now-t0)/duration);
+    drawMixing(p, curX, p>=1?finalY:null);
+    if(p<1){ requestAnimationFrame(frame); }
+    else{
+      btn.disabled=false;
+      yVal.textContent=finalY.toFixed(1)+' ℃';
+      recordPoint(curX,finalY);
+    }
+  }
+  requestAnimationFrame(frame);
 });
 
 
@@ -196,6 +253,7 @@ function recordPoint(x,y){
   if (points.length >= 10) { alert('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
   points.push({x:x,y:y});
   renderExploreTable(); drawExploreChart(); updateCount();
+  maybeShowDataPopup(points.length);
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
 document.getElementById('resetBtn').addEventListener('click', resetPoints);
@@ -331,6 +389,28 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
 
 
 
+
+let _popupShown = false;
+function maybeShowDataPopup(count){
+  if(!_popupShown && count>=4){
+    _popupShown = true;
+    const popup = document.createElement('div');
+    popup.className = 'data-popup';
+    popup.innerHTML = `<div class="data-popup-inner">
+      <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+      <div class="data-popup-actions">
+        <button class="go">데이터 확인하러 가기</button>
+        <button class="later">나중에</button>
+      </div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('.go').addEventListener('click', ()=>{
+      popup.remove();
+      document.querySelector('.tab-btn[data-tab="verify"]').click();
+    });
+    popup.querySelector('.later').addEventListener('click', ()=> popup.remove());
+  }
+}
 </script>
 </body>
 </html>
