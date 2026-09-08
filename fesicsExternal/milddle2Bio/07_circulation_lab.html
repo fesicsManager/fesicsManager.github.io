@@ -79,6 +79,63 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;font-size:19px;border:1
 .empty-msg{margin-top:18px;font-size:18px;color:var(--ink-soft);}
 footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
+
+/* ===================== 제로 랩 공통 보정 ===================== */
+/* 슬라이더: 기존 height:10px 는 손잡이(썸)의 클릭 영역이 너무 작아
+   마우스로 집기 어려웠다. 손잡이를 크게 키우고 트랙과 분리한다. */
+input[type=range]{
+  -webkit-appearance:none; appearance:none;
+  width:100%; height:36px; background:transparent; cursor:pointer; margin:2px 0;
+}
+input[type=range]:focus{outline:none;}
+input[type=range]::-webkit-slider-runnable-track{
+  height:12px; border-radius:7px; background:#dbe6e3; border:1px solid #c4d3ce;}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:30px; height:30px; margin-top:-10px; border-radius:50%;
+  background:var(--brass); border:3px solid #fff;
+  box-shadow:0 2px 7px rgba(23,50,56,.32);
+  transition:transform .12s ease, background .15s ease;}
+input[type=range]:hover::-webkit-slider-thumb{background:var(--brass-dark);}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.16);}
+input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 5px rgba(47,143,157,.35);}
+input[type=range]::-moz-range-track{
+  height:12px; border-radius:7px; background:#dbe6e3; border:1px solid #c4d3ce;}
+input[type=range]::-moz-range-thumb{
+  width:26px; height:26px; border-radius:50%; background:var(--brass);
+  border:3px solid #fff; box-shadow:0 2px 7px rgba(23,50,56,.32);}
+input[type=range]:active::-moz-range-thumb{transform:scale(1.16);}
+
+/* 버튼 호버·클릭 효과 */
+button,.tissue-btn{transition:background .15s ease,border-color .15s ease,color .15s ease,filter .15s ease,transform .1s ease,box-shadow .15s ease;}
+button:disabled{cursor:not-allowed;opacity:.45;}
+.tab-btn:hover{background:rgba(23,50,56,.09);}
+.tab-btn.active:hover{background:#0d2126;color:#fff;}
+button.action:hover:not(:disabled){filter:brightness(1.08);}
+button.action.btn-ghost:hover:not(:disabled){background:#dde7e4;filter:none;}
+.tissue-btn:hover{background:#e3f3f5;border-color:var(--teal);}
+button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(.985);}
+
+/* 모바일: 640px 아래에서만 세로로 쌓기 */
+@media (max-width:640px){
+  .explore-grid{grid-template-columns:1fr;}
+  .table-scroll{max-height:34vh;}
+}
+
+/* 데이터 확인 유도 팝업 */
+.zl-nudge{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(200%);
+  background:var(--ink);color:#fff;padding:14px 16px;border-radius:16px;display:flex;gap:10px;
+  align-items:center;flex-wrap:wrap;justify-content:center;box-shadow:0 10px 34px rgba(23,50,56,.32);
+  z-index:80;transition:transform .38s cubic-bezier(.2,.9,.3,1.2);width:min(560px,94%);
+  font-family:'Noto Sans KR',sans-serif;font-size:18px;line-height:1.5;}
+.zl-nudge.show{transform:translateX(-50%) translateY(0);}
+.zl-nudge span{flex:1 1 220px;}
+.zl-nudge button{border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:18px;
+  font-family:'Space Grotesk','Noto Sans KR',sans-serif;cursor:pointer;}
+.zl-nudge .zl-go{background:var(--teal);color:#fff;}
+.zl-nudge .zl-go:hover{background:#3aa8b8;}
+.zl-nudge .zl-later{background:transparent;color:#a9c3c8;border:2px solid #3c5b62;}
+.zl-nudge .zl-later:hover{background:#22434a;color:#fff;}
 </style>
 </head>
 <body>
@@ -88,7 +145,7 @@ footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
-  <button class="tab-btn" data-tab="verify">✅ 데이터 검증</button>
+  <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
 <div id="exploreTab">
@@ -114,7 +171,7 @@ footer{margin-top:30px;font-size:16px;color:var(--ink-soft);text-align:center;}
         </table>
       </div>
       <canvas id="chartCanvas" class="chart" width="900" height="440"></canvas>
-      <div class="hint">기록: <b id="countNum">0</b>개 (최소 <b>4</b>개 이상 기록하면 [데이터 검증] 탭에서 분석할 수 있어요)</div>
+      <div class="hint">기록: <b id="countNum">0</b>개 (최소 <b>4</b>개 이상 기록하면 [데이터 확인] 탭에서 분석할 수 있어요)</div>
     </div>
   </div>
 </div>
@@ -160,28 +217,144 @@ const CFG = {
 };
 
 
+
 const deviceCanvas=document.getElementById('deviceCanvas'), dctx=deviceCanvas.getContext('2d');
-function drawHeart(x){
-  dctx.clearRect(0,0,440,300);
-  const scale=1+x/200;
-  dctx.save(); dctx.translate(220,150); dctx.scale(scale,scale);
+const DW=deviceCanvas.width, DH=deviceCanvas.height;
+function CAP(x,y,text,bg,fg,size){
+  size=size||19;
+  dctx.font="700 "+size+"px 'Noto Sans KR', sans-serif";
+  dctx.textAlign='center'; dctx.textBaseline='middle';
+  const w=dctx.measureText(text).width+16, h=size+11;
+  dctx.fillStyle=bg;
+  if(dctx.roundRect){dctx.beginPath();dctx.roundRect(x-w/2,y-h/2,w,h,8);dctx.fill();}
+  else dctx.fillRect(x-w/2,y-h/2,w,h);
+  dctx.fillStyle=fg; dctx.fillText(text,x,y+1);
+  dctx.textAlign='left'; dctx.textBaseline='alphabetic';
+}
+function ARROW(x0,y0,x1,y1,col,w){
+  dctx.strokeStyle=col; dctx.lineWidth=w; dctx.lineCap='round';
+  const a=Math.atan2(y1-y0,x1-x0), hl=w*3.2, hw=w*1.9;
+  dctx.beginPath(); dctx.moveTo(x0,y0); dctx.lineTo(x1-Math.cos(a)*hl*0.7,y1-Math.sin(a)*hl*0.7); dctx.stroke();
+  dctx.fillStyle=col;
+  dctx.beginPath(); dctx.moveTo(x1,y1);
+  dctx.lineTo(x1-Math.cos(a)*hl+Math.sin(a)*hw, y1-Math.sin(a)*hl-Math.cos(a)*hw);
+  dctx.lineTo(x1-Math.cos(a)*hl-Math.sin(a)*hw, y1-Math.sin(a)*hl+Math.cos(a)*hw);
+  dctx.closePath(); dctx.fill();
+  dctx.lineCap='butt';
+}
+function BAR(x,y,w,h,frac,col){
+  dctx.fillStyle='#e4ebe8'; dctx.fillRect(x,y,w,h);
+  dctx.fillStyle=col; dctx.fillRect(x,y,w*Math.max(0,Math.min(1,frac)),h);
+  dctx.strokeStyle='#8fa2a8'; dctx.lineWidth=1.4; dctx.strokeRect(x,y,w,h);
+}
+let _t0=performance.now(), _dt=16;
+
+/* 심장 박동수 = 70 + 0.6 × 운동 강도 (회/분).
+   심장이 '실제 그 빠르기로' 뛰고, 맥박 파형과 혈액 흐름도 함께 빨라진다 */
+function bpmOf(x){ return 70+0.6*x; }
+let ecg=[], beatCount=0, lastBeat=-1, winStart=performance.now();
+const ECG_LEN=190;
+
+function heartPath(s){
+  dctx.save(); dctx.translate(112,150); dctx.scale(s,s);
   dctx.fillStyle='#c1443c';
   dctx.beginPath();
-  dctx.moveTo(0,25);
-  dctx.bezierCurveTo(-60,-30,-90,40,0,90);
-  dctx.bezierCurveTo(90,40,60,-30,0,25);
-  dctx.fill();
+  dctx.moveTo(0,42);
+  dctx.bezierCurveTo(-56,6,-48,-38,-21,-38);
+  dctx.bezierCurveTo(-8,-38,0,-26,0,-18);
+  dctx.bezierCurveTo(0,-26,8,-38,21,-38);
+  dctx.bezierCurveTo(48,-38,56,6,0,42);
+  dctx.closePath(); dctx.fill();
+  dctx.strokeStyle='#8f2f29'; dctx.lineWidth=2.6;
+  dctx.beginPath(); dctx.moveTo(-3,-22); dctx.bezierCurveTo(-9,-4,-6,16,-2,38); dctx.stroke();
   dctx.restore();
-  dctx.fillStyle='#4a636a'; dctx.font='18px "IBM Plex Mono", monospace'; dctx.textAlign='center';
-  dctx.fillText('운동 강도 '+x, 220, 280);
-  dctx.textAlign='left';
 }
+function drawDevice(){
+  const now=performance.now(); _dt=Math.min(50, now-_t0); _t0=now;
+  const bpm=bpmOf(curX);
+  const phase=now/1000*bpm/60;
+  const frac=phase-Math.floor(phase);
+  if(Math.floor(phase)>lastBeat){ lastBeat=Math.floor(phase); beatCount++; }
+  if(now-winStart>5000){ winStart=now; beatCount=0; }
+  const kick=Math.exp(-frac*9);
+
+  dctx.clearRect(0,0,DW,DH);
+  dctx.fillStyle='#fbfdfb'; dctx.fillRect(0,0,DW,DH);
+
+  /* 심장 — 박동에 맞춰 수축·이완 */
+  heartPath(1+0.20*kick);
+
+  /* 혈관: 박동에 맞춰 혈액이 밀려 나간다 */
+  dctx.strokeStyle='#c1443c'; dctx.lineWidth=11; dctx.lineCap='round';
+  dctx.beginPath(); dctx.moveTo(112,110); dctx.lineTo(112,54); dctx.lineTo(300,54); dctx.stroke();
+  dctx.strokeStyle='#5a86b8';
+  dctx.beginPath(); dctx.moveTo(112,192); dctx.lineTo(112,246); dctx.lineTo(300,246); dctx.stroke();
+  dctx.lineCap='butt';
+  window._bp=(window._bp||0)+ (0.35+kick*2.2)*bpm/70*_dt/1000;
+  dctx.fillStyle='#e8756c';
+  for(let i=0;i<7;i++){
+    const t=((window._bp+i/7)%1);
+    let x,y;
+    if(t<0.28){ x=112; y=110-(110-54)*(t/0.28); }
+    else { x=112+(300-112)*((t-0.28)/0.72); y=54; }
+    dctx.beginPath(); dctx.arc(x,y,4.6,0,Math.PI*2); dctx.fill();
+  }
+  dctx.fillStyle='#7fa8d0';
+  for(let i=0;i<7;i++){
+    const t=((window._bp+0.5+i/7)%1);
+    let x,y;
+    if(t<0.72){ x=300-(300-112)*(t/0.72); y=246; }
+    else { x=112; y=246-(246-192)*((t-0.72)/0.28); }
+    dctx.beginPath(); dctx.arc(x,y,4.6,0,Math.PI*2); dctx.fill();
+  }
+
+  /* 맥박 파형: 촘촘할수록 빨리 뛰는 것 */
+  let v=0;
+  if(frac<0.08) v=Math.sin(frac/0.08*Math.PI)*0.26;
+  else if(frac<0.16) v=-Math.sin((frac-0.08)/0.08*Math.PI)*0.2;
+  else if(frac<0.24) v=Math.sin((frac-0.16)/0.08*Math.PI)*1.0;
+  else if(frac<0.32) v=-Math.sin((frac-0.24)/0.08*Math.PI)*0.28;
+  else if(frac<0.55) v=Math.sin((frac-0.32)/0.23*Math.PI)*0.32;
+  ecg.push(v); if(ecg.length>ECG_LEN) ecg.shift();
+  const wx=196, wy=92, ww=224, wh=96;
+  dctx.fillStyle='#fff'; dctx.fillRect(wx,wy,ww,wh);
+  dctx.strokeStyle='#e2eae8'; dctx.lineWidth=1;
+  for(let i=1;i<4;i++){ dctx.beginPath(); dctx.moveTo(wx,wy+wh*i/4); dctx.lineTo(wx+ww,wy+wh*i/4); dctx.stroke(); }
+  dctx.strokeStyle='#c9d6d2'; dctx.lineWidth=1.5; dctx.strokeRect(wx,wy,ww,wh);
+  if(ecg.length>1){
+    dctx.strokeStyle='#c1443c'; dctx.lineWidth=2.4; dctx.lineJoin='round';
+    dctx.beginPath();
+    for(let i=0;i<ecg.length;i++){
+      const px=wx+2+(i/(ECG_LEN-1))*(ww-4), py=wy+wh/2-ecg[i]*(wh/2-8);
+      if(i===0) dctx.moveTo(px,py); else dctx.lineTo(px,py);
+    }
+    dctx.stroke();
+  }
+
+  /* 달리는 사람 — 다리 속도도 운동 강도에 비례 */
+  const rx=372, ry=232, sw=Math.sin(now/1000*(1.4+curX*0.035)*6)*14;
+  dctx.strokeStyle='#173238'; dctx.lineWidth=4; dctx.lineCap='round'; dctx.fillStyle='#173238';
+  dctx.beginPath(); dctx.arc(rx,ry-40,9,0,Math.PI*2); dctx.fill();
+  dctx.beginPath(); dctx.moveTo(rx,ry-31); dctx.lineTo(rx,ry-8); dctx.stroke();
+  dctx.beginPath(); dctx.moveTo(rx,ry-8); dctx.lineTo(rx-10+sw*0.6,ry+16); dctx.stroke();
+  dctx.beginPath(); dctx.moveTo(rx,ry-8); dctx.lineTo(rx+10-sw*0.6,ry+16); dctx.stroke();
+  dctx.beginPath(); dctx.moveTo(rx,ry-24); dctx.lineTo(rx-12-sw*0.5,ry-12); dctx.stroke();
+  dctx.beginPath(); dctx.moveTo(rx,ry-24); dctx.lineTo(rx+12+sw*0.5,ry-12); dctx.stroke();
+  dctx.lineCap='butt';
+
+  CAP(112, 244, '운동 강도 '+curX, 'rgba(23,50,56,0.9)', '#fff', 19);
+  CAP(wx+ww/2, wy-14, '맥박 파형', 'rgba(255,255,255,0.96)', '#4a636a', 18);
+  CAP(wx+ww/2, wy+wh+22, '5초 동안 '+beatCount+'번 뜀', 'rgba(255,255,255,0.96)', '#173238', 19);
+  CAP(wx+ww/2, DH-16, '1분 환산 '+Math.round(bpm)+' 회/분', 'rgba(193,68,60,0.95)', '#fff', 19);
+  requestAnimationFrame(drawDevice);
+}
+requestAnimationFrame(drawDevice);
+
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
 let curX=30;
-xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; drawHeart(curX); });
-drawHeart(curX);
+xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
-  const y=Math.max(60, 70+0.6*curX+(Math.random()*6-3));
+  const y=Math.max(60, bpmOf(curX)+(Math.random()*6-3));
   yVal.textContent=y.toFixed(0)+' 회/분';
   recordPoint(curX,y);
 });
@@ -337,6 +510,39 @@ document.getElementById('checkBtn').addEventListener('click', () => {
 
 
 
+
+/* ===================== 제로 랩 공통 보정 ===================== */
+(function(){
+  document.querySelectorAll('#exploreTab button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      const cv=document.getElementById('deviceCanvas');
+      if(cv) cv.scrollIntoView({behavior:'smooth', block:'center'});
+    }, true);
+  });
+  const nudge=document.getElementById('zlNudge');
+  if(!nudge) return;
+  const tb=document.getElementById('dataBody');
+  if(!tb) return;
+  let shown=false;
+  function check(){
+    if(shown || tb.querySelectorAll('tr').length<4) return;
+    shown=true;
+    setTimeout(()=>nudge.classList.add('show'), 420);
+  }
+  new MutationObserver(check).observe(tb,{childList:true});
+  document.getElementById('zlNudgeGo').addEventListener('click',()=>{
+    nudge.classList.remove('show');
+    const vb=[].slice.call(document.querySelectorAll('.tab-btn')).filter(x=>x.dataset.tab==='verify')[0];
+    if(vb) vb.click();
+    window.scrollTo({top:0, behavior:'smooth'});
+  });
+  document.getElementById('zlNudgeLater').addEventListener('click',()=>{ nudge.classList.remove('show'); });
+})();
 </script>
+<div class="zl-nudge" id="zlNudge">
+  <span>🎉 데이터가 충분히 모였어요! 데이터 확인 탭에서 결과를 볼까요?</span>
+  <button class="zl-go" id="zlNudgeGo">가기</button>
+  <button class="zl-later" id="zlNudgeLater">나중에</button>
+</div>
 </body>
 </html>
