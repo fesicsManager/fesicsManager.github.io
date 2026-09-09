@@ -399,6 +399,34 @@ function barChart(el, items, unit, color){
 }
 
 /* 산점도 + 추세선 (x가 진짜 숫자일 때만 사용) */
+
+/* 눈금을 1·2·2.5·5·10 계열의 깔끔한 값으로 고른다 */
+function zlNiceStep(range,target){
+  if(!(range>0)) return 1;
+  var raw=range/Math.max(1,target), p=Math.pow(10,Math.floor(Math.log10(raw))), n=raw/p;
+  var s = n<=1?1 : n<=2?2 : n<=2.5?2.5 : n<=5?5 : 10;
+  return s*p;
+}
+function zlTicks(lo,hi,target){
+  var st=zlNiceStep(hi-lo,target), out=[], v;
+  if(!isFinite(st)||st<=0) return [lo,hi];
+  for(v=Math.ceil(lo/st-1e-9)*st; v<=hi+1e-9; v+=st) out.push(v);
+  if(out.length<3){                       /* 너무 성기면 한 단계 더 잘게 */
+    st/=2; out=[];
+    for(v=Math.ceil(lo/st-1e-9)*st; v<=hi+1e-9; v+=st) out.push(v);
+  }
+  return out;
+}
+function zlDec(ticks){                    /* 눈금값에 꼭 필요한 만큼만 소수 자리 */
+  var d=0;
+  for(var i=0;i<ticks.length;i++){
+    var t=ticks[i];
+    if(Math.abs(t-Math.round(t))<=1e-9) continue;          /* 정수면 소수점 없음 */
+    if(Math.abs(t*10-Math.round(t*10))<=1e-9) d=Math.max(d,1);
+    else d=Math.max(d,2);
+  }
+  return d;
+}
 function scatterChart(el, pts, opt){
   opt = opt||{};
   const W=340, H=200, L=48, R=12, T=14, B=40;
@@ -412,16 +440,26 @@ function scatterChart(el, pts, opt){
   if(y1-y0 < 1e-9){ y0-=1; y1+=1; }
   const padY=(y1-y0)*0.12, padX=(x1-x0)*0.08;
   y0-=padY; y1+=padY; x0-=padX; x1+=padX;
+  if(opt.x0!==undefined) x0=Math.max(x0,opt.x0);   /* 여백이 축 바닥을 넘어가지 않게 */
+  if(opt.y0!==undefined) y0=Math.max(y0,opt.y0);
   const sx=v=>L+(v-x0)/(x1-x0)*(W-L-R);
   const sy=v=>H-B-(v-y0)/(y1-y0)*(H-T-B);
   let s='<svg class="chart-svg" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Mono, monospace">';
   s+='<line x1="'+L+'" y1="'+(H-B)+'" x2="'+(W-R)+'" y2="'+(H-B)+'" stroke="#4a636a" stroke-width="1.5"/>';
   s+='<line x1="'+L+'" y1="'+T+'" x2="'+L+'" y2="'+(H-B)+'" stroke="#4a636a" stroke-width="1.5"/>';
-  [0,0.5,1].forEach(f=>{
-    const yv=y0+(y1-y0)*f, xv=x0+(x1-x0)*f;
-    s+='<text x="'+(L-5)+'" y="'+(sy(yv)+4)+'" font-size="10" fill="#4a636a" text-anchor="end">'+yv.toFixed(opt.yd!==undefined?opt.yd:0)+'</text>';
+  /* 눈금은 깔끔한 값에만 찍고, 소수는 꼭 필요한 만큼만 (opt.xd/yd 는 눈금엔 쓰지 않음) */
+  var _yt=zlTicks(y0,y1,4), _xt=zlTicks(x0,x1,5);
+  var _yd=zlDec(_yt), _xd=zlDec(_xt);
+  _yt.forEach(function(yv){
+    s+='<text x="'+(L-5)+'" y="'+(sy(yv)+4)+'" font-size="10" fill="#4a636a" text-anchor="end">'+yv.toFixed(_yd)+'</text>';
     s+='<line x1="'+L+'" y1="'+sy(yv)+'" x2="'+(W-R)+'" y2="'+sy(yv)+'" stroke="#e2eae8" stroke-width="1"/>';
-    s+='<text x="'+sx(xv)+'" y="'+(H-B+15)+'" font-size="10" fill="#4a636a" text-anchor="middle">'+xv.toFixed(opt.xd!==undefined?opt.xd:0)+'</text>';
+  });
+  var _lastX=-1e9;
+  _xt.forEach(function(xv){
+    var px=sx(xv);
+    if(px-_lastX<34) return;              /* 라벨이 겹치면 건너뛴다 */
+    _lastX=px;
+    s+='<text x="'+px+'" y="'+(H-B+15)+'" font-size="10" fill="#4a636a" text-anchor="middle">'+xv.toFixed(_xd)+'</text>';
   });
   const reg = opt.reg!==false ? leastSquares(pts) : null;
   if(reg){
