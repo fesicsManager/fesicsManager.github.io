@@ -99,7 +99,7 @@ button.action:active:not(:disabled){transform:translateY(1px);}
 <main class="layout">
   <section class="card">
     <h2>주사기 피스톤 누르기</h2>
-    <canvas id="pistonCanvas" width="440" height="220"></canvas>
+    <canvas id="pistonCanvas" width="440" height="340"></canvas>
     <div class="control-row">
       <label>누르는 힘 <b id="forceVal">10</b></label>
       <input type="range" id="forceSlider" min="5" max="50" step="5" value="10">
@@ -151,6 +151,216 @@ button.action:active:not(:disabled){transform:translateY(1px);}
 </div>
 
 <script>
+
+/* ===== 유리 기구 공통 그리기 (비커·시험관·증발접시) =====
+   물은 사각형이 아니라 실제 유리그릇에 담긴 모습으로 그린다.
+   - 유리는 위가 살짝 넓은 형태, 왼쪽 위에 따르는 부리(spout)
+   - 수면은 벽에서 위로 휘어 오르는 메니스커스로 그리고 잔물결이 인다
+   - 유리 벽의 반사광과 눈금을 함께 그린다 */
+function GLbeaker(cx, top, bottom, halfW){
+  return {cx:cx, top:top, bottom:bottom, halfW:halfW};
+}
+function GLhalfAt(g, y){
+  var t=Math.max(0,Math.min(1,(y-g.top)/(g.bottom-g.top)));
+  return g.halfW*(1-0.07*t);
+}
+function GLpath(c, g){
+  var tl=g.cx-g.halfW, tr=g.cx+g.halfW;
+  var bl=g.cx-g.halfW*0.93, br=g.cx+g.halfW*0.93;
+  var r=Math.min(14, g.halfW*0.32);
+  c.beginPath();
+  c.moveTo(tl, g.top);
+  c.lineTo(bl, g.bottom-r);
+  c.quadraticCurveTo(bl, g.bottom, bl+r, g.bottom);
+  c.lineTo(br-r, g.bottom);
+  c.quadraticCurveTo(br, g.bottom, br, g.bottom-r);
+  c.lineTo(tr, g.top);
+  c.closePath();
+}
+/* 유리 뒤쪽 (그릇 안쪽 그림자) */
+function GLback(c, g){
+  c.save();
+  GLpath(c,g); c.clip();
+  var bg=c.createLinearGradient(g.cx-g.halfW,0,g.cx+g.halfW,0);
+  bg.addColorStop(0,'rgba(200,220,225,0.55)');
+  bg.addColorStop(0.5,'rgba(238,246,247,0.35)');
+  bg.addColorStop(1,'rgba(200,220,225,0.55)');
+  c.fillStyle=bg;
+  c.fillRect(g.cx-g.halfW-2, g.top-2, g.halfW*2+4, g.bottom-g.top+4);
+  c.restore();
+}
+/* 액체 — 메니스커스가 있는 수면 */
+function GLliquid(c, g, surfY, colTop, colBot, phase){
+  phase=phase||0;
+  c.save();
+  GLpath(c,g); c.clip();
+  var hw=GLhalfAt(g,surfY)+3;
+  var w1=Math.sin(phase)*1.6, w2=Math.sin(phase*1.7+1.1)*1.6;
+  var grad=c.createLinearGradient(0,surfY,0,g.bottom);
+  grad.addColorStop(0,colTop);
+  grad.addColorStop(1,colBot);
+  c.fillStyle=grad;
+  c.beginPath();
+  c.moveTo(g.cx-hw, surfY-5+w1);
+  c.quadraticCurveTo(g.cx, surfY+13+w2, g.cx+hw, surfY-5+w2);
+  c.lineTo(g.cx+hw, g.bottom+6);
+  c.lineTo(g.cx-hw, g.bottom+6);
+  c.closePath(); c.fill();
+  /* 수면 바로 아래 밝은 띠 */
+  c.strokeStyle='rgba(255,255,255,0.55)'; c.lineWidth=2.5;
+  c.beginPath();
+  c.moveTo(g.cx-hw, surfY-4+w1);
+  c.quadraticCurveTo(g.cx, surfY+14+w2, g.cx+hw, surfY-4+w2);
+  c.stroke();
+  /* 바닥 쪽 그림자 */
+  c.fillStyle='rgba(23,50,56,0.10)';
+  c.fillRect(g.cx-g.halfW, g.bottom-8, g.halfW*2, 10);
+  c.restore();
+  return surfY;
+}
+/* 유리 앞쪽 — 테두리, 부리, 반사광, 눈금 */
+function GLfront(c, g, opts){
+  opts=opts||{};
+  c.save();
+  GLpath(c,g); c.clip();
+  /* 왼쪽 반사광 */
+  c.fillStyle='rgba(255,255,255,0.55)';
+  c.fillRect(g.cx-g.halfW+7, g.top+8, 5, g.bottom-g.top-22);
+  c.fillStyle='rgba(255,255,255,0.28)';
+  c.fillRect(g.cx-g.halfW+17, g.top+14, 3, g.bottom-g.top-40);
+  /* 오른쪽 어두운 가장자리 */
+  c.fillStyle='rgba(23,50,56,0.09)';
+  c.fillRect(g.cx+g.halfW-13, g.top+8, 8, g.bottom-g.top-20);
+  c.restore();
+
+  /* 눈금 */
+  if(opts.ticks!==false){
+    c.strokeStyle='rgba(23,50,56,0.30)'; c.lineWidth=1.5;
+    var n=opts.ticks||5;
+    for(var i=1;i<=n;i++){
+      var y=g.bottom-(g.bottom-g.top-18)*(i/(n+0.4));
+      var hw=GLhalfAt(g,y);
+      var len=(i%2===0)?14:8;
+      c.beginPath(); c.moveTo(g.cx+hw-2, y); c.lineTo(g.cx+hw-2-len, y); c.stroke();
+    }
+  }
+  /* 본체 테두리 */
+  c.strokeStyle='#5f7f88'; c.lineWidth=3;
+  GLpath(c,g); c.stroke();
+  /* 위 테두리(림) */
+  var tl=g.cx-g.halfW, tr=g.cx+g.halfW;
+  c.strokeStyle='#40606a'; c.lineWidth=4.5; c.lineCap='round';
+  c.beginPath(); c.moveTo(tl, g.top); c.lineTo(tr, g.top); c.stroke();
+  c.strokeStyle='rgba(255,255,255,0.75)'; c.lineWidth=1.8;
+  c.beginPath(); c.moveTo(tl+4, g.top-1.6); c.lineTo(tr-4, g.top-1.6); c.stroke();
+  c.lineCap='butt';
+  /* 따르는 부리 */
+  if(opts.spout!==false){
+    c.fillStyle='rgba(228,240,242,0.95)';
+    c.strokeStyle='#5f7f88'; c.lineWidth=2.5;
+    c.beginPath();
+    c.moveTo(tl+3, g.top-1);
+    c.quadraticCurveTo(tl-13, g.top-4, tl-16, g.top+9);
+    c.quadraticCurveTo(tl-7, g.top+5, tl-1, g.top+7);
+    c.closePath(); c.fill(); c.stroke();
+  }
+}
+/* 비커 한 번에 그리기 */
+function GLdrawBeaker(c, g, surfY, colTop, colBot, phase, opts){
+  GLback(c,g);
+  if(surfY!==null && surfY!==undefined) GLliquid(c,g,surfY,colTop,colBot,phase);
+  GLfront(c,g,opts);
+}
+
+/* 시험관 — 아래가 둥근 유리관 */
+function GLtubePath(c, cx, top, bottom, halfW){
+  c.beginPath();
+  c.moveTo(cx-halfW, top);
+  c.lineTo(cx-halfW, bottom-halfW);
+  c.arc(cx, bottom-halfW, halfW, Math.PI, 0, true);
+  c.lineTo(cx+halfW, top);
+  c.closePath();
+}
+function GLdrawTube(c, cx, top, bottom, halfW, surfY, colTop, colBot, phase){
+  phase=phase||0;
+  c.save(); GLtubePath(c,cx,top,bottom,halfW); c.clip();
+  var bg=c.createLinearGradient(cx-halfW,0,cx+halfW,0);
+  bg.addColorStop(0,'rgba(200,220,225,0.55)');
+  bg.addColorStop(0.5,'rgba(240,248,249,0.35)');
+  bg.addColorStop(1,'rgba(200,220,225,0.55)');
+  c.fillStyle=bg; c.fillRect(cx-halfW-2, top-2, halfW*2+4, bottom-top+4);
+  if(surfY!==null && surfY!==undefined){
+    var w=Math.sin(phase)*1.3;
+    var grad=c.createLinearGradient(0,surfY,0,bottom);
+    grad.addColorStop(0,colTop); grad.addColorStop(1,colBot);
+    c.fillStyle=grad;
+    c.beginPath();
+    c.moveTo(cx-halfW-2, surfY-4+w);
+    c.quadraticCurveTo(cx, surfY+10, cx+halfW+2, surfY-4-w);
+    c.lineTo(cx+halfW+2, bottom+6); c.lineTo(cx-halfW-2, bottom+6);
+    c.closePath(); c.fill();
+    c.strokeStyle='rgba(255,255,255,0.55)'; c.lineWidth=2;
+    c.beginPath();
+    c.moveTo(cx-halfW-2, surfY-3+w);
+    c.quadraticCurveTo(cx, surfY+11, cx+halfW+2, surfY-3-w);
+    c.stroke();
+  }
+  c.fillStyle='rgba(255,255,255,0.5)';
+  c.fillRect(cx-halfW+5, top+8, 4, bottom-top-24);
+  c.fillStyle='rgba(23,50,56,0.09)';
+  c.fillRect(cx+halfW-10, top+8, 6, bottom-top-24);
+  c.restore();
+  c.strokeStyle='#5f7f88'; c.lineWidth=3;
+  GLtubePath(c,cx,top,bottom,halfW); c.stroke();
+  c.strokeStyle='#40606a'; c.lineWidth=4.5; c.lineCap='round';
+  c.beginPath(); c.moveTo(cx-halfW, top); c.lineTo(cx+halfW, top); c.stroke();
+  c.lineCap='butt';
+}
+
+/* 증발접시 — 얕고 둥근 접시를 비스듬히 본 모습 */
+function GLdrawDish(c, cx, y, halfW, liquidFrac, colTop, colBot, phase){
+  var depth=halfW*0.30, rimRy=halfW*0.22;
+  /* 그릇 몸통 */
+  c.fillStyle='rgba(226,238,240,0.95)';
+  c.beginPath();
+  c.moveTo(cx-halfW, y);
+  c.quadraticCurveTo(cx, y+depth*2.1, cx+halfW, y);
+  c.closePath(); c.fill();
+  c.strokeStyle='#5f7f88'; c.lineWidth=3; c.stroke();
+  /* 액체 */
+  if(liquidFrac>0.01){
+    var lw=halfW*0.9*Math.sqrt(liquidFrac);
+    var ly=y+depth*1.2*(1-liquidFrac*0.5);
+    c.save();
+    c.beginPath();
+    c.moveTo(cx-halfW+3, y);
+    c.quadraticCurveTo(cx, y+depth*2.0, cx+halfW-3, y);
+    c.closePath(); c.clip();
+    var grad=c.createLinearGradient(0,y-rimRy,0,y+depth*2);
+    grad.addColorStop(0,colTop); grad.addColorStop(1,colBot);
+    c.fillStyle=grad;
+    c.beginPath();
+    c.ellipse(cx, ly-depth*0.9, lw, rimRy*Math.max(0.4,liquidFrac), 0, 0, Math.PI*2);
+    c.fill();
+    c.beginPath();
+    c.moveTo(cx-lw, ly-depth*0.9);
+    c.quadraticCurveTo(cx, y+depth*2.0, cx+lw, ly-depth*0.9);
+    c.closePath(); c.fill();
+    /* 수면 반사 */
+    c.strokeStyle='rgba(255,255,255,0.6)'; c.lineWidth=2;
+    c.beginPath();
+    c.ellipse(cx, ly-depth*0.9, lw, rimRy*Math.max(0.4,liquidFrac), 0, Math.PI*1.05, Math.PI*1.95);
+    c.stroke();
+    c.restore();
+  }
+  /* 테두리 */
+  c.strokeStyle='#40606a'; c.lineWidth=4;
+  c.beginPath(); c.ellipse(cx, y, halfW, rimRy, 0, 0, Math.PI*2); c.stroke();
+  c.strokeStyle='rgba(255,255,255,0.8)'; c.lineWidth=1.8;
+  c.beginPath(); c.ellipse(cx, y-1.5, halfW-3, rimRy-1, 0, Math.PI*1.05, Math.PI*1.95); c.stroke();
+}
+
+
 const tabBtns=document.querySelectorAll('.tab-btn');
 const exploreTab=document.getElementById('exploreTab'), verifyTab=document.getElementById('verifyTab');
 tabBtns.forEach(b=>b.addEventListener('click',()=>{
@@ -214,16 +424,91 @@ const canvas=document.getElementById('pistonCanvas'), ctx=canvas.getContext('2d'
 function draw(){
   const CW=canvas.width, CH=canvas.height;
   ctx.clearRect(0,0,CW,CH);
-  const tubeLeft=CW/2-40, tubeRight=CW/2+40, tubeTop=30, tubeBottom=CH-30;
-  ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
-  ctx.strokeRect(tubeLeft,tubeTop,tubeRight-tubeLeft,tubeBottom-tubeTop);
+  const tubeLeft=CW/2-42, tubeRight=CW/2+42, tubeTop=146, tubeBottom=CH-34;
   const maxVol=100;
-  const gasHeight=(displayVol/maxVol)*(tubeBottom-tubeTop-20);
+  const gasHeight=Math.max(8,(displayVol/maxVol)*(tubeBottom-tubeTop-14));
   const gasTop=tubeBottom-gasHeight;
-  ctx.fillStyle='rgba(217,142,59,0.3)';
-  ctx.fillRect(tubeLeft,gasTop,tubeRight-tubeLeft,gasHeight);
-  ctx.fillStyle= pressing ? '#2f2f2f' : '#4a4a4a';
-  ctx.fillRect(tubeLeft-6,gasTop-14,tubeRight-tubeLeft+12,14);
+  /* 유리 주사기 몸통 */
+  ctx.fillStyle='rgba(226,240,243,0.6)';
+  ctx.fillRect(tubeLeft,tubeTop,tubeRight-tubeLeft,tubeBottom-tubeTop);
+  /* 갇힌 기체 — 눌릴수록 알갱이가 촘촘해진다 */
+  const gg=ctx.createLinearGradient(0,gasTop,0,tubeBottom);
+  gg.addColorStop(0,'rgba(240,190,110,0.34)');
+  gg.addColorStop(1,'rgba(214,150,64,0.46)');
+  ctx.fillStyle=gg;
+  ctx.fillRect(tubeLeft+2,gasTop,tubeRight-tubeLeft-4,tubeBottom-gasTop-2);
+  ctx.fillStyle='rgba(150,95,20,0.75)';
+  const nP=26;
+  for(let i=0;i<nP;i++){
+    const px=tubeLeft+9+((i*23)%(tubeRight-tubeLeft-18));
+    const py=gasTop+6+((i*i*7+Date.now()/60)%(Math.max(8,tubeBottom-gasTop-14)));
+    ctx.beginPath(); ctx.arc(px,py,2.6,0,Math.PI*2); ctx.fill();
+  }
+  /* 유리 반사광 */
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  ctx.fillRect(tubeLeft+6,tubeTop+6,4,tubeBottom-tubeTop-12);
+  ctx.fillStyle='rgba(23,50,56,0.08)';
+  ctx.fillRect(tubeRight-11,tubeTop+6,6,tubeBottom-tubeTop-12);
+  /* 눈금 */
+  ctx.strokeStyle='rgba(23,50,56,0.35)'; ctx.lineWidth=1.5;
+  for(let v=20;v<=100;v+=20){
+    const vy=tubeBottom-(v/maxVol)*(tubeBottom-tubeTop-20);
+    ctx.beginPath(); ctx.moveTo(tubeRight-2,vy); ctx.lineTo(tubeRight-14,vy); ctx.stroke();
+  }
+  ctx.strokeStyle='#5f7f88'; ctx.lineWidth=3;
+  ctx.strokeRect(tubeLeft,tubeTop,tubeRight-tubeLeft,tubeBottom-tubeTop);
+  /* 피스톤 — 고무 마개, 대, 손잡이 */
+  ctx.fillStyle= pressing ? '#2b3438' : '#3f4c50';
+  ctx.fillRect(tubeLeft-4,gasTop-15,tubeRight-tubeLeft+8,15);
+  ctx.strokeStyle='#1c2427'; ctx.lineWidth=2;
+  ctx.strokeRect(tubeLeft-4,gasTop-15,tubeRight-tubeLeft+8,15);
+  /* 피스톤 대 */
+  const rodTop=gasTop-70;
+  ctx.fillStyle='#9aa3aa';
+  ctx.fillRect(CW/2-7, rodTop, 14, gasTop-15-rodTop);
+  ctx.strokeStyle='#6f767c'; ctx.lineWidth=2;
+  ctx.strokeRect(CW/2-7, rodTop, 14, gasTop-15-rodTop);
+  /* 손잡이 */
+  ctx.fillStyle= pressing ? '#a8352d' : '#c1443c';
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(CW/2-42, rodTop-18, 84, 18, 8);
+  else ctx.rect(CW/2-42, rodTop-18, 84, 18);
+  ctx.fill();
+  ctx.strokeStyle='#8a2f28'; ctx.lineWidth=2.5; ctx.stroke();
+  /* 누르는 손 */
+  ctx.fillStyle='#f2d3bb'; ctx.strokeStyle='#c39a84'; ctx.lineWidth=2;
+  const hy=rodTop-24-(pressing?0:8);
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(CW/2-30, hy-26, 60, 28, 12); else ctx.rect(CW/2-30, hy-26, 60, 28);
+  ctx.fill(); ctx.stroke();
+  for(let fg=0;fg<3;fg++){
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(CW/2-22+fg*16, hy-2, 13, 10, 5); else ctx.rect(CW/2-22+fg*16, hy-2, 13, 10);
+    ctx.fill(); ctx.stroke();
+  }
+  /* 누르는 힘 화살표 — 힘이 셀수록 길다 */
+  const arrowLen=16+curForce*1.5;
+  ctx.strokeStyle='#c1443c'; ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(CW/2+72, Math.max(8, hy-30-arrowLen));
+  ctx.lineTo(CW/2+72, hy-24);
+  ctx.stroke(); ctx.lineCap='butt';
+  ctx.fillStyle='#c1443c';
+  ctx.beginPath();
+  ctx.moveTo(CW/2+72, hy-12);
+  ctx.lineTo(CW/2+62, hy-28); ctx.lineTo(CW/2+82, hy-28);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#c1443c'; ctx.font='700 15px "IBM Plex Mono", monospace'; ctx.textAlign='center';
+  ctx.fillText('힘 '+curForce, CW/2+72, Math.max(6, hy-36-arrowLen));
+  /* 부피 눈금 숫자 */
+  ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='left';
+  for(let v=20;v<=100;v+=20){
+    const vy=tubeBottom-(v/maxVol)*(tubeBottom-tubeTop-14);
+    ctx.fillText(v, tubeRight+8, vy+4);
+  }
+  /* 현재 부피 */
+  ctx.fillStyle='#173238'; ctx.font='700 20px "IBM Plex Mono", monospace'; ctx.textAlign='right';
+  ctx.fillText(displayVol.toFixed(1)+' mL', tubeLeft-12, gasTop+22);
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
   ctx.fillText('누르는 힘: '+curForce, CW/2, tubeBottom+20);
   ctx.textAlign='left';

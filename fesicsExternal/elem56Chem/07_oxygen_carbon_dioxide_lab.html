@@ -143,6 +143,216 @@ button.action:active:not(:disabled){transform:translateY(1px);}
 </div>
 
 <script>
+
+/* ===== 유리 기구 공통 그리기 (비커·시험관·증발접시) =====
+   물은 사각형이 아니라 실제 유리그릇에 담긴 모습으로 그린다.
+   - 유리는 위가 살짝 넓은 형태, 왼쪽 위에 따르는 부리(spout)
+   - 수면은 벽에서 위로 휘어 오르는 메니스커스로 그리고 잔물결이 인다
+   - 유리 벽의 반사광과 눈금을 함께 그린다 */
+function GLbeaker(cx, top, bottom, halfW){
+  return {cx:cx, top:top, bottom:bottom, halfW:halfW};
+}
+function GLhalfAt(g, y){
+  var t=Math.max(0,Math.min(1,(y-g.top)/(g.bottom-g.top)));
+  return g.halfW*(1-0.07*t);
+}
+function GLpath(c, g){
+  var tl=g.cx-g.halfW, tr=g.cx+g.halfW;
+  var bl=g.cx-g.halfW*0.93, br=g.cx+g.halfW*0.93;
+  var r=Math.min(14, g.halfW*0.32);
+  c.beginPath();
+  c.moveTo(tl, g.top);
+  c.lineTo(bl, g.bottom-r);
+  c.quadraticCurveTo(bl, g.bottom, bl+r, g.bottom);
+  c.lineTo(br-r, g.bottom);
+  c.quadraticCurveTo(br, g.bottom, br, g.bottom-r);
+  c.lineTo(tr, g.top);
+  c.closePath();
+}
+/* 유리 뒤쪽 (그릇 안쪽 그림자) */
+function GLback(c, g){
+  c.save();
+  GLpath(c,g); c.clip();
+  var bg=c.createLinearGradient(g.cx-g.halfW,0,g.cx+g.halfW,0);
+  bg.addColorStop(0,'rgba(200,220,225,0.55)');
+  bg.addColorStop(0.5,'rgba(238,246,247,0.35)');
+  bg.addColorStop(1,'rgba(200,220,225,0.55)');
+  c.fillStyle=bg;
+  c.fillRect(g.cx-g.halfW-2, g.top-2, g.halfW*2+4, g.bottom-g.top+4);
+  c.restore();
+}
+/* 액체 — 메니스커스가 있는 수면 */
+function GLliquid(c, g, surfY, colTop, colBot, phase){
+  phase=phase||0;
+  c.save();
+  GLpath(c,g); c.clip();
+  var hw=GLhalfAt(g,surfY)+3;
+  var w1=Math.sin(phase)*1.6, w2=Math.sin(phase*1.7+1.1)*1.6;
+  var grad=c.createLinearGradient(0,surfY,0,g.bottom);
+  grad.addColorStop(0,colTop);
+  grad.addColorStop(1,colBot);
+  c.fillStyle=grad;
+  c.beginPath();
+  c.moveTo(g.cx-hw, surfY-5+w1);
+  c.quadraticCurveTo(g.cx, surfY+13+w2, g.cx+hw, surfY-5+w2);
+  c.lineTo(g.cx+hw, g.bottom+6);
+  c.lineTo(g.cx-hw, g.bottom+6);
+  c.closePath(); c.fill();
+  /* 수면 바로 아래 밝은 띠 */
+  c.strokeStyle='rgba(255,255,255,0.55)'; c.lineWidth=2.5;
+  c.beginPath();
+  c.moveTo(g.cx-hw, surfY-4+w1);
+  c.quadraticCurveTo(g.cx, surfY+14+w2, g.cx+hw, surfY-4+w2);
+  c.stroke();
+  /* 바닥 쪽 그림자 */
+  c.fillStyle='rgba(23,50,56,0.10)';
+  c.fillRect(g.cx-g.halfW, g.bottom-8, g.halfW*2, 10);
+  c.restore();
+  return surfY;
+}
+/* 유리 앞쪽 — 테두리, 부리, 반사광, 눈금 */
+function GLfront(c, g, opts){
+  opts=opts||{};
+  c.save();
+  GLpath(c,g); c.clip();
+  /* 왼쪽 반사광 */
+  c.fillStyle='rgba(255,255,255,0.55)';
+  c.fillRect(g.cx-g.halfW+7, g.top+8, 5, g.bottom-g.top-22);
+  c.fillStyle='rgba(255,255,255,0.28)';
+  c.fillRect(g.cx-g.halfW+17, g.top+14, 3, g.bottom-g.top-40);
+  /* 오른쪽 어두운 가장자리 */
+  c.fillStyle='rgba(23,50,56,0.09)';
+  c.fillRect(g.cx+g.halfW-13, g.top+8, 8, g.bottom-g.top-20);
+  c.restore();
+
+  /* 눈금 */
+  if(opts.ticks!==false){
+    c.strokeStyle='rgba(23,50,56,0.30)'; c.lineWidth=1.5;
+    var n=opts.ticks||5;
+    for(var i=1;i<=n;i++){
+      var y=g.bottom-(g.bottom-g.top-18)*(i/(n+0.4));
+      var hw=GLhalfAt(g,y);
+      var len=(i%2===0)?14:8;
+      c.beginPath(); c.moveTo(g.cx+hw-2, y); c.lineTo(g.cx+hw-2-len, y); c.stroke();
+    }
+  }
+  /* 본체 테두리 */
+  c.strokeStyle='#5f7f88'; c.lineWidth=3;
+  GLpath(c,g); c.stroke();
+  /* 위 테두리(림) */
+  var tl=g.cx-g.halfW, tr=g.cx+g.halfW;
+  c.strokeStyle='#40606a'; c.lineWidth=4.5; c.lineCap='round';
+  c.beginPath(); c.moveTo(tl, g.top); c.lineTo(tr, g.top); c.stroke();
+  c.strokeStyle='rgba(255,255,255,0.75)'; c.lineWidth=1.8;
+  c.beginPath(); c.moveTo(tl+4, g.top-1.6); c.lineTo(tr-4, g.top-1.6); c.stroke();
+  c.lineCap='butt';
+  /* 따르는 부리 */
+  if(opts.spout!==false){
+    c.fillStyle='rgba(228,240,242,0.95)';
+    c.strokeStyle='#5f7f88'; c.lineWidth=2.5;
+    c.beginPath();
+    c.moveTo(tl+3, g.top-1);
+    c.quadraticCurveTo(tl-13, g.top-4, tl-16, g.top+9);
+    c.quadraticCurveTo(tl-7, g.top+5, tl-1, g.top+7);
+    c.closePath(); c.fill(); c.stroke();
+  }
+}
+/* 비커 한 번에 그리기 */
+function GLdrawBeaker(c, g, surfY, colTop, colBot, phase, opts){
+  GLback(c,g);
+  if(surfY!==null && surfY!==undefined) GLliquid(c,g,surfY,colTop,colBot,phase);
+  GLfront(c,g,opts);
+}
+
+/* 시험관 — 아래가 둥근 유리관 */
+function GLtubePath(c, cx, top, bottom, halfW){
+  c.beginPath();
+  c.moveTo(cx-halfW, top);
+  c.lineTo(cx-halfW, bottom-halfW);
+  c.arc(cx, bottom-halfW, halfW, Math.PI, 0, true);
+  c.lineTo(cx+halfW, top);
+  c.closePath();
+}
+function GLdrawTube(c, cx, top, bottom, halfW, surfY, colTop, colBot, phase){
+  phase=phase||0;
+  c.save(); GLtubePath(c,cx,top,bottom,halfW); c.clip();
+  var bg=c.createLinearGradient(cx-halfW,0,cx+halfW,0);
+  bg.addColorStop(0,'rgba(200,220,225,0.55)');
+  bg.addColorStop(0.5,'rgba(240,248,249,0.35)');
+  bg.addColorStop(1,'rgba(200,220,225,0.55)');
+  c.fillStyle=bg; c.fillRect(cx-halfW-2, top-2, halfW*2+4, bottom-top+4);
+  if(surfY!==null && surfY!==undefined){
+    var w=Math.sin(phase)*1.3;
+    var grad=c.createLinearGradient(0,surfY,0,bottom);
+    grad.addColorStop(0,colTop); grad.addColorStop(1,colBot);
+    c.fillStyle=grad;
+    c.beginPath();
+    c.moveTo(cx-halfW-2, surfY-4+w);
+    c.quadraticCurveTo(cx, surfY+10, cx+halfW+2, surfY-4-w);
+    c.lineTo(cx+halfW+2, bottom+6); c.lineTo(cx-halfW-2, bottom+6);
+    c.closePath(); c.fill();
+    c.strokeStyle='rgba(255,255,255,0.55)'; c.lineWidth=2;
+    c.beginPath();
+    c.moveTo(cx-halfW-2, surfY-3+w);
+    c.quadraticCurveTo(cx, surfY+11, cx+halfW+2, surfY-3-w);
+    c.stroke();
+  }
+  c.fillStyle='rgba(255,255,255,0.5)';
+  c.fillRect(cx-halfW+5, top+8, 4, bottom-top-24);
+  c.fillStyle='rgba(23,50,56,0.09)';
+  c.fillRect(cx+halfW-10, top+8, 6, bottom-top-24);
+  c.restore();
+  c.strokeStyle='#5f7f88'; c.lineWidth=3;
+  GLtubePath(c,cx,top,bottom,halfW); c.stroke();
+  c.strokeStyle='#40606a'; c.lineWidth=4.5; c.lineCap='round';
+  c.beginPath(); c.moveTo(cx-halfW, top); c.lineTo(cx+halfW, top); c.stroke();
+  c.lineCap='butt';
+}
+
+/* 증발접시 — 얕고 둥근 접시를 비스듬히 본 모습 */
+function GLdrawDish(c, cx, y, halfW, liquidFrac, colTop, colBot, phase){
+  var depth=halfW*0.30, rimRy=halfW*0.22;
+  /* 그릇 몸통 */
+  c.fillStyle='rgba(226,238,240,0.95)';
+  c.beginPath();
+  c.moveTo(cx-halfW, y);
+  c.quadraticCurveTo(cx, y+depth*2.1, cx+halfW, y);
+  c.closePath(); c.fill();
+  c.strokeStyle='#5f7f88'; c.lineWidth=3; c.stroke();
+  /* 액체 */
+  if(liquidFrac>0.01){
+    var lw=halfW*0.9*Math.sqrt(liquidFrac);
+    var ly=y+depth*1.2*(1-liquidFrac*0.5);
+    c.save();
+    c.beginPath();
+    c.moveTo(cx-halfW+3, y);
+    c.quadraticCurveTo(cx, y+depth*2.0, cx+halfW-3, y);
+    c.closePath(); c.clip();
+    var grad=c.createLinearGradient(0,y-rimRy,0,y+depth*2);
+    grad.addColorStop(0,colTop); grad.addColorStop(1,colBot);
+    c.fillStyle=grad;
+    c.beginPath();
+    c.ellipse(cx, ly-depth*0.9, lw, rimRy*Math.max(0.4,liquidFrac), 0, 0, Math.PI*2);
+    c.fill();
+    c.beginPath();
+    c.moveTo(cx-lw, ly-depth*0.9);
+    c.quadraticCurveTo(cx, y+depth*2.0, cx+lw, ly-depth*0.9);
+    c.closePath(); c.fill();
+    /* 수면 반사 */
+    c.strokeStyle='rgba(255,255,255,0.6)'; c.lineWidth=2;
+    c.beginPath();
+    c.ellipse(cx, ly-depth*0.9, lw, rimRy*Math.max(0.4,liquidFrac), 0, Math.PI*1.05, Math.PI*1.95);
+    c.stroke();
+    c.restore();
+  }
+  /* 테두리 */
+  c.strokeStyle='#40606a'; c.lineWidth=4;
+  c.beginPath(); c.ellipse(cx, y, halfW, rimRy, 0, 0, Math.PI*2); c.stroke();
+  c.strokeStyle='rgba(255,255,255,0.8)'; c.lineWidth=1.8;
+  c.beginPath(); c.ellipse(cx, y-1.5, halfW-3, rimRy-1, 0, Math.PI*1.05, Math.PI*1.95); c.stroke();
+}
+
+
 const tabBtns=document.querySelectorAll('.tab-btn');
 const exploreTab=document.getElementById('exploreTab'), verifyTab=document.getElementById('verifyTab');
 tabBtns.forEach(b=>b.addEventListener('click',()=>{
@@ -175,18 +385,18 @@ document.getElementById('testBtn').addEventListener('click',()=>{
   const g=GASES[gasIdx];
   const btn=document.getElementById('testBtn');
   btn.disabled=true;
-  const duration=1800;
+  const duration=3200;
   const t0=performance.now();
   function frame(now){
     const p=Math.min(1,(now-t0)/duration);
     testProgress=p;
-    if(p<0.45){
+    if(p<0.55){
       curCandleFlame='normal';
     }else{
       candleResult=g.candle;
       curCandleFlame = g.key==='o2' ? 'big' : (g.key==='air' ? 'normal' : 'out');
     }
-    if(p>=0.55){
+    if(p>=0.72){
       limeResult=g.lime;
       curLimeCloudy = g.lime.includes('흐려짐');
     }
@@ -216,15 +426,81 @@ function renderTable(){
 }
 
 const canvas=document.getElementById('gasCanvas'), ctx=canvas.getContext('2d');
+let GLphase=0;
 function draw(){
   const CW=canvas.width, CH=canvas.height;
   ctx.clearRect(0,0,CW,CH);
 
   // 왼쪽: 촛불 시험용 유리병
   const jarLeft=30, jarRight=170, jarTop=25, jarBottom=CH-30;
-  ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
-  ctx.strokeRect(jarLeft,jarTop,jarRight-jarLeft,jarBottom-jarTop);
   const cx1=(jarLeft+jarRight)/2;
+  GLphase+=0.05;
+  /* 집기병 — 유리로 그린다 */
+  const GJ=GLbeaker(cx1, jarTop, jarBottom, (jarRight-jarLeft)/2);
+  GLback(ctx,GJ);
+  /* 병 속을 채운 기체 */
+  /* 기체가 얼마나 들어갔는지 (0~1) */
+  const fillP = testProgress===null ? 1 : Math.min(1, testProgress/0.38);
+  const gasCol = GASES[gasIdx].name.indexOf('이산화')>=0 ? [150,160,170]
+               : (GASES[gasIdx].name.indexOf('산소')>=0 ? [130,190,232] : [170,190,200]);
+  ctx.save(); GLpath(ctx,GJ); ctx.clip();
+  /* 기체는 액체처럼 수면을 만들며 차오르지 않는다.
+     들어온 자리에서 사방으로 퍼져 병 전체를 고르게 채운다. */
+  ctx.fillStyle='rgba('+gasCol.join(',')+','+(0.24*fillP).toFixed(3)+')';
+  ctx.fillRect(jarLeft-4, jarTop-4, jarRight-jarLeft+8, jarBottom-jarTop+8);
+  if(fillP>0.02){
+    /* 주입구에서 시작해 퍼져 나가는 기체 알갱이 (수면 없음) */
+    const inX=jarLeft+22, inY=jarTop+34;                 // 관이 들어오는 자리
+    const jw=(jarRight-jarLeft)/2-12, jh=(jarBottom-jarTop)/2-12;
+    const spread=Math.min(1, fillP*1.25);
+    const nG=Math.round(30*fillP);
+    for(let q=0;q<nG;q++){
+      const seed=q*2.399;
+      const drift=Date.now()/1100;
+      /* 퍼진 정도에 따라 주입구 → 병 전체로 흩어진다 */
+      const rx=Math.cos(seed*1.7+drift+q)*jw*spread*(0.35+0.65*((q*37%100)/100));
+      const ry=Math.sin(seed*2.3+drift*1.3+q)*jh*spread*(0.35+0.65*((q*53%100)/100));
+      const qx=inX+(cx1-inX)*spread+rx;
+      const qy=inY+((jarTop+jarBottom)/2-inY)*spread+ry;
+      const a=0.30+0.35*Math.abs(Math.sin(drift*2+q));
+      ctx.fillStyle='rgba('+gasCol.join(',')+','+a.toFixed(2)+')';
+      ctx.beginPath(); ctx.arc(qx,qy,3.2,0,Math.PI*2); ctx.fill();
+    }
+  }
+  ctx.restore();
+  /* 기체를 넣는 관과 주사기 */
+  if(testProgress===null || testProgress<0.45){
+    ctx.strokeStyle='#8a939b'; ctx.lineWidth=7; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(jarLeft+18, jarTop-26);
+    ctx.quadraticCurveTo(jarLeft+2, jarTop+16, jarLeft+22, jarTop+34);
+    ctx.stroke(); ctx.lineCap='butt';
+    /* 주사기 */
+    ctx.fillStyle='rgba(226,240,243,0.9)';
+    ctx.fillRect(jarLeft-14, jarTop-52, 62, 22);
+    ctx.strokeStyle='#5f7f88'; ctx.lineWidth=2.5;
+    ctx.strokeRect(jarLeft-14, jarTop-52, 62, 22);
+    const push = testProgress===null ? 0 : Math.min(1,testProgress/0.38);
+    ctx.fillStyle='#3f4c50';
+    ctx.fillRect(jarLeft-14+push*40, jarTop-52, 8, 22);
+    ctx.fillStyle='#c1443c';
+    ctx.fillRect(jarLeft-24+push*40, jarTop-57, 12, 32);
+    ctx.fillStyle='#4a636a'; ctx.font='12px "IBM Plex Mono", monospace'; ctx.textAlign='center';
+    ctx.fillText(GASES[gasIdx].name+' 주입', jarLeft+18, jarTop-62);
+    /* 관을 타고 흐르는 기체 */
+    if(testProgress!==null && testProgress<0.4){
+      ctx.fillStyle='rgba('+gasCol.join(',')+',0.9)';
+      for(let d=0;d<4;d++){
+        const t=((Date.now()/260+d*0.25)%1);
+        const bx=jarLeft+18+(jarLeft+22-(jarLeft+18))*t+Math.sin(t*Math.PI)*-14;
+        const by=(jarTop-26)+(jarTop+34-(jarTop-26))*t;
+        ctx.beginPath(); ctx.arc(bx,by,3.2,0,Math.PI*2); ctx.fill();
+      }
+    }
+  }
+  const candleDrop = testProgress===null ? 1 : Math.max(0, Math.min(1,(testProgress-0.40)/0.15));
+  ctx.save();
+  ctx.translate(0, -(1-candleDrop)*90);
   if(curCandleFlame!=='out'){
     const flameH = curCandleFlame==='big' ? 40 : 22;
     ctx.strokeStyle='#4a4a4a'; ctx.lineWidth=4;
@@ -235,19 +511,104 @@ function draw(){
     ctx.strokeStyle='#4a4a4a'; ctx.lineWidth=4;
     ctx.beginPath(); ctx.moveTo(cx1,jarBottom-10); ctx.lineTo(cx1,jarBottom-10-30); ctx.stroke();
   }
+  ctx.restore();
+  GLfront(ctx,GJ,{ticks:false, spout:false});
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
-  ctx.fillText('촛불', cx1, jarBottom+20);
+  ctx.fillText(testProgress===null ? '촛불'
+    : (testProgress<0.38 ? '기체 넣는 중'
+    : (testProgress<0.62 ? '촛불 넣는 중' : '촛불')), cx1, jarBottom+20);
 
   // 오른쪽: 석회수 시험관
   const tubeLeft=260, tubeRight=380, tubeTop=25, tubeBottom=CH-30;
   const cx2=(tubeLeft+tubeRight)/2;
-  ctx.strokeStyle='#173238'; ctx.lineWidth=2.5;
-  ctx.strokeRect(tubeLeft,tubeTop,tubeRight-tubeLeft,tubeBottom-tubeTop);
-  ctx.fillStyle = curLimeCloudy ? 'rgba(220,220,220,0.85)' : 'rgba(220,235,240,0.35)';
-  ctx.fillRect(tubeLeft+3,tubeTop+3,tubeRight-tubeLeft-6,tubeBottom-tubeTop-6);
+  /* 석회수 시험관 — 아래가 둥근 유리관 */
+  /* 기포가 통과한 정도만큼 서서히 뿌예진다 */
+  const cloudP = curLimeCloudy
+    ? (testProgress===null ? 1 : Math.max(0, Math.min(1,(testProgress-0.72)/0.24)))
+    : 0;
+  function mixLime(a,b){ return 'rgba('+
+    Math.round(214+(236-214)*cloudP)+','+
+    Math.round(236+(238-236)*cloudP)+','+
+    Math.round(242+(238-242)*cloudP)+','+
+    (0.55+0.37*cloudP).toFixed(2)+')'; }
+  GLdrawTube(ctx, cx2, tubeTop, tubeBottom, (tubeRight-tubeLeft)/2, tubeTop+34,
+    mixLime(),
+    'rgba('+Math.round(176+(206-176)*cloudP)+','+Math.round(214-(214-210)*cloudP)+','
+      +Math.round(228-(228-212)*cloudP)+','+(0.72+0.24*cloudP).toFixed(2)+')', GLphase);
+  /* 집기병에서 석회수로 이어지는 유도관 — 끝이 석회수 속에 잠겨 있다 */
+  const limeSurf=tubeTop+34;
+  const outletY=tubeBottom-30;                       // 관 끝(석회수 속)
+  const passing = testProgress!==null && testProgress>=0.62 && testProgress<1;
+  ctx.strokeStyle='#8a939b'; ctx.lineWidth=8; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(jarRight-16, jarTop+14);
+  ctx.quadraticCurveTo(215, jarTop-16, cx2, jarTop+6);
+  ctx.lineTo(cx2, outletY);
+  ctx.stroke();
+  ctx.strokeStyle='#c2cace'; ctx.lineWidth=3;
+  ctx.beginPath();
+  ctx.moveTo(jarRight-16, jarTop+12);
+  ctx.quadraticCurveTo(215, jarTop-18, cx2, jarTop+4);
+  ctx.stroke();
+  ctx.lineCap='butt'; ctx.lineJoin='miter';
+  /* 관을 타고 흘러가는 기체 */
+  if(passing){
+    ctx.fillStyle='rgba('+gasCol.join(',')+',0.95)';
+    for(let d=0;d<5;d++){
+      const t=((Date.now()/420+d*0.2)%1);
+      let bx,by;
+      if(t<0.55){                                     // 굽은 구간
+        const u=t/0.55, iu=1-u;
+        bx=iu*iu*(jarRight-16)+2*iu*u*215+u*u*cx2;
+        by=iu*iu*(jarTop+14)+2*iu*u*(jarTop-16)+u*u*(jarTop+6);
+      }else{                                          // 곧은 내림 구간
+        const u=(t-0.55)/0.45;
+        bx=cx2; by=(jarTop+6)+(outletY-(jarTop+6))*u;
+      }
+      ctx.beginPath(); ctx.arc(bx,by,3.4,0,Math.PI*2); ctx.fill();
+    }
+  }
+  /* 석회수 속에서 올라오는 기포 */
+  if(passing){
+    ctx.save(); GLtubePath(ctx,cx2,tubeTop,tubeBottom,(tubeRight-tubeLeft)/2); ctx.clip();
+    for(let b=0;b<9;b++){
+      const t=((Date.now()/900+b*0.11)%1);
+      const by=outletY-(outletY-limeSurf-6)*t;
+      const bx=cx2+Math.sin(t*7+b)*13;
+      const r=3.2+t*2.6;
+      ctx.fillStyle='rgba(255,255,255,'+(0.75*(1-t*0.5)).toFixed(2)+')';
+      ctx.beginPath(); ctx.arc(bx,by,r,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(120,160,175,0.75)'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.arc(bx,by,r,0,Math.PI*2); ctx.stroke();
+    }
+    /* 수면에서 터지는 기포 */
+    ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=2;
+    for(let k=0;k<2;k++){
+      const t=((Date.now()/700+k*0.5)%1);
+      ctx.beginPath();
+      ctx.ellipse(cx2+(k?14:-14), limeSurf+4, 4+t*12, (4+t*12)*0.3, 0, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  /* 관 끝 표시 */
+  ctx.fillStyle='#6f767c';
+  ctx.beginPath(); ctx.ellipse(cx2, outletY, 6, 3.5, 0, 0, Math.PI*2); ctx.fill();
+
+  if(curLimeCloudy){
+    /* 뿌옇게 생긴 앙금이 가라앉는다 */
+    ctx.save(); GLtubePath(ctx,cx2,tubeTop,tubeBottom,(tubeRight-tubeLeft)/2); ctx.clip();
+    ctx.fillStyle='rgba(255,255,255,'+(0.9*cloudP).toFixed(2)+')';
+    for(let q=0;q<Math.round(26*cloudP);q++){
+      const qx=cx2-42+((q*29)%84);
+      const qy=tubeBottom-10-((q*13)%40);
+      ctx.beginPath(); ctx.arc(qx,qy,2.6,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
   // 기체 방울이 석회수를 통과하는 모습 (테스트 진행 중일 때만)
-  if(testProgress!==null && testProgress>=0.55 && testProgress<1){
-    const bp=(testProgress-0.55)/0.45;
+  if(false){
+    const bp=0;
     ctx.strokeStyle='#8fa8a3'; ctx.lineWidth=1.5;
     [0,-14,14].forEach((off,i)=>{
       const by = tubeBottom-6-((bp+i*0.2)%1)*(tubeBottom-tubeTop-16);
@@ -255,7 +616,7 @@ function draw(){
     });
   }
   ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
-  ctx.fillText('석회수', cx2, tubeBottom+20);
+  ctx.fillText(passing ? '석회수에 기체 통과 중' : '석회수', cx2, tubeBottom+20);
 
   ctx.fillStyle='#173238'; ctx.font='bold 14px "Noto Sans KR", sans-serif';
   ctx.fillText(GASES[gasIdx].name, CW/2, 14);

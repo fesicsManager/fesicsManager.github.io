@@ -352,10 +352,15 @@ var canvas=document.getElementById('diffCanvas'), ctx=canvas.getContext('2d');
 var BEAK={l:96,r:344,t:44,b:266}, WTOP=84, CX=220, CY=176;
 
 /* 색소 알갱이: 서로 떨어진 무작위 위치에서 시작해 계속 미세하게 움직인다 */
+var SURF=WTOP+3;          /* 잉크가 떨어지는 수면 지점 */
 var dots=[];
 for(var i=0;i<70;i++){
   var a=Math.random()*Math.PI*2, rr=Math.random();
-  dots.push({a:a, r:rr, jx:0, jy:0, vx:(Math.random()-0.5)*0.5, vy:(Math.random()-0.5)*0.5});
+  /* 각도는 0(오른쪽 수면) ~ π(왼쪽 수면), π/2 = 곧장 아래.
+     수면 근처로 갈수록 알갱이가 조금 더 많도록 살짝 치우치게 뽑는다 */
+  dots.push({a:Math.random()*Math.PI, r:rr, jx:0, jy:0,
+             vx:(Math.random()-0.5)*0.5, vy:(Math.random()-0.5)*0.5,
+             sink:0.3+Math.random()*0.7});
 }
 
 document.getElementById('tSlider').addEventListener('input',function(e){
@@ -407,30 +412,65 @@ function draw(){
 
   if(phase===1){
     /* ① 방울이 위에서 떨어진다 */
-    var dy=44+(WTOP+18-44)*spread;
+    var dy=44+(SURF-44)*spread*spread;               /* 중력처럼 가속해 떨어진다 */
     ctx.fillStyle='#4a3ba8';
-    ctx.beginPath(); ctx.ellipse(CX,dy,7,10,0,0,Math.PI*2); ctx.fill();
+    /* 떨어지는 동안 방울이 길쭉해진다 */
+    ctx.beginPath(); ctx.ellipse(CX,dy,7-spread*1.5,10+spread*5,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(CX-2,dy-4,2,3,0,0,Math.PI*2); ctx.fill();
   }else if(phase>=2){
-    /* ② 알갱이가 무작위로 흩어지며 퍼진다 */
+    /* ② 잉크가 닿은 수면 지점에서 사방으로 번져 나간다 */
     var maxR=118*spread;
+
+    /* 떨어진 순간 수면에 이는 물결 */
+    if(spread<0.35){
+      var rp=spread/0.35;
+      ctx.strokeStyle='rgba(255,255,255,'+((1-rp)*0.8).toFixed(2)+')';
+      ctx.lineWidth=2.5;
+      for(var k=0;k<2;k++){
+        var rr0=8+rp*(52+k*22);
+        ctx.beginPath();
+        ctx.ellipse(CX, SURF+2, rr0, rr0*0.22, 0, 0, Math.PI*2);
+        ctx.stroke();
+      }
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(BEAK.l+2, SURF, BEAK.r-BEAK.l-4, BEAK.b-SURF-2);
+    ctx.clip();
+
+    /* 수면을 따라 얇게 번진 잉크 자국 */
+    var filmW=Math.min(maxR*1.15, (BEAK.r-BEAK.l)/2-6);
+    ctx.fillStyle='rgba(74,59,168,'+(0.34*(1-spread*0.75)).toFixed(2)+')';
+    ctx.beginPath();
+    ctx.ellipse(CX, SURF+4, filmW, 7+spread*5, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    /* 알갱이 — 수면 지점에서 아래쪽 반원으로 퍼진다 */
     dots.forEach(function(d){
       d.jx+=d.vx; d.jy+=d.vy;
       if(Math.abs(d.jx)>7) d.vx*=-1;
       if(Math.abs(d.jy)>7) d.vy*=-1;
       var rr=Math.sqrt(d.r)*maxR;
       var px=CX+Math.cos(d.a)*rr+d.jx;
-      var py=CY+Math.sin(d.a)*rr*0.86+d.jy;
+      /* 아래로만 퍼지고, 시간이 지나면 전체가 조금씩 가라앉는다 */
+      var py=SURF+Math.sin(d.a)*rr*0.92+d.jy+spread*spread*26*d.sink;
       px=Math.max(BEAK.l+8,Math.min(BEAK.r-8,px));
-      py=Math.max(WTOP+8,Math.min(BEAK.b-8,py));
-      ctx.fillStyle='rgba(74,59,168,'+(0.85-0.45*spread)+')';
+      py=Math.max(SURF+2,Math.min(BEAK.b-8,py));
+      ctx.fillStyle='rgba(74,59,168,'+(0.85-0.45*spread).toFixed(2)+')';
       ctx.beginPath(); ctx.arc(px,py,4.6,0,Math.PI*2); ctx.fill();
     });
-    /* 1mm 기준자 */
+    ctx.restore();
+
+    /* 1mm 기준자 — 잉크가 떨어진 자리에서 잰다 */
+    var RY=SURF+22;
     ctx.strokeStyle='#c1443c'; ctx.lineWidth=3;
-    ctx.beginPath(); ctx.moveTo(CX,CY); ctx.lineTo(CX+118,CY); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(CX+118,CY-8); ctx.lineTo(CX+118,CY+8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX,RY); ctx.lineTo(CX+118,RY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX,RY-8); ctx.lineTo(CX,RY+8);
+    ctx.moveTo(CX+118,RY-8); ctx.lineTo(CX+118,RY+8); ctx.stroke();
     ctx.fillStyle='#c1443c'; ctx.font="700 20px 'Noto Sans KR',sans-serif"; ctx.textAlign='center';
-    ctx.fillText('1mm', CX+60, CY-12);
+    ctx.fillText('1mm', CX+60, RY+26);
   }
 
   /* 캡션 */
