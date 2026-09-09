@@ -194,6 +194,38 @@ input[type=range]{cursor:pointer;height:24px;}
 </div>
 
 <script>
+
+/* ===== 화면 튐 방지 (공통) =====
+   그림이 화면 밖에 있을 때만, 그것도 '필요한 만큼만' 스크롤한다.
+   방금 누른 버튼이 화면 밖으로 밀려나지 않도록 이동량을 제한해서,
+   버튼보다 위로 화면이 튀어 올라가지 않게 한다. */
+var zlAnchor=null;
+document.addEventListener('click',function(e){
+  var t=e.target;
+  while(t && t!==document){
+    if(t.tagName && /^(BUTTON|INPUT|SELECT|LABEL|A)$/.test(t.tagName)){ zlAnchor=t; break; }
+    t=t.parentNode;
+  }
+},true);
+document.addEventListener('input',function(e){ if(e.target) zlAnchor=e.target; },true);
+function zlFocusView(el){
+  if(!el || !el.getBoundingClientRect) return;
+  var vh=window.innerHeight, M=12;
+  var r=el.getBoundingClientRect();
+  var vis=Math.min(r.bottom,vh)-Math.max(r.top,0);
+  if(vis>=Math.min(r.height,vh*0.6)-1) return;        /* 이미 충분히 보이면 그대로 둔다 */
+  var d=0;
+  if(r.top<M) d=r.top-M;                              /* 위가 잘렸으면 위로 */
+  else if(r.bottom>vh-M) d=r.bottom-(vh-M);           /* 아래가 잘렸으면 아래로 */
+  if(zlAnchor && document.body.contains(zlAnchor)){   /* 방금 누른 버튼이 계속 보이는 만큼만 */
+    var br=zlAnchor.getBoundingClientRect();
+    var lo=br.bottom-vh+M, hi=br.top-M;
+    if(br.bottom>0 && br.top<vh && lo<=hi) d=Math.max(lo,Math.min(d,hi));
+  }
+  if(Math.abs(d)<2) return;
+  window.scrollBy({top:d,behavior:'smooth'});
+}
+
 const tabBtns=document.querySelectorAll('.tab-btn');
 const exploreTab=document.getElementById('exploreTab'), verifyTab=document.getElementById('verifyTab');
 tabBtns.forEach(b=>b.addEventListener('click',()=>{
@@ -215,7 +247,6 @@ CIRCUIT_TYPES.forEach((c,i)=>{
     circuitIdx=i;
     document.querySelectorAll('#circuitTypeRow .mat-btn').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
-    points=[]; renderTable();
     update();
   });
   circuitTypeRow.appendChild(b);
@@ -376,26 +407,38 @@ function drawParallel(){
   bulb(branch1X, (top+bottom)/2, 22, P1/MAX_P, broken);
   bulb(branch2X, (top+bottom)/2, 22, P2/MAX_P, false);
 
+  /* 전류는 한 방향으로만 순환한다: 전지(왼쪽) → 위 버스 → 분기 아래로 → 아래 버스 → 전지
+     분기마다 자기 폐회로를 돌며, 겹치는 구간(전지·버스)에서는 두 흐름이 함께 보인다. */
   ctx.fillStyle='#d98e3b';
-  if(!broken && I1>0){
-    phaseP1=(phaseP1+I1*1.4)%((bottom-top)*2);
-    const span=bottom-top;
-    for(let i=0;i<5;i++){
-      let t=((phaseP1+i*(span*2/5))%(span*2)+span*2)%(span*2);
-      let y = t<span ? top+t : bottom-(t-span);
-      if(Math.abs(y-(top+bottom)/2)<26) continue;
-      ctx.beginPath(); ctx.arc(branch1X,y,5,0,Math.PI*2); ctx.fill();
+  const midY=(top+bottom)/2;
+  function branchLoopPoint(bx,t){
+    const w=bx-left, h=bottom-top, per=2*(w+h);
+    t=((t%per)+per)%per;
+    if(t<h) return [left, bottom-t];        /* 전지 쪽 왼쪽 변: 아래 → 위 */
+    t-=h;
+    if(t<w) return [left+t, top];           /* 위 버스: 왼 → 오 */
+    t-=w;
+    if(t<h) return [bx, top+t];             /* 분기(전구): 위 → 아래 */
+    t-=h;
+    return [bx-t, bottom];                  /* 아래 버스: 오 → 왼 */
+  }
+  function drawBranchFlow(bx,cur,phase){
+    const per=2*((bx-left)+(bottom-top));
+    const n=Math.max(8, Math.round(per/56));
+    for(let i=0;i<n;i++){
+      const p=branchLoopPoint(bx, phase+i*(per/n));
+      if(Math.hypot(p[0]-bx, p[1]-midY)<26) continue;      /* 전구 자리 */
+      if(Math.hypot(p[0]-left, p[1]-midY)<24) continue;    /* 전지 자리 */
+      ctx.beginPath(); ctx.arc(p[0],p[1],5,0,Math.PI*2); ctx.fill();
     }
   }
+  if(!broken && I1>0){
+    phaseP1+=I1*1.4;
+    drawBranchFlow(branch1X, I1, phaseP1);
+  }
   if(I2>0){
-    phaseP2=(phaseP2+I2*1.4)%((bottom-top)*2);
-    const span=bottom-top;
-    for(let i=0;i<5;i++){
-      let t=((phaseP2+i*(span*2/5))%(span*2)+span*2)%(span*2);
-      let y = t<span ? top+t : bottom-(t-span);
-      if(Math.abs(y-(top+bottom)/2)<26) continue;
-      ctx.beginPath(); ctx.arc(branch2X,y,5,0,Math.PI*2); ctx.fill();
-    }
+    phaseP2+=I2*1.4;
+    drawBranchFlow(branch2X, I2, phaseP2);
   }
   capsule(left, top-30, '전지 6V', 'rgba(23,50,56,0.9)', '#fff');
   capsule(branch1X, bottom+32, '전구1 '+R1+'Ω'+(broken?' (끊김)':''), 'rgba(255,255,255,0.95)', broken?'#c1443c':'#173238');
@@ -484,7 +527,7 @@ document.getElementById('breakChoices').addEventListener('click',(e)=>{
                     document.getElementById('exploreTab');
         const cv=(scope&&scope.querySelector('canvas')) ||
                  document.querySelector('#exploreTab > div:not(.hidden) canvas');
-        if(cv) cv.scrollIntoView({behavior:'smooth', block:'center'});
+        if(cv) zlFocusView(cv);
       },0);
     }, true);
   });
