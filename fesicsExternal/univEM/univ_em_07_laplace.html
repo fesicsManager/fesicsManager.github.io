@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>전자기학 랩 07 · 라플라스 방정식과 변수분리</title>
+<style>
+:root{
+  --paper:#EDF0F3;--panel:#FFFFFF;--ink:#16212B;--ink-soft:#5A6B79;--rule:#C4D0DA;
+  --out:#C63F2E;--in:#2A6BA8;--spin:#6A4A9E;--neutral:#8494A1;--ok:#2E7D5B;--metal:#7C8794;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:24px 16px 64px}
+header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:20px}
+.kicker{font-size:13px;color:var(--ink-soft)}
+h1{font-size:28px;margin:4px 0 6px;font-weight:700;letter-spacing:-.01em}
+header p{margin:0;font-size:14px;color:var(--ink-soft);max-width:62ch}
+.tabs{display:flex;margin:0 0 18px;border-bottom:1px solid var(--rule)}
+.tab{appearance:none;background:none;border:none;cursor:pointer;font:inherit;font-size:15px;
+  font-weight:600;color:var(--ink-soft);padding:10px 18px;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tab:focus-visible{outline:2px solid var(--spin);outline-offset:2px}
+.panel[hidden]{display:none}
+.layout{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+@media(max-width:820px){.layout{grid-template-columns:1fr}}
+.stage{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:10px}
+canvas{display:block;width:100%;height:auto}
+.side{display:flex;flex-direction:column;gap:14px}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:14px}
+.card h2{font-size:14px;margin:0 0 10px;font-weight:700}
+label{display:block;font-size:13px;color:var(--ink-soft);margin:10px 0 4px}
+select,input[type=range]{width:100%}
+select{font:inherit;font-size:14px;padding:6px;border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+.readout{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px;align-items:baseline}
+.readout dt{color:var(--ink-soft);font-size:13px}
+.readout dd{margin:0;font-variant-numeric:tabular-nums;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}
+th,td{text-align:right;padding:6px;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left;font-variant-numeric:normal}
+thead th{font-size:12px;color:var(--ink-soft);font-weight:600}
+.verdict{margin-top:12px;padding:10px 12px;border-radius:3px;font-size:13px;font-weight:600;line-height:1.5}
+.verdict.yes{background:rgba(46,125,91,.10);color:var(--ok);border-left:3px solid var(--ok)}
+.formula{font-size:13px;color:var(--ink-soft);margin-top:10px;padding-top:10px;border-top:1px dashed var(--rule)}
+.note{font-size:13px;color:var(--ink-soft);margin:14px 0 0;max-width:66ch}
+.note strong{color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--ink-soft);margin-top:8px}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">제로 랩 · 대학 전공 트랙 — 전자기학 실험 07</div>
+  <h1>급수로 경계를 맞추기</h1>
+  <p>같은 문제를 두 방법으로 풉니다. 격자를 반복해서 완화시키는 수치해와, 직교 함수로 전개하는 변수분리 해. 두 답이 어디까지 일치하는지 직접 재 봅니다. 대본 7화에 대응합니다.</p>
+</header>
+
+<div class="tabs" role="tablist">
+  <button class="tab" id="tab-a" role="tab" aria-selected="true" aria-controls="panel-a">1. 직교좌표 · 푸리에</button>
+  <button class="tab" id="tab-b" role="tab" aria-selected="false" aria-controls="panel-b">2. 구면좌표 · 르장드르</button>
+</div>
+
+<!-- ===== 탭 1 ===== -->
+<section class="panel" id="panel-a" role="tabpanel" aria-labelledby="tab-a">
+  <div class="layout">
+    <div class="stage">
+      <canvas id="cv1" width="620" height="430"></canvas>
+      <div class="legend">
+        <span>왼쪽 = 완화법 수치해</span>
+        <span>가운데 = 급수 N항</span>
+        <span>오른쪽 = 차이 (증폭)</span>
+      </div>
+    </div>
+    <div class="side">
+      <div class="card">
+        <h2>경계 조건</h2>
+        <select id="bc1">
+          <option value="flat">바닥 V₀ 일정, 세 벽 접지</option>
+          <option value="half">바닥 절반만 V₀</option>
+          <option value="sine">바닥 V₀ sin(πx/a)</option>
+        </select>
+        <label for="N1">급수 항 수 N <span id="NLab">1</span></label>
+        <input type="range" id="N1" min="1" max="40" step="1" value="1">
+        <p class="formula">급수는 홀수 항만 살아남는 경우가 많습니다. 그래서 N을 1→3→5로 올릴 때 큰 변화가 생깁니다.</p>
+      </div>
+      <div class="card">
+        <h2>두 해의 비교</h2>
+        <dl class="readout">
+          <dt>최대 차이</dt><dd id="maxd1">—</dd>
+          <dt>평균 차이</dt><dd id="avgd1">—</dd>
+          <dt>완화 반복 횟수</dt><dd id="iter1">—</dd>
+        </dl>
+        <table>
+          <thead><tr><th>n</th><th>계수 Cₙ</th></tr></thead>
+          <tbody id="coef1"></tbody>
+        </table>
+      </div>
+      <p class="note">N이 작을 때는 <strong>바닥 근처에서만</strong> 차이가 큽니다. 급수의 각 항이 <strong>e<sup>−nπy/a</sup></strong> 로 감쇠하므로, 높은 항일수록 바닥에서만 일합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 탭 2 ===== -->
+<section class="panel" id="panel-b" role="tabpanel" aria-labelledby="tab-b" hidden>
+  <div class="layout">
+    <div class="stage">
+      <canvas id="cv2" width="620" height="470"></canvas>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--out)"></span>V &gt; 0</span>
+        <span><span class="swatch" style="background:var(--in)"></span>V &lt; 0</span>
+        <span>아래 그래프 = 구면 위 전위 (목표 vs 급수)</span>
+      </div>
+    </div>
+    <div class="side">
+      <div class="card">
+        <h2>구면 경계 전위 V₀(θ)</h2>
+        <select id="bc2">
+          <option value="cos">V₀ cos θ</option>
+          <option value="p2">V₀ P₂(cos θ)</option>
+          <option value="hemi">위 반구 +V₀ / 아래 −V₀</option>
+          <option value="cap">위쪽 모자(θ&lt;60°)만 V₀</option>
+        </select>
+        <label for="L2">급수 항 수 ℓ ≤ <span id="LLab">1</span></label>
+        <input type="range" id="L2" min="0" max="24" step="1" value="1">
+      </div>
+      <div class="card">
+        <h2>르장드르 계수</h2>
+        <table>
+          <thead><tr><th>ℓ</th><th>A<sub>ℓ</sub></th></tr></thead>
+          <tbody id="coef2"></tbody>
+        </table>
+        <div class="verdict yes" id="v2">—</div>
+      </div>
+      <p class="note">V₀ cos θ 는 <strong>ℓ=1 하나</strong>로 정확히 끝납니다. 그 결과 구 내부는 균일한 전기장, 외부는 순수 쌍극자장이 됩니다. 반구 조건을 고르면 항이 무한히 필요하고, 경계면에서 진동이 남습니다.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function colorFor(t){ // t: -1..1
+  const r=t>0?255-95*t:255+22*t, g=255-80*Math.abs(t), b=t<0?255+95*t:255+18*t;
+  return [Math.max(0,Math.min(255,r)),Math.max(0,Math.min(255,g)),Math.max(0,Math.min(255,b))];
+}
+
+/* ===== 탭 1 : 직교 홈통 ===== */
+(function(){
+const cv=document.getElementById('cv1'), ctx=cv.getContext('2d');
+const NX=81, NY=61, A=1.0, B=0.8;     // 폭 a, 높이 b
+const V=new Float64Array(NX*NY);
+const idx=(i,j)=>j*NX+i;
+let iter=0;
+const bcEl=document.getElementById('bc1'), NEl=document.getElementById('N1');
+
+function bottomV(x){
+  const s=bcEl.value;
+  if(s==='flat') return 1;
+  if(s==='half') return x<A/2?1:0;
+  return Math.sin(Math.PI*x/A);
+}
+function applyBC(){
+  for(let i=0;i<NX;i++){
+    const x=i*A/(NX-1);
+    V[idx(i,0)]=bottomV(x);      // 바닥
+    V[idx(i,NY-1)]=0;            // 천장
+  }
+  for(let j=0;j<NY;j++){ V[idx(0,j)]=0; V[idx(NX-1,j)]=0; }
+}
+function reset(){ V.fill(0); applyBC(); iter=0; computeCoef(); }
+
+/* 급수 계수: V = Σ Cn sinh(nπ(b−y)/a)/sinh(nπb/a) sin(nπx/a) */
+let COEF=[];
+function computeCoef(){
+  COEF=[];
+  const M=2000;
+  for(let n=1;n<=40;n++){
+    let s=0;
+    for(let k=0;k<M;k++){
+      const x=(k+0.5)*A/M;
+      s += bottomV(x)*Math.sin(n*Math.PI*x/A)*(A/M);
+    }
+    COEF.push(2/A*s);
+  }
+  const tb=document.getElementById('coef1');
+  tb.innerHTML='';
+  for(let n=1;n<=Math.min(6,parseInt(NEl.value,10));n++){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${n}</td><td>${COEF[n-1].toFixed(4)}</td>`;
+    tb.appendChild(tr);
+  }
+}
+function series(x,y,N){
+  let v=0;
+  for(let n=1;n<=N;n++){
+    const c=COEF[n-1];
+    if(Math.abs(c)<1e-12) continue;
+    const k=n*Math.PI/A;
+    v += c*Math.sinh(k*(B-y))/Math.sinh(k*B)*Math.sin(k*x);
+  }
+  return v;
+}
+
+function relax(n){
+  for(let s=0;s<n;s++){
+    for(let j=1;j<NY-1;j++)for(let i=1;i<NX-1;i++){
+      const p=idx(i,j);
+      const nv=0.25*(V[p-1]+V[p+1]+V[p-NX]+V[p+NX]);
+      V[p]=V[p]+1.9*(nv-V[p]);
+    }
+    applyBC();
+  }
+  iter+=n;
+}
+
+function render(){
+  relax(30);
+  const N=parseInt(NEl.value,10);
+  document.getElementById('NLab').textContent=N;
+
+  const W=cv.width,H=cv.height, pw=Math.floor((W-24)/3), ph=H-46;
+  ctx.clearRect(0,0,W,H);
+  const img=ctx.createImageData(pw,ph);
+  const draw=(ox,fn,amp)=>{
+    for(let py=0;py<ph;py++)for(let px=0;px<pw;px++){
+      const x=px/(pw-1)*A, y=(1-py/(ph-1))*B;
+      const t=Math.max(-1,Math.min(1,fn(x,y)*amp));
+      const c=colorFor(t); const k=(py*pw+px)*4;
+      img.data[k]=c[0];img.data[k+1]=c[1];img.data[k+2]=c[2];img.data[k+3]=255;
+    }
+    ctx.putImageData(img,ox,30);
+    ctx.strokeStyle=css('--rule');ctx.lineWidth=1;ctx.strokeRect(ox,30,pw,ph);
+  };
+
+  const num=(x,y)=>{
+    const i=Math.max(0,Math.min(NX-1,Math.round(x/A*(NX-1))));
+    const j=Math.max(0,Math.min(NY-1,Math.round(y/B*(NY-1))));
+    return V[idx(i,j)];
+  };
+
+  draw(0, num, 1);
+  draw(pw+12, (x,y)=>series(x,y,N), 1);
+  draw(2*pw+24, (x,y)=>num(x,y)-series(x,y,N), 6);
+
+  ctx.fillStyle=css('--ink');ctx.font='600 13px sans-serif';
+  ctx.fillText('완화법 수치해',4,20);
+  ctx.fillText('급수 N='+N, pw+16,20);
+  ctx.fillText('차이 (×6 증폭)', 2*pw+28,20);
+  ctx.fillStyle=css('--ink-soft');ctx.font='12px sans-serif';
+  ctx.fillText('바닥 = 경계 전위 V₀', 4, H-10);
+
+  // 차이 통계
+  let md=0,ad=0,n=0;
+  for(let j=1;j<NY-1;j+=2)for(let i=1;i<NX-1;i+=2){
+    const x=i*A/(NX-1), y=j*B/(NY-1);
+    const d=Math.abs(V[idx(i,j)]-series(x,y,N));
+    md=Math.max(md,d); ad+=d; n++;
+  }
+  document.getElementById('maxd1').textContent=md.toFixed(4);
+  document.getElementById('avgd1').textContent=(ad/n).toFixed(5);
+  document.getElementById('iter1').textContent=iter;
+
+  requestAnimationFrame(render);
+}
+
+bcEl.addEventListener('input',reset);
+NEl.addEventListener('input',computeCoef);
+reset(); render();
+})();
+
+/* ===== 탭 2 : 구면 르장드르 ===== */
+(function(){
+const cv=document.getElementById('cv2'), ctx=cv.getContext('2d');
+const R=1.0, RANGE=2.6;
+const bcEl=document.getElementById('bc2'), LEl=document.getElementById('L2');
+
+function P(l,x){
+  if(l===0) return 1;
+  if(l===1) return x;
+  let p0=1,p1=x;
+  for(let n=2;n<=l;n++){ const p=((2*n-1)*x*p1-(n-1)*p0)/n; p0=p1;p1=p; }
+  return p1;
+}
+function V0(th){
+  const s=bcEl.value;
+  if(s==='cos') return Math.cos(th);
+  if(s==='p2') return P(2,Math.cos(th));
+  if(s==='hemi') return th<Math.PI/2?1:-1;
+  return th<Math.PI/3?1:0;
+}
+let A=[];
+function coef(){
+  A=[];
+  const M=3000;
+  for(let l=0;l<=24;l++){
+    let s=0;
+    for(let k=0;k<M;k++){
+      const th=(k+0.5)*Math.PI/M;
+      s += V0(th)*P(l,Math.cos(th))*Math.sin(th)*(Math.PI/M);
+    }
+    A.push((2*l+1)/2*s);
+  }
+  const tb=document.getElementById('coef2'); tb.innerHTML='';
+  const L=parseInt(LEl.value,10);
+  for(let l=0;l<=Math.min(6,L);l++){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${l}</td><td>${A[l].toFixed(4)}</td>`;
+    tb.appendChild(tr);
+  }
+}
+function Vfield(r,th,L){
+  let v=0;
+  for(let l=0;l<=L;l++){
+    if(Math.abs(A[l])<1e-10) continue;
+    const rad = r<R ? Math.pow(r/R,l) : Math.pow(R/r,l+1);
+    v += A[l]*rad*P(l,Math.cos(th));
+  }
+  return v;
+}
+
+function render(){
+  const L=parseInt(LEl.value,10);
+  document.getElementById('LLab').textContent=L;
+  coef();
+
+  const W=cv.width, Hmap=350, Hgraph=cv.height-Hmap-16;
+  ctx.clearRect(0,0,W,cv.height);
+
+  // 지도
+  const s=Hmap/(2*RANGE);
+  const cx=W/2, cy=Hmap/2;
+  const img=ctx.createImageData(W,Hmap);
+  for(let py=0;py<Hmap;py++)for(let px=0;px<W;px++){
+    const x=(px-cx)/s, z=(cy-py)/s;
+    const r=Math.hypot(x,z); const th=Math.acos(Math.max(-1,Math.min(1,z/Math.max(r,1e-9))));
+    const v=Vfield(Math.max(r,1e-6),th,L);
+    const c=colorFor(Math.max(-1,Math.min(1,v)));
+    const k=(py*W+px)*4;
+    img.data[k]=c[0];img.data[k+1]=c[1];img.data[k+2]=c[2];img.data[k+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+
+  // 등전위선(간이): 구 경계 + 격자
+  ctx.strokeStyle=css('--ink');ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(cx,cy,R*s,0,7);ctx.stroke();
+  ctx.strokeStyle='rgba(0,0,0,0.12)';ctx.lineWidth=1;
+  for(let g=-2;g<=2;g++){
+    ctx.beginPath();ctx.moveTo(cx+g*s,0);ctx.lineTo(cx+g*s,Hmap);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,cy+g*s);ctx.lineTo(W,cy+g*s);ctx.stroke();
+  }
+  ctx.fillStyle=css('--ink');ctx.font='600 12px sans-serif';
+  ctx.fillText('구 단면 (축 = 세로)',8,16);
+
+  // θ 프로파일 그래프
+  const gy=Hmap+10, gh=Hgraph-4, pad=40;
+  ctx.strokeStyle=css('--rule');ctx.lineWidth=1;
+  ctx.strokeRect(pad,gy,W-2*pad,gh);
+  const X=t=>pad+t/Math.PI*(W-2*pad);
+  const Y=v=>gy+gh/2 - v*(gh/2-6)/1.25;
+  ctx.strokeStyle=css('--rule');
+  ctx.beginPath();ctx.moveTo(pad,Y(0));ctx.lineTo(W-pad,Y(0));ctx.stroke();
+
+  ctx.strokeStyle=css('--neutral');ctx.lineWidth=2;ctx.setLineDash([5,4]);
+  ctx.beginPath();
+  for(let k=0;k<=400;k++){const t=k/400*Math.PI; const x=X(t),y=Y(V0(t)); k?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+  ctx.stroke();ctx.setLineDash([]);
+
+  ctx.strokeStyle=css('--out');ctx.lineWidth=2.4;
+  ctx.beginPath();
+  let dev=0;
+  for(let k=0;k<=400;k++){
+    const t=k/400*Math.PI;
+    let v=0; for(let l=0;l<=L;l++) v+=A[l]*P(l,Math.cos(t));
+    dev=Math.max(dev,Math.abs(v-V0(t)));
+    const x=X(t),y=Y(v); k?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  }
+  ctx.stroke();
+  ctx.fillStyle=css('--ink-soft');ctx.font='12px sans-serif';
+  ctx.fillText('θ = 0',pad,gy+gh+14);
+  ctx.fillText('θ = π',W-pad-24,gy+gh+14);
+  ctx.fillText('점선 = 목표 V₀(θ),  실선 = 급수 합', pad+70, gy+gh+14);
+
+  const v=document.getElementById('v2');
+  if(dev<0.01) v.textContent='ℓ ≤ '+L+' 만으로 경계조건을 정확히 재현했습니다. 최대 편차 '+dev.toExponential(1);
+  else v.textContent='경계 최대 편차 '+dev.toFixed(3)+' — 항을 더 넣어야 합니다.';
+}
+[bcEl,LEl].forEach(e=>e.addEventListener('input',render));
+render();
+})();
+
+/* 탭 전환 */
+(function(){
+  const tabs=[document.getElementById('tab-a'),document.getElementById('tab-b')];
+  const panels=[document.getElementById('panel-a'),document.getElementById('panel-b')];
+  tabs.forEach((t,i)=>t.addEventListener('click',()=>{
+    tabs.forEach((tt,j)=>{tt.setAttribute('aria-selected',j===i?'true':'false');panels[j].hidden=j!==i;});
+  }));
+})();
+</script>
+</body>
+</html>

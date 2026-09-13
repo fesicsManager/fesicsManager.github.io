@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스펙트럼으로 원소 찾기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+KR:wght@400;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#eef2f0;--grid:#c9d6d2;--ink:#173238;--ink-soft:#4a636a;--mute:#4a636a;--brass:#d98e3b;--brass-dark:#a86825;--teal:#2f8f9d;--teal-d:#22707c;--teal-dark:#22707c;--coral:#c1443c;--card:#fff;--line:#c9d6d2}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{font-size:18px}
+@media (max-width:760px){html{font-size:16px}}
+@media (max-width:420px){html{font-size:14.5px}}
+body{margin:0;padding:28px 0 96px;color:var(--ink);font-family:'Noto Sans KR',sans-serif;font-size:1rem;line-height:1.6;background-color:var(--paper);background-image:radial-gradient(var(--grid) 1.5px,transparent 1.5px);background-size:24px 24px;min-height:100vh;-webkit-text-size-adjust:100%}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+.lab-head{margin-bottom:22px}
+.lab-head h1{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:2.1rem;font-weight:700;margin:0 0 8px;line-height:1.25}
+.lab-head p{font-size:1.02rem;color:var(--ink-soft);margin:0;line-height:1.65;max-width:70ch}
+.mono{font-family:'IBM Plex Mono',monospace}
+
+/* ---- tabs ---- */
+.tabs{display:flex;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+.tab{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1.05rem;font-weight:600;padding:13px 24px;border-radius:14px;border:2px solid var(--grid);background:var(--card);color:var(--ink-soft);cursor:pointer;transition:background .15s ease,border-color .15s ease,color .15s ease,transform .1s ease}
+.tab:hover{border-color:var(--teal);color:var(--teal);background:#f2fafa}
+.tab:active{transform:translateY(1px)}
+.tab.active{border-color:var(--teal);color:var(--teal);background:#e7f4f5}
+.panel{display:none;background:var(--card);border-radius:18px;border:1px solid var(--grid);box-shadow:0 4px 18px rgba(23,50,56,.06);padding:22px}
+.panel.active{display:block}
+@media (max-width:640px){.panel{padding:14px}}
+
+/* ---- layout ---- */
+.grid{display:grid;grid-template-columns:minmax(400px,480px) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:minmax(0,1fr)}}
+.canvas-box{background:#f6f8f7;border:1px solid var(--grid);border-radius:16px;overflow:hidden}
+#sim{display:block;width:100%;aspect-ratio:4/3}
+.controls{margin-top:16px;display:grid;gap:14px}
+.ctrl{display:grid;gap:.2rem}
+.ctrl .lbl{display:flex;justify-content:space-between;align-items:baseline;gap:.6rem;font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:600;color:var(--ink-soft)}
+.ctrl .val{font-family:'IBM Plex Mono',monospace;font-size:1.1rem;color:var(--teal);font-weight:600;white-space:nowrap}
+.range-ends{display:flex;justify-content:space-between;color:var(--ink-soft);font-size:.9rem}
+/* 슬라이더: 손잡이가 요소 밖으로 나가지 않게 넉넉한 클릭 영역을 준다 */
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:manipulation}
+input[type=range]:disabled{cursor:not-allowed;opacity:.55}
+input[type=range]::-webkit-slider-runnable-track{height:10px;border-radius:6px;background:var(--grid)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;margin-top:-7px;border-radius:50%;border:none;background:var(--teal);box-shadow:0 2px 5px rgba(23,50,56,.25);transition:filter .15s ease,transform .1s ease}
+input[type=range]:hover:not(:disabled)::-webkit-slider-thumb{filter:brightness(1.12)}
+input[type=range]:active:not(:disabled)::-webkit-slider-thumb{transform:scale(.92)}
+input[type=range]::-moz-range-track{height:10px;border-radius:6px;background:var(--grid)}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;border:none;background:var(--teal);box-shadow:0 2px 5px rgba(23,50,56,.25)}
+input[type=range]:hover:not(:disabled)::-moz-range-thumb{filter:brightness(1.12)}
+
+/* ---- buttons (모든 클릭 요소에 hover/active) ---- */
+.seg{display:flex;flex-wrap:wrap;gap:9px}
+.seg button{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1rem;font-weight:600;padding:11px 16px;border-radius:12px;border:2px solid var(--grid);background:var(--card);color:var(--ink);cursor:pointer;transition:background .15s ease,border-color .15s ease,color .15s ease,filter .15s ease,transform .1s ease}
+.seg button:hover:not(:disabled){border-color:var(--teal);background:#f2fafa}
+.seg button:active:not(:disabled){transform:translateY(1px) scale(.985)}
+.seg button.on{color:#fff;border-color:transparent;background:var(--teal)}
+.seg button.on:hover:not(:disabled){filter:brightness(1.08);background:var(--teal)}
+.seg button:disabled{opacity:.45;cursor:not-allowed}
+.btn{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1.1rem;font-weight:700;padding:15px 22px;border-radius:14px;border:none;background:var(--teal);color:#fff;cursor:pointer;transition:filter .15s ease,transform .1s ease,background .15s ease,color .15s ease}
+.btn:hover:not(:disabled){filter:brightness(1.1)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn-row .btn{flex:1 1 auto}
+.btn.brass{background:var(--brass);color:#fff;font-size:1rem;padding:11px 18px;border-radius:12px}
+.btn.ghost{background:none;border:2px solid var(--brass);color:var(--brass-dark);font-size:.98rem;font-weight:600;padding:9px 16px;border-radius:10px}
+.btn.ghost:hover:not(:disabled){background:var(--brass);color:#fff;filter:none}
+.note{color:var(--ink-soft);margin:0;font-size:.95rem;line-height:1.65}
+.controls .note{padding:13px 15px;border-radius:12px;background:#f6f8f7;border-left:5px solid var(--grid)}
+
+/* ---- result & table ---- */
+.readout{display:flex;gap:12px;flex-wrap:wrap}
+.ro{flex:1 1 150px;background:#f6f8f7;border:1px solid var(--grid);border-radius:12px;padding:12px 14px}
+.ro span{display:block;font-size:.92rem;color:var(--ink-soft)}
+.ro b{font-family:'IBM Plex Mono',monospace;font-size:1.2rem;font-weight:600;color:var(--teal-dark)}
+.ro b.good{color:var(--teal-dark)}.ro b.bad{color:var(--coral)}
+.rec-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:18px 0 10px}
+.table-title{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:600;font-size:1.08rem;margin-right:auto}
+.table-wrap{max-height:460px;overflow:auto;border-radius:14px;border:1px solid var(--grid);background:#fff}
+@media (max-width:640px){.table-wrap{max-height:36vh}}
+table{width:100%;border-collapse:collapse;font-size:.96rem}
+th,td{padding:11px 12px;text-align:right;white-space:nowrap}
+thead th{position:sticky;top:0;background:#dcebe8;color:var(--ink);font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:600;font-size:.98rem;text-align:center;z-index:2}
+tbody td{border-top:1px solid var(--grid);font-family:'IBM Plex Mono',monospace}
+tbody td.t{font-family:'Noto Sans KR',sans-serif;text-align:left}
+tbody tr:nth-child(even){background:#f7faf9}
+tbody td.empty-row{padding:28px 12px;text-align:center;color:var(--ink-soft);font-family:'Noto Sans KR',sans-serif;font-size:1rem;white-space:normal}
+@keyframes rowIn{from{background:#fff3df}to{background:transparent}}
+tbody tr.fresh{animation:rowIn 1.8s ease-out}
+
+/* ---- validate ---- */
+.empty{text-align:center;padding:56px 22px;color:var(--ink-soft)}
+.empty .lock-icon{font-size:2.6rem;margin-bottom:10px}
+.empty h2{margin:0 0 6px;font-size:1.15rem;color:var(--ink)}
+.empty p{margin:0}
+.empty .lock-count{font-family:'IBM Plex Mono',monospace;font-size:1.25rem;color:var(--teal);margin-top:6px}
+.vcard{background:#f6f8f7;border:1px solid var(--grid);border-radius:14px;padding:16px 18px;margin-bottom:18px;overflow-x:auto}
+.vcard h3{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1.15rem;font-weight:700;margin:0 0 10px}
+.vcard p{margin:.35rem 0;line-height:1.65}
+.vcard table{margin:.5rem 0;border:1px solid var(--grid);background:#fff}
+.vcard thead th{position:static}
+.chart{display:block;width:100%;aspect-ratio:4/3;background:#fff;border:1px solid var(--grid);border-radius:12px}
+b.hl{color:var(--teal-dark)}
+.key{display:inline-block;width:1rem;height:1rem;border-radius:4px;background:var(--c);border:1px solid rgba(23,50,56,.35);vertical-align:-.15rem;margin:0 .3rem 0 .5rem}
+
+/* ---- 작은 안내 쪽지 / 토스트 ---- */
+.mini-toast{position:fixed;left:50%;top:22px;transform:translateX(-50%) translateY(-140%);background:#173238;color:#fff;padding:12px 20px;border-radius:12px;font-size:.98rem;font-weight:500;box-shadow:0 8px 22px rgba(23,50,56,.28);z-index:70;opacity:0;pointer-events:none;transition:transform .28s cubic-bezier(.2,.8,.3,1),opacity .28s ease}
+.mini-toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(140%);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:var(--ink);color:#fff;padding:14px 18px;border-radius:16px;box-shadow:0 10px 28px rgba(23,50,56,.28);font-size:.98rem;max-width:92vw;z-index:60;opacity:0;pointer-events:none;transition:transform .35s cubic-bezier(.2,.8,.3,1),opacity .35s ease}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
+.toast button{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:700;font-size:.95rem;padding:9px 16px;border-radius:10px;border:none;cursor:pointer;transition:filter .15s ease,transform .1s ease}
+.toast button:hover{filter:brightness(1.12)}
+.toast button:active{transform:translateY(1px)}
+.toast .go{background:var(--teal);color:#fff}
+.toast .later{background:#3d5a61;color:#dfeceb}
+:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+#sim{aspect-ratio:4/5}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="lab-head">
+<h1>스펙트럼으로 원소 찾기</h1>
+<p>천체나 방전관의 스펙트럼에서 선의 위치를 커서로 재어 기록하세요. 기록한 파장을 원소의 기준 선과 비교하면, 가 보지 않고도 무엇으로 이루어졌는지 알아낼 수 있습니다.</p>
+</header>
+<nav class="tabs" role="tablist">
+<button class="tab active" data-tab="explore" role="tab" aria-selected="true">🔬 자유 탐구</button>
+<button class="tab" data-tab="verify" role="tab" aria-selected="false">✅ 데이터 검증</button>
+</nav>
+<section id="tab-explore" class="panel active">
+<div class="grid">
+<div class="col-vis">
+<div class="canvas-box"><canvas id="sim" aria-label="관찰 대상의 스펙트럼, 확대 창, 원소별 기준 스펙트럼"></canvas></div>
+<div class="controls">
+
+<div class="ctrl">
+<div class="lbl"><span>관찰 대상</span></div>
+<div class="seg" data-name="tg">
+<button data-val="sun" class="on" aria-pressed="true">태양</button>
+<button data-val="starA" aria-pressed="false">별 A</button>
+<button data-val="tubeX" aria-pressed="false">미지의 방전관 X</button>
+</div>
+</div>
+<div class="btn-row"><button class="btn" id="run">분광기로 보기</button></div>
+<div class="ctrl">
+<div class="lbl"><label for="wl">측정 커서 파장</label><span class="val"><output id="wlOut"></output> nm</span></div>
+<input type="range" id="wl" min="380" max="700" step="0.1" value="500" data-out="wlOut" data-dec="1">
+<div class="range-ends"><span>380 nm</span><span>700 nm</span></div>
+</div>
+<p class="note">선 하나에 커서를 맞추고 '이 파장 기록하기'를 누르세요. 확대 창을 보면 0.1 nm 단위로 맞출 수 있습니다. 기준 선 파장은 실제 측정값이며, 태양은 주요 흡수선만 골라 단순화했고 별 A는 가상의 뜨거운 별입니다.</p>
+
+</div>
+</div>
+<div class="col-data">
+<div class="readout">
+
+<div class="ro"><span>관찰 대상</span><b id="rT" style="font-family:'Noto Sans KR',sans-serif;font-size:1.1rem">—</b></div>
+<div class="ro"><span>커서 파장</span><b id="rW">—</b></div>
+<div class="ro"><span>이 대상에서 기록한 선</span><b id="rN">0개</b></div>
+
+</div>
+<div class="rec-bar">
+<span class="table-title">측정 기록 (<span id="recCount">0</span>개)</span>
+<button id="btnRecord" class="btn brass" disabled>이 파장 기록하기</button>
+<button id="btnClear" class="btn ghost">기록 지우기</button>
+</div>
+<div class="table-wrap">
+<table id="recTable"><thead><tr><th>#</th><th>관찰 대상</th><th>측정한 선의 파장 (nm)</th></tr></thead><tbody></tbody></table>
+</div>
+</div>
+</div>
+</section>
+<section id="tab-verify" class="panel">
+<div id="verifyEmpty" class="empty"><div class="lock-icon">🔒</div><h2>데이터 부족</h2><p id="needMore"></p><div class="lock-count">현재 <span id="lockedCount">0</span> / 4</div></div>
+<div id="verifyBody" class="grid" hidden>
+
+<div class="col-vis">
+<div class="vcard"><h3>내가 잰 선과 기준 선 비교</h3><div class="seg" id="vSeg" style="margin-bottom:.6rem"></div><canvas id="chart" class="chart" style="aspect-ratio:4/5" aria-label="측정한 선과 원소 기준 선 비교"></canvas><p class="note">노란 선은 내가 잰 선과 1.0 nm 이내에서 가장 가깝게 일치한 기준 선이에요. 측정 하나는 기준 선 하나에만 대응시켜요.</p></div>
+</div>
+<div class="col-data">
+<div class="vcard" id="vA"></div>
+<div class="vcard" id="vB"></div>
+<div class="vcard" id="vC"></div>
+</div>
+
+</div>
+</section>
+</div>
+<div class="mini-toast" id="miniToast"></div>
+<div class="toast" id="toast">
+<span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+<button class="go" id="toastGo">가기</button>
+<button class="later" id="toastLater">나중에</button>
+</div>
+<script>
+
+const $=s=>document.querySelector(s);
+const $$=s=>Array.from(document.querySelectorAll(s));
+const REC=[];
+const LAB={pending:null,draw(){},row(){return[];},verify(){},onInput(){}};
+function dpr(){return Math.min(window.devicePixelRatio||1,2);}
+function fitCanvas(cv){const r=cv.getBoundingClientRect();const d=dpr();const w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);return{ctx,W:r.width,H:r.height};}
+function fmt(v,d){const k=Math.pow(10,d);return (Math.round(v*k)/k).toFixed(d);}
+function animate(ms,step,done){const t0=performance.now();const f=now=>{const p=Math.min(1,(now-t0)/ms);step(p);if(p<1)requestAnimationFrame(f);else if(done)done();};requestAnimationFrame(f);}
+function lockControls(on){$$('.controls input, .controls button, .controls select').forEach(el=>{el.disabled=on;});}
+function bindSliders(){$$('input[type=range][data-out]').forEach(el=>{const out=document.getElementById(el.dataset.out);const d=el.dataset.dec!==undefined?+el.dataset.dec:null;const upd=()=>{out.textContent=d===null?el.value:Number(el.value).toFixed(d);};el.addEventListener('input',()=>{upd();LAB.onInput();});upd();});}
+function bindSeg(name,cb){$$('.seg[data-name="'+name+'"] button').forEach(b=>b.addEventListener('click',()=>{if(b.disabled)return;$$('.seg[data-name="'+name+'"] button').forEach(x=>{x.classList.toggle('on',x===b);x.setAttribute('aria-pressed',x===b);});cb(b.dataset.val);LAB.onInput();}));}
+function setReadout(map){Object.keys(map).forEach(k=>{const el=document.getElementById(k);if(el)el.textContent=map[k];});}
+/* ===== 화면 튐 방지 =====
+   그림이 화면 밖에 있을 때만, 그것도 '필요한 만큼만' 스크롤한다.
+   방금 누른 버튼이 화면 밖으로 밀려나지 않도록 이동량을 제한한다. */
+let zlAnchor=null;
+document.addEventListener('click',e=>{let t=e.target;while(t&&t!==document){if(t.tagName&&/^(BUTTON|INPUT|SELECT|LABEL|A)$/.test(t.tagName)){zlAnchor=t;break;}t=t.parentNode;}},true);
+document.addEventListener('input',e=>{if(e.target)zlAnchor=e.target;},true);
+function focusCanvas(el){
+ if(!el||!el.getBoundingClientRect)return;
+ const vh=window.innerHeight,M=12,r=el.getBoundingClientRect();
+ const vis=Math.min(r.bottom,vh)-Math.max(r.top,0);
+ if(vis>=Math.min(r.height,vh*0.6)-1)return;
+ const need=Math.min(r.height,Math.max(140,vh*0.3));
+ let d=0;
+ if(r.top<M)d=r.top-M;else if(r.bottom>vh-M)d=r.bottom-(vh-M);
+ if(zlAnchor&&document.body.contains(zlAnchor)){
+  const br=zlAnchor.getBoundingClientRect(),lo=br.bottom-vh+M,hi=br.top-M;
+  if(br.bottom>0&&br.top<vh&&lo<=hi){
+   let c=Math.max(lo,Math.min(d,hi));
+   const va=Math.min(r.bottom-c,vh)-Math.max(r.top-c,0);
+   if(va<need-1){if(d<0)c=Math.max(d,Math.min(c,r.bottom-need));else if(d>0)c=Math.min(d,Math.max(c,r.top-vh+need));}
+   d=c;
+  }
+ }
+ if(Math.abs(d)<2)return;
+ window.scrollBy({top:d,behavior:'smooth'});
+}
+/* alert 대신 쓰는 작은 안내 쪽지 */
+let miniTimer=null;
+function notify(msg){const el=$('#miniToast');el.textContent=msg;el.classList.add('show');if(miniTimer)clearTimeout(miniTimer);miniTimer=setTimeout(()=>el.classList.remove('show'),2200);}
+/* 기록 4개 이상 → 한 번만 안내 팝업 */
+let toastShown=false;
+function maybeToast(n){if(toastShown||n<4)return;toastShown=true;const t=$('#toast');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),12000);}
+$('#toastGo').addEventListener('click',()=>{$('#toast').classList.remove('show');switchTab('verify');});
+$('#toastLater').addEventListener('click',()=>{$('#toast').classList.remove('show');});
+/* ===== 기록 =====
+   실험이 끝나면 setPending(rec)이 표에 바로 기록한다(자동 기록).
+   '기록하기' 버튼(#btnRecord)이 있는 실험만 버튼을 눌러야 기록되는 수동 방식이다. */
+const tbody=$('#recTable tbody'),tWrap=$('.table-wrap'),btnRec=$('#btnRecord');
+const COLS=$('#recTable thead tr').children.length;
+function updateCount(){$('#recCount').textContent=REC.length;if(!REC.length)tbody.innerHTML='<tr><td colspan="'+COLS+'" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>';}
+function addRecord(rec){
+ const key=JSON.stringify(rec);
+ if(REC.some(r=>JSON.stringify(r)===key)){notify('이미 같은 조건으로 기록했어요. 조건을 바꿔 보세요.');return false;}
+ if(!REC.length)tbody.innerHTML='';
+ REC.push(rec);
+ const tr=document.createElement('tr');tr.className='fresh';
+ tr.innerHTML=LAB.row(rec,REC.length).map(c=>(c!==null&&typeof c==='object')?'<td class="t">'+c.t+'</td>':'<td>'+c+'</td>').join('');
+ tbody.appendChild(tr);updateCount();tWrap.scrollTop=tWrap.scrollHeight;
+ maybeToast(REC.length);return true;
+}
+function setPending(rec){
+ if(btnRec){LAB.pending=rec;btnRec.disabled=!rec;return;}
+ LAB.pending=null;if(rec)addRecord(rec);
+}
+if(btnRec)btnRec.addEventListener('click',()=>{if(!LAB.pending)return;addRecord(LAB.pending);setPending(null);});
+$('#btnClear').addEventListener('click',()=>{if(!REC.length)return;REC.length=0;updateCount();notify('기록을 모두 지웠어요.');});
+function switchTab(name){
+ $$('.tab').forEach(x=>{const on=x.dataset.tab===name;x.classList.toggle('active',on);x.setAttribute('aria-selected',on);});
+ $$('.panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
+ if(name==='verify')renderVerify();else requestAnimationFrame(()=>LAB.draw());
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+$$('.tab').forEach(t=>t.addEventListener('click',()=>switchTab(t.dataset.tab)));
+function renderVerify(){const n=REC.length,empty=$('#verifyEmpty'),body=$('#verifyBody');$('#lockedCount').textContent=n;if(n<4){empty.hidden=false;body.hidden=true;$('#needMore').textContent='아직 데이터가 부족합니다. 자유 탐구 탭에서 '+(4-n)+'개 더 기록하면 내 데이터 분석이 열립니다.';return;}empty.hidden=true;body.hidden=false;requestAnimationFrame(()=>LAB.verify(REC));}
+function niceStep(r,n){const raw=r/n;const p=Math.pow(10,Math.floor(Math.log10(raw)));const f=raw/p;return (f<1.5?1:f<3?2:f<7?5:10)*p;}
+function niceMax(v){if(!(v>0))return 1;const p=Math.pow(10,Math.floor(Math.log10(v)));const f=v/p;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p;}
+function tickFmt(v,s){const d=s>=1?0:Math.min(3,Math.ceil(-Math.log10(s)-1e-9));return v.toFixed(d);}
+function hasJong(w){const c=w.charCodeAt(w.length-1)-0xAC00;return c>=0&&c<11172&&c%28!==0;}
+function fitOrigin(pts){let a=0,b=0;pts.forEach(p=>{a+=p.x*p.y;b+=p.x*p.x;});return b?a/b:0;}
+function chart(cv,o){const {ctx,W,H}=fitCanvas(cv);ctx.clearRect(0,0,W,H);
+const m={l:94,r:22,t:22,b:66};const x0=o.xMin||0,x1=o.xMax,y0=o.yMin||0,y1=o.yMax;
+const X=v=>m.l+(v-x0)/(x1-x0)*(W-m.l-m.r),Y=v=>H-m.b-(v-y0)/(y1-y0)*(H-m.t-m.b);
+ctx.lineWidth=1;ctx.strokeStyle='#e2e9e6';ctx.font='18px "IBM Plex Mono",monospace';ctx.fillStyle='#4f6168';
+if(o.xTicks!==false){const sx=niceStep(x1-x0,4);ctx.textAlign='center';ctx.textBaseline='top';for(let i=Math.ceil(x0/sx-1e-9);i*sx<=x1+1e-9;i++){const v=i*sx,px=X(v);ctx.beginPath();ctx.moveTo(px,m.t);ctx.lineTo(px,H-m.b);ctx.stroke();ctx.fillText(tickFmt(v,sx),px,H-m.b+8);}}
+const sy=niceStep(y1-y0,4);ctx.textAlign='right';ctx.textBaseline='middle';for(let i=Math.ceil(y0/sy-1e-9);i*sy<=y1+1e-9;i++){const v=i*sy,py=Y(v);ctx.beginPath();ctx.moveTo(m.l,py);ctx.lineTo(W-m.r,py);ctx.stroke();ctx.fillText(tickFmt(v,sy),m.l-8,py);}
+ctx.strokeStyle='#1f2d33';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,H-m.b);ctx.lineTo(W-m.r,H-m.b);ctx.stroke();
+ctx.fillStyle='#1f2d33';ctx.font='18px "Noto Sans KR",sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(o.xLabel||'',(m.l+W-m.r)/2,H-6);
+ctx.save();ctx.translate(18,(m.t+H-m.b)/2);ctx.rotate(-Math.PI/2);ctx.textBaseline='middle';ctx.fillText(o.yLabel||'',0,0);ctx.restore();
+ctx.save();ctx.beginPath();ctx.rect(m.l,m.t,W-m.l-m.r,H-m.t-m.b);ctx.clip();
+(o.lines||[]).forEach(l=>{ctx.strokeStyle=l.color;ctx.lineWidth=2.5;ctx.setLineDash(l.dash||[]);ctx.beginPath();ctx.moveTo(X(x0),Y(l.m*x0+(l.b||0)));ctx.lineTo(X(x1),Y(l.m*x1+(l.b||0)));ctx.stroke();});
+ctx.setLineDash([]);ctx.restore();
+(o.points||[]).forEach(p=>{ctx.beginPath();ctx.arc(X(p.x),Y(p.y),6.5,0,Math.PI*2);ctx.fillStyle=p.color||'#2f8f9d';ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#1f2d33';ctx.stroke();});
+return{ctx,X,Y,W,H,m};}
+function boot(){bindSliders();updateCount();LAB.draw();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>LAB.draw());}
+window.addEventListener('resize',()=>{if($('#sim').getBoundingClientRect().width<60&&$('#tab-explore').classList.contains('active'))return;if($('#tab-explore').classList.contains('active'))LAB.draw();else if(REC.length>=4)LAB.verify(REC);});
+
+
+(function(){
+const cv=$('#sim'),W0=380,W1=700,TOL=1.0;
+const EL={H:{n:'수소',l:[410.2,434.0,486.1,656.3]},He:{n:'헬륨',l:[447.1,471.3,492.2,501.6,587.6,667.8]},Na:{n:'나트륨',l:[589.0,589.6]},Hg:{n:'수은',l:[404.7,435.8,546.1,577.0,579.1]},Ne:{n:'네온',l:[585.2,594.5,614.3,626.6,640.2,650.7,659.9,692.9]},Li:{n:'리튬',l:[610.4,670.8]},Ca:{n:'칼슘',l:[393.4,396.8,422.7]},Mg:{n:'마그네슘',l:[516.7,517.3,518.4]}};
+const ELK=Object.keys(EL);
+const TG={sun:{n:'태양',mode:'abs',els:['H','Na','Ca','Mg']},starA:{n:'별 A',mode:'abs',els:['H','He']},tubeX:{n:'미지의 방전관 X',mode:'emi',els:['Hg','Li']}};
+let tg='sun',prog=null,shown=false,vSel=null;
+const lines=k=>TG[k].els.flatMap(e=>EL[e].l);
+bindSeg('tg',v=>{tg=v;shown=false;prog=null;});
+function wlRGB(w,a){let r=0,g=0,b=0;if(w<440){r=(440-w)/60;b=1;}else if(w<490){g=(w-440)/50;b=1;}else if(w<510){g=1;b=(510-w)/20;}else if(w<580){r=(w-510)/70;g=1;}else if(w<645){r=1;g=(645-w)/65;}else r=1;
+ let f=1;if(w<420)f=0.35+0.65*(w-380)/40;else if(w>650)f=0.35+0.65*(700-w)/50;f=Math.max(0.3,f);
+ return 'rgba('+Math.round(255*r*f)+','+Math.round(255*g*f)+','+Math.round(255*b*f)+','+(a===undefined?1:a)+')';}
+function spec(ctx,x,y,w,h,mode,ls,w0,w1,clipX,lw){
+ ctx.save();ctx.beginPath();ctx.rect(x,y,Math.max(0,Math.min(w,clipX-x)),h);ctx.clip();
+ if(mode==='abs'){for(let px=0;px<w;px+=1){ctx.fillStyle=wlRGB(w0+(w1-w0)*px/w);ctx.fillRect(x+px,y,1.6,h);}ls.forEach(l=>{if(l>=w0-1&&l<=w1+1){const lx=x+(l-w0)/(w1-w0)*w;ctx.fillStyle='rgba(0,0,0,.88)';ctx.fillRect(lx-lw/2,y,lw,h);}});}
+ else{ctx.fillStyle='#000';ctx.fillRect(x,y,w,h);ls.forEach(l=>{if(l>=w0-1&&l<=w1+1){const lx=x+(l-w0)/(w1-w0)*w;ctx.fillStyle=wlRGB(l);ctx.fillRect(lx-lw/2,y,lw,h);}});}
+ ctx.restore();ctx.strokeStyle='#1f2d33';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+function updRO(){const n=REC.filter(r=>r.tg===tg).length;setReadout({rT:TG[tg].n,rW:shown?fmt(+$('#wl').value,1)+' nm':'—',rN:n+'개'});}
+LAB.onInput=()=>{const w=+(+$('#wl').value).toFixed(1);setPending(shown?{tg,wl:w}:null);updRO();LAB.draw();};
+LAB.draw=()=>{
+ const {ctx,W,H}=fitCanvas(cv);ctx.clearRect(0,0,W,H);
+ const L=96,R=W-14,T=TG[tg],wl=+$('#wl').value;const X=w=>L+(w-W0)/(W1-W0)*(R-L);
+ ctx.fillStyle='#1f2d33';ctx.font='700 18px "Noto Sans KR",sans-serif';ctx.textAlign='left';ctx.textBaseline='alphabetic';ctx.fillText(T.n+(T.mode==='abs'?' 흡수 스펙트럼':' 방출 스펙트럼'),14,26);
+ const sy=40,sh=Math.round(H*0.1);
+ ctx.font='18px "Noto Sans KR",sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText('관찰',L-10,sy+sh/2);
+ if(!shown&&prog===null){ctx.fillStyle='#e9eeec';ctx.fillRect(L,sy,R-L,sh);ctx.strokeStyle='#1f2d33';ctx.lineWidth=2;ctx.strokeRect(L,sy,R-L,sh);ctx.fillStyle='#4f6168';ctx.textAlign='center';ctx.fillText('분광기로 보기를 눌러요',(L+R)/2,sy+sh/2);}
+ else spec(ctx,L,sy,R-L,sh,T.mode,lines(tg),W0,W1,prog===null?R:L+(R-L)*Math.min(1,prog/0.9),2);
+ ctx.fillStyle='#4f6168';ctx.font='18px "IBM Plex Mono",monospace';ctx.textBaseline='top';ctx.strokeStyle='#1f2d33';ctx.lineWidth=1.5;
+ [400,500,600,700].forEach(w=>{const x=X(w);ctx.beginPath();ctx.moveTo(x,sy+sh);ctx.lineTo(x,sy+sh+5);ctx.stroke();ctx.textAlign=w===700?'right':'center';ctx.fillText(String(w),x,sy+sh+7);});
+ [450,550,650].forEach(w=>{const x=X(w);ctx.beginPath();ctx.moveTo(x,sy+sh);ctx.lineTo(x,sy+sh+4);ctx.stroke();});
+ const zTop=sy+sh+58,zh=Math.round(H*0.085);let z0=Math.max(W0,Math.min(W1-16,wl-8)),z1=z0+16;
+ ctx.fillStyle='#1f2d33';ctx.font='18px "Noto Sans KR",sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText('확대',L-10,zTop+zh/2);
+ if(shown||prog!==null)spec(ctx,L,zTop,R-L,zh,T.mode,lines(tg),z0,z1,prog===null?R:L+(R-L)*Math.min(1,prog/0.9),4);else{ctx.fillStyle='#e9eeec';ctx.fillRect(L,zTop,R-L,zh);ctx.strokeStyle='#1f2d33';ctx.lineWidth=2;ctx.strokeRect(L,zTop,R-L,zh);}
+ const ZX=w=>L+(w-z0)/(z1-z0)*(R-L);
+ ctx.fillStyle='#4f6168';ctx.font='18px "IBM Plex Mono",monospace';ctx.textBaseline='top';ctx.strokeStyle='#1f2d33';ctx.lineWidth=1;
+ for(let w=Math.ceil(z0);w<=z1;w++){const x=ZX(w);ctx.beginPath();ctx.moveTo(x,zTop+zh);ctx.lineTo(x,zTop+zh+(w%4===0?7:4));ctx.stroke();if(w%4===0&&x>L+20&&x<R-20){ctx.textAlign='center';ctx.fillText(String(w),x,zTop+zh+8);}}
+ const zx=ZX(wl);ctx.strokeStyle='#d98e3b';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(zx,zTop-6);ctx.lineTo(zx,zTop+zh+6);ctx.stroke();
+ ctx.fillStyle='#d98e3b';ctx.font='700 18px "IBM Plex Mono",monospace';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(fmt(wl,1)+' nm',Math.min(Math.max(zx,L+50),R-50),zTop-8);
+ const ry0=zTop+zh+60,rh=(H-10-ry0)/ELK.length;
+ ctx.fillStyle='#1f2d33';ctx.font='700 18px "Noto Sans KR",sans-serif';ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText('원소별 기준 선 (방출)',14,ry0-6);
+ ELK.forEach((k,i)=>{const y=ry0+i*rh;spec(ctx,L,y+2,R-L,rh-4,'emi',EL[k].l,W0,W1,R,2);ctx.fillStyle='#1f2d33';ctx.font='18px "Noto Sans KR",sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(EL[k].n,L-10,y+rh/2);});
+ const cx=X(wl);ctx.strokeStyle='#d98e3b';ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(cx,sy-4);ctx.lineTo(cx,sy+sh+4);ctx.moveTo(cx,ry0);ctx.lineTo(cx,H-8);ctx.stroke();ctx.setLineDash([]);
+ ctx.strokeStyle='rgba(217,142,59,.7)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(X(z0),sy+sh);ctx.lineTo(L,zTop);ctx.moveTo(X(z1),sy+sh);ctx.lineTo(R,zTop);ctx.stroke();
+};
+$('#run').addEventListener('click',()=>{
+ focusCanvas(cv);
+ lockControls(true);setPending(null);shown=false;
+ animate(2200,p=>{prog=p;LAB.draw();},()=>{prog=null;shown=true;lockControls(false);LAB.onInput();});
+});
+const _add=addRecord;
+LAB.row=(r,i)=>[i,{t:TG[r.tg].n},fmt(r.wl,1)];
+btnRec.addEventListener('click',()=>setTimeout(updRO,0));
+function match(w){let best=null;ELK.forEach(k=>EL[k].l.forEach(l=>{const d=Math.abs(l-w);if(d<=TOL&&(!best||d<best.d))best={k,l,d};}));return best;}
+function hits(ms){const h=new Set();ms.forEach(m=>{const b=match(m);if(b)h.add(b.k+':'+b.l);});return h;}
+function verdict(ms){const H=hits(ms);return ELK.map(k=>{const hit=EL[k].l.filter(l=>H.has(k+':'+l));return{k,hit,n:EL[k].l.length};}).filter(o=>o.hit.length>0).map(o=>({...o,ok:o.hit.length>=2||o.hit.length===o.n}));}
+function vDraw(){
+ const ms=REC.filter(r=>r.tg===vSel).map(r=>r.wl);const vd=verdict(ms);
+ const {ctx,W,H}=fitCanvas($('#chart'));ctx.clearRect(0,0,W,H);
+ const L=96,R=W-14,X=w=>L+(w-W0)/(W1-W0)*(R-L);const rows=['me',...ELK];const rh=(H-66)/rows.length;const HS=hits(ms);
+ rows.forEach((k,i)=>{const y=14+i*rh;ctx.fillStyle='#1f2d33';ctx.font=(k==='me'?'700 ':'')+'18px "Noto Sans KR",sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillText(k==='me'?'내 측정':EL[k].n,L-10,y+rh/2);
+  ctx.fillStyle=k==='me'?'#fff':'#1f2d33';ctx.fillRect(L,y+3,R-L,rh-6);ctx.strokeStyle='#1f2d33';ctx.lineWidth=2;ctx.strokeRect(L,y+3,R-L,rh-6);
+  if(k==='me'){ms.forEach(m=>{ctx.fillStyle='#c1443c';ctx.fillRect(X(m)-1.5,y+3,3,rh-6);});}
+  else EL[k].l.forEach(l=>{const hit=HS.has(k+':'+l);ctx.fillStyle=hit?'#ffd65a':'rgba(255,255,255,.35)';ctx.fillRect(X(l)-(hit?2:1),y+3,hit?4:2,rh-6);});});
+ ctx.fillStyle='#4f6168';ctx.font='18px "IBM Plex Mono",monospace';ctx.textBaseline='top';[400,500,600,700].forEach(w=>{ctx.textAlign=w===700?'right':'center';ctx.fillText(String(w),X(w),H-50);});
+ ctx.textAlign='center';ctx.font='18px "Noto Sans KR",sans-serif';ctx.textBaseline='bottom';ctx.fillStyle='#1f2d33';ctx.fillText('파장 (nm)',(L+R)/2,H-2);
+ const rowsHtml=REC.filter(r=>r.tg===vSel).map(r=>{const m=match(r.wl);return '<tr><td>'+fmt(r.wl,1)+'</td><td class="t">'+(m?EL[m.k].n+' '+fmt(m.l,1):'일치하는 기준 선 없음')+'</td><td>'+(m?fmt(m.d,1):'—')+'</td></tr>';}).join('');
+ $('#vA').innerHTML='<h3>'+TG[vSel].n+'에서 잰 선</h3><table><thead><tr><th>측정 (nm)</th><th>가장 가까운 기준 선</th><th>차이 (nm)</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>';
+ const ok=vd.filter(o=>o.ok),may=vd.filter(o=>!o.ok);
+ $('#vB').innerHTML='<h3>들어 있는 원소</h3>'+(ok.length?'<p>기준 선이 2개 이상(선이 적은 원소는 전부) 일치한 원소: <b class="hl">'+ok.map(o=>EL[o.k].n+' ('+o.hit.length+'/'+o.n+')').join(', ')+'</b></p>':'<p>아직 확실한 원소가 없어요. 선을 더 재어 기록해 보세요.</p>')+(may.length?'<p>선이 1개만 일치한 후보: '+may.map(o=>EL[o.k].n+' ('+o.hit.length+'/'+o.n+')').join(', ')+'. 선 하나는 우연히 겹칠 수 있으니 그 원소의 다른 선도 찾아보세요.</p>':'');
+ let c='<h3>스펙트럼이 알려 주는 것</h3>';
+ if(TG[vSel].mode==='abs')c+='<p>'+TG[vSel].n+'의 스펙트럼은 무지개 속 검은 선(흡수선)인데, 그 위치가 실험실 방전관이 내는 밝은 선(방출선)의 위치와 같아요. 원소는 자신이 내는 빛과 같은 파장의 빛을 흡수하기 때문이에요.</p>';
+ else c+='<p>방전관 속 기체가 내는 밝은 선의 위치로 기체의 종류를 알 수 있어요. 여러 원소가 섞여 있으면 각 원소의 선이 함께 나타나요.</p>';
+ if(vSel==='starA')c+='<p>헬륨은 1868년 태양 스펙트럼에서 알려진 원소와 맞지 않는 노란 선(587.6 nm)이 발견되면서 처음 알려졌어요. 지구에서 발견된 것은 그보다 뒤예요.</p>';
+ c+='<p>이렇게 별빛만으로 우주의 원소를 조사한 결과, 우주에는 수소와 헬륨이 가장 많다는 것이 밝혀졌어요.</p>';
+ $('#vC').innerHTML=c;
+}
+LAB.verify=(R)=>{const ids=Object.keys(TG).filter(k=>R.some(r=>r.tg===k));if(!ids.includes(vSel))vSel=ids[0];
+ $('#vSeg').innerHTML=ids.map(k=>'<button data-val="'+k+'" class="'+(k===vSel?'on':'')+'">'+TG[k].n+'</button>').join('');
+ $$('#vSeg button').forEach(b=>b.addEventListener('click',()=>{vSel=b.dataset.val;$$('#vSeg button').forEach(x=>x.classList.toggle('on',x===b));vDraw();}));
+ vDraw();};
+updRO();
+boot();
+})();
+
+</script>
+</body>
+</html>

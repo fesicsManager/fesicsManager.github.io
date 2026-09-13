@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>전자기학 랩 08 · 다중극 전개</title>
+<style>
+:root{
+  --paper:#EDF0F3;--panel:#FFFFFF;--ink:#16212B;--ink-soft:#5A6B79;--rule:#C4D0DA;
+  --out:#C63F2E;--in:#2A6BA8;--spin:#6A4A9E;--neutral:#8494A1;--ok:#2E7D5B;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:24px 16px 64px}
+header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:20px}
+.kicker{font-size:13px;color:var(--ink-soft)}
+h1{font-size:28px;margin:4px 0 6px;font-weight:700;letter-spacing:-.01em}
+header p{margin:0;font-size:14px;color:var(--ink-soft);max-width:62ch}
+.tabs{display:flex;margin:0 0 18px;border-bottom:1px solid var(--rule)}
+.tab{appearance:none;background:none;border:none;cursor:pointer;font:inherit;font-size:15px;
+  font-weight:600;color:var(--ink-soft);padding:10px 18px;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tab:focus-visible{outline:2px solid var(--spin);outline-offset:2px}
+.panel[hidden]{display:none}
+.layout{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+@media(max-width:820px){.layout{grid-template-columns:1fr}}
+.stage{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:10px}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+.side{display:flex;flex-direction:column;gap:14px}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:14px}
+.card h2{font-size:14px;margin:0 0 10px;font-weight:700}
+label{display:block;font-size:13px;color:var(--ink-soft);margin:10px 0 4px}
+select,input[type=range]{width:100%}
+select{font:inherit;font-size:14px;padding:6px;border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink)}
+.readout{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px;align-items:baseline}
+.readout dt{color:var(--ink-soft);font-size:13px}
+.readout dd{margin:0;font-variant-numeric:tabular-nums;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}
+th,td{text-align:right;padding:6px;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left;font-variant-numeric:normal}
+thead th{font-size:12px;color:var(--ink-soft);font-weight:600}
+.verdict{margin-top:12px;padding:10px 12px;border-radius:3px;font-size:13px;font-weight:600;line-height:1.5}
+.verdict.yes{background:rgba(46,125,91,.10);color:var(--ok);border-left:3px solid var(--ok)}
+.verdict.no{background:rgba(198,63,46,.10);color:var(--out);border-left:3px solid var(--out)}
+.formula{font-size:13px;color:var(--ink-soft);margin-top:10px;padding-top:10px;border-top:1px dashed var(--rule)}
+.note{font-size:13px;color:var(--ink-soft);margin:14px 0 0;max-width:66ch}
+.note strong{color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--ink-soft);margin-top:8px}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">제로 랩 · 대학 전공 트랙 — 전자기학 실험 08</div>
+  <h1>멀리서 보면 다 점전하</h1>
+  <p>복잡한 전하 덩어리를 홀극·쌍극자·사중극으로 잘라 보고, 각 항이 거리에 따라 어떻게 사그라지는지 잽니다. 그리고 원점을 옮기면 무엇이 변하고 무엇이 변하지 않는지 확인합니다. 대본 7화 후반에 대응합니다.</p>
+</header>
+
+<div class="tabs" role="tablist">
+  <button class="tab" id="tab-a" role="tab" aria-selected="true" aria-controls="panel-a">1. 차수를 하나씩 켜기</button>
+  <button class="tab" id="tab-b" role="tab" aria-selected="false" aria-controls="panel-b">2. 원점은 마음대로일까</button>
+</div>
+
+<!-- ===== 탭 1 ===== -->
+<section class="panel" id="panel-a" role="tabpanel" aria-labelledby="tab-a">
+  <div class="layout">
+    <div class="stage">
+      <canvas id="cv1" width="620" height="470"></canvas>
+      <div class="legend">
+        <span>위 왼쪽 = 정확한 V</span>
+        <span>위 오른쪽 = 근사 V (ℓ ≤ N)</span>
+        <span>아래 = 방향 평균 상대 오차 vs 거리</span>
+      </div>
+    </div>
+    <div class="side">
+      <div class="card">
+        <h2>전하 배치</h2>
+        <select id="preset1"></select>
+        <label for="N1">포함할 최고 차수 ℓ ≤ <span id="NLab">0</span></label>
+        <input type="range" id="N1" min="0" max="6" step="1" value="0">
+        <p class="formula">ℓ=0 홀극, 1 쌍극자, 2 사중극, 3 팔중극 …</p>
+      </div>
+      <div class="card">
+        <h2>다중극 모멘트</h2>
+        <table>
+          <thead><tr><th>ℓ</th><th>거리 의존</th><th>크기</th></tr></thead>
+          <tbody id="mtab"></tbody>
+        </table>
+        <dl class="readout" style="margin-top:10px">
+          <dt>r = 2 오차</dt><dd id="e2">—</dd>
+          <dt>r = 4 오차</dt><dd id="e4">—</dd>
+          <dt>r = 8 오차</dt><dd id="e8">—</dd>
+        </dl>
+      </div>
+      <p class="note">총전하가 0이 아니면 <strong>ℓ=0 하나만으로도</strong> 먼 거리에서 오차가 급격히 작아집니다. 총전하가 0인 배치를 골라 보면, 그때는 ℓ=1 을 켜야 비로소 맞기 시작합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 탭 2 ===== -->
+<section class="panel" id="panel-b" role="tabpanel" aria-labelledby="tab-b" hidden>
+  <div class="layout">
+    <div class="stage">
+      <canvas id="cv2" width="620" height="470"></canvas>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--spin)"></span>선택한 원점</span>
+        <span><span class="swatch" style="background:var(--ok)"></span>쌍극자 모멘트 p</span>
+        <span>아래 그래프 = 원점 이동에 따른 |p|</span>
+      </div>
+    </div>
+    <div class="side">
+      <div class="card">
+        <h2>배치와 원점</h2>
+        <select id="preset2"></select>
+        <label for="ox">원점 x 좌표 <span id="oxLab">0.00</span></label>
+        <input type="range" id="ox" min="-2" max="2" step="0.05" value="0">
+        <label for="oy">원점 y 좌표 <span id="oyLab">0.00</span></label>
+        <input type="range" id="oy" min="-2" max="2" step="0.05" value="0">
+      </div>
+      <div class="card">
+        <h2>모멘트 변화</h2>
+        <dl class="readout">
+          <dt>총전하 Q</dt><dd id="Qv">—</dd>
+          <dt>p<sub>x</sub></dt><dd id="pxv">—</dd>
+          <dt>p<sub>y</sub></dt><dd id="pyv">—</dd>
+          <dt>|p|</dt><dd id="pmv">—</dd>
+        </dl>
+        <div class="verdict" id="v2">—</div>
+      </div>
+      <p class="note">Q ≠ 0 이면 원점을 옮길 때마다 p 가 바뀝니다. Q = 0 인 배치에서는 <strong>p 가 원점과 무관하게 고정</strong>됩니다. 일반 규칙: <strong>0이 아닌 최저 차수 모멘트만 원점 선택에 무관</strong>합니다.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function colorFor(t){
+  const r=t>0?255-95*t:255+22*t, g=255-80*Math.abs(t), b=t<0?255+95*t:255+18*t;
+  return [Math.max(0,Math.min(255,r)),Math.max(0,Math.min(255,g)),Math.max(0,Math.min(255,b))];
+}
+function P(l,x){
+  if(l===0)return 1; if(l===1)return x;
+  let p0=1,p1=x;
+  for(let n=2;n<=l;n++){const p=((2*n-1)*x*p1-(n-1)*p0)/n;p0=p1;p1=p;}
+  return p1;
+}
+
+const CONFIG=[
+  {name:"점전하 하나 (Q=1)", q:[{x:0.4,y:0.2,q:1}]},
+  {name:"같은 부호 두 전하 (Q=2)", q:[{x:-0.7,y:0,q:1},{x:0.7,y:0,q:1}]},
+  {name:"전기 쌍극자 (Q=0)", q:[{x:-0.6,y:0,q:1},{x:0.6,y:0,q:-1}]},
+  {name:"선형 사중극 (Q=0, p=0)", q:[{x:-0.7,y:0,q:1},{x:0,y:0,q:-2},{x:0.7,y:0,q:1}]},
+  {name:"정사각 사중극", q:[{x:-0.6,y:0.6,q:1},{x:0.6,y:0.6,q:-1},{x:-0.6,y:-0.6,q:-1},{x:0.6,y:-0.6,q:1}]},
+  {name:"불규칙 덩어리", q:[{x:-0.5,y:-0.3,q:0.7},{x:0.2,y:0.6,q:-0.4},{x:0.7,y:-0.4,q:0.5},{x:-0.2,y:0.1,q:-0.3}]}
+];
+
+function Vexact(x,y,qs){
+  let v=0;
+  for(const c of qs){ const r=Math.hypot(x-c.x,y-c.y); v+=c.q/Math.max(r,0.05); }
+  return v;
+}
+// 다중극 근사: 원점 O 기준, ℓ ≤ N
+function Vmulti(x,y,qs,N,ox,oy){
+  const dx=x-ox, dy=y-oy, r=Math.hypot(dx,dy);
+  if(r<1e-6) return 0;
+  const nx=dx/r, ny=dy/r;
+  let v=0;
+  for(let l=0;l<=N;l++){
+    let s=0;
+    for(const c of qs){
+      const rx=c.x-ox, ry=c.y-oy, rp=Math.hypot(rx,ry);
+      const ca = rp<1e-9 ? 1 : (rx*nx+ry*ny)/rp;
+      s += c.q*Math.pow(rp,l)*P(l,ca);
+    }
+    v += s/Math.pow(r,l+1);
+  }
+  return v;
+}
+function momentMag(qs,l,ox,oy){
+  // 방향 평균 크기 (그 차수 항의 대표 크기)
+  let s=0,n=0;
+  for(let t=0;t<Math.PI*2;t+=0.05){
+    const nx=Math.cos(t),ny=Math.sin(t);
+    let v=0;
+    for(const c of qs){
+      const rx=c.x-ox, ry=c.y-oy, rp=Math.hypot(rx,ry);
+      const ca=rp<1e-9?1:(rx*nx+ry*ny)/rp;
+      v += c.q*Math.pow(rp,l)*P(l,ca);
+    }
+    s+=Math.abs(v); n++;
+  }
+  return s/n;
+}
+
+/* ===== 탭 1 ===== */
+(function(){
+const cv=document.getElementById('cv1'), ctx=cv.getContext('2d');
+const sel=document.getElementById('preset1');
+CONFIG.forEach((c,i)=>{const o=document.createElement('option');o.value=i;o.textContent=c.name;sel.appendChild(o);});
+sel.value=2;
+const NEl=document.getElementById('N1');
+
+function render(){
+  const qs=CONFIG[sel.value].q, N=parseInt(NEl.value,10);
+  document.getElementById('NLab').textContent=N;
+
+  const W=cv.width, Hmap=290, gap=12, pw=(W-gap)/2;
+  ctx.clearRect(0,0,W,cv.height);
+  const RANGE=3.2, s=Hmap/(2*RANGE);
+
+  const drawMap=(ox0,fn)=>{
+    const img=ctx.createImageData(pw,Hmap);
+    for(let py=0;py<Hmap;py++)for(let px=0;px<pw;px++){
+      const x=(px-pw/2)/s, y=(Hmap/2-py)/s;
+      const t=Math.max(-1,Math.min(1,fn(x,y)/1.6));
+      const c=colorFor(t), k=(py*pw+px)*4;
+      img.data[k]=c[0];img.data[k+1]=c[1];img.data[k+2]=c[2];img.data[k+3]=255;
+    }
+    ctx.putImageData(img,ox0,22);
+    ctx.strokeStyle=css('--rule');ctx.strokeRect(ox0,22,pw,Hmap);
+    // 전하
+    for(const c of qs){
+      const X=ox0+pw/2+c.x*s, Y=22+Hmap/2-c.y*s;
+      ctx.fillStyle=c.q>0?css('--out'):css('--in');
+      ctx.beginPath();ctx.arc(X,Y,5+Math.abs(c.q)*2,0,7);ctx.fill();
+    }
+  };
+  drawMap(0,(x,y)=>Vexact(x,y,qs));
+  drawMap(pw+gap,(x,y)=>Vmulti(x,y,qs,N,0,0));
+
+  ctx.fillStyle=css('--ink');ctx.font='600 13px sans-serif';
+  ctx.fillText('정확한 V',4,15);
+  ctx.fillText('다중극 근사 ℓ ≤ '+N, pw+gap+4,15);
+
+  // 오차 곡선
+  const gy=Hmap+40, gh=cv.height-gy-24, pad=44;
+  ctx.strokeStyle=css('--rule');ctx.lineWidth=1;ctx.strokeRect(pad,gy,W-2*pad,gh);
+  const RMIN=1.2, RMAX=10;
+  const X=r=>pad+(Math.log10(r)-Math.log10(RMIN))/(Math.log10(RMAX)-Math.log10(RMIN))*(W-2*pad);
+  const Y=e=>gy+gh-(Math.log10(Math.max(e,1e-6))+6)/6*gh;   // 1e-6 .. 1
+
+  ctx.strokeStyle='rgba(0,0,0,0.10)';
+  for(const e of [1e-1,1e-2,1e-3,1e-4,1e-5]){
+    ctx.beginPath();ctx.moveTo(pad,Y(e));ctx.lineTo(W-pad,Y(e));ctx.stroke();
+  }
+
+  const err=r=>{
+    let s2=0,n=0;
+    for(let t=0;t<Math.PI*2;t+=0.08){
+      const x=r*Math.cos(t), y=r*Math.sin(t);
+      const ex=Vexact(x,y,qs), ap=Vmulti(x,y,qs,N,0,0);
+      const d=Math.abs(ex)>1e-9?Math.abs((ap-ex)/ex):0;
+      s2+=d;n++;
+    }
+    return s2/n;
+  };
+
+  // 여러 차수를 흐리게, 현재 차수는 진하게
+  for(let n=0;n<=6;n++){
+    ctx.strokeStyle = n===N?css('--out'):'rgba(90,107,121,0.28)';
+    ctx.lineWidth = n===N?2.6:1.1;
+    ctx.beginPath();
+    for(let k=0;k<=60;k++){
+      const r=RMIN*Math.pow(RMAX/RMIN,k/60);
+      let s2=0,m=0;
+      for(let t=0;t<Math.PI*2;t+=0.16){
+        const x=r*Math.cos(t),y=r*Math.sin(t);
+        const ex=Vexact(x,y,qs), ap=Vmulti(x,y,qs,n,0,0);
+        s2+=Math.abs(ex)>1e-9?Math.abs((ap-ex)/ex):0; m++;
+      }
+      const e=s2/m;
+      k?ctx.lineTo(X(r),Y(e)):ctx.moveTo(X(r),Y(e));
+    }
+    ctx.stroke();
+  }
+  ctx.fillStyle=css('--ink-soft');ctx.font='12px sans-serif';
+  ctx.fillText('거리 r (로그)',W/2-30,cv.height-6);
+  ctx.fillText('상대 오차 1',pad-38,Y(1)+4);
+  ctx.fillText('1e−4',pad-32,Y(1e-4)+4);
+
+  // 모멘트 표
+  const tb=document.getElementById('mtab'); tb.innerHTML='';
+  const names=['홀극','쌍극자','사중극','팔중극'];
+  for(let l=0;l<=3;l++){
+    const m=momentMag(qs,l,0,0);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${l} ${names[l]}</td><td>1/r<sup>${l+1}</sup></td><td>${m.toFixed(3)}</td>`;
+    if(m<1e-6) tr.style.opacity=.45;
+    tb.appendChild(tr);
+  }
+  document.getElementById('e2').textContent=err(2).toExponential(2);
+  document.getElementById('e4').textContent=err(4).toExponential(2);
+  document.getElementById('e8').textContent=err(8).toExponential(2);
+}
+[sel,NEl].forEach(e=>e.addEventListener('input',render));
+render();
+})();
+
+/* ===== 탭 2 ===== */
+(function(){
+const cv=document.getElementById('cv2'), ctx=cv.getContext('2d');
+const sel=document.getElementById('preset2');
+CONFIG.forEach((c,i)=>{const o=document.createElement('option');o.value=i;o.textContent=c.name;sel.appendChild(o);});
+sel.value=1;
+const oxEl=document.getElementById('ox'), oyEl=document.getElementById('oy');
+
+function moments(qs,ox,oy){
+  let Q=0,px=0,py=0;
+  for(const c of qs){ Q+=c.q; px+=c.q*(c.x-ox); py+=c.q*(c.y-oy); }
+  return {Q,px,py,pm:Math.hypot(px,py)};
+}
+
+function render(){
+  const qs=CONFIG[sel.value].q;
+  const ox=parseFloat(oxEl.value), oy=parseFloat(oyEl.value);
+  document.getElementById('oxLab').textContent=ox.toFixed(2);
+  document.getElementById('oyLab').textContent=oy.toFixed(2);
+
+  const W=cv.width, Hmap=300;
+  ctx.clearRect(0,0,W,cv.height);
+  const RANGE=2.6, s=Hmap/(2*RANGE), cx=W/2, cy=Hmap/2+10;
+
+  ctx.strokeStyle=css('--rule');ctx.lineWidth=1;
+  for(let g=-2;g<=2;g++){
+    ctx.beginPath();ctx.moveTo(cx+g*s,10);ctx.lineTo(cx+g*s,10+Hmap);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-2.6*s,cy+g*s);ctx.lineTo(cx+2.6*s,cy+g*s);ctx.stroke();
+  }
+
+  for(const c of qs){
+    const X=cx+c.x*s, Y=cy-c.y*s;
+    ctx.fillStyle=c.q>0?css('--out'):css('--in');
+    ctx.beginPath();ctx.arc(X,Y,9+Math.abs(c.q)*3,0,7);ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='bold 12px sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(c.q>0?'+':'−',X,Y);
+  }
+  ctx.textAlign='left';ctx.textBaseline='alphabetic';
+
+  const m=moments(qs,ox,oy);
+
+  // 원점
+  const OX=cx+ox*s, OY=cy-oy*s;
+  ctx.strokeStyle=css('--spin');ctx.lineWidth=2.2;
+  ctx.beginPath();ctx.moveTo(OX-10,OY);ctx.lineTo(OX+10,OY);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(OX,OY-10);ctx.lineTo(OX,OY+10);ctx.stroke();
+
+  // p 벡터
+  if(m.pm>1e-6){
+    const L=Math.min(1.6,m.pm)/Math.max(m.pm,1e-9)*Math.min(1.6,m.pm);
+    const ex=OX+m.px/m.pm*Math.min(1.7,m.pm)*s, ey=OY-m.py/m.pm*Math.min(1.7,m.pm)*s;
+    ctx.strokeStyle=css('--ok');ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(OX,OY);ctx.lineTo(ex,ey);ctx.stroke();
+    const a=Math.atan2(ey-OY,ex-OX);
+    ctx.fillStyle=css('--ok');
+    ctx.beginPath();ctx.moveTo(ex,ey);
+    ctx.lineTo(ex-11*Math.cos(a-0.4),ey-11*Math.sin(a-0.4));
+    ctx.lineTo(ex-11*Math.cos(a+0.4),ey-11*Math.sin(a+0.4));
+    ctx.closePath();ctx.fill();
+  }
+
+  // |p| vs 원점 이동 그래프
+  const gy=Hmap+30, gh=cv.height-gy-24, pad=44;
+  ctx.strokeStyle=css('--rule');ctx.strokeRect(pad,gy,W-2*pad,gh);
+  let pmax=0.1;
+  const vals=[];
+  for(let k=0;k<=120;k++){
+    const t=-2+k*4/120;
+    const mm=moments(qs,t,oy);
+    vals.push([t,mm.pm]); if(mm.pm>pmax)pmax=mm.pm;
+  }
+  const X=t=>pad+(t+2)/4*(W-2*pad), Y=v=>gy+gh-v/(pmax*1.15)*gh;
+  ctx.strokeStyle=css('--ok');ctx.lineWidth=2.4;ctx.beginPath();
+  vals.forEach((v,i)=>{i?ctx.lineTo(X(v[0]),Y(v[1])):ctx.moveTo(X(v[0]),Y(v[1]));});
+  ctx.stroke();
+  ctx.strokeStyle=css('--spin');ctx.setLineDash([4,4]);ctx.lineWidth=1.6;
+  ctx.beginPath();ctx.moveTo(X(ox),gy);ctx.lineTo(X(ox),gy+gh);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle=css('--ink-soft');ctx.font='12px sans-serif';
+  ctx.fillText('원점 x 위치 →',W/2-40,cv.height-6);
+  ctx.fillText('|p|',pad-28,gy+12);
+
+  document.getElementById('Qv').textContent=m.Q.toFixed(3);
+  document.getElementById('pxv').textContent=m.px.toFixed(3);
+  document.getElementById('pyv').textContent=m.py.toFixed(3);
+  document.getElementById('pmv').textContent=m.pm.toFixed(3);
+
+  const v=document.getElementById('v2');
+  if(Math.abs(m.Q)<1e-9){
+    v.className='verdict yes';
+    v.textContent='Q = 0 이므로 p 는 원점 선택과 무관합니다. 그래프가 평평합니다.';
+  }else{
+    v.className='verdict no';
+    v.textContent='Q ≠ 0 이므로 원점을 옮기면 p 가 −QΔ 만큼 달라집니다. p = 0 이 되는 원점도 존재합니다.';
+  }
+}
+[sel,oxEl,oyEl].forEach(e=>e.addEventListener('input',render));
+render();
+})();
+
+/* 탭 전환 */
+(function(){
+  const tabs=[document.getElementById('tab-a'),document.getElementById('tab-b')];
+  const panels=[document.getElementById('panel-a'),document.getElementById('panel-b')];
+  tabs.forEach((t,i)=>t.addEventListener('click',()=>{
+    tabs.forEach((tt,j)=>{tt.setAttribute('aria-selected',j===i?'true':'false');panels[j].hidden=j!==i;});
+  }));
+})();
+</script>
+</body>
+</html>
