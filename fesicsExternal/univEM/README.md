@@ -5,18 +5,18 @@
 
 | 번호 | 파일 | 제목 | 대응 대본 | 탭 구성 |
 |---|---|---|---|---|
-| 01 | univ_em_01_vector_field.html | 발산과 회전을 직접 재기 | 1화 | 한 점에서 재기 / 두 정리 검증 |
-| 02 | univ_em_02_delta_function.html | 한 점에 갇힌 무한대 | 2화 | 델타 함수 조이기 / 점전하 역설 |
-| 03 | univ_em_03_gauss_symmetry.html | 가우스 법칙은 언제 쓸모 있는가 | 3화 | 대칭 판정 / 세 가지 대칭 풀이 |
-| 04 | univ_em_04_potential.html | 전위 지형 위를 걷기 | 4화 | 등전위선과 기울기 / 경로 무관성 |
-| 05 | univ_em_05_conductor.html | 도체는 어떻게 방어하는가 | 5화 | 유도전하 / 차폐 비대칭 |
-| 06 | univ_em_06_image_charge.html | 거울에 비친 전하 | 6화 | 무한 평면 / 구 도체 |
-| 07 | univ_em_07_laplace.html | 급수로 경계를 맞추기 | 7화 | 푸리에 / 르장드르 |
-| 08 | univ_em_08_multipole.html | 멀리서 보면 다 점전하 | 7화 | 차수 켜기 / 원점 의존성 |
-| 09 | univ_em_09_dielectric.html | 물질이 끼어들 때 | 8화 | 탈분극장 / 유전체 구 |
-| 10 | univ_em_10_biot_savart.html | 조각을 더해서 장을 만들기 | 9화 | 비오-사바르 합산 / 앙페르 검사 |
-| 11 | univ_em_11_magnetization.html | 자석의 정체 | 11화 | 세 가지 자성 / 히스테리시스 |
-| 12 | univ_em_12_emwave.html | 스스로 달리는 장 | 15화 | 파동의 구조 / 편광 |
+| 01 | univ_em_01_vector_field_EM_Ep01.html | 발산과 회전을 직접 재기 | 1화 | 한 점에서 재기 / 두 정리 검증 |
+| 02 | univ_em_02_delta_function_EM_Ep02.html | 한 점에 갇힌 무한대 | 2화 | 델타 함수 조이기 / 점전하 역설 |
+| 03 | univ_em_03_gauss_symmetry_EM_Ep03.html | 가우스 법칙은 언제 쓸모 있는가 | 3화 | 대칭 판정 / 세 가지 대칭 풀이 |
+| 04 | univ_em_04_potential_EM_Ep04.html | 전위 지형 위를 걷기 | 4화 | 등전위선과 기울기 / 경로 무관성 |
+| 05 | univ_em_05_conductor_EM_Ep05.html | 도체는 어떻게 방어하는가 | 5화 | 유도전하 / 차폐 비대칭 |
+| 06 | univ_em_06_image_charge_EM_Ep06.html | 거울에 비친 전하 | 6화 | 무한 평면 / 구 도체 |
+| 07 | univ_em_07_laplace_EM_Ep07.html | 급수로 경계를 맞추기 | 7화 | 푸리에 / 르장드르 |
+| 08 | univ_em_08_multipole_EM_Ep07.html | 멀리서 보면 다 점전하 | 7화 | 차수 켜기 / 원점 의존성 |
+| 09 | univ_em_09_dielectric_EM_Ep08.html | 물질이 끼어들 때 | 8화 | 탈분극장 / 유전체 구 |
+| 10 | univ_em_10_biot_savart_EM_Ep09.html | 조각을 더해서 장을 만들기 | 9화 | 비오-사바르 합산 / 앙페르 검사 |
+| 11 | univ_em_11_magnetization_EM_Ep11.html | 자석의 정체 | 11화 | 세 가지 자성 / 히스테리시스 |
+| 12 | univ_em_12_emwave_EM_Ep15.html | 스스로 달리는 장 | 15화 | 파동의 구조 / 편광 |
 
 ## 수치 계산을 실제로 돌리는 실험
 

@@ -5,20 +5,20 @@
 
 | 파일 | 시뮬 | 대본 |
 |---|---|---|
-| cm_sim01_brachistochrone.html | 1·2 최속강하선 경주 / 경로 흔들기 | 1주차 |
-| cm_sim04_double_pendulum.html | 4·5·6 정규모드 / 민감성 / 궤적 | 4주차 |
-| cm_sim07_spring_pendulum.html | 7 용수철 진자와 2:1 공명 | 4주차 |
-| cm_sim08_symmetry_canonical.html | 8·21 대칭 조작 게이지 / 정준변환 | 5·14주차 |
-| cm_sim09_effective_potential.html | 9 유효 퍼텐셜 + 궤도 연동 | 6주차 |
-| cm_sim10_rutherford.html | 10 러더퍼드 산란 | 7주차 |
-| cm_sim11_inertia_ellipsoid.html | 11·12 관성 타원체 / 동적 불균형 | 8주차 |
-| cm_sim13_intermediate_axis.html | 13 중간축 정리 | 9주차 |
-| cm_sim14_spinning_top.html | 14 팽이 세차·장동 | 9주차 |
-| cm_sim15_normal_modes.html | 15·16 정규모드 / CO2 분자 진동 | 10주차 |
-| cm_sim17_dispersion.html | 17·18 분산 관계 / 앨리어싱 / 파속 | 11주차 |
-| cm_sim19_phase_space.html | 19·20 위상공간 흐름 / 면적 보존 | 12–13주차 |
-| cm_sim22_torus.html | 22 토러스 궤적과 진동수 비 | 15주차 |
-| cm_sim23_poincare.html | 23 푸앵카레 단면 (헤논–하일레스) | 15주차 |
+| cm_sim01_brachistochrone_ClassMech_Wk01.html | 1·2 최속강하선 경주 / 경로 흔들기 | 1주차 |
+| cm_sim04_double_pendulum_ClassMech_Wk04.html | 4·5·6 정규모드 / 민감성 / 궤적 | 4주차 |
+| cm_sim07_spring_pendulum_ClassMech_Wk04.html | 7 용수철 진자와 2:1 공명 | 4주차 |
+| cm_sim08_symmetry_canonical_ClassMech_Wk05_Wk14.html | 8·21 대칭 조작 게이지 / 정준변환 | 5·14주차 |
+| cm_sim09_effective_potential_ClassMech_Wk06.html | 9 유효 퍼텐셜 + 궤도 연동 | 6주차 |
+| cm_sim10_rutherford_ClassMech_Wk07.html | 10 러더퍼드 산란 | 7주차 |
+| cm_sim11_inertia_ellipsoid_ClassMech_Wk08.html | 11·12 관성 타원체 / 동적 불균형 | 8주차 |
+| cm_sim13_intermediate_axis_ClassMech_Wk09.html | 13 중간축 정리 | 9주차 |
+| cm_sim14_spinning_top_ClassMech_Wk09.html | 14 팽이 세차·장동 | 9주차 |
+| cm_sim15_normal_modes_ClassMech_Wk10.html | 15·16 정규모드 / CO2 분자 진동 | 10주차 |
+| cm_sim17_dispersion_ClassMech_Wk11.html | 17·18 분산 관계 / 앨리어싱 / 파속 | 11주차 |
+| cm_sim19_phase_space_ClassMech_Wk12-13.html | 19·20 위상공간 흐름 / 면적 보존 | 12–13주차 |
+| cm_sim22_torus_ClassMech_Wk15.html | 22 토러스 궤적과 진동수 비 | 15주차 |
+| cm_sim23_poincare_ClassMech_Wk15.html | 23 푸앵카레 단면 (헤논–하일레스) | 15주차 |
 
 파일 14개에 시뮬 23종이 모두 들어 있습니다.
 
