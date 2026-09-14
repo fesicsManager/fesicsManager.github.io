@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>냉동실 온도와 어는 시간</title>
@@ -105,6 +125,28 @@ tbody tr:nth-child(even){background:#fafcfb;}
 .nudge button:hover{filter:brightness(1.1);} .nudge button:active{transform:translateY(1px);}
 .nudge .go{background:var(--brass);color:#fff;} .nudge .later{background:#3d5a61;color:#dfe9e8;}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="app">
@@ -117,15 +159,64 @@ tbody tr:nth-child(even){background:#fafcfb;}
     <button class="tab-btn" data-tab="validate">✅ 데이터 확인</button>
   </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리</h3>
+<p>물이 얼음이 되려면 물이 가진 <b>열을 냉동실 공기에 빼앗겨야</b> 해요. 열은 따뜻한 곳에서 차가운 곳으로 이동하고, <b>온도 차이가 클수록 더 빨리</b> 이동합니다. 그래서 냉동실이 더 차가울수록 물이 더 빨리 업니다.</p>
+
+<h3>⚙️ 왜 그렇게 될까?</h3>
+<ul>
+<li>물 알갱이(분자)는 움직이고 있어요. 열을 빼앗기면 움직임이 느려지고, 0°C가 되면 알갱이들이 규칙적으로 자리를 잡아 <b>얼음</b>이 됩니다.</li>
+<li>0°C에 도달한 뒤에도 얼음이 다 될 때까지는 <b>온도가 변하지 않으면서</b> 계속 열을 빼앗겨야 해요. 이 열을 <b>숨은열(응고열)</b>이라고 합니다. 물 20 mL가 얼려면 정해진 양의 숨은열을 내보내야 해요.</li>
+<li>열이 빠져나가는 빠르기는 물(0°C)과 냉동실 공기의 <b>온도 차</b>에 비례해요(뉴턴의 냉각 법칙). 그래서 온도 차가 2배면 시간은 절반이 됩니다.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">온도차 × 어는 시간 = 일정 (물 20 mL 기준 1200)</span> → <span class="fx-formula">어는 시간 = 1200 ÷ 온도차</span></p>
+<p>그래프가 직선이 아니라 <b>아래로 휘는 곡선(반비례)</b>이 되는 까닭이에요.</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 이 실험은 <b>0°C 가까이 식힌 물이 얼음이 되는 과정만</b>을 단순 모형으로 계산해요. 실제로는 물이 처음 온도(예: 20°C)에서 0°C까지 식는 시간이 더 걸립니다.<br>
+· 컵의 재질과 두께(열이 잘 통하는지), 냉동실 안 공기가 움직이는지(팬), 컵을 놓은 자리에 따라 실제 시간은 크게 달라져요.<br>
+· 그래서 화면의 '분'은 실제 측정값이 아니라 <b>관계(반비례)를 보여 주기 위한 모형값</b>입니다.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>급속 냉동실은 온도를 훨씬 낮추고 찬 공기를 세게 불어서 음식을 빨리 얼려요 — 빨리 얼수록 얼음 알갱이가 작아 맛이 덜 변합니다.</li>
+<li>얼음물에 소금을 넣으면 0°C보다 훨씬 차가워져서 아이스크림을 만들 수 있어요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <div class="tab-panel active" id="tab-explore">
     <div class="card">
       <div class="explore-grid">
         <div class="canvas-panel">
-          <canvas id="fCanvas" width="440" height="380"></canvas>
+          <canvas id="fCanvas" width="440" height="380" role="img" aria-label="냉동실 온도와 어는 시간 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
           <div class="control-block">
             <div class="control-label">냉동실 온도</div>
-            <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">물 20 mL, 같은 컵 사용</span><span class="slider-val"><span id="tVal">-20</span> °C</span></div>
-            <input type="range" id="tSlider" min="-24" max="-4" step="2" value="-20">
+            <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">0°C 가까이 식힌 물 20 mL, 같은 컵 사용</span><span class="slider-val"><span id="tVal">-20</span> °C</span></div>
+            <input type="range" id="tSlider" min="-24" max="-4" step="2" value="-20" aria-label="냉동실 온도">
             <button class="action" id="freezeBtn">얼려 보기 ▶</button>
             <div class="readout" id="fRead">냉동실 온도를 정하고 버튼을 누르면, 물이 완전히 얼 때까지 걸린 시간을 잽니다.</div>
           </div>
@@ -140,8 +231,9 @@ tbody tr:nth-child(even){background:#fafcfb;}
           </div>
           <div class="insight-box" style="margin-top:14px;">
             물이 얼려면 물이 가진 열을 냉동실 공기에 <b>모두 빼앗겨야</b> 합니다.
-            냉동실이 더 차가울수록 열이 더 빨리 빠져나가서 빨리 업니다.
-          </div>
+            냉동실이 더 차가울수록 열이 더 빨리 빠져나가서 빨리 업니다.<br>
+            <span style="font-size:.9rem;color:#a86825">※ 이 실험은 0°C 가까이 식힌 물이 <b>얼음이 되는 과정만</b>을 '온도차 × 시간 = 일정'이라는 <b>교육용 단순 모형</b>으로 계산해요. 실제 시간은 처음 물의 온도, 컵의 재질과 두께, 냉동실 안 공기의 흐름에 따라 크게 달라집니다.</span>
+            </div>
         </div>
       </div>
     </div>
@@ -157,7 +249,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
       <div id="validationContent" style="display:none;">
 
         <div class="section-title">1. 온도와 언 시간</div>
-        <canvas id="g1" width="880" height="430" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;"></canvas>
+        <canvas id="g1" width="880" height="430" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;" role="img" aria-label="냉동실 온도와 어는 시간 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
         <div id="i1"></div>
         <div class="section-title">2. 곱하면 일정한 값 찾기</div>
         <div id="i2"></div>
@@ -165,7 +257,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
         <div class="section-title">3. 예측해보기</div>
         <div class="quiz-box">
           <p>냉동실이 <b>-10 °C</b>라면 몇 분 만에 얼까요? (표의 '온도차 × 시간' 값을 이용하세요)</p>
-          <div class="predict-row"><input type="number" step="1" id="p1" placeholder="분"><button class="btn-choice" id="p1btn">확인하기</button></div>
+          <div class="predict-row"><input type="number" step="1" id="p1" placeholder="분" aria-label="답 입력 (분)"><button class="btn-choice" id="p1btn">확인하기</button></div>
           <div class="feedback" id="fb1"></div>
         </div>
 
@@ -529,9 +621,10 @@ const MATDRAW2={종이:matPaper, 천:matCloth, 가죽:matLeather, 비닐:matViny
 function drawSheet(g,name,x,y,w,h){ (MATDRAW2[name]||matPaper)(g,x,y,w,h); }
 
 
-/* 물이 얼기까지 빼앗겨야 하는 열은 정해져 있고, 열이 빠져나가는 빠르기는 온도 차에 비례한다.
-   따라서  언 시간 × 온도차 = 일정  (뉴턴의 냉각 법칙) */
-const CONST=1200;                 /* (분)×(°C) — 물 20 mL 기준 */
+/* 교육용 단순 모형: 0°C 근처까지 식힌 물이 얼음이 되기까지 빼앗겨야 하는 열(숨은열)은 정해져 있고,
+열이 빠져나가는 빠르기는 물(0°C)과 냉동실의 온도 차에 비례한다고 가정한다 → 언 시간 × 온도차 = 일정.
+실제로는 처음 물의 온도·컵의 재질·공기 흐름에 따라 달라지므로 화면의 시간은 실제 측정값이 아니다. */
+const CONST=1200;                 /* (분)×(°C) — 물 20 mL 기준 모형 상수 */
 let temp=-20, recs=[], busy=false;
 const cv=document.getElementById('fCanvas'), cx=cv.getContext('2d');
 function freezeMin(T){ return CONST/(0-T); }
@@ -598,7 +691,7 @@ document.getElementById('freezeBtn').addEventListener('click',()=>{
     recs.push({T:temp, dT:0-temp, m:m});
     render();
     document.getElementById('fRead').innerHTML=
-      `냉동실 ${temp}°C (물과 ${0-temp}°C 차이) → 완전히 어는 데 <span class="big">${m.toFixed(0)}</span> 분`;
+      `냉동실 ${temp}°C (0°C 물과 ${0-temp}°C 차이) → 완전히 어는 데 약 <span class="big">${m.toFixed(0)}</span> 분 <span style="font-size:.85em;color:#a86825">(교육용 단순 모형)</span>`;
     maybeNudge(recs.length);
   });
 });
@@ -628,8 +721,8 @@ function renderValidation(){
   const vals=recs.map(r=>r.dT*r.m), avg=vals.reduce((a,b)=>a+b,0)/vals.length;
   document.getElementById('i2').innerHTML=`<div class="analysis-card">`+
     recs.map(r=>`<div class="mini-row"><span>${r.dT}°C 차이 · ${r.m.toFixed(0)}분</span><span class="mono">${r.dT} × ${r.m.toFixed(0)} = ${Math.round(r.dT*r.m)}</span></div>`).join('')+
-    `<div class="insight-box">온도를 아무리 바꿔도 <b>온도차 × 시간</b>은 항상 약 <span class="mono">${Math.round(avg)}</span>으로 같습니다.
-    이 값은 '물 20 mL를 얼리는 데 필요한 열의 양'을 나타냅니다. 물의 양이 늘어나면 이 값도 커집니다.</div></div>`;
+    `<div class="insight-box">이 모형에서는 온도를 아무리 바꿔도 <b>온도차 × 시간</b>이 항상 약 <span class="mono">${Math.round(avg)}</span>으로 같습니다.
+    이 값은 '물 20 mL가 얼음이 될 때 빼앗겨야 하는 열의 양'과 관련된 모형 상수예요. 물의 양이 늘어나면 이 값도 커집니다. (실제 냉동실에서는 컵과 공기 흐름 때문에 정확히 일정하지 않아요.)</div></div>`;
 }
 document.getElementById('p1btn').addEventListener('click',()=>{
   const v=parseFloat(document.getElementById('p1').value), f=document.getElementById('fb1');
@@ -642,6 +735,51 @@ document.getElementById('p1btn').addEventListener('click',()=>{
 document.getElementById('hintBtn').addEventListener('click',()=>document.getElementById('hintBody').classList.toggle('show'));
 drawFreeze(0); render();
 </script>
-<script src="/fesicsExternal/embed-resize.js"></script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
 </body>
 </html>

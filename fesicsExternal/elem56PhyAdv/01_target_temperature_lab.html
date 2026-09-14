@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>목표 온도 만들기 (심화)</title>
@@ -102,6 +122,28 @@ tbody tr:nth-child(even){background:#fafcfb;}
 .nudge button{font-family:var(--head);font-weight:600;font-size:.95rem;padding:9px 15px;border-radius:10px;border:none;cursor:pointer;}
 .nudge .go{background:var(--brass);color:#fff;} .nudge .later{background:#3d5a61;color:#dfe9e8;}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="app">
@@ -109,25 +151,69 @@ tbody tr:nth-child(even){background:#fafcfb;}
     <span class="deep-badge">심화 1화</span>
     <h1>목표 온도 만들기</h1>
     <p>따뜻한 물 20℃ 200mL가 있습니다. 여기에 뜨거운 물을 부어 <b>딱 40℃</b>로 맞추려면 몇 mL를 부어야 할까요?
-       섞은 결과를 보는 것이 아니라, <b>원하는 온도를 먼저 정하고 필요한 양을 거꾸로 계산</b>해 봅시다.</p>
+       섞은 결과를 보는 것이 아니라, <b>원하는 온도를 먼저 정하고 필요한 양을 거꾸로 계산</b>해 봅시다.<br><span style="font-size:.9rem;color:#a86825">※ 교육용 단순 모형: 두 물이 같은 물질(물)이고, 컵이나 공기로 열이 새지 않으며, 컵 자체가 데워지는 데 드는 열은 무시합니다. 실제로는 그만큼 뜨거운 물이 조금 더 필요해요.</span></p>
   </header>
   <div class="tabs">
     <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
     <button class="tab-btn" data-tab="validate">✅ 데이터 확인</button>
   </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 열평형을 거꾸로 계산하기</h3>
+<p>뜨거운 물과 찬물을 섞으면 뜨거운 물이 <b>잃은 열</b>과 찬물이 <b>얻은 열</b>이 같아지는 온도에서 멈춰요(열평형). 이 규칙을 알면 '섞으면 몇 ℃가 될까'뿐 아니라 <b>'몇 ℃로 만들려면 얼마나 부어야 할까'</b>도 거꾸로 계산할 수 있어요.</p>
+
+<h3>⚙️ 왜 목표가 높을수록 훨씬 많이 필요할까?</h3>
+<ul>
+<li>부은 뜨거운 물은 <b>목표 온도까지만</b> 식으면서 열을 내놓아요. 목표가 뜨거운 물 온도(80℃)에 가까울수록 한 mL가 내놓는 열(80 − 목표)이 아주 작아져요.</li>
+<li>반대로 찬물이 받아야 할 열(목표 − 20)은 커져요. 그래서 필요한 양이 <b>가파르게(폭발적으로)</b> 늘어나고, <b>80℃ 이상은 절대 만들 수 없어요</b>.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">찬물 양 × (목표 − 20) = 뜨거운 물 양 × (뜨거운 온도 − 목표)</span> → <span class="fx-formula">필요한 양 = 200 × (목표 − 20) ÷ (뜨거운 온도 − 목표)</span></p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 두 물이 <b>같은 물질(물)</b>이고, <b>열이 밖으로 새지 않으며</b>, 컵이 데워지는 데 드는 열을 무시한 <b>교육용 단순 모형</b>이에요. 이 조건에서는 계산이 정확해요.<br>
+· 실제로는 컵과 공기가 열을 가져가므로 계산보다 뜨거운 물을 조금 더 부어야 해요. 물이 아닌 액체(기름 등)는 비열이 달라 식이 달라져요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>아기 분유 물(약 40℃), 목욕물 온도 맞추기, 컵라면에 부을 물 식히기가 모두 이 계산이에요.</li>
+<li>온수 수도꼭지는 뜨거운 물과 찬물의 <b>비율</b>을 바꿔 온도를 조절해요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <div class="tab-panel active" id="tab-explore">
     <div class="card">
       <div class="explore-grid">
         <div class="canvas-panel">
-          <canvas id="cv" width="440" height="360"></canvas>
+          <canvas id="cv" width="440" height="360" role="img" aria-label="목표 온도 만들기 (심화) 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
           <div class="control-block">
             <div class="control-label">1. 뜨거운 물의 온도</div>
             <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">주전자에서 따른 물</span><span class="slider-val"><span id="thVal">80</span> ℃</span></div>
-            <input type="range" id="thSlider" min="60" max="100" step="10" value="80">
+            <input type="range" id="thSlider" min="60" max="100" step="10" value="80" aria-label="뜨거운 물의 온도">
             <div class="control-label">2. 만들고 싶은 온도 (목표)</div>
             <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">찬물은 20℃ 200mL로 고정</span><span class="slider-val"><span id="tgVal">40</span> ℃</span></div>
-            <input type="range" id="tgSlider" min="25" max="55" step="5" value="40">
+            <input type="range" id="tgSlider" min="25" max="55" step="5" value="40" aria-label="만들고 싶은 온도">
             <div class="readout" id="calc"></div>
             <button class="action" id="goBtn">계산한 양만큼 부어보기 ▶</button>
             <div class="readout" id="rd">목표 온도를 정하면 필요한 뜨거운 물의 양을 계산해 줍니다.</div>
@@ -161,7 +247,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
       <div id="validationContent" style="display:none;">
 
         <div class="section-title">1. 목표 온도와 필요한 양</div>
-        <canvas id="g1" width="880" height="440" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;"></canvas>
+        <canvas id="g1" width="880" height="440" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;" role="img" aria-label="목표 온도 만들기 (심화) 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
         <div id="i1"></div>
 
         <div class="section-title">2. 계산이 맞았는지 확인</div>
@@ -170,14 +256,14 @@ tbody tr:nth-child(even){background:#fafcfb;}
         <div class="section-title">3. 예측해보기 — 같은 양씩 섞으면</div>
         <div class="quiz-box">
           <p>20℃ 물 <b>200mL</b>에 80℃ 물을 <b>200mL</b>(같은 양) 부으면 몇 ℃가 될까요?</p>
-          <div class="predict-row"><input type="number" step="1" id="p1" placeholder="℃"><button class="btn-choice" id="p1btn">확인하기</button></div>
+          <div class="predict-row"><input type="number" step="1" id="p1" placeholder="℃" aria-label="답 입력 (℃)"><button class="btn-choice" id="p1btn">확인하기</button></div>
           <div class="feedback" id="fb1"></div>
         </div>
 
         <div class="section-title">4. 거꾸로 구하기 — 목표 30℃</div>
         <div class="quiz-box">
           <p>20℃ 물 200mL를 <b>30℃</b>로 만들려면, 80℃ 물을 몇 mL 부어야 할까요?</p>
-          <div class="predict-row"><input type="number" step="1" id="p2" placeholder="mL"><button class="btn-choice" id="p2btn">확인하기</button></div>
+          <div class="predict-row"><input type="number" step="1" id="p2" placeholder="mL" aria-label="답 입력 (mL)"><button class="btn-choice" id="p2btn">확인하기</button></div>
           <div class="feedback" id="fb2"></div>
         </div>
 
@@ -395,8 +481,9 @@ function thermometer(g,x,y,h,T,tmin,tmax){
   g.fillText(Math.round(T)+'°C', x, y-10);
 }
 
-/* ===== 모형 =====
-   찬물 : 20℃ · 200mL (고정)
+/* ===== 모형 (교육용) =====
+같은 물질(물), 단열, 용기 열용량 무시 가정.
+찬물 : 20℃ · 200mL (고정)
    섞인 온도 T = (m_c·T_c + m_h·T_h) / (m_c + m_h)
    목표 T를 만들려면  m_h = m_c × (T − T_c) / (T_h − T)          */
 const TC=20, MC=200;
@@ -575,6 +662,51 @@ document.querySelectorAll('[data-q="rel"]').forEach(btn=>{
 document.getElementById('hintBtn').addEventListener('click',()=>document.getElementById('hintBody').classList.toggle('show'));
 updateCalc(); drawMix(0); render();
 </script>
-<script src="/fesicsExternal/embed-resize.js"></script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
 </body>
 </html>

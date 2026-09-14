@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>시계가 틀리면 지도가 틀린다</title>
@@ -122,6 +142,28 @@ b.hl{color:var(--teal-dark)}
 
 #sim{aspect-ratio:1/1}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -133,6 +175,53 @@ b.hl{color:var(--teal-dark)}
 <button class="tab active" data-tab="explore" role="tab" aria-selected="true">🔬 자유 탐구</button>
 <button class="tab" data-tab="verify" role="tab" aria-selected="false">✅ 데이터 검증</button>
 </nav>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — GPS는 시간을 재서 거리를 구한다</h3>
+<p>GPS 위성은 자기 위치와 정확한 시각을 전파로 계속 보냅니다. 수신기는 신호가 <b>출발한 시각과 도착한 시각의 차</b> Δt에 빛의 속력 c를 곱해 위성까지의 거리 d = c·Δt를 구하고, 위성 3~4개의 거리를 교차시켜 위치를 찾습니다(삼변 측량). 빛은 1 ns(10⁻⁹ s)에 약 30 cm를 가므로, 수신기 시계가 1 μs만 틀려도 거리가 <b>300 m</b> 어긋납니다.</p>
+
+<h3>⚙️ 시계 오차가 위치 오차가 되는 과정</h3>
+<ul>
+<li>위성 고도 약 20 200 km → 신호 전달 시간 약 67 ms. 여기에 시계 오차 δt가 더해지면 계산 거리가 c·δt만큼 틀립니다.</li>
+<li>위성에는 원자시계(오차 수 ns/일)가 실려 있지만 수신기는 값싼 수정 시계라 오차가 큽니다. 그래서 위성 <b>4개</b>를 받아 미지수 4개(x, y, z, 시계 오차)를 동시에 풀어 수신기 시계 오차를 소거합니다.</li>
+<li>상대성 이론 보정: 위성 시계는 빠른 속력(특수 상대성, −7 μs/일)과 약한 중력(일반 상대성, +45 μs/일) 때문에 지상보다 하루 약 38 μs 빨리 갑니다. 보정하지 않으면 하루 약 11 km씩 오차가 쌓입니다.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">Δt = d ÷ c</span>, <span class="fx-formula">측정 거리 = c × (Δt + δt)</span>, <span class="fx-formula">거리 오차 = c × δt ≈ 0.3 m/ns × δt</span></p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 신호가 진공에서 직선으로 온다고 가정했어요. 실제로는 전리층·대류권을 지나며 지연되고(수 m 오차), 건물 반사(다중 경로)도 오차를 만들어요.<br>
+· 위성 궤도 오차, 위성 시계 오차, 기하 배치(DOP)도 실제 위치 오차에 기여해요. 보통 스마트폰 GPS 오차는 3~10 m 정도예요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>내비게이션·배달 앱·비행기 항법 모두 이 원리로 작동하며, 보정 위성(SBAS)·지상 기준국(DGPS/RTK)을 쓰면 cm 단위까지 정밀해져요.</li>
+<li>GPS 시각 신호는 통신망·금융 거래·전력망의 시간 동기화에도 쓰여요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <section id="tab-explore" class="panel active">
 <div class="grid">
 <div class="col-vis">
@@ -197,6 +286,7 @@ b.hl{color:var(--teal-dark)}
 <span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
 <button class="go" id="toastGo">가기</button>
 <button class="later" id="toastLater">나중에</button>
+
 </div>
 <script>
 
@@ -248,7 +338,7 @@ $('#toastGo').addEventListener('click',()=>{$('#toast').classList.remove('show')
 $('#toastLater').addEventListener('click',()=>{$('#toast').classList.remove('show');});
 /* ===== 기록 =====
    실험이 끝나면 setPending(rec)이 표에 바로 기록한다(자동 기록).
-   '기록하기' 버튼(#btnRecord)이 있는 실험만 버튼을 눌러야 기록되는 수동 방식이다. */
+   '기록하기' 버튼(#btnRecord)이 있는 실험(스펙트럼 선 고르기처럼 기록 자체가 선택 행위인 경우)만 수동 방식이다. */
 const tbody=$('#recTable tbody'),tWrap=$('.table-wrap'),btnRec=$('#btnRecord');
 const COLS=$('#recTable thead tr').children.length;
 function updateCount(){$('#recCount').textContent=REC.length;if(!REC.length)tbody.innerHTML='<tr><td colspan="'+COLS+'" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>';}
@@ -368,6 +458,52 @@ LAB.verify=(R)=>{
 boot();
 })();
 
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
 </script>
 </body>
 </html>

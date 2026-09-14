@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>내심 실험실 — 내심도 밖으로 나갈까?</title>
+<style>
+:root{
+  --bg:#f6f9fc; --ink:#1f2937; --sub:#52627a; --line:#d7e0ec;
+  --card:#ffffff; --accent:#2563eb; --ok:#0f9d58; --no:#dc2626;
+}
+html{font-size:20px}
+@media (max-width:760px){html{font-size:19.5px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:1.2rem 0 3rem;
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.6;
+  background-color:var(--bg);
+  background-image:radial-gradient(circle,#ccd7e6 1.3px,transparent 1.3px);
+  background-size:22px 22px;
+}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .3rem}
+.lead{font-size:1rem;color:var(--sub);margin:0 0 1.1rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.6rem 1.1rem;
+  border:2px solid var(--line);border-radius:.7rem;background:#fff;color:var(--sub);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .1s,filter .15s}
+.tab-btn:hover{filter:brightness(.97);border-color:#b9c8dc}
+.tab-btn:active{transform:translateY(2px) scale(.98)}
+.tab-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) 1fr;gap:1rem;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:2px solid var(--line);border-radius:1rem;padding:1rem}
+.grid>*{min-width:0} /* 표가 넓어도 그리드 열이 화면 밖으로 늘어나지 않게 */
+.readout>*{min-width:0;overflow-wrap:anywhere}
+.card h2{font-size:1.1rem;margin:0 0 .7rem}
+canvas{width:100%;height:auto;display:block;border-radius:.7rem;background:#fff}
+.ctrl{margin:.9rem 0}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:1rem;font-weight:700;margin-bottom:.1rem}
+.ctrl .val{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;width:.95rem;height:.95rem;border-radius:.25rem;margin-right:.4rem;vertical-align:-.1rem}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;
+  cursor:pointer;touch-action:manipulation;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-moz-range-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#fff;border:4px solid var(--accent);margin-top:-7px;transition:transform .12s,box-shadow .12s}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;
+  border:4px solid var(--accent);transition:transform .12s,box-shadow .12s}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:active::-moz-range-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+.btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.65rem 1.15rem;border:none;
+  border-radius:.7rem;background:var(--accent);color:#fff;cursor:pointer;transition:filter .15s,transform .1s}
+.btn.alt{background:#0f9d58}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px) scale(.98)}
+.btn:disabled{background:#aebdd0;cursor:not-allowed;filter:none;transform:none}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.9rem}
+.readout div{background:#f1f6fd;border:1px solid var(--line);border-radius:.6rem;padding:.55rem .7rem;font-size:.95rem}
+.readout b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.95rem;color:var(--sub);margin-top:.7rem}
+.tablewrap{max-height:26rem;overflow:auto;border:1px solid var(--line);border-radius:.7rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .45rem;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:#eaf1fa;font-weight:700;z-index:2}
+tbody tr:nth-child(even){background:#fafcff}
+.empty{padding:1.6rem;text-align:center;color:var(--sub);font-size:1rem}
+.ok{color:var(--ok);font-weight:700}
+.no{color:var(--no);font-weight:700}
+.concl{background:#eef7ff;border:2px solid #a9cff5;border-radius:.8rem;padding:.9rem 1rem;font-size:1.05rem;margin-top:1rem}
+.hidden{display:none}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.9rem}
+.stat{background:#f4f8fe;border:1px solid var(--line);border-radius:.7rem;padding:.8rem}
+.stat h3{margin:0 0 .3rem;font-size:1rem}
+.stat p{margin:0;font-size:.95rem;color:var(--sub)}
+.stat .big{font-size:1.3rem;font-weight:800;color:var(--ink);margin-bottom:.2rem}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>내심 실험실 — 내심도 밖으로 나갈까?</h1>
+  <p class="lead">삼각형 모양을 바꿔 가며 내심에서 세 변까지의 거리와 내심의 위치를 기록한다.</p>
+
+  <div class="tabs">
+    <button class="tab-btn on" id="tabA">🔬 자유 탐구</button>
+    <button class="tab-btn" id="tabB">✅ 데이터 확인</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 내심은 세 내각의 이등분선의 교점, 언제나 삼각형 안에 있어요</h3>
+<p>내심은 세 변에서 <b>같은 거리</b>에 있어 내접원의 중심이 돼요. 각의 이등분선은 항상 삼각형 내부를 지나므로 그 교점인 내심도 <b>둔각삼각형이어도 밖으로 나가지 않아요</b>(외심과 대조). 내심에서 변까지의 거리 r이 내접원 반지름이고, <span class="fx-formula">삼각형 넓이 = ½ × r × 둘레</span>예요.</p>
+<h3>⚙️ 왜 그럴까</h3>
+<ul>
+<li>각의 이등분선 위의 점은 두 변에서 같은 거리 → 세 이등분선의 교점은 세 변에서 등거리.</li>
+<li>내심과 세 꼭짓점을 이어 삼각형을 셋으로 나누면 각각 높이가 r → 넓이 = ½r(a + b + c).</li>
+<li>정삼각형에서만 내심 = 외심 = 무게중심.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>내심 좌표 계산 → 세 변까지 거리 비교, 내부 여부, 넓이 = ½ × r × 둘레 검산</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· "내심도 둔각이면 밖으로 나간다" → 내심은 항상 내부. 외심·수심이 밖으로 나가요.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>삼각형 판에 들어가는 가장 큰 원(파이프·병뚜껑) 설계, 세 도로에서 같은 거리에 있는 위치 찾기가 내심이에요.</li></ul>
+</div>
+</section>
+
+
+  <section id="paneA">
+    <div class="grid">
+      <div class="card">
+        <h2 id="cvTitle">실험판</h2>
+        <canvas id="cv" role="img" aria-label="내심 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
+      </div>
+      <div class="card">
+        <h2>조절하기</h2>
+        <div id="controls"></div>
+        <div class="btns">
+          <button class="btn" id="btnAct">실행</button>
+        </div>
+        <div class="readout" id="readout"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>기록표 <span style="font-weight:400;font-size:.95rem;color:var(--sub)">(<span id="cntA">0</span>개 기록됨)</span></h2>
+      <div class="tablewrap"><table><thead id="thA"></thead><tbody id="tbA"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="paneB" class="hidden">
+    <div class="card">
+      <h2>내가 기록한 데이터 분석</h2>
+      <div id="lack" class="empty">데이터 부족 — 기록이 4개 이상 있어야 분석할 수 있다. (지금 <span id="cntB">0</span>개)</div>
+      <div id="analysis" class="hidden">
+        <div class="tablewrap"><table><thead id="thB"></thead><tbody id="tbB"></tbody></table></div>
+        <div class="statgrid" id="statgrid"></div>
+        <div class="concl" id="concl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+
+function lbl(ctx,t,x,y,c,sz,al){ctx.fillStyle=c;ctx.font='bold '+(sz||18)+'px sans-serif';ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillText(t,x,y);}
+function box(ctx,x,y,w,h){ctx.fillStyle='#f1f6fd';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#c7d8ee';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+function r1(v){return Math.round(v*10)/10;}
+function r2(v){return Math.round(v*100)/100;}
+function r3(v){return Math.round(v*1000)/1000;}
+function sg(v){return (v<0)?(' − '+(-v)):(' + '+v);}
+function sgc(v,s){ if(v===0) return ''; return (v<0)?(' − '+(-v)+s):(' + '+v+s); }
+function dist(p,q){return Math.sqrt((p[0]-q[0])*(p[0]-q[0])+(p[1]-q[1])*(p[1]-q[1]));}
+function distLine(P,A,B){
+  var vx=B[0]-A[0], vy=B[1]-A[1];
+  var L=Math.sqrt(vx*vx+vy*vy);
+  if(L===0) return dist(P,A);
+  return Math.abs(vx*(A[1]-P[1])-vy*(A[0]-P[0]))/L;
+}
+var CX=220, CY=210, U=22;
+function grid(ctx,xr,yr){
+  var i;
+  ctx.strokeStyle='#eef2f7';ctx.lineWidth=1;
+  for(i=-xr;i<=xr;i++){ ctx.beginPath();ctx.moveTo(CX+i*U,CY-yr*U);ctx.lineTo(CX+i*U,CY+yr*U);ctx.stroke(); }
+  for(i=-yr;i<=yr;i++){ ctx.beginPath();ctx.moveTo(CX-xr*U,CY+i*U);ctx.lineTo(CX+xr*U,CY+i*U);ctx.stroke(); }
+  ctx.strokeStyle='#334155';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(CX-xr*U,CY);ctx.lineTo(CX+xr*U,CY);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(CX,CY-yr*U);ctx.lineTo(CX,CY+yr*U);ctx.stroke();
+}
+
+var A=[86,330], B=[354,330];
+var LAB = {
+  cw:440, ch:430, cvTitle:'내심 실험판',
+  action:'내접원 그리기',
+  hint0:'꼭짓점을 옮겨 삼각형 모양을 바꾸고, 내심의 위치를 보자.',
+  sliders:[
+    {id:'cx',label:'위 꼭짓점 좌우',min:20,max:420,value:160,color:'#2563eb',unit:''},
+    {id:'cy',label:'위 꼭짓점 높이',min:60,max:280,value:120,color:'#16a34a',unit:''}
+  ],
+  calc:function(S){
+    var C=[S.cx,S.cy];
+    var a=dist(B,C), b=dist(C,A), c=dist(A,B);
+    var s=a+b+c;
+    var I=[(a*A[0]+b*B[0]+c*C[0])/s,(a*A[1]+b*B[1]+c*C[1])/s];
+    var d1=distLine(I,A,B), d2=distLine(I,B,C), d3=distLine(I,C,A);
+    var sign=function(p,q,r){ return (p[0]-r[0])*(q[1]-r[1])-(q[0]-r[0])*(p[1]-r[1]); };
+    var s1=sign(I,A,B), s2=sign(I,B,C), s3=sign(I,C,A);
+    var neg=(s1<0)||(s2<0)||(s3<0), pos=(s1>0)||(s2>0)||(s3>0);
+    var angs=[0,0,0];
+    return {C:C,I:I,r:d1,d1:d1,d2:d2,d3:d3,
+            inside:!(neg&&pos),
+            area:Math.abs((B[0]-A[0])*(C[1]-A[1])-(C[0]-A[0])*(B[1]-A[1]))/2,
+            peri:s};
+  },
+  readout:function(S,ran){
+    var c=this.calc(S);
+    return [{k:'세 변까지 거리',v:ran?(r2(c.d1/20)+' / '+r2(c.d2/20)+' / '+r2(c.d3/20)):'그려 보자'},
+            {k:'내심의 위치',v:ran?(c.inside?'내부':'외부'):'-'}];
+  },
+  doneMsg:function(S){
+    var c=this.calc(S);
+    return '세 변까지의 거리가 모두 '+r2(c.d1/20)+'cm로 같다. 내심은 삼각형 '+(c.inside?'내부':'외부')+'에 있다. 모양을 바꿔 다시 해 보자.';
+  },
+  draw:function(ctx,S,t,ran){
+    var c=this.calc(S), i;
+    var grow=(t===null)?0:Math.min(1,t);
+    ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.lineTo(c.C[0],c.C[1]);ctx.closePath();
+    ctx.fillStyle='rgba(37,99,235,0.08)';ctx.fill();
+    ctx.strokeStyle='#334155';ctx.lineWidth=2.5;ctx.stroke();
+    if(grow>0){
+      ctx.beginPath();ctx.arc(c.I[0],c.I[1],c.r*grow,0,Math.PI*2);
+      ctx.strokeStyle='#16a34a';ctx.lineWidth=2.5;ctx.stroke();
+    }
+    if(grow>0.5){
+      var g=(grow-0.5)/0.5;
+      [[A,B],[B,c.C],[c.C,A]].forEach(function(sd){
+        var vx=sd[1][0]-sd[0][0], vy=sd[1][1]-sd[0][1];
+        var L=Math.sqrt(vx*vx+vy*vy);
+        var tt=((c.I[0]-sd[0][0])*vx+(c.I[1]-sd[0][1])*vy)/(L*L);
+        var F=[sd[0][0]+vx*tt,sd[0][1]+vy*tt];
+        ctx.strokeStyle='#f59e0b';ctx.lineWidth=2.4;
+        ctx.beginPath();ctx.moveTo(c.I[0],c.I[1]);
+        ctx.lineTo(c.I[0]+(F[0]-c.I[0])*g,c.I[1]+(F[1]-c.I[1])*g);ctx.stroke();
+      });
+      ctx.beginPath();ctx.arc(c.I[0],c.I[1],7,0,Math.PI*2);
+      ctx.fillStyle='#dc2626';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+      lbl(ctx,'내심',c.I[0]+10,c.I[1]-10,'#b91c1c',15);
+    }
+    lbl(ctx,'내심은 삼각형 밖으로 나갈까?',24,32,'#1d4ed8',18);
+    box(ctx,20,346,400,74);
+    lbl(ctx,'세 변까지 거리 '+r2(c.d1/20)+' / '+r2(c.d2/20)+' / '+r2(c.d3/20)+'cm',38,376,'#1f2937',17);
+    lbl(ctx,(t===null)?'내심은 어디에 있을까?':('내심의 위치 : '+(c.inside?'내부':'외부')+'      내접원 반지름 '+r2(c.r/20)+'cm'),
+        38,406,c.inside?'#15803d':'#b91c1c',16);
+  },
+  record:function(S){
+    var c=this.calc(S);
+    var same=(Math.abs(c.d1-c.d2)<0.5&&Math.abs(c.d2-c.d3)<0.5);
+    return {cx:S.cx,cy:S.cy,
+            d1:r2(c.d1/20),d2:r2(c.d2/20),d3:r2(c.d3/20),
+            same:same,inside:c.inside,
+            r:r2(c.r/20),
+            areaOk:(Math.abs(c.r*c.peri/2-c.area)<2)};
+  },
+  headA:['번호','위 꼭짓점','세 변까지 거리','모두 같은가?','내심의 위치','내접원 반지름','넓이 = r·둘레/2?'],
+  rowA:function(r,i){
+    return [i+1,'('+r.cx+', '+r.cy+')',r.d1+' / '+r.d2+' / '+r.d3,
+            '<span class="'+(r.same?'ok':'no')+'">'+(r.same?'○':'×')+'</span>',
+            '<b>'+(r.inside?'내부':'외부')+'</b>',r.r,
+            '<span class="'+(r.areaOk?'ok':'no')+'">'+(r.areaOk?'○':'×')+'</span>'];
+  },
+  analyze:function(rec){
+    var rows=[],same=0,inside=0,area=0;
+    for(var i=0;i<rec.length;i++){
+      var r=rec[i];
+      if(r.same) same++;
+      if(r.inside) inside++;
+      if(r.areaOk) area++;
+      rows.push(['('+r.cx+', '+r.cy+')', r.d1+' / '+r.d2+' / '+r.d3,
+                 '<span class="'+(r.same?'ok':'no')+'">'+(r.same?'○':'×')+'</span>',
+                 '<b>'+(r.inside?'내부':'외부')+'</b>', r.r,
+                 '<span class="'+(r.areaOk?'ok':'no')+'">'+(r.areaOk?'○':'×')+'</span>']);
+    }
+    var stats=[
+      {t:'세 변까지 거리가 모두 같음',big:same+' / '+rec.length,p:'내심의 정의대로 되는지 확인한 결과.'},
+      {t:'내심이 삼각형 내부에 있었던 횟수',big:inside+' / '+rec.length,
+       p:'모양을 아무리 바꿔도 밖으로 나갔는지 확인했다.'},
+      {t:'삼각형 넓이 = (내접원 반지름 × 둘레) ÷ 2',big:area+' / '+rec.length,
+       p:'세 개의 작은 삼각형으로 나누면 나오는 관계다.'}
+    ];
+    var concl;
+    if(same===rec.length&&inside===rec.length){
+      concl='<b>정리</b> — 내심은 세 변에서 <b>같은 거리</b>에 있었고, 삼각형 모양을 아무리 바꿔도 <b>언제나 내부</b>에 있었다. '
+           +'외심이 둔각삼각형에서 밖으로 나갔던 것과 대조된다. '
+           +'내심은 «세 내각의 이등분선이 만나는 점»이고 각의 이등분선은 삼각형 안을 지나기 때문이다. '
+           +'그 거리가 곧 내접원의 반지름이고, 삼각형 넓이는 (반지름 × 둘레) ÷ 2 로도 구해졌다.';
+    } else {
+      concl='<b>확인 필요</b> — 거리가 다르거나 내심이 밖으로 나간 기록이 있다.';
+    }
+    return {head:['위 꼭짓점','세 거리','같은가?','위치','반지름','넓이 관계'],rows:rows,stats:stats,concl:concl};
+  }
+};
+
+
+/* ================= 공통 엔진 ================= */
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  cv.width = LAB.cw; cv.height = LAB.ch;
+  cv.style.maxWidth = LAB.cw + 'px';
+  var ctx = cv.getContext('2d');
+  document.getElementById('cvTitle').textContent = LAB.cvTitle;
+
+  var S = {}, records = [], animating = false, ran = false;
+  var DUR = 2400, MIN = 4;
+
+  var h = '', i;
+  for(i=0;i<LAB.sliders.length;i++){
+    var s = LAB.sliders[i];
+    h += '<div class="ctrl"><div class="row"><span><span class="chip" style="background:' + s.color + '"></span>'
+       + s.label + '</span><span class="val" id="v_' + s.id + '"></span></div>'
+       + '<input type="range" id="s_' + s.id + '" aria-label="' + s.label + '" min="' + s.min + '" max="' + s.max
+       + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
+  }
+  document.getElementById('controls').innerHTML = h;
+
+  var btnAct = document.getElementById('btnAct');
+  var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
+  var hint = document.getElementById('hint');
+  btnAct.textContent = LAB.action;
+
+  function readSliders(){
+    for(var i=0;i<LAB.sliders.length;i++){
+      var s = LAB.sliders[i];
+      var el = document.getElementById('s_' + s.id);
+      S[s.id] = parseFloat(el.value);
+      document.getElementById('v_' + s.id).textContent = s.fmt ? s.fmt(S[s.id]) : (S[s.id] + (s.unit || ''));
+    }
+  }
+  function lock(on){
+    for(var i=0;i<LAB.sliders.length;i++){ document.getElementById('s_' + LAB.sliders[i].id).disabled = on; }
+    btnAct.disabled = on || ran;
+    btnRec.disabled = on || !ran;
+  }
+  function readout(){
+    var arr = LAB.readout(S, ran), s = '';
+    for(var i=0;i<arr.length;i++){ s += '<div>' + arr[i].k + '<b>' + arr[i].v + '</b></div>'; }
+    document.getElementById('readout').innerHTML = s;
+  }
+  function paint(t){
+    ctx.clearRect(0,0,LAB.cw,LAB.ch);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,LAB.cw,LAB.ch);
+    ctx.strokeStyle = '#e5ecf5'; ctx.lineWidth = 2; ctx.strokeRect(1,1,LAB.cw-2,LAB.ch-2);
+    LAB.draw(ctx, S, t, ran);
+  }
+  function onSlide(){
+    if(animating) return;
+    readSliders(); ran = false;
+    btnAct.disabled = false; btnRec.disabled = true;
+    hint.textContent = LAB.hint0;
+    readout(); paint(null);
+  }
+  for(i=0;i<LAB.sliders.length;i++){
+    document.getElementById('s_' + LAB.sliders[i].id).addEventListener('input', onSlide);
+  }
+
+  btnAct.addEventListener('click', function(){
+    if(animating || ran) return;
+    cv.scrollIntoView({behavior:'smooth', block:'center'});
+    animating = true; lock(true);
+    var t0 = performance.now();
+    function frame(now){
+      var p = (now - t0) / DUR;
+      if(p > 1) p = 1;
+      paint(p);
+      if(p < 1){ requestAnimationFrame(frame); }
+      else {
+        animating = false; ran = true; lock(false);
+        records.push(LAB.record(S));
+        renderA(); renderB();
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)';
+        readout(); paint(1);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+
+  function th(list){
+    var s = '<tr>';
+    for(var i=0;i<list.length;i++){ s += '<th>' + list[i] + '</th>'; }
+    return s + '</tr>';
+  }
+  function renderA(){
+    document.getElementById('cntA').textContent = records.length;
+    document.getElementById('thA').innerHTML = th(LAB.headA);
+    var tb = document.getElementById('tbA');
+    if(records.length === 0){
+      tb.innerHTML = '<tr><td colspan="' + LAB.headA.length + '" class="empty">아직 기록이 없다.</td></tr>';
+      return;
+    }
+    var s = '';
+    for(var i=0;i<records.length;i++){
+      var cells = LAB.rowA(records[i], i);
+      s += '<tr>';
+      for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
+      s += '</tr>';
+    }
+    tb.innerHTML = s;
+  }
+  function renderB(){
+    document.getElementById('cntB').textContent = records.length;
+    var lack = document.getElementById('lack'), an = document.getElementById('analysis');
+    if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
+    lack.classList.add('hidden'); an.classList.remove('hidden');
+    var res = LAB.analyze(records);
+    document.getElementById('thB').innerHTML = th(res.head);
+    var s = '';
+    for(var i=0;i<res.rows.length;i++){
+      s += '<tr>';
+      for(var j=0;j<res.rows[i].length;j++){ s += '<td>' + res.rows[i][j] + '</td>'; }
+      s += '</tr>';
+    }
+    document.getElementById('tbB').innerHTML = s;
+    var g = '';
+    for(var k=0;k<res.stats.length;k++){
+      g += '<div class="stat"><h3>' + res.stats[k].t + '</h3><p class="big">' + res.stats[k].big
+         + '</p><p>' + res.stats[k].p + '</p></div>';
+    }
+    document.getElementById('statgrid').innerHTML = g;
+    document.getElementById('concl').innerHTML = res.concl;
+  }
+
+  var tabA = document.getElementById('tabA'), tabB = document.getElementById('tabB');
+  var paneA = document.getElementById('paneA'), paneB = document.getElementById('paneB');
+  tabA.addEventListener('click', function(){
+    tabA.classList.add('on'); tabB.classList.remove('on');
+    paneA.classList.remove('hidden'); paneB.classList.add('hidden');
+  });
+  tabB.addEventListener('click', function(){
+    tabB.classList.add('on'); tabA.classList.remove('on');
+    paneB.classList.remove('hidden'); paneA.classList.add('hidden');
+    renderB();
+  });
+
+  readSliders(); readout(); paint(null);
+  hint.textContent = LAB.hint0;
+  renderA(); renderB();
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>

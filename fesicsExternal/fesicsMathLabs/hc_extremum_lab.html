@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>극값 실험실 — 기울기가 0이면 극값일까?</title>
+<style>
+:root{
+  --bg:#f6f9fc; --ink:#1f2937; --sub:#52627a; --line:#d7e0ec;
+  --card:#ffffff; --accent:#2563eb; --ok:#0f9d58; --no:#dc2626;
+}
+html{font-size:20px}
+@media (max-width:760px){html{font-size:19.5px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:1.2rem 0 3rem;
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.6;
+  background-color:var(--bg);
+  background-image:radial-gradient(circle,#ccd7e6 1.3px,transparent 1.3px);
+  background-size:22px 22px;
+}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .3rem}
+.lead{font-size:1rem;color:var(--sub);margin:0 0 1.1rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.6rem 1.1rem;
+  border:2px solid var(--line);border-radius:.7rem;background:#fff;color:var(--sub);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .1s,filter .15s}
+.tab-btn:hover{filter:brightness(.97);border-color:#b9c8dc}
+.tab-btn:active{transform:translateY(2px) scale(.98)}
+.tab-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) 1fr;gap:1rem;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:2px solid var(--line);border-radius:1rem;padding:1rem}
+.grid>*{min-width:0} /* 표가 넓어도 그리드 열이 화면 밖으로 늘어나지 않게 */
+.readout>*{min-width:0;overflow-wrap:anywhere}
+.card h2{font-size:1.1rem;margin:0 0 .7rem}
+canvas{width:100%;height:auto;display:block;border-radius:.7rem;background:#fff}
+.ctrl{margin:.9rem 0}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:1rem;font-weight:700;margin-bottom:.1rem}
+.ctrl .val{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;width:.95rem;height:.95rem;border-radius:.25rem;margin-right:.4rem;vertical-align:-.1rem}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;
+  cursor:pointer;touch-action:manipulation;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-moz-range-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#fff;border:4px solid var(--accent);margin-top:-7px;transition:transform .12s,box-shadow .12s}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;
+  border:4px solid var(--accent);transition:transform .12s,box-shadow .12s}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:active::-moz-range-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+.btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.65rem 1.15rem;border:none;
+  border-radius:.7rem;background:var(--accent);color:#fff;cursor:pointer;transition:filter .15s,transform .1s}
+.btn.alt{background:#0f9d58}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px) scale(.98)}
+.btn:disabled{background:#aebdd0;cursor:not-allowed;filter:none;transform:none}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.9rem}
+.readout div{background:#f1f6fd;border:1px solid var(--line);border-radius:.6rem;padding:.55rem .7rem;font-size:.95rem}
+.readout b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.95rem;color:var(--sub);margin-top:.7rem}
+.tablewrap{max-height:26rem;overflow:auto;border:1px solid var(--line);border-radius:.7rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .45rem;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:#eaf1fa;font-weight:700;z-index:2}
+tbody tr:nth-child(even){background:#fafcff}
+.empty{padding:1.6rem;text-align:center;color:var(--sub);font-size:1rem}
+.ok{color:var(--ok);font-weight:700}
+.no{color:var(--no);font-weight:700}
+.concl{background:#eef7ff;border:2px solid #a9cff5;border-radius:.8rem;padding:.9rem 1rem;font-size:1.05rem;margin-top:1rem}
+.hidden{display:none}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.9rem}
+.stat{background:#f4f8fe;border:1px solid var(--line);border-radius:.7rem;padding:.8rem}
+.stat h3{margin:0 0 .3rem;font-size:1rem}
+.stat p{margin:0;font-size:.95rem;color:var(--sub)}
+.stat .big{font-size:1.3rem;font-weight:800;color:var(--ink);margin-bottom:.2rem}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>극값 실험실 — 기울기가 0이면 극값일까?</h1>
+  <p class="lead">f′(x) = 0 인 점을 찾아 그 앞뒤 값을 비교하며 극값인지 아닌지 판정한다.</p>
+
+  <div class="tabs">
+    <button class="tab-btn on" id="tabA">🔬 자유 탐구</button>
+    <button class="tab-btn" id="tabB">✅ 데이터 확인</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — f′(a) = 0은 극값의 필요조건일 뿐이에요</h3>
+<p>극값에서는 접선이 수평(f′ = 0)이지만, f′ = 0이라고 항상 극값은 아니에요. f(x) = x³은 f′(0) = 0인데 기울기가 잠깐 0이 되었다가 <b>다시 같은 방향(증가)</b>으로 올라가 극값이 아니에요. 극값이려면 그 점 앞뒤에서 <b>f′의 부호가 바뀌어야</b> 해요(+ → − 극대, − → + 극소).</p>
+<h3>⚙️ f(x) = x³ + ax로 확인</h3>
+<ul>
+<li>a &lt; 0: f′ = 3x² + a = 0인 두 점 x = ±√(−a/3)에서 부호가 바뀜 → 극대·극소.</li>
+<li>a = 0: f′ = 3x² ≥ 0, x = 0에서 0이지만 양쪽 다 양수 → 극값 아님(변곡점).</li>
+<li>a &gt; 0: f′ &gt; 0 항상 → 극값 없음, 단조 증가.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>f′(x) = 0의 근을 구하고 근의 좌우에서 f′ 부호(또는 f 값 비교) 확인</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· "f′ = 0 풀면 극값 끝" → 증감표로 부호 변화를 확인해야 해요. 이계도함수 판정(f″ ≠ 0)도 쓸 수 있어요.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>이익 최대·비용 최소 문제에서 f′ = 0인 점이 정말 최대인지 확인하지 않으면 잘못된 결정을 해요.</li></ul>
+</div>
+</section>
+
+
+  <section id="paneA">
+    <div class="grid">
+      <div class="card">
+        <h2 id="cvTitle">실험판</h2>
+        <canvas id="cv" role="img" aria-label="극값 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
+      </div>
+      <div class="card">
+        <h2>조절하기</h2>
+        <div id="controls"></div>
+        <div class="btns">
+          <button class="btn" id="btnAct">실행</button>
+        </div>
+        <div class="readout" id="readout"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>기록표 <span style="font-weight:400;font-size:.95rem;color:var(--sub)">(<span id="cntA">0</span>개 기록됨)</span></h2>
+      <div class="tablewrap"><table><thead id="thA"></thead><tbody id="tbA"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="paneB" class="hidden">
+    <div class="card">
+      <h2>내가 기록한 데이터 분석</h2>
+      <div id="lack" class="empty">데이터 부족 — 기록이 4개 이상 있어야 분석할 수 있다. (지금 <span id="cntB">0</span>개)</div>
+      <div id="analysis" class="hidden">
+        <div class="tablewrap"><table><thead id="thB"></thead><tbody id="tbB"></tbody></table></div>
+        <div class="statgrid" id="statgrid"></div>
+        <div class="concl" id="concl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+
+function lbl(ctx,t,x,y,c,sz,al){ctx.fillStyle=c;ctx.font='bold '+(sz||18)+'px sans-serif';ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillText(t,x,y);}
+function box(ctx,x,y,w,h){ctx.fillStyle='#f1f6fd';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#c7d8ee';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+function r1(v){return Math.round(v*10)/10;}
+function r2(v){return Math.round(v*100)/100;}
+function r3(v){return Math.round(v*1000)/1000;}
+function r4(v){return Math.round(v*10000)/10000;}
+function sg(v){return (v<0)?(' − '+(-v)):(' + '+v);}
+function sgc(v,s){ if(v===0) return ''; return (v<0)?(' − '+(-v)+s):(' + '+v+s); }
+var CX=220, CY=230, U=26;
+function grid(ctx,xr,yr){
+  var i;
+  ctx.strokeStyle='#eef2f7';ctx.lineWidth=1;
+  for(i=-xr;i<=xr;i++){ ctx.beginPath();ctx.moveTo(CX+i*U,CY-yr*U);ctx.lineTo(CX+i*U,CY+yr*U);ctx.stroke(); }
+  for(i=-yr;i<=yr;i++){ ctx.beginPath();ctx.moveTo(CX-xr*U,CY+i*U);ctx.lineTo(CX+xr*U,CY+i*U);ctx.stroke(); }
+  ctx.strokeStyle='#334155';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(CX-xr*U,CY);ctx.lineTo(CX+xr*U,CY);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(CX,CY-yr*U);ctx.lineTo(CX,CY+yr*U);ctx.stroke();
+}
+
+var LAB = {
+  cw:440, ch:430, cvTitle:'극값 판',
+  action:'f′ = 0 인 곳 조사하기',
+  hint0:'f(x) = x³ + ax 의 a를 정해 보자.',
+  sliders:[
+    {id:'a',label:'a',min:-6,max:6,value:0,color:'#2563eb',unit:''}
+  ],
+  f:function(S,x){ return x*x*x+S.a*x; },
+  calc:function(S){
+    var crit=[];
+    if(S.a<0){ var s=Math.sqrt(-S.a/3); crit=[-s,s]; }
+    else if(S.a===0){ crit=[0]; }
+    var ext=[],i;
+    for(i=0;i<crit.length;i++){
+      var x=crit[i], e=0.05;
+      var l=this.f(S,x-e), m=this.f(S,x), r=this.f(S,x+e);
+      if(m>l+1e-9&&m>r+1e-9) ext.push([x,'극대']);
+      else if(m<l-1e-9&&m<r-1e-9) ext.push([x,'극소']);
+    }
+    return {crit:crit,ext:ext};
+  },
+  readout:function(S,ran){
+    var c=this.calc(S);
+    return [{k:"f′(x) = 0 인 x",v:c.crit.length+'개'},
+            {k:'실제 극값',v:ran?(c.ext.length+'개'):'조사해 보자'}];
+  },
+  doneMsg:function(S){
+    var c=this.calc(S);
+    return "f′(x) = 0 인 x가 "+c.crit.length+'개, 실제 극값은 '+c.ext.length+'개다. '
+      +((c.crit.length>0&&c.ext.length===0)?'기울기가 0인데도 극값이 아니었다!':'')+' 기록해 보자.';
+  },
+  draw:function(ctx,S,t,ran){
+    var c=this.calc(S), i;
+    grid(ctx,4,5);
+    ctx.strokeStyle='#2563eb';ctx.lineWidth=3;ctx.beginPath();
+    var st=false;
+    for(i=-40;i<=40;i++){
+      var x=i/10, y=this.f(S,x)/2;
+      if(y<-5||y>5){ st=false; continue; }
+      if(!st){ ctx.moveTo(CX+x*U,CY-y*U); st=true; } else ctx.lineTo(CX+x*U,CY-y*U);
+    }
+    ctx.stroke();
+    var grow=(t===null)?0:Math.min(1,t);
+    if(grow>0){
+      for(i=0;i<c.crit.length;i++){
+        var xx=c.crit[i], yy=this.f(S,xx)/2;
+        if(Math.abs(yy)>5) continue;
+        ctx.strokeStyle='#f59e0b';ctx.lineWidth=3;
+        ctx.beginPath();ctx.moveTo(CX+(xx-1)*U,CY-yy*U);ctx.lineTo(CX+(xx+1)*U,CY-yy*U);ctx.stroke();
+        var isExt=false,kind2='';
+        for(var j=0;j<c.ext.length;j++){ if(Math.abs(c.ext[j][0]-xx)<1e-9){ isExt=true; kind2=c.ext[j][1]; } }
+        ctx.beginPath();ctx.arc(CX+xx*U,CY-yy*U,7,0,Math.PI*2);
+        ctx.fillStyle=isExt?'#dc2626':'#94a3b8';ctx.fill();
+        ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+        if(grow>=1) lbl(ctx,isExt?kind2:'극값 아님',CX+xx*U+10,CY-yy*U-10,isExt?'#b91c1c':'#64748b',14);
+      }
+    }
+    lbl(ctx,'f(x) = x³'+sgc(S.a,'x')+'      f′(x) = 3x²'+sg(S.a)+'   (세로 1/2 축소)',24,30,'#334155',14);
+    box(ctx,20,338,400,80);
+    lbl(ctx,(t===null)?"f′ = 0 이면 반드시 극값일까?":("f′(x) = 0 인 x : "+c.crit.length+'개'),38,368,'#1f2937',18);
+    lbl(ctx,(t===null)?'':('실제 극값 : '+c.ext.length+'개'+((c.crit.length>0&&c.ext.length===0)?'  ← 기울기 0인데 극값이 아니다':'')),
+        38,400,(c.crit.length>0&&c.ext.length===0)?'#b91c1c':'#15803d',17);
+  },
+  record:function(S){
+    var c=this.calc(S);
+    return {a:S.a,crit:c.crit.length,ext:c.ext.length,
+            kinds:c.ext.map(function(e){return e[1];}).join(', ')||'없음',
+            same:(c.crit.length===c.ext.length),
+            trap:(c.crit.length>0&&c.ext.length===0)};
+  },
+  headA:['번호','a',"f′(x)=0 인 x 개수",'실제 극값 개수','극값의 종류','개수가 같나?'],
+  rowA:function(r,i){
+    return [i+1,r.a,'<b>'+r.crit+'</b>',r.ext,r.kinds,
+            '<span class="'+(r.same?'ok':'no')+'">'+(r.same?'○':'×')+'</span>'];
+  },
+  analyze:function(rec){
+    var rows=[],same=0,trap=0,two=0,zero=0,gs={},gn=0;
+    for(var i=0;i<rec.length;i++){
+      var r=rec[i];
+      if(r.same) same++;
+      if(r.trap) trap++;
+      if(r.crit===2) two++;
+      if(r.crit===0) zero++;
+      if(!gs[r.a]){ gs[r.a]=true; gn++; }
+      rows.push([r.a, '<b>'+r.crit+'</b>', r.ext, r.kinds,
+                 '<span class="'+(r.same?'ok':'no')+'">'+(r.same?'○':'×')+'</span>',
+                 r.trap?'<span class="no">기울기 0인데 극값 아님</span>':'-']);
+    }
+    var stats=[
+      {t:"f′ = 0 인 개수와 극값 개수가 같았던 횟수",big:same+' / '+rec.length,
+       p:'기울기가 0인 곳이 모두 극값이었는지 확인한 결과.'},
+      {t:'기울기 0인데 극값이 아니었던 기록',big:trap+'개',
+       p:trap?'a = 0 일 때 x = 0 이 그런 점이다.':'a를 0으로도 해 보자.'},
+      {t:"f′ = 0 이 2개 / 0개였던 기록",big:two+'개 / '+zero+'개',
+       p:'시험한 a '+gn+'가지. a가 음수면 2개, 양수면 없다.'}
+    ];
+    var concl;
+    if(trap===0){
+      concl='<b>더 해 보자</b> — <b>a = 0</b> 으로 두고 확인해 보자. f′(0) = 0 인데 극값인지 아닌지가 핵심이다.';
+    } else {
+      concl='<b>정리</b> — a가 음수면 f′ = 0 인 두 점이 모두 극대·극소였지만, <b>a = 0 일 때는 f′(0) = 0 인데도 극값이 아니었다.</b> '
+           +'기울기가 잠깐 0이 되었다가 다시 같은 방향으로 올라가기 때문이다. '
+           +'즉 <b>f′(a) = 0 은 극값의 필요조건일 뿐 충분조건이 아니다.</b> 앞뒤에서 f′ 의 <b>부호가 바뀌는지</b>까지 확인해야 한다.';
+    }
+    return {head:['a',"f′=0 개수",'극값 개수','종류','같나?','비고'],rows:rows,stats:stats,concl:concl};
+  }
+};
+
+
+/* ================= 공통 엔진 ================= */
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  cv.width = LAB.cw; cv.height = LAB.ch;
+  cv.style.maxWidth = LAB.cw + 'px';
+  var ctx = cv.getContext('2d');
+  document.getElementById('cvTitle').textContent = LAB.cvTitle;
+
+  var S = {}, records = [], animating = false, ran = false;
+  var DUR = 2400, MIN = 4;
+
+  var h = '', i;
+  for(i=0;i<LAB.sliders.length;i++){
+    var s = LAB.sliders[i];
+    h += '<div class="ctrl"><div class="row"><span><span class="chip" style="background:' + s.color + '"></span>'
+       + s.label + '</span><span class="val" id="v_' + s.id + '"></span></div>'
+       + '<input type="range" id="s_' + s.id + '" aria-label="' + s.label + '" min="' + s.min + '" max="' + s.max
+       + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
+  }
+  document.getElementById('controls').innerHTML = h;
+
+  var btnAct = document.getElementById('btnAct');
+  var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
+  var hint = document.getElementById('hint');
+  btnAct.textContent = LAB.action;
+
+  function readSliders(){
+    for(var i=0;i<LAB.sliders.length;i++){
+      var s = LAB.sliders[i];
+      var el = document.getElementById('s_' + s.id);
+      S[s.id] = parseFloat(el.value);
+      document.getElementById('v_' + s.id).textContent = s.fmt ? s.fmt(S[s.id]) : (S[s.id] + (s.unit || ''));
+    }
+  }
+  function lock(on){
+    for(var i=0;i<LAB.sliders.length;i++){ document.getElementById('s_' + LAB.sliders[i].id).disabled = on; }
+    btnAct.disabled = on || ran;
+    btnRec.disabled = on || !ran;
+  }
+  function readout(){
+    var arr = LAB.readout(S, ran), s = '';
+    for(var i=0;i<arr.length;i++){ s += '<div>' + arr[i].k + '<b>' + arr[i].v + '</b></div>'; }
+    document.getElementById('readout').innerHTML = s;
+  }
+  function paint(t){
+    ctx.clearRect(0,0,LAB.cw,LAB.ch);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,LAB.cw,LAB.ch);
+    ctx.strokeStyle = '#e5ecf5'; ctx.lineWidth = 2; ctx.strokeRect(1,1,LAB.cw-2,LAB.ch-2);
+    LAB.draw(ctx, S, t, ran);
+  }
+  function onSlide(){
+    if(animating) return;
+    readSliders(); ran = false;
+    btnAct.disabled = false; btnRec.disabled = true;
+    hint.textContent = LAB.hint0;
+    readout(); paint(null);
+  }
+  for(i=0;i<LAB.sliders.length;i++){
+    document.getElementById('s_' + LAB.sliders[i].id).addEventListener('input', onSlide);
+  }
+
+  btnAct.addEventListener('click', function(){
+    if(animating || ran) return;
+    cv.scrollIntoView({behavior:'smooth', block:'center'});
+    animating = true; lock(true);
+    var t0 = performance.now();
+    function frame(now){
+      var p = (now - t0) / DUR;
+      if(p > 1) p = 1;
+      paint(p);
+      if(p < 1){ requestAnimationFrame(frame); }
+      else {
+        animating = false; ran = true; lock(false);
+        records.push(LAB.record(S));
+        renderA(); renderB();
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)';
+        readout(); paint(1);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+
+  function th(list){
+    var s = '<tr>';
+    for(var i=0;i<list.length;i++){ s += '<th>' + list[i] + '</th>'; }
+    return s + '</tr>';
+  }
+  function renderA(){
+    document.getElementById('cntA').textContent = records.length;
+    document.getElementById('thA').innerHTML = th(LAB.headA);
+    var tb = document.getElementById('tbA');
+    if(records.length === 0){
+      tb.innerHTML = '<tr><td colspan="' + LAB.headA.length + '" class="empty">아직 기록이 없다.</td></tr>';
+      return;
+    }
+    var s = '';
+    for(var i=0;i<records.length;i++){
+      var cells = LAB.rowA(records[i], i);
+      s += '<tr>';
+      for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
+      s += '</tr>';
+    }
+    tb.innerHTML = s;
+  }
+  function renderB(){
+    document.getElementById('cntB').textContent = records.length;
+    var lack = document.getElementById('lack'), an = document.getElementById('analysis');
+    if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
+    lack.classList.add('hidden'); an.classList.remove('hidden');
+    var res = LAB.analyze(records);
+    document.getElementById('thB').innerHTML = th(res.head);
+    var s = '';
+    for(var i=0;i<res.rows.length;i++){
+      s += '<tr>';
+      for(var j=0;j<res.rows[i].length;j++){ s += '<td>' + res.rows[i][j] + '</td>'; }
+      s += '</tr>';
+    }
+    document.getElementById('tbB').innerHTML = s;
+    var g = '';
+    for(var k=0;k<res.stats.length;k++){
+      g += '<div class="stat"><h3>' + res.stats[k].t + '</h3><p class="big">' + res.stats[k].big
+         + '</p><p>' + res.stats[k].p + '</p></div>';
+    }
+    document.getElementById('statgrid').innerHTML = g;
+    document.getElementById('concl').innerHTML = res.concl;
+  }
+
+  var tabA = document.getElementById('tabA'), tabB = document.getElementById('tabB');
+  var paneA = document.getElementById('paneA'), paneB = document.getElementById('paneB');
+  tabA.addEventListener('click', function(){
+    tabA.classList.add('on'); tabB.classList.remove('on');
+    paneA.classList.remove('hidden'); paneB.classList.add('hidden');
+  });
+  tabB.addEventListener('click', function(){
+    tabB.classList.add('on'); tabA.classList.remove('on');
+    paneB.classList.remove('hidden'); paneA.classList.add('hidden');
+    renderB();
+  });
+
+  readSliders(); readout(); paint(null);
+  hint.textContent = LAB.hint0;
+  renderA(); renderB();
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>

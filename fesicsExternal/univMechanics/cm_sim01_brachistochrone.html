@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>고전역학 시뮬 01·02 — 최속강하선과 변분</title>
@@ -53,6 +73,28 @@ td.num{font-variant-numeric:tabular-nums}
   border-radius:0 9px 9px 0;padding:11px 13px;margin:12px 0;font-size:14px}
 .hint{font-size:13px;color:var(--muted);margin-top:8px}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -69,7 +111,7 @@ td.num{font-variant-numeric:tabular-nums}
   <p>같은 두 점을 잇는 세 곡선에 구슬을 동시에 놓습니다. 마찰은 없고, 에너지 보존으로 속력은
      $v = \sqrt{2gy}$ 입니다.</p>
 
-  <canvas id="race" width="760" height="380"></canvas>
+  <canvas id="race" width="760" height="380" role="img" aria-label="고전역학 시뮬 01·02 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
 
   <div class="legend">
     <span><i class="sw" style="background:#8a8f98"></i> 직선</span>
@@ -107,7 +149,7 @@ td.num{font-variant-numeric:tabular-nums}
   <p>회색 점을 위아래로 끌어 경로를 바꿔 보세요. 아래 값이 그 경로의 소요 시간
      $T[y] = \displaystyle\int \frac{\sqrt{1+y'^2}}{\sqrt{2gy}}\,dx$ 입니다.</p>
 
-  <canvas id="vary" width="760" height="400"></canvas>
+  <canvas id="vary" width="760" height="400" role="img" aria-label="고전역학 시뮬 01·02 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
 
   <div class="readout">
     <div class="big">T[y] = <span id="Tval">—</span> s</div>
@@ -432,6 +474,44 @@ function arcPoints(X, Y, n, sag){
   refresh();
 })();
 </script>
+
+
+
+
+
+
+
+
+
+
+<details class="fx-p-details" id="fxPrinciple">
+<summary>📖 과학 원리 — 어떤 원리로 이렇게 될까?</summary>
+<div class="fx-p-card">
+<h3>🔑 핵심 원리 — 최속강하선과 변분법</h3>
+<p>두 점 A·B를 잇는 곡선 중 마찰 없이 중력만으로 구슬이 <b>가장 빨리</b> 내려오는 곡선은 직선이 아니라 <b>사이클로이드</b>예요(베르누이, 1696). 직선은 거리가 짧지만 초반 가속이 느리고, 사이클로이드는 초반에 가파르게 떨어져 속력을 빨리 얻은 뒤 완만해져 총 시간이 최소예요. 에너지 보존으로 깊이 y에서 속력 v = √(2gy)이므로 소요 시간은 곡선 y(x)에 대한 범함수 <span class="fx-formula">T[y] = ∫ √(1 + y′²) ÷ √(2gy) dx</span>이고, 이를 최소화하는 곡선을 찾는 것이 <b>변분법</b>이에요. 오일러–라그랑주 방정식을 풀면 x = a(θ − sinθ), y = a(1 − cosθ)의 사이클로이드가 나와요.</p>
+
+<h3>⚙️ 세 곡선 비교</h3>
+<ul>
+<li>A(0, 0) → B(2, 1)(단위 길이, g = 1): 소요 시간을 직선 기준 1.00으로 놓으면 원호 약 0.93, <b>사이클로이드 약 0.90</b> — 어떤 A·B 배치에서도 사이클로이드가 최소예요.</li>
+<li>사이클로이드는 첨점 근처에서 y ∝ x^(2/3)로 수직에 가깝게 출발하므로 접선이 수평인데도 유한 시간에 출발해요. 접선이 수평인 원호는 출발 가속도가 0이라 시간이 발산해요.</li>
+<li>등시성: 사이클로이드 위 어디에서 놓아도 바닥까지 걸리는 시간이 같아요(호이겐스) — 진자 시계에 응용.</li>
+<li>페르마 원리와 같은 구조: 빛이 굴절률이 깊이에 따라 변하는 매질에서 시간을 최소화하는 경로 = 스넬 법칙 sinθ/v = 일정 = 사이클로이드.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>각 곡선을 매개변수화해 <span class="fx-formula">dt = ds ÷ √(2gy)</span>를 수치 적분(호 길이 ds = √(dx² + dy²)); 구슬 위치는 시간 t에 대응하는 호 길이로 갱신</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 마찰 없음·점 질량 가정이에요. 실제 구르는 구슬은 회전 에너지(2/7)를 가져 속력이 √(10gy/7)로 줄지만 곡선의 순위는 바뀌지 않아요. 마찰·공기 저항이 있으면 최적 곡선이 조금 달라져요.<br>
+· 수치 적분은 출발점(y = 0)에서 피적분 함수가 발산해 작은 y에서 시작하거나 변수 변환이 필요해요. 이 시뮬레이션은 그 처리를 내부에서 해요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>롤러코스터 첫 낙하·스키 점프대·워터 슬라이드의 곡선 설계에 최속강하 원리가 참고돼요.</li>
+<li>변분법은 라그랑주 역학·광학·최적 제어·기계 학습(경로 최적화)의 공통 언어예요.</li>
+</ul>
+</div>
+</details>
 </div>
 </body>
 </html>

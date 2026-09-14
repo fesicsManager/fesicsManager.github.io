@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>정적분 실험실 — 정적분값이 곧 넓이일까?</title>
+<style>
+:root{
+  --bg:#f6f9fc; --ink:#1f2937; --sub:#52627a; --line:#d7e0ec;
+  --card:#ffffff; --accent:#2563eb; --ok:#0f9d58; --no:#dc2626;
+}
+html{font-size:20px}
+@media (max-width:760px){html{font-size:19.5px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:1.2rem 0 3rem;
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.6;
+  background-color:var(--bg);
+  background-image:radial-gradient(circle,#ccd7e6 1.3px,transparent 1.3px);
+  background-size:22px 22px;
+}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .3rem}
+.lead{font-size:1rem;color:var(--sub);margin:0 0 1.1rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.6rem 1.1rem;
+  border:2px solid var(--line);border-radius:.7rem;background:#fff;color:var(--sub);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .1s,filter .15s}
+.tab-btn:hover{filter:brightness(.97);border-color:#b9c8dc}
+.tab-btn:active{transform:translateY(2px) scale(.98)}
+.tab-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) 1fr;gap:1rem;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:2px solid var(--line);border-radius:1rem;padding:1rem}
+.grid>*{min-width:0} /* 표가 넓어도 그리드 열이 화면 밖으로 늘어나지 않게 */
+.readout>*{min-width:0;overflow-wrap:anywhere}
+.card h2{font-size:1.1rem;margin:0 0 .7rem}
+canvas{width:100%;height:auto;display:block;border-radius:.7rem;background:#fff}
+.ctrl{margin:.9rem 0}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:1rem;font-weight:700;margin-bottom:.1rem}
+.ctrl .val{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;width:.95rem;height:.95rem;border-radius:.25rem;margin-right:.4rem;vertical-align:-.1rem}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;
+  cursor:pointer;touch-action:manipulation;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-moz-range-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#fff;border:4px solid var(--accent);margin-top:-7px;transition:transform .12s,box-shadow .12s}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;
+  border:4px solid var(--accent);transition:transform .12s,box-shadow .12s}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:active::-moz-range-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+.btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.65rem 1.15rem;border:none;
+  border-radius:.7rem;background:var(--accent);color:#fff;cursor:pointer;transition:filter .15s,transform .1s}
+.btn.alt{background:#0f9d58}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px) scale(.98)}
+.btn:disabled{background:#aebdd0;cursor:not-allowed;filter:none;transform:none}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.9rem}
+.readout div{background:#f1f6fd;border:1px solid var(--line);border-radius:.6rem;padding:.55rem .7rem;font-size:.95rem}
+.readout b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.95rem;color:var(--sub);margin-top:.7rem}
+.tablewrap{max-height:26rem;overflow:auto;border:1px solid var(--line);border-radius:.7rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .45rem;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:#eaf1fa;font-weight:700;z-index:2}
+tbody tr:nth-child(even){background:#fafcff}
+.empty{padding:1.6rem;text-align:center;color:var(--sub);font-size:1rem}
+.ok{color:var(--ok);font-weight:700}
+.no{color:var(--no);font-weight:700}
+.concl{background:#eef7ff;border:2px solid #a9cff5;border-radius:.8rem;padding:.9rem 1rem;font-size:1.05rem;margin-top:1rem}
+.hidden{display:none}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.9rem}
+.stat{background:#f4f8fe;border:1px solid var(--line);border-radius:.7rem;padding:.8rem}
+.stat h3{margin:0 0 .3rem;font-size:1rem}
+.stat p{margin:0;font-size:.95rem;color:var(--sub)}
+.stat .big{font-size:1.3rem;font-weight:800;color:var(--ink);margin-bottom:.2rem}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>정적분 실험실 — 정적분값이 곧 넓이일까?</h1>
+  <p class="lead">x축 아래를 지나는 구간에서 정적분값과 실제 넓이를 따로 구해 비교한다.</p>
+
+  <div class="tabs">
+    <button class="tab-btn on" id="tabA">🔬 자유 탐구</button>
+    <button class="tab-btn" id="tabB">✅ 데이터 확인</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 정적분값은 '부호 있는 넓이'예요</h3>
+<p>∫ f(x)dx는 x축 위 부분을 양수, <b>아래 부분을 음수</b>로 세요. 그래서 f(x) = x² − 4를 −2~2를 포함한 구간에서 적분하면 값이 실제 넓이보다 작거나 음수예요. <b>넓이</b>를 구하려면 x축과 만나는 점(±2)에서 구간을 나눠 각 조각의 <b>절댓값</b>을 더해야 해요. F(q) − F(p)는 언제나 정적분값이지 넓이가 아니에요.</p>
+<h3>⚙️ 계산해 보기</h3>
+<ul>
+<li>∫₋₂² (x² − 4)dx = [x³/3 − 4x] = −32/3 ≈ −10.67 (전부 x축 아래).</li>
+<li>구간 [0, 3]: ∫₀² = −16/3, ∫₂³ = 7/3 → 정적분 −3, 넓이 16/3 + 7/3 = 23/3.</li>
+<li>대칭 구간에서 홀함수의 정적분은 0이지만 넓이는 0이 아니에요.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>정적분 = F(q) − F(p); 넓이 = Σ |각 구간 정적분| (x축 교점 ±2에서 분할)</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· "정적분 = 넓이" → 그래프가 x축 위에 있을 때만 같아요.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>속도가 음수(후진)인 구간을 포함하면 정적분은 변위, 절댓값 적분은 총 이동 거리예요.</li></ul>
+</div>
+</section>
+
+
+  <section id="paneA">
+    <div class="grid">
+      <div class="card">
+        <h2 id="cvTitle">실험판</h2>
+        <canvas id="cv" role="img" aria-label="정적분 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
+      </div>
+      <div class="card">
+        <h2>조절하기</h2>
+        <div id="controls"></div>
+        <div class="btns">
+          <button class="btn" id="btnAct">실행</button>
+        </div>
+        <div class="readout" id="readout"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>기록표 <span style="font-weight:400;font-size:.95rem;color:var(--sub)">(<span id="cntA">0</span>개 기록됨)</span></h2>
+      <div class="tablewrap"><table><thead id="thA"></thead><tbody id="tbA"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="paneB" class="hidden">
+    <div class="card">
+      <h2>내가 기록한 데이터 분석</h2>
+      <div id="lack" class="empty">데이터 부족 — 기록이 4개 이상 있어야 분석할 수 있다. (지금 <span id="cntB">0</span>개)</div>
+      <div id="analysis" class="hidden">
+        <div class="tablewrap"><table><thead id="thB"></thead><tbody id="tbB"></tbody></table></div>
+        <div class="statgrid" id="statgrid"></div>
+        <div class="concl" id="concl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+
+function lbl(ctx,t,x,y,c,sz,al){ctx.fillStyle=c;ctx.font='bold '+(sz||18)+'px sans-serif';ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillText(t,x,y);}
+function box(ctx,x,y,w,h){ctx.fillStyle='#f1f6fd';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#c7d8ee';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+function r1(v){return Math.round(v*10)/10;}
+function r2(v){return Math.round(v*100)/100;}
+function r3(v){return Math.round(v*1000)/1000;}
+function r4(v){return Math.round(v*10000)/10000;}
+function sg(v){return (v<0)?(' − '+(-v)):(' + '+v);}
+function sgc(v,s){ if(v===0) return ''; return (v<0)?(' − '+(-v)+s):(' + '+v+s); }
+var CX=220, CY=230, U=26;
+function grid(ctx,xr,yr){
+  var i;
+  ctx.strokeStyle='#eef2f7';ctx.lineWidth=1;
+  for(i=-xr;i<=xr;i++){ ctx.beginPath();ctx.moveTo(CX+i*U,CY-yr*U);ctx.lineTo(CX+i*U,CY+yr*U);ctx.stroke(); }
+  for(i=-yr;i<=yr;i++){ ctx.beginPath();ctx.moveTo(CX-xr*U,CY+i*U);ctx.lineTo(CX+xr*U,CY+i*U);ctx.stroke(); }
+  ctx.strokeStyle='#334155';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(CX-xr*U,CY);ctx.lineTo(CX+xr*U,CY);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(CX,CY-yr*U);ctx.lineTo(CX,CY+yr*U);ctx.stroke();
+}
+
+var LAB = {
+  cw:440, ch:430, cvTitle:'정적분 부호 판',
+  action:'적분값과 넓이 구하기',
+  hint0:'구간의 양 끝을 정해 보자. f(x) = x² − 4 는 x = ±2 에서 x축을 지난다.',
+  sliders:[
+    {id:'p',label:'왼쪽 끝 (÷10)',min:-40,max:20,value:-30,color:'#2563eb',
+     fmt:function(v){return (v/10).toFixed(1);}},
+    {id:'q',label:'오른쪽 끝 (÷10)',min:-20,max:40,value:10,color:'#dc2626',
+     fmt:function(v){return (v/10).toFixed(1);}}
+  ],
+  f:function(x){ return x*x-4; },
+  calc:function(S){
+    var p=S.p/10, q=S.q/10;
+    if(q<p){ var tmp=p; p=q; q=tmp; }
+    var n=4000, dx=(q-p)/n, I=0, A=0, i;
+    for(i=0;i<n;i++){
+      var x=p+(i+0.5)*dx, y=this.f(x);
+      I+=y*dx; A+=Math.abs(y)*dx;
+    }
+    function F(x){ return x*x*x/3-4*x; }
+    return {p:p,q:q,I:I,A:A,F:F(q)-F(p),
+            cross:(p<-2&&q>-2)||(p<2&&q>2)};
+  },
+  readout:function(S,ran){
+    var c=this.calc(S);
+    return [{k:'정적분값',v:ran?r3(c.I):'구해 보자'},
+            {k:'넓이',v:ran?r3(c.A):'-'}];
+  },
+  doneMsg:function(S){
+    var c=this.calc(S);
+    return '정적분값 '+r3(c.I)+', 넓이 '+r3(c.A)+'.  '+((Math.abs(c.I-c.A)<0.01)?'두 값이 같다.':'두 값이 다르다 — x축 아래 부분이 있다.')+' 기록해 보자.';
+  },
+  draw:function(ctx,S,t,ran){
+    var c=this.calc(S), i;
+    var GX=40, GY=250, XU=44, YU=18;
+    function px(x){ return GX+(x+4)*XU; }
+    function py(y){ return GY-y*YU; }
+    ctx.strokeStyle='#eef2f7';ctx.lineWidth=1;
+    for(i=-4;i<=4;i++){ ctx.beginPath();ctx.moveTo(px(i),GY-6*YU);ctx.lineTo(px(i),GY+6*YU);ctx.stroke(); }
+    ctx.strokeStyle='#334155';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(px(-4),GY);ctx.lineTo(px(4),GY);ctx.stroke();
+    var grow=(t===null)?0:Math.min(1,t);
+    if(grow>0){
+      var n=120, dx=(c.q-c.p)/n;
+      for(i=0;i<n*grow;i++){
+        var x0=c.p+i*dx, y0=this.f(x0);
+        ctx.fillStyle=(y0>=0)?'rgba(37,99,235,0.25)':'rgba(220,38,38,0.25)';
+        var top=(y0>=0)?py(y0):GY;
+        ctx.fillRect(px(x0),top,Math.max(1,px(x0+dx)-px(x0)),Math.abs(py(y0)-GY));
+      }
+    }
+    ctx.strokeStyle='#1d4ed8';ctx.lineWidth=3;ctx.beginPath();
+    for(i=-40;i<=40;i++){
+      var x=i/10, y=this.f(x);
+      if(y<-6||y>6) { continue; }
+      if(i===-40) ctx.moveTo(px(x),py(y)); else ctx.lineTo(px(x),py(y));
+    }
+    ctx.stroke();
+    lbl(ctx,'f(x) = x² − 4,   구간 ['+c.p+', '+c.q+']',24,30,'#1d4ed8',17);
+    lbl(ctx,'파랑 = x축 위,  빨강 = x축 아래',24,54,'#52627a',14);
+    box(ctx,20,346,400,74);
+    lbl(ctx,(t===null)?'정적분값과 넓이는 같을까?':('정적분값 '+r3(c.I)+'      넓이 '+r3(c.A)),38,376,'#1f2937',18);
+    lbl(ctx,(t===null)?'':('F(q) − F(p) = '+r3(c.F)),38,406,'#15803d',17);
+  },
+  record:function(S){
+    var c=this.calc(S);
+    return {p:c.p,q:c.q,I:r3(c.I),A:r3(c.A),F:r3(c.F),
+            same:(Math.abs(c.I-c.A)<0.01),
+            ftc:(Math.abs(c.I-c.F)<0.01),
+            neg:(c.I<0),cross:c.cross};
+  },
+  headA:['번호','구간','정적분값','넓이','같나?','F(q)−F(p)','정적분과 같나?','x축 아래 포함?'],
+  rowA:function(r,i){
+    return [i+1,'['+r.p+', '+r.q+']','<b>'+r.I+'</b>',r.A,
+            '<span class="'+(r.same?'ok':'no')+'">'+(r.same?'○':'×')+'</span>',
+            r.F,
+            '<span class="'+(r.ftc?'ok':'no')+'">'+(r.ftc?'○':'×')+'</span>',
+            r.cross?'○':'×'];
+  },
+  analyze:function(rec){
+    var rows=[],same=0,ftc=0,cross=0,crossSame=0,neg=0;
+    for(var i=0;i<rec.length;i++){
+      var r=rec[i];
+      if(r.same) same++;
+      if(r.ftc) ftc++;
+      if(r.cross){ cross++; if(r.same) crossSame++; }
+      if(r.neg) neg++;
+      rows.push(['['+r.p+', '+r.q+']', '<b>'+r.I+'</b>', r.A,
+                 '<span class="'+(r.same?'ok':'no')+'">'+(r.same?'○':'×')+'</span>',
+                 r.F,
+                 '<span class="'+(r.ftc?'ok':'no')+'">'+(r.ftc?'○':'×')+'</span>',
+                 r.cross?'○':'×']);
+    }
+    var stats=[
+      {t:'정적분값 = 넓이',big:same+' / '+rec.length,p:'두 값이 같았던 기록 수.'},
+      {t:'x축 아래를 포함한 구간',big:cross+'개',
+       p:cross?('그중 두 값이 같았던 것 '+crossSame+'개.'):'−2와 2 사이를 포함하는 구간도 잡아 보자.'},
+      {t:'정적분값이 음수였던 기록',big:neg+'개',
+       p:'넓이는 음수가 될 수 없지만 정적분값은 될 수 있다.'}
+    ];
+    var concl;
+    if(cross===0){
+      concl='<b>더 해 보자</b> — 구간이 x = −2 ~ 2 사이를 지나도록 잡아 보자. 그래프가 x축 아래로 내려가는 부분이 생긴다.';
+    } else if(crossSame===0){
+      concl='<b>정리</b> — x축 아래 부분이 포함되면 <b>정적분값과 넓이가 달랐다.</b> '
+           +'정적분은 아래쪽을 <b>음수</b>로 세기 때문이다. 넓이를 구하려면 x축과 만나는 점에서 구간을 나눠 '
+           +'각 조각의 절댓값을 더해야 한다. 한편 <b>F(q) − F(p)</b> 는 언제나 정적분값과 같았다(미적분의 기본정리).';
+    } else {
+      concl='<b>정리</b> — 정적분은 부호가 있는 값이다. 두 값이 다른 경우를 더 찾아보자.';
+    }
+    return {head:['구간','정적분값','넓이','같나?','F(q)−F(p)','같나?','아래 포함?'],rows:rows,stats:stats,concl:concl};
+  }
+};
+
+
+/* ================= 공통 엔진 ================= */
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  cv.width = LAB.cw; cv.height = LAB.ch;
+  cv.style.maxWidth = LAB.cw + 'px';
+  var ctx = cv.getContext('2d');
+  document.getElementById('cvTitle').textContent = LAB.cvTitle;
+
+  var S = {}, records = [], animating = false, ran = false;
+  var DUR = 2400, MIN = 4;
+
+  var h = '', i;
+  for(i=0;i<LAB.sliders.length;i++){
+    var s = LAB.sliders[i];
+    h += '<div class="ctrl"><div class="row"><span><span class="chip" style="background:' + s.color + '"></span>'
+       + s.label + '</span><span class="val" id="v_' + s.id + '"></span></div>'
+       + '<input type="range" id="s_' + s.id + '" aria-label="' + s.label + '" min="' + s.min + '" max="' + s.max
+       + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
+  }
+  document.getElementById('controls').innerHTML = h;
+
+  var btnAct = document.getElementById('btnAct');
+  var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
+  var hint = document.getElementById('hint');
+  btnAct.textContent = LAB.action;
+
+  function readSliders(){
+    for(var i=0;i<LAB.sliders.length;i++){
+      var s = LAB.sliders[i];
+      var el = document.getElementById('s_' + s.id);
+      S[s.id] = parseFloat(el.value);
+      document.getElementById('v_' + s.id).textContent = s.fmt ? s.fmt(S[s.id]) : (S[s.id] + (s.unit || ''));
+    }
+  }
+  function lock(on){
+    for(var i=0;i<LAB.sliders.length;i++){ document.getElementById('s_' + LAB.sliders[i].id).disabled = on; }
+    btnAct.disabled = on || ran;
+    btnRec.disabled = on || !ran;
+  }
+  function readout(){
+    var arr = LAB.readout(S, ran), s = '';
+    for(var i=0;i<arr.length;i++){ s += '<div>' + arr[i].k + '<b>' + arr[i].v + '</b></div>'; }
+    document.getElementById('readout').innerHTML = s;
+  }
+  function paint(t){
+    ctx.clearRect(0,0,LAB.cw,LAB.ch);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,LAB.cw,LAB.ch);
+    ctx.strokeStyle = '#e5ecf5'; ctx.lineWidth = 2; ctx.strokeRect(1,1,LAB.cw-2,LAB.ch-2);
+    LAB.draw(ctx, S, t, ran);
+  }
+  function onSlide(){
+    if(animating) return;
+    readSliders(); ran = false;
+    btnAct.disabled = false; btnRec.disabled = true;
+    hint.textContent = LAB.hint0;
+    readout(); paint(null);
+  }
+  for(i=0;i<LAB.sliders.length;i++){
+    document.getElementById('s_' + LAB.sliders[i].id).addEventListener('input', onSlide);
+  }
+
+  btnAct.addEventListener('click', function(){
+    if(animating || ran) return;
+    cv.scrollIntoView({behavior:'smooth', block:'center'});
+    animating = true; lock(true);
+    var t0 = performance.now();
+    function frame(now){
+      var p = (now - t0) / DUR;
+      if(p > 1) p = 1;
+      paint(p);
+      if(p < 1){ requestAnimationFrame(frame); }
+      else {
+        animating = false; ran = true; lock(false);
+        records.push(LAB.record(S));
+        renderA(); renderB();
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)';
+        readout(); paint(1);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+
+  function th(list){
+    var s = '<tr>';
+    for(var i=0;i<list.length;i++){ s += '<th>' + list[i] + '</th>'; }
+    return s + '</tr>';
+  }
+  function renderA(){
+    document.getElementById('cntA').textContent = records.length;
+    document.getElementById('thA').innerHTML = th(LAB.headA);
+    var tb = document.getElementById('tbA');
+    if(records.length === 0){
+      tb.innerHTML = '<tr><td colspan="' + LAB.headA.length + '" class="empty">아직 기록이 없다.</td></tr>';
+      return;
+    }
+    var s = '';
+    for(var i=0;i<records.length;i++){
+      var cells = LAB.rowA(records[i], i);
+      s += '<tr>';
+      for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
+      s += '</tr>';
+    }
+    tb.innerHTML = s;
+  }
+  function renderB(){
+    document.getElementById('cntB').textContent = records.length;
+    var lack = document.getElementById('lack'), an = document.getElementById('analysis');
+    if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
+    lack.classList.add('hidden'); an.classList.remove('hidden');
+    var res = LAB.analyze(records);
+    document.getElementById('thB').innerHTML = th(res.head);
+    var s = '';
+    for(var i=0;i<res.rows.length;i++){
+      s += '<tr>';
+      for(var j=0;j<res.rows[i].length;j++){ s += '<td>' + res.rows[i][j] + '</td>'; }
+      s += '</tr>';
+    }
+    document.getElementById('tbB').innerHTML = s;
+    var g = '';
+    for(var k=0;k<res.stats.length;k++){
+      g += '<div class="stat"><h3>' + res.stats[k].t + '</h3><p class="big">' + res.stats[k].big
+         + '</p><p>' + res.stats[k].p + '</p></div>';
+    }
+    document.getElementById('statgrid').innerHTML = g;
+    document.getElementById('concl').innerHTML = res.concl;
+  }
+
+  var tabA = document.getElementById('tabA'), tabB = document.getElementById('tabB');
+  var paneA = document.getElementById('paneA'), paneB = document.getElementById('paneB');
+  tabA.addEventListener('click', function(){
+    tabA.classList.add('on'); tabB.classList.remove('on');
+    paneA.classList.remove('hidden'); paneB.classList.add('hidden');
+  });
+  tabB.addEventListener('click', function(){
+    tabB.classList.add('on'); tabA.classList.remove('on');
+    paneB.classList.remove('hidden'); paneA.classList.add('hidden');
+    renderB();
+  });
+
+  readSliders(); readout(); paint(null);
+  hint.textContent = LAB.hint0;
+  renderA(); renderB();
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>

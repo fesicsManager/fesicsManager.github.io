@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>단열 실험실 — 보온병 설계</title>
@@ -132,6 +152,28 @@ tbody tr:nth-child(even){background:#f7faf9;}
 .toast .go{background:var(--teal);color:#fff;}
 .toast .later{background:#3d5a61;color:#dfeceb;}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="app">
@@ -145,12 +187,55 @@ tbody tr:nth-child(even){background:#f7faf9;}
     <button class="tab-btn" data-tab="validate">✅ 데이터 확인</button>
   </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 단열과 냉각</h3>
+<p>뜨거운 물은 벽을 통한 <b>전도</b>, 공기의 <b>대류</b>, 적외선 <b>복사</b>로 열을 잃어요. 열이 지나가기 어렵게 만드는 것이 <b>단열</b>이에요. 벽의 <b>열저항</b>은 <span class="fx-formula">두께 ÷ (열전도율 k × 면적)</span>이라, k가 작고 두꺼울수록 천천히 식어요. 식는 빠르기는 온도 차에 비례하므로(뉴턴의 냉각 법칙) 온도는 <b>지수적으로</b> 실온에 가까워져요.</p>
+
+<h3>⚙️ 재료별 단열 원리</h3>
+<ul>
+<li><b>유리</b>(k ≈ 1.0): 입자가 빽빽해 전도가 잘 돼요. 빨리 식어요.</li>
+<li><b>스티로폼</b>(k ≈ 0.033): 작은 방울 속에 <b>공기</b>를 가둬요. 공기는 k가 0.026으로 아주 작고, 방울이 작아 대류도 못 해요.</li>
+<li><b>진공층</b>: 열을 나를 입자가 없어 전도·대류가 거의 0. 남는 것은 <b>복사</b>와 병 입구·지지부로 새는 열뿐이에요. 안쪽 벽을 거울처럼 코팅해 복사도 막아요.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">T(t) = 20 + 70·e^(−t/τ)</span>, <span class="fx-formula">τ = m·c·(d ÷ kA + 1 ÷ hA)</span> — 물 300 g, A = 0.06 m², h = 10 W/m²K. τ가 클수록 천천히 식어요.</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 진공층의 <b>k = 0.005</b>는 복사와 지지부 열교를 '유효 열전도율'로 <b>환산한 교육용 값</b>이에요. 진공 자체에는 열전도율이 없어요. 실제 진공 보온병의 열손실은 두께보다 <b>반사 코팅과 입구 구조</b>에 좌우되므로, '두께 2배 → 2배 좋아짐'이 진공층에는 잘 맞지 않아요.<br>
+· 뚜껑 틈으로 새는 대류와 증발, 병 자체가 데워지는 열은 무시했어요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>패딩·이불·이중창은 공기를 가두는 단열이고, 보온병·마법병은 진공 단열이에요.</li>
+<li>보온병은 '식지 않게'가 아니라 '천천히 식게' 하는 장치예요. 결국은 실온과 열평형이 돼요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <div class="tab-panel active" id="tab-explore">
 
     <div class="card">
       <div class="explore-grid">
         <div class="canvas-panel">
-          <canvas id="thermosCanvas" width="440" height="360"></canvas>
+          <canvas id="thermosCanvas" width="440" height="360" role="img" aria-label="단열 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
           <div class="control-block">
             <div class="control-label">단열재</div>
             <div class="btn-row" id="materialRow"></div>
@@ -171,7 +256,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="insight-box wait" style="margin-top:14px;">
             뉴턴의 냉각 법칙 <span class="mono">T = 20 + 70·e<sup>−t/τ</sup></span>을 씁니다.
             시간상수 <span class="mono">τ = m·c·(d/kA + 1/hA)</span> — 물 300g(c = 4.186 J/g·K), 표면적 0.06m², 공기 대류계수 h = 10 W/m²K.
-            k는 실제 열전도율(유리 1.0, 스티로폼 0.033, 진공층 0.005 W/m·K)입니다.
+            k는 유리 1.0, 스티로폼 0.033 W/m·K(문헌값)이고, <b>진공층</b>은 열을 전달할 입자가 없어 전도·대류는 0이지만 <b>복사</b>와 병 입구·지지부를 통한 <b>열교</b>가 남으므로, 이를 합쳐 '유효 열전도율 0.005 W/m·K'로 <b>환산한 교육용 값</b>입니다.<br>
+  <span style="color:#a86825">※ 실제 진공 보온병의 열손실은 벽 두께보다 안쪽 벽의 반사 코팅(복사 억제)과 입구 구조에 좌우돼요. 그래서 진공층은 '두께를 2배로 하면 2배 좋아진다'는 규칙이 잘 맞지 않습니다.</span>
           </div>
         </div>
       </div>
@@ -189,7 +275,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
       </div>
       <div id="validationContent" style="display:none;">
         <div class="section-title">1. 조합별 단열 성능</div>
-        <div class="chart-box"><canvas id="comboChart" width="600" height="360"></canvas></div>
+        <div class="chart-box"><canvas id="comboChart" width="600" height="360" role="img" aria-label="단열 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
         <div id="rankAnalysis"></div>
 
         <div class="section-title">2. 관계 알아보기</div>
@@ -208,7 +294,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <p>2화의 전도(재질마다 열이 전달되는 속도가 다름)와 3화의 열평형(결국 주변 온도와 같아짐)을 떠올려 보세요. 좋은 보온병은 왜 열전도율이 낮은 재질과 진공층을 함께 쓸까요?</p>
           <button class="hint-toggle" data-target="hintBody">힌트 보기</button>
           <div class="hint-body" id="hintBody">
-            열전도율 k가 작을수록, 그리고 벽이 두꺼울수록 열이 지나가기 어려워집니다(저항 = 두께 ÷ k). 진공층은 열을 옮길 입자 자체가 거의 없어 k가 극단적으로 작습니다.
+            열전도율 k가 작을수록, 그리고 벽이 두꺼울수록 열이 지나가기 어려워집니다(저항 = 두께 ÷ k). 진공층은 열을 옮길 입자 자체가 거의 없어 전도·대류가 거의 0이고, 남는 것은 <b>복사</b>(안쪽 벽을 거울처럼 만들어 막음)와 병 입구로 새는 열뿐입니다. 이 실험의 k = 0.005는 그것을 환산한 유효값이에요.
             그래도 결국은 실온과 열평형에 이르게 되므로, 보온병은 "식지 않게" 하는 게 아니라 "천천히 식게" 하는 장치입니다.
           </div>
         </div>
@@ -379,7 +465,7 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 /* ================= 실험 ================= */
 
 var T_HOT=90, T_ROOM=20, MC=300*4.186, AREA=0.06, H_CONV=10;
-var MATS=[{n:'유리',k:1.0,c:'#9fd0e0'},{n:'스티로폼',k:0.033,c:'#f3e3c6'},{n:'진공층',k:0.005,c:'#c9d6dc'}];
+var MATS=[{n:'유리',k:1.0,c:'#9fd0e0'},{n:'스티로폼',k:0.033,c:'#f3e3c6'},{n:'진공층(유효)',k:0.005,c:'#c9d6dc'}]; /* 진공층 k는 복사+지지부 열교를 유효 열전도율로 환산한 교육용 값 */
 var THICKS=[{n:'2mm',d:0.002},{n:'5mm',d:0.005},{n:'10mm',d:0.010}];
 function tau(k,d){ return MC*(d/(k*AREA) + 1/(H_CONV*AREA)); }
 function tempAt(k,d,t){ return T_ROOM+(T_HOT-T_ROOM)*Math.exp(-t/tau(k,d)); }
@@ -562,6 +648,51 @@ document.querySelectorAll('[data-q="rel"]').forEach(function(btn){
 });
 
 </script>
-<script src="/fesicsExternal/embed-resize.js"></script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
 </body>
 </html>

@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>닮음비 실험실 — 2배로 늘리면 넓이도 2배일까?</title>
+<style>
+:root{
+  --bg:#f6f9fc; --ink:#1f2937; --sub:#52627a; --line:#d7e0ec;
+  --card:#ffffff; --accent:#2563eb; --ok:#0f9d58; --no:#dc2626;
+}
+html{font-size:20px}
+@media (max-width:760px){html{font-size:19.5px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:1.2rem 0 3rem;
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.6;
+  background-color:var(--bg);
+  background-image:radial-gradient(circle,#ccd7e6 1.3px,transparent 1.3px);
+  background-size:22px 22px;
+}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .3rem}
+.lead{font-size:1rem;color:var(--sub);margin:0 0 1.1rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.6rem 1.1rem;
+  border:2px solid var(--line);border-radius:.7rem;background:#fff;color:var(--sub);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .1s,filter .15s}
+.tab-btn:hover{filter:brightness(.97);border-color:#b9c8dc}
+.tab-btn:active{transform:translateY(2px) scale(.98)}
+.tab-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) 1fr;gap:1rem;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:2px solid var(--line);border-radius:1rem;padding:1rem}
+.grid>*{min-width:0} /* 표가 넓어도 그리드 열이 화면 밖으로 늘어나지 않게 */
+.readout>*{min-width:0;overflow-wrap:anywhere}
+.card h2{font-size:1.1rem;margin:0 0 .7rem}
+canvas{width:100%;height:auto;display:block;border-radius:.7rem;background:#fff}
+.ctrl{margin:.9rem 0}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:1rem;font-weight:700;margin-bottom:.1rem}
+.ctrl .val{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;width:.95rem;height:.95rem;border-radius:.25rem;margin-right:.4rem;vertical-align:-.1rem}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;
+  cursor:pointer;touch-action:manipulation;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-moz-range-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#fff;border:4px solid var(--accent);margin-top:-7px;transition:transform .12s,box-shadow .12s}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;
+  border:4px solid var(--accent);transition:transform .12s,box-shadow .12s}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:active::-moz-range-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+.btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.65rem 1.15rem;border:none;
+  border-radius:.7rem;background:var(--accent);color:#fff;cursor:pointer;transition:filter .15s,transform .1s}
+.btn.alt{background:#0f9d58}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px) scale(.98)}
+.btn:disabled{background:#aebdd0;cursor:not-allowed;filter:none;transform:none}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.9rem}
+.readout div{background:#f1f6fd;border:1px solid var(--line);border-radius:.6rem;padding:.55rem .7rem;font-size:.95rem}
+.readout b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.95rem;color:var(--sub);margin-top:.7rem}
+.tablewrap{max-height:26rem;overflow:auto;border:1px solid var(--line);border-radius:.7rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .45rem;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:#eaf1fa;font-weight:700;z-index:2}
+tbody tr:nth-child(even){background:#fafcff}
+.empty{padding:1.6rem;text-align:center;color:var(--sub);font-size:1rem}
+.ok{color:var(--ok);font-weight:700}
+.no{color:var(--no);font-weight:700}
+.concl{background:#eef7ff;border:2px solid #a9cff5;border-radius:.8rem;padding:.9rem 1rem;font-size:1.05rem;margin-top:1rem}
+.hidden{display:none}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.9rem}
+.stat{background:#f4f8fe;border:1px solid var(--line);border-radius:.7rem;padding:.8rem}
+.stat h3{margin:0 0 .3rem;font-size:1rem}
+.stat p{margin:0;font-size:.95rem;color:var(--sub)}
+.stat .big{font-size:1.3rem;font-weight:800;color:var(--ink);margin-bottom:.2rem}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>닮음비 실험실 — 2배로 늘리면 넓이도 2배일까?</h1>
+  <p class="lead">도형을 k배로 확대하며 길이·넓이·부피가 각각 몇 배가 되는지 계산해 기록한다.</p>
+
+  <div class="tabs">
+    <button class="tab-btn on" id="tabA">🔬 자유 탐구</button>
+    <button class="tab-btn" id="tabB">✅ 데이터 확인</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 닮음비 k이면 길이 k배, 넓이 k²배, 부피 k³배</h3>
+<p>도형을 2배로 확대하면 둘레는 2배지만 넓이는 <b>4배</b>, 부피는 <b>8배</b>예요. 넓이는 두 방향으로, 부피는 세 방향으로 함께 늘어나기 때문이에요. "2배로 키우면 넓이도 2배"라고 답하면 크게 틀려요. 길이인 양(둘레·높이·대각선)만 k배 그대로예요.</p>
+<h3>⚙️ 왜 그럴까</h3>
+<ul>
+<li>정사각형 한 변 3 → 6: 넓이 9 → 36(4배). 정육면체 3 → 6: 부피 27 → 216(8배).</li>
+<li>k = 3: 넓이 9배, 부피 27배. k = 1/2: 넓이 1/4, 부피 1/8.</li>
+<li>모든 닮은 도형(원, 삼각형, 구)에서 같은 규칙.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>도형별 k배 확대 → 길이·넓이·부피 비 계산, k·k²·k³과 대조</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· "피자 지름 2배면 양도 2배" → 4배예요. 큰 피자가 훨씬 이득인 이유.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>모형 축척(1/100 모형의 부피는 1/1 000 000), 큰 동물이 열을 잘 못 식히는 이유(표면적 ∝ k², 부피 ∝ k³)가 이 원리예요.</li></ul>
+</div>
+</section>
+
+
+  <section id="paneA">
+    <div class="grid">
+      <div class="card">
+        <h2 id="cvTitle">실험판</h2>
+        <canvas id="cv" role="img" aria-label="닮음비 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
+      </div>
+      <div class="card">
+        <h2>조절하기</h2>
+        <div id="controls"></div>
+        <div class="btns">
+          <button class="btn" id="btnAct">실행</button>
+        </div>
+        <div class="readout" id="readout"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>기록표 <span style="font-weight:400;font-size:.95rem;color:var(--sub)">(<span id="cntA">0</span>개 기록됨)</span></h2>
+      <div class="tablewrap"><table><thead id="thA"></thead><tbody id="tbA"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="paneB" class="hidden">
+    <div class="card">
+      <h2>내가 기록한 데이터 분석</h2>
+      <div id="lack" class="empty">데이터 부족 — 기록이 4개 이상 있어야 분석할 수 있다. (지금 <span id="cntB">0</span>개)</div>
+      <div id="analysis" class="hidden">
+        <div class="tablewrap"><table><thead id="thB"></thead><tbody id="tbB"></tbody></table></div>
+        <div class="statgrid" id="statgrid"></div>
+        <div class="concl" id="concl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+
+function lbl(ctx,t,x,y,c,sz,al){ctx.fillStyle=c;ctx.font='bold '+(sz||18)+'px sans-serif';ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillText(t,x,y);}
+function box(ctx,x,y,w,h){ctx.fillStyle='#f1f6fd';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#c7d8ee';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+function r1(v){return Math.round(v*10)/10;}
+function r2(v){return Math.round(v*100)/100;}
+function r3(v){return Math.round(v*1000)/1000;}
+function sg(v){return (v<0)?(' − '+(-v)):(' + '+v);}
+function sgc(v,s){ if(v===0) return ''; return (v<0)?(' − '+(-v)+s):(' + '+v+s); }
+function dist(p,q){return Math.sqrt((p[0]-q[0])*(p[0]-q[0])+(p[1]-q[1])*(p[1]-q[1]));}
+function distLine(P,A,B){
+  var vx=B[0]-A[0], vy=B[1]-A[1];
+  var L=Math.sqrt(vx*vx+vy*vy);
+  if(L===0) return dist(P,A);
+  return Math.abs(vx*(A[1]-P[1])-vy*(A[0]-P[0]))/L;
+}
+var CX=220, CY=210, U=22;
+function grid(ctx,xr,yr){
+  var i;
+  ctx.strokeStyle='#eef2f7';ctx.lineWidth=1;
+  for(i=-xr;i<=xr;i++){ ctx.beginPath();ctx.moveTo(CX+i*U,CY-yr*U);ctx.lineTo(CX+i*U,CY+yr*U);ctx.stroke(); }
+  for(i=-yr;i<=yr;i++){ ctx.beginPath();ctx.moveTo(CX-xr*U,CY+i*U);ctx.lineTo(CX+xr*U,CY+i*U);ctx.stroke(); }
+  ctx.strokeStyle='#334155';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(CX-xr*U,CY);ctx.lineTo(CX+xr*U,CY);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(CX,CY-yr*U);ctx.lineTo(CX,CY+yr*U);ctx.stroke();
+}
+
+var KINDS=['삼각형','직육면체'];
+var LAB = {
+  cw:440, ch:430, cvTitle:'닮음 확대판',
+  action:'k배로 늘려 보기',
+  hint0:'도형과 닮음비를 정해 보자.',
+  sliders:[
+    {id:'kind',label:'도형',min:0,max:1,value:0,color:'#2563eb',fmt:function(v){return KINDS[v];}},
+    {id:'k',label:'닮음비 k',min:2,max:4,value:2,color:'#f59e0b',unit:'배'},
+    {id:'s',label:'처음 크기',min:2,max:5,value:3,color:'#16a34a',unit:''}
+  ],
+  calc:function(S){
+    var s=S.s, k=S.k;
+    if(S.kind===0){
+      var a1=s*s*Math.sqrt(3)/4, a2=(s*k)*(s*k)*Math.sqrt(3)/4;
+      var p1=3*s, p2=3*s*k;
+      return {len1:s,len2:s*k,per1:p1,per2:p2,ar1:a1,ar2:a2,
+              perR:p2/p1,arR:a2/a1,vol:false};
+    }
+    var A1=6*s*s, A2=6*(s*k)*(s*k);
+    var V1=s*s*s, V2=(s*k)*(s*k)*(s*k);
+    return {len1:s,len2:s*k,per1:12*s,per2:12*s*k,ar1:A1,ar2:A2,
+            v1:V1,v2:V2,perR:(12*s*k)/(12*s),arR:A2/A1,volR:V2/V1,vol:true};
+  },
+  readout:function(S,ran){
+    var c=this.calc(S);
+    return [{k:'넓이비',v:ran?r3(c.arR):'늘려 보자'},
+            {k:c.vol?'부피비':'둘레비',v:ran?(c.vol?r3(c.volR):r3(c.perR)):'-'}];
+  },
+  doneMsg:function(S){
+    var c=this.calc(S);
+    return '길이는 '+S.k+'배, 넓이는 '+r3(c.arR)+'배'+(c.vol?(', 부피는 '+r3(c.volR)+'배'):'')+'다. 기록해 보자.';
+  },
+  draw:function(ctx,S,t,ran){
+    var c=this.calc(S), i;
+    var grow=(t===null)?0:Math.min(1,t);
+    var cur=S.s*(1+(S.k-1)*grow);
+    if(S.kind===0){
+      var u=Math.min(26,300/(S.s*S.k));
+      function tri(side,col,fill){
+        var h=side*Math.sqrt(3)/2*u;
+        var X=60, Y=320;
+        ctx.beginPath();ctx.moveTo(X,Y);ctx.lineTo(X+side*u,Y);ctx.lineTo(X+side*u/2,Y-h);ctx.closePath();
+        if(fill){ ctx.fillStyle=fill;ctx.fill(); }
+        ctx.strokeStyle=col;ctx.lineWidth=2.6;ctx.stroke();
+      }
+      tri(cur,'#d97706','rgba(245,158,11,0.18)');
+      tri(S.s,'#2563eb','rgba(37,99,235,0.25)');
+    } else {
+      var u2=Math.min(30,260/(S.s*S.k*1.5));
+      function boxd(side,col,fill){
+        var X=70, Y=320, d=side*u2*0.45;
+        var w=side*u2;
+        ctx.fillStyle=fill;
+        ctx.fillRect(X,Y-w,w,w);
+        ctx.strokeStyle=col;ctx.lineWidth=2.4;ctx.strokeRect(X,Y-w,w,w);
+        ctx.beginPath();
+        ctx.moveTo(X,Y-w);ctx.lineTo(X+d,Y-w-d);
+        ctx.lineTo(X+w+d,Y-w-d);ctx.lineTo(X+w,Y-w);
+        ctx.moveTo(X+w,Y);ctx.lineTo(X+w+d,Y-d);ctx.lineTo(X+w+d,Y-w-d);
+        ctx.stroke();
+      }
+      boxd(cur,'#d97706','rgba(245,158,11,0.18)');
+      boxd(S.s,'#2563eb','rgba(37,99,235,0.25)');
+    }
+    lbl(ctx,KINDS[S.kind]+' 을 '+S.k+'배로 확대',24,32,'#1d4ed8',18);
+    box(ctx,20,340,400,80);
+    lbl(ctx,'길이 '+c.len1+' → '+c.len2+'   ('+S.k+'배)',38,370,'#52627a',17);
+    lbl(ctx,(t===null)?'넓이와 부피는 몇 배가 될까?':
+        ('넓이 '+r2(c.ar1)+' → '+r2(c.ar2)+' ('+r3(c.arR)+'배)'+(c.vol?('   부피 '+c.v1+' → '+c.v2+' ('+r3(c.volR)+'배)'):'')),
+        38,402,'#1f2937',15);
+  },
+  record:function(S){
+    var c=this.calc(S);
+    return {kind:S.kind,name:KINDS[S.kind],k:S.k,s:S.s,
+            lenR:S.k,arR:r3(c.arR),volR:c.vol?r3(c.volR):'-',
+            k2:S.k*S.k,k3:S.k*S.k*S.k,
+            arOk:(Math.abs(c.arR-S.k*S.k)<0.01),
+            volOk:c.vol?(Math.abs(c.volR-S.k*S.k*S.k)<0.01):true,
+            linOk:(Math.abs(c.arR-S.k)<0.01),
+            vol:c.vol};
+  },
+  headA:['번호','도형','k','넓이비','k²','같나?','부피비','k³','같나?','넓이비 = k?'],
+  rowA:function(r,i){
+    return [i+1,r.name,r.k+'배','<b>'+r.arR+'</b>',r.k2,
+            '<span class="'+(r.arOk?'ok':'no')+'">'+(r.arOk?'○':'×')+'</span>',
+            r.volR,r.vol?r.k3:'-',
+            '<span class="'+(r.volOk?'ok':'no')+'">'+(r.volOk?'○':'×')+'</span>',
+            '<span class="'+(r.linOk?'ok':'no')+'">'+(r.linOk?'○':'×')+'</span>'];
+  },
+  analyze:function(rec){
+    var rows=[],ar=0,vo=0,lin=0,vn=0,kinds={},kn=0;
+    for(var i=0;i<rec.length;i++){
+      var r=rec[i];
+      if(r.arOk) ar++;
+      if(r.vol){ vn++; if(r.volOk) vo++; }
+      if(r.linOk) lin++;
+      if(!kinds[r.name]){ kinds[r.name]=true; kn++; }
+      rows.push([r.name, r.k+'배', '<b>'+r.arR+'</b>', r.k2,
+                 '<span class="'+(r.arOk?'ok':'no')+'">'+(r.arOk?'○':'×')+'</span>',
+                 r.volR, r.vol?r.k3:'-',
+                 '<span class="'+(r.volOk?'ok':'no')+'">'+(r.volOk?'○':'×')+'</span>']);
+    }
+    var stats=[
+      {t:'넓이비 = k²',big:ar+' / '+rec.length,p:'실제 넓이를 계산해 비교한 결과.'},
+      {t:'부피비 = k³',big:vn?(vo+' / '+vn):'기록 없음',
+       p:vn?'직육면체 기록만 셈.':'직육면체도 기록해 보자.'},
+      {t:'넓이비 = k 였던 횟수',big:lin+' / '+rec.length,
+       p:'길이비를 그대로 쓰면 어떻게 되는지 확인한 결과. 시험한 도형 '+kn+'가지.'}
+    ];
+    var concl;
+    if(vn===0){
+      concl='<b>더 해 보자</b> — <b>직육면체</b>도 기록해 부피비가 어떻게 되는지 확인해 보자.';
+    } else if(ar===rec.length&&vo===vn&&lin===0){
+      concl='<b>정리</b> — 닮음비가 k일 때 <b>길이는 k배, 넓이는 k²배, 부피는 k³배</b>였다. '
+           +'넓이는 두 방향, 부피는 세 방향으로 함께 늘어나기 때문이다. '
+           +'2배로 확대하면 넓이는 4배, 부피는 8배가 되므로 «두 배»라고 답하면 크게 틀린다. '
+           +'둘레처럼 길이인 양만 k배 그대로다.';
+    } else {
+      concl='<b>확인 필요</b> — 계산한 비와 공식이 어긋난 기록이 있다.';
+    }
+    return {head:['도형','k','넓이비','k²','같나?','부피비','k³','같나?'],rows:rows,stats:stats,concl:concl};
+  }
+};
+
+
+/* ================= 공통 엔진 ================= */
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  cv.width = LAB.cw; cv.height = LAB.ch;
+  cv.style.maxWidth = LAB.cw + 'px';
+  var ctx = cv.getContext('2d');
+  document.getElementById('cvTitle').textContent = LAB.cvTitle;
+
+  var S = {}, records = [], animating = false, ran = false;
+  var DUR = 2400, MIN = 4;
+
+  var h = '', i;
+  for(i=0;i<LAB.sliders.length;i++){
+    var s = LAB.sliders[i];
+    h += '<div class="ctrl"><div class="row"><span><span class="chip" style="background:' + s.color + '"></span>'
+       + s.label + '</span><span class="val" id="v_' + s.id + '"></span></div>'
+       + '<input type="range" id="s_' + s.id + '" aria-label="' + s.label + '" min="' + s.min + '" max="' + s.max
+       + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
+  }
+  document.getElementById('controls').innerHTML = h;
+
+  var btnAct = document.getElementById('btnAct');
+  var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
+  var hint = document.getElementById('hint');
+  btnAct.textContent = LAB.action;
+
+  function readSliders(){
+    for(var i=0;i<LAB.sliders.length;i++){
+      var s = LAB.sliders[i];
+      var el = document.getElementById('s_' + s.id);
+      S[s.id] = parseFloat(el.value);
+      document.getElementById('v_' + s.id).textContent = s.fmt ? s.fmt(S[s.id]) : (S[s.id] + (s.unit || ''));
+    }
+  }
+  function lock(on){
+    for(var i=0;i<LAB.sliders.length;i++){ document.getElementById('s_' + LAB.sliders[i].id).disabled = on; }
+    btnAct.disabled = on || ran;
+    btnRec.disabled = on || !ran;
+  }
+  function readout(){
+    var arr = LAB.readout(S, ran), s = '';
+    for(var i=0;i<arr.length;i++){ s += '<div>' + arr[i].k + '<b>' + arr[i].v + '</b></div>'; }
+    document.getElementById('readout').innerHTML = s;
+  }
+  function paint(t){
+    ctx.clearRect(0,0,LAB.cw,LAB.ch);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,LAB.cw,LAB.ch);
+    ctx.strokeStyle = '#e5ecf5'; ctx.lineWidth = 2; ctx.strokeRect(1,1,LAB.cw-2,LAB.ch-2);
+    LAB.draw(ctx, S, t, ran);
+  }
+  function onSlide(){
+    if(animating) return;
+    readSliders(); ran = false;
+    btnAct.disabled = false; btnRec.disabled = true;
+    hint.textContent = LAB.hint0;
+    readout(); paint(null);
+  }
+  for(i=0;i<LAB.sliders.length;i++){
+    document.getElementById('s_' + LAB.sliders[i].id).addEventListener('input', onSlide);
+  }
+
+  btnAct.addEventListener('click', function(){
+    if(animating || ran) return;
+    cv.scrollIntoView({behavior:'smooth', block:'center'});
+    animating = true; lock(true);
+    var t0 = performance.now();
+    function frame(now){
+      var p = (now - t0) / DUR;
+      if(p > 1) p = 1;
+      paint(p);
+      if(p < 1){ requestAnimationFrame(frame); }
+      else {
+        animating = false; ran = true; lock(false);
+        records.push(LAB.record(S));
+        renderA(); renderB();
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)';
+        readout(); paint(1);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+
+  function th(list){
+    var s = '<tr>';
+    for(var i=0;i<list.length;i++){ s += '<th>' + list[i] + '</th>'; }
+    return s + '</tr>';
+  }
+  function renderA(){
+    document.getElementById('cntA').textContent = records.length;
+    document.getElementById('thA').innerHTML = th(LAB.headA);
+    var tb = document.getElementById('tbA');
+    if(records.length === 0){
+      tb.innerHTML = '<tr><td colspan="' + LAB.headA.length + '" class="empty">아직 기록이 없다.</td></tr>';
+      return;
+    }
+    var s = '';
+    for(var i=0;i<records.length;i++){
+      var cells = LAB.rowA(records[i], i);
+      s += '<tr>';
+      for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
+      s += '</tr>';
+    }
+    tb.innerHTML = s;
+  }
+  function renderB(){
+    document.getElementById('cntB').textContent = records.length;
+    var lack = document.getElementById('lack'), an = document.getElementById('analysis');
+    if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
+    lack.classList.add('hidden'); an.classList.remove('hidden');
+    var res = LAB.analyze(records);
+    document.getElementById('thB').innerHTML = th(res.head);
+    var s = '';
+    for(var i=0;i<res.rows.length;i++){
+      s += '<tr>';
+      for(var j=0;j<res.rows[i].length;j++){ s += '<td>' + res.rows[i][j] + '</td>'; }
+      s += '</tr>';
+    }
+    document.getElementById('tbB').innerHTML = s;
+    var g = '';
+    for(var k=0;k<res.stats.length;k++){
+      g += '<div class="stat"><h3>' + res.stats[k].t + '</h3><p class="big">' + res.stats[k].big
+         + '</p><p>' + res.stats[k].p + '</p></div>';
+    }
+    document.getElementById('statgrid').innerHTML = g;
+    document.getElementById('concl').innerHTML = res.concl;
+  }
+
+  var tabA = document.getElementById('tabA'), tabB = document.getElementById('tabB');
+  var paneA = document.getElementById('paneA'), paneB = document.getElementById('paneB');
+  tabA.addEventListener('click', function(){
+    tabA.classList.add('on'); tabB.classList.remove('on');
+    paneA.classList.remove('hidden'); paneB.classList.add('hidden');
+  });
+  tabB.addEventListener('click', function(){
+    tabB.classList.add('on'); tabA.classList.remove('on');
+    paneB.classList.remove('hidden'); paneA.classList.add('hidden');
+    renderB();
+  });
+
+  readSliders(); readout(); paint(null);
+  hint.textContent = LAB.hint0;
+  renderA(); renderB();
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>

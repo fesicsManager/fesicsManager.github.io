@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>일반생물 실험 5 · 개체군 성장과 환경 수용력</title>
@@ -77,6 +97,28 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 .plots canvas{background:#fff;border:1px solid var(--line);}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -89,11 +131,43 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
   <button class="tab" data-p="verify">✅ 데이터 검증</button>
 </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 지수 성장, 로지스틱 성장, 환경 수용력</h3>
+<p>자원이 무한하면 개체군은 <b>지수적으로</b> 늘어요: dN/dt = rN, N(t) = N₀e^(rt)(r: 내재 증가율). 실제로는 자원·공간이 한정되어 개체 수가 늘수록 성장이 둔해지고 <b>환경 수용력 K</b>에 수렴해요(<b>로지스틱 성장</b>): <span class="fx-formula">dN/dt = rN(1 − N/K)</span>, <span class="fx-formula">N(t) = K ÷ [1 + ((K − N₀)/N₀)e^(−rt)]</span>. S자 곡선의 성장 속도는 N = K/2에서 최대예요. 효모를 배양하며 혈구계수기로 세면 지체기 → 대수 성장기 → 감속기 → 정지기가 나타나고, 배지 영양이 K를, 온도가 r을 정해요.</p>
+
+<h3>⚙️ 계산해 보기</h3>
+<ul>
+<li>표준 배지 K = 160(×10⁶/mL), N₀ = 2, 30 ℃ r ≈ 0.35/h: 12시간 뒤 N ≈ 105, 24시간 뒤 ≈ 159(거의 K). 배가 시간 = ln2/r ≈ 2.0 h.</li>
+<li>풍부 배지(K = 400)는 같은 r로 더 높이, 빈약 배지(K = 40)는 빨리 정지기.</li>
+<li>온도: 30 ℃ 기준 Q₁₀ = 2로 20 ℃면 r 절반(배가 4 h), 36 ℃ 이상에서 급감(열 손상). K는 온도와 무관하게 영양이 정해요.</li>
+<li>ln N–t 그래프: 지수기에서 직선(기울기 r), 정지기에서 평평 → r을 회귀로 구해요.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">r = r₃₀ × 2^((T−30)/10) × 1/(1 + e^((T−36)/1.5))</span>, <span class="fx-formula">N(t) = K/[1 + ((K−N₀)/N₀)e^(−rt)]</span> + 계수 잡음(포아송)</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 로지스틱 모형은 K가 일정하고 밀도 효과가 즉시 작용한다고 봐요. 실제 효모 배양은 영양 고갈 + 에탄올 축적(독성)으로 정지기 뒤 <b>사멸기</b>가 오고, 지체기(적응 기간)는 모형에 없어요.<br>
+· 혈구계수기 계수는 표본 오차(포아송, √N)와 죽은 세포 포함 문제가 있어 메틸렌블루 염색이나 흡광도(OD₆₀₀)를 함께 써요. K·r 값은 균주·배지에 따라 달라요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>인구 예측, 어업 자원의 최대 지속 수확량(K/2에서 수확), 감염병 초기 지수 성장 분석에 같은 모형을 써요.</li>
+<li>맥주·빵 발효 공정은 효모 성장 곡선을 알고 수확·첨가 시점을 정해요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
 <section class="panel on" id="explore">
 <div class="grid">
 
   <div class="card">
-    <canvas id="cv" width="440" height="430"></canvas>
+    <canvas id="cv" width="440" height="430" role="img" aria-label="일반생물 실험 5 · 개체군 성장과 환경 수용력 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
     <div class="readout">
       <div class="rd"><span>계수 결과</span><b id="rdN">—</b></div>
       <div class="rd"><span>배양 시간</span><b id="rdT">0 h</b></div>
@@ -123,7 +197,6 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 
     <div class="btns">
       <button class="act warm" id="btnRun">시료 뽑아 계수</button>
-      <button class="act ghost" id="btnRecord" disabled>기록하기</button>
       <button class="act ghost" id="btnClear">배양 새로 시작</button>
     </div>
 
@@ -237,21 +310,20 @@ function run(){
     else{
       lastN=obs; ran=true; lock(false);
       $('rdN').textContent=obs.toFixed(1)+' ×10⁴/mL';
-      $('btnRecord').disabled=false;
-      $('msg').innerHTML='t = '+t+' h에서 N = <b>'+obs.toFixed(1)+'</b>. 기록하세요.';
+      record(); /* 자동 기록 */
+      $('msg').innerHTML='t = '+t+' h에서 N = <b>'+obs.toFixed(1)+'</b>.';
     }
   })(t0);
 }
 function lock(on){
   ['temp','n0','time'].forEach(i=>$(i).disabled=on);
-  ['btnRun','btnRecord','btnClear'].forEach(i=>$(i).disabled=on);
+  ['btnRun','btnClear'].forEach(i=>$(i).disabled=on);
   document.querySelectorAll('.chip').forEach(c=>c.disabled=on);
-  if(!on) $('btnRecord').disabled=!ran;
 }
 function record(){
   if(!ran) return;
   if(rows.some(r=>r.med===med&&r.T===T&&r.N0===N0&&r.t===t)){ $('msg').innerHTML='같은 조건·같은 시각을 이미 기록했습니다.'; return; }
-  rows.push({med,T,N0,t,N:lastN}); renderTable(); draw(1); ran=false; $('btnRecord').disabled=true;
+  rows.push({med,T,N0,t,N:lastN}); renderTable(); draw(1); ran=false;
   $('msg').innerHTML='기록했습니다 ('+rows.length+'개).';
 }
 function renderTable(){
@@ -261,7 +333,7 @@ function renderTable(){
     <td>${r.N0}</td><td>${r.t}</td><td><b>${r.N.toFixed(1)}</b></td></tr>`).join('');
 }
 function clearAll(){ cv.scrollIntoView({behavior:'smooth',block:'center'});
-  ran=false; $('btnRecord').disabled=true; $('rdN').textContent='—'; draw(0);
+  ran=false; $('rdN').textContent='—'; draw(0);
   $('msg').innerHTML='새 배양을 시작했습니다. 기록은 그대로 남아 있습니다.'; }
 
 function fit(pts){
@@ -298,7 +370,7 @@ function buildVerify(){
       <td>${f? f.r2.toFixed(4):'—'}</td></tr>`;
   });
   html+='</tbody></table></div>';
-  html+='<div class="plots"><canvas id="p1" width="620" height="330"></canvas><canvas id="p2" width="620" height="330"></canvas></div>';
+  html+='<div class="plots"><canvas id="p1" width="620" height="330" role="img" aria-label="일반생물 실험 5 · 개체군 성장과 환경 수용력 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><canvas id="p2" width="620" height="330" role="img" aria-label="일반생물 실험 5 · 개체군 성장과 환경 수용력 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>';
 
   const main=results.reduce((a,b)=>b.s.length>a.s.length?b:a);
   if(main.f){
@@ -409,15 +481,60 @@ document.querySelectorAll('.tab').forEach(t2=>t2.addEventListener('click',()=>{
 document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
   document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
   c.classList.add('on'); med=c.dataset.m; $('medTxt').textContent=MED[med].n;
-  ran=false; $('btnRecord').disabled=true; draw(0);
+  ran=false; draw(0);
 }));
-$('temp').addEventListener('input',e=>{T=+e.target.value; $('tempTxt').textContent=T; ran=false; $('btnRecord').disabled=true; draw(0);});
-$('n0').addEventListener('input',e=>{N0=+e.target.value; $('n0Txt').textContent=N0; ran=false; $('btnRecord').disabled=true; draw(0);});
-$('time').addEventListener('input',e=>{t=+e.target.value; $('timeTxt').textContent=t; ran=false; $('btnRecord').disabled=true; draw(0);});
+$('temp').addEventListener('input',e=>{T=+e.target.value; $('tempTxt').textContent=T; ran=false; draw(0);});
+$('n0').addEventListener('input',e=>{N0=+e.target.value; $('n0Txt').textContent=N0; ran=false; draw(0);});
+$('time').addEventListener('input',e=>{t=+e.target.value; $('timeTxt').textContent=t; ran=false; draw(0);});
 $('btnRun').addEventListener('click',run);
-$('btnRecord').addEventListener('click',record);
 $('btnClear').addEventListener('click',clearAll);
 draw(0);
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
 </script>
 </body>
 </html>

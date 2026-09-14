@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>고전역학 시뮬 09 — 유효 퍼텐셜과 궤도</title>
@@ -51,6 +71,28 @@ th{background:var(--soft);font-size:12.5px}
 .legend span{display:flex;align-items:center;gap:6px}
 .sw{width:15px;height:4px;border-radius:2px;display:inline-block}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -73,19 +115,19 @@ th{background:var(--soft);font-size:12.5px}
     <span><i class="sw" style="background:#2f9e6d"></i> 현재 위치 $r$</span>
   </div>
 
-  <canvas id="pot" width="760" height="360"></canvas>
+  <canvas id="pot" width="760" height="360" role="img" aria-label="고전역학 시뮬 09 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
 
   <h2 style="margin-top:18px">② 실제 궤도</h2>
-  <canvas id="orb" width="760" height="420"></canvas>
+  <canvas id="orb" width="760" height="420" role="img" aria-label="고전역학 시뮬 09 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
 
   <div class="row">
     <label>각운동량 $\ell$</label>
-    <input type="range" id="sL" min="0.80" max="1.60" step="0.01" value="1.00">
+    <input type="range" id="sL" min="0.80" max="1.60" step="0.01" value="1.00" aria-label="각운동량 $\ell$">
     <span class="val" id="vL">1.00</span>
   </div>
   <div class="row">
     <label>에너지 $E$</label>
-    <input type="range" id="sE" min="-0.80" max="0.30" step="0.005" value="-0.30">
+    <input type="range" id="sE" min="-0.80" max="0.30" step="0.005" value="-0.30" aria-label="에너지 $E$">
     <span class="val" id="vE">−0.300</span>
   </div>
   <div class="row">
@@ -391,6 +433,36 @@ el('bPlay').addEventListener('click', e=>{
 refresh();
 requestAnimationFrame(step);
 </script>
+
+
+<details class="fx-p-details" id="fxPrinciple">
+<summary>📖 과학 원리 — 어떤 원리로 이렇게 될까?</summary>
+<div class="fx-p-card">
+<h3>🔑 핵심 원리 — 유효 퍼텐셜로 궤도 읽기</h3>
+<p>중심력 문제에서 각운동량 ℓ = μr²θ̇이 보존되므로 θ̇을 소거하면 반지름 운동만 남은 1차원 문제가 돼요: <span class="fx-formula">E = ½μṙ² + V_eff(r)</span>, <span class="fx-formula">V_eff = −k/r + ℓ²/(2μr²)</span>. 첫 항은 아래로 당기는 중력(쿨롱), 둘째 항은 각운동량이 만드는 <b>원심 장벽</b>이에요. 미분방정식을 풀지 않고 V_eff 그래프에 에너지 E의 수평선을 그으면 궤도 종류가 보여요: E = V_eff의 최소 → <b>원</b>, 최소 &lt; E &lt; 0 → 두 전환점 사이를 오가는 <b>타원</b>(근일점·원일점), E = 0 → <b>포물선</b>, E &gt; 0 → 한 번 다가왔다 떠나는 <b>쌍곡선</b>.</p>
+
+<h3>⚙️ ℓ과 E 바꿔 보기 (μ = k = 1)</h3>
+<ul>
+<li>V_eff 최소: r_c = ℓ², V_min = −1/(2ℓ²). ℓ = 1 → 원 궤도 r = 1, E = −0.5.</li>
+<li>ℓ을 키우면 장벽이 높아져 우물이 바깥으로 밀리고 얕아져요. ℓ → 0이면 장벽이 사라져 입자가 중심으로 떨어져요(정면 충돌).</li>
+<li>같은 ℓ에서 E를 올리면 전환점 간격(이심률)이 커지고, E ≥ 0이면 바깥 전환점이 없어 탈출.</li>
+<li>이심률 e = √(1 + 2Eℓ²/μk²): E = −0.5, ℓ = 1 → e = 0; E = −0.25 → e = 0.71; E = 0 → 1.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>전환점 = V_eff(r) = E의 근; 궤도 <span class="fx-formula">r(θ) = ℓ²/(μk) ÷ [1 + e·cos(θ − θ₀)]</span>; 애니메이션은 ṙ² = 2(E − V_eff)/μ와 θ̇ = ℓ/μr²를 적분</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 정확히 1/r 퍼텐셜(케플러·쿨롱)에서만 궤도가 닫힌 원뿔 곡선이에요(베르트랑 정리). 지구 편평도·다른 행성의 섭동·일반 상대론 보정이 있으면 근일점이 세차해요(수성 43″/세기).<br>
+· 환산 질량 μ 근사(한 물체가 훨씬 무거움)를 넘어 두 물체가 비슷하면 둘 다 질량 중심 주위를 돌아요. 척력(k &lt; 0)에서는 우물이 없어 항상 쌍곡선이에요(러더퍼드 산란).</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>인공위성 궤도 설계·행성 탐사선의 스윙바이는 E와 ℓ을 조절해 유효 퍼텐셜 위에서 궤도를 바꾸는 일이에요.</li>
+<li>같은 그림이 원자 속 전자(쿨롱)·블랙홀 주위 빛(일반 상대론 유효 퍼텐셜, 광자 구)에도 쓰여요.</li>
+</ul>
+</div>
+</details>
 </div>
 </body>
 </html>

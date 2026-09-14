@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>일반생물 실험 1 · 효소 반응 속도와 Km 결정</title>
@@ -78,6 +98,28 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 .plots canvas{background:#fff;border:1px solid var(--line);}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -90,11 +132,59 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
   <button class="tab" data-p="verify">✅ 데이터 검증</button>
 </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 미카엘리스–멘텐 속도론과 K_m 결정</h3>
+<p>효소 E와 기질 S가 복합체 ES를 거쳐 생성물을 만드는 반응의 초기 속도는 <span class="fx-formula">v = V_max[S] ÷ (K_m + [S])</span>로 포화 곡선을 그려요. <b>V_max</b>는 효소가 전부 바쁠 때의 속도(효소 농도에 비례), <b>K_m</b>은 v = V_max/2인 기질 농도로 효소–기질 친화도의 척도예요(작을수록 잘 붙음). 쌍곡선에서 K_m을 눈으로 읽기는 어려우므로 <b>라인위버–버크 도표</b>(1/v vs 1/[S], 기울기 K_m/V_max, y절편 1/V_max, x절편 −1/K_m)로 직선화하거나 비선형 회귀를 써요. 저해제는 K_m·V_max 중 어느 것을 바꾸는지로 종류를 구별해요.</p>
+
+<h3>⚙️ 카탈레이스 모형으로 확인</h3>
+<ul>
+<li>K_m = 25 mM, V_max = 100: [S] = 25 → 50, 100 → 80, 400 → 94. 기질을 K_m의 0.2~5배 범위에 6~8점 배치해야 곡선이 잘 정해져요.</li>
+<li><b>경쟁적 저해</b>([I]/K_i = 2): 겉보기 K_m = 25 × 3 = 75 mM, V_max 그대로 → LB 도표에서 y절편 공통, 기울기 3배.</li>
+<li><b>비경쟁적 저해</b>: V_max = 100/3, K_m 그대로 → x절편 공통.</li>
+<li>온도: 37 ℃까지 10 ℃당 2배(Q₁₀) 상승 후 45 ℃ 부근에서 변성으로 급감. pH 7 최적.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">v = V_max·E·[S] ÷ (K_m·α + [S])</span> (경쟁적 α = 1 + [I]/K_i) 또는 V_max/(1 + [I]/K_i)(비경쟁적) × 2^((T−37)/10) × 변성 항 × pH 항; LB 회귀로 K_m·V_max 역산</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· K_m 25 mM·V_max 100은 <b>교육용 모형값</b>이에요. 실제 카탈레이스는 K_m이 매우 커(수백 mM~1 M 이상) 보통 실험 농도에서 거의 1차 영역이고, 높은 H₂O₂ 농도에서는 효소 자체가 불활성화돼요.<br>
+· 초기 속도·단일 기질·[E] ≪ [S] 가정이에요. LB 도표는 낮은 [S]의 오차를 과장하므로 실제 분석은 비선형 회귀를 권장하고, 산소 발생량 측정에는 용해·거품 오차가 있어요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>약물 설계의 핵심 지표(IC₅₀·K_i)는 이 속도론에서 나오고, 스타틴·항바이러스제 대부분이 효소 저해제예요.</li>
+<li>간 기능 검사(AST·ALT)는 혈중 효소의 활성(V_max 비례)을 재는 것이에요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <section class="panel on" id="explore">
 <div class="grid">
 
   <div class="card">
-    <canvas id="cv" width="440" height="420"></canvas>
+    <canvas id="cv" width="440" height="420" role="img" aria-label="일반생물 실험 1 · 효소 반응 속도와 Km 결정 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
     <div class="readout">
       <div class="rd"><span>초기 속도 v₀</span><b id="rdV">—</b></div>
       <div class="rd"><span>30초간 O₂</span><b id="rdO">—</b></div>
@@ -129,7 +219,6 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 
     <div class="btns">
       <button class="act warm" id="btnRun">반응 시작</button>
-      <button class="act ghost" id="btnRecord" disabled>기록하기</button>
     </div>
 
     <div class="note" id="msg">먼저 37 °C, pH 7, 억제제 없음으로 두고 기질 농도만 6~8개 지점에서 재세요.</div>
@@ -254,23 +343,22 @@ function run(){
     else{
       lastV=obs; ran=true; lock(false);
       $('rdV').textContent=obs.toFixed(1)+' μmol/분';
-      $('btnRecord').disabled=false;
+      record(); /* 자동 기록 */
       let extra='';
       if(T>50) extra=' 온도가 높아 효소가 변성되었습니다.';
       else if(Math.abs(PH-7)>1.8) extra=' 최적 pH에서 크게 벗어났습니다.';
-      $('msg').innerHTML='v₀ = <b>'+obs.toFixed(1)+' μmol/분</b>.'+extra+' 기록하세요.';
+      $('msg').innerHTML='v₀ = <b>'+obs.toFixed(1)+' μmol/분</b>.'+extra+'';
     }
   })(t0);
 }
 function lock(on){
   ['sub','enz','temp','ph'].forEach(i=>$(i).disabled=on);
-  ['btnRun','btnRecord'].forEach(i=>$(i).disabled=on);
+  ['btnRun'].forEach(i=>$(i).disabled=on);
   document.querySelectorAll('.chip').forEach(c=>c.disabled=on);
-  if(!on) $('btnRecord').disabled=!ran;
 }
 function record(){
   if(!ran) return;
-  rows.push({S,E,T,PH,inh,v:lastV}); renderTable(); ran=false; $('btnRecord').disabled=true;
+  rows.push({S,E,T,PH,inh,v:lastV}); renderTable(); ran=false;
   $('msg').innerHTML='기록했습니다 ('+rows.length+'개).';
 }
 function renderTable(){
@@ -316,7 +404,7 @@ function buildVerify(){
         <td>${s.length}</td><td><b>${km.toFixed(1)}</b></td><td>${vmax.toFixed(1)}</td><td>${f.r2.toFixed(4)}</td></tr>`;
     });
     html+='</tbody></table></div>';
-    html+='<div class="plots"><canvas id="p1" width="620" height="330"></canvas><canvas id="p2" width="620" height="330"></canvas></div>';
+    html+='<div class="plots"><canvas id="p1" width="620" height="330" role="img" aria-label="일반생물 실험 1 · 효소 반응 속도와 Km 결정 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><canvas id="p2" width="620" height="330" role="img" aria-label="일반생물 실험 1 · 효소 반응 속도와 Km 결정 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>';
 
     const base=results.find(r=>r.s[0].inh==='none'&&r.s[0].T===37&&Math.abs(r.s[0].PH-7)<0.01);
     if(base){
@@ -423,16 +511,61 @@ document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
   document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
   c.classList.add('on'); inh=c.dataset.i;
   $('inhTxt').textContent={none:'없음',comp:'경쟁적',non:'비경쟁적'}[inh];
-  ran=false; $('btnRecord').disabled=true;
+  ran=false;
 }));
-$('sub').addEventListener('input',e=>{S=+e.target.value; $('subTxt').textContent=S; ran=false; $('btnRecord').disabled=true;});
-$('enz').addEventListener('input',e=>{E=+e.target.value/10; $('enzTxt').textContent=E.toFixed(1); ran=false; $('btnRecord').disabled=true;});
-$('temp').addEventListener('input',e=>{T=+e.target.value; $('tempTxt').textContent=T; ran=false; $('btnRecord').disabled=true;});
-$('ph').addEventListener('input',e=>{PH=+e.target.value/10; $('phTxt').textContent=PH.toFixed(1); ran=false; $('btnRecord').disabled=true;});
+$('sub').addEventListener('input',e=>{S=+e.target.value; $('subTxt').textContent=S; ran=false;});
+$('enz').addEventListener('input',e=>{E=+e.target.value/10; $('enzTxt').textContent=E.toFixed(1); ran=false;});
+$('temp').addEventListener('input',e=>{T=+e.target.value; $('tempTxt').textContent=T; ran=false;});
+$('ph').addEventListener('input',e=>{PH=+e.target.value/10; $('phTxt').textContent=PH.toFixed(1); ran=false;});
 $('btnRun').addEventListener('click',run);
-$('btnRecord').addEventListener('click',record);
 draw(0);
 setInterval(()=>{ if(!ran) draw(0); },140);
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
 </script>
 </body>
 </html>

@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>손전등 설계하기 — 밝기와 사용 시간 (심화)</title>
@@ -104,6 +124,28 @@ tbody tr:nth-child(even){background:#fafcfb;}
 .nudge button{font-family:var(--head);font-weight:600;font-size:.95rem;padding:9px 15px;border-radius:10px;border:none;cursor:pointer;}
 .nudge .go{background:var(--brass);color:#fff;} .nudge .later{background:#3d5a61;color:#dfe9e8;}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="app">
@@ -111,22 +153,68 @@ tbody tr:nth-child(even){background:#fafcfb;}
     <span class="deep-badge">심화 4화</span>
     <h1>손전등 설계하기 — 밝기와 사용 시간</h1>
     <p>전지를 많이 넣으면 무조건 좋을까요? 같은 전지 개수라도 <b>어떻게 연결하느냐</b>에 따라
-       <b>밝게 쓰거나</b>, <b>오래 쓰거나</b>를 고를 수 있습니다. 두 가지를 모두 재서 비교해 봅시다.</p>
+       <b>밝게 쓰거나</b>, <b>오래 쓰거나</b>를 고를 수 있습니다. 두 가지를 모두 재서 비교해 봅시다.<br><span style="font-size:.9rem;color:#a86825">※ 교육용 단순 모형: 전구 저항이 일정하고 전지 내부 저항이 없다고 가정해 '직렬 n개 → 밝기 n², 시간 60÷n분, 병렬 n개 → 시간 60×n분'으로 계산해요. 실제 전구·LED와 전지는 특성이 달라 숫자가 이와 다르지만, <b>'직렬은 밝게, 병렬은 오래'</b>라는 큰 흐름은 같습니다.</span></p>
   </header>
   <div class="tabs">
     <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
     <button class="tab-btn" data-tab="validate">✅ 데이터 확인</button>
   </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 전지의 직렬·병렬 연결</h3>
+<p>전지를 <b>직렬</b>(한 줄)로 이으면 미는 힘(<b>전압</b>)이 더해져 전구가 훨씬 밝아지지만 전지가 빨리 닳아요. <b>병렬</b>(나란히)로 이으면 전압은 전지 1개와 같아 밝기는 그대로지만, 여러 전지가 일을 나눠 맡아 <b>오래</b> 가요. 어느 쪽이 좋은지는 '밝게'가 중요한지 '오래'가 중요한지에 따라 달라요.</p>
+
+<h3>⚙️ 왜 밝기 × 시간은 일정할까?</h3>
+<ul>
+<li>전지 한 개에 담긴 <b>에너지 양은 정해져</b> 있어요. 연결을 바꿔도 에너지가 늘거나 줄지 않아요.</li>
+<li>직렬은 그 에너지를 <b>빨리 몰아 쓰고</b>(밝지만 짧게), 병렬은 <b>천천히 나눠 쓰는</b>(어둡지만 길게) 방법이에요. 물통의 물을 콸콸 쏟느냐 졸졸 흘리느냐의 차이예요.</li>
+<li>이 모형에서 직렬 n개는 전압 n배·전류 n배라 밝기 n², 시간 1/n → 밝기 × 시간 = n. 병렬 n개는 밝기 1·시간 n → 역시 n. 그래서 늘 '60 × 전지 개수'가 나와요.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>직렬 n개: <span class="fx-formula">밝기 = n², 시간 = 60 ÷ n 분</span> · 병렬 n개: <span class="fx-formula">밝기 = 1, 시간 = 60 × n 분</span></p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 전구 저항이 일정하고 전지 내부 저항이 없다고 본 <b>교육용 이상 회로</b>예요. 실제 백열전구는 뜨거워지면 저항이 커져 밝기가 n²보다 적게 늘고, 전지는 내부 저항 때문에 전류가 클수록 전압이 떨어져요.<br>
+· <b>LED</b>는 일정 전압 이상에서만 켜지고 전류 제한 회로가 필요해서, 이 식과 전혀 다르게 움직여요. 실제 손전등은 회로로 밝기를 조절해요.<br>
+· 60분·배율 값은 비교를 위한 대표값이에요. 그래도 '직렬은 밝게, 병렬은 오래'라는 큰 흐름은 실제와 같아요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>리모컨·손전등은 전지를 직렬로 넣어 필요한 전압을 만들고, 전기차·보조 배터리는 수백 개 전지를 직렬·병렬로 섞어 전압과 용량을 모두 맞춰요.</li>
+<li>전지 포장의 mAh는 '얼마나 오래 쓸 수 있나'를 나타내는 에너지(전하) 양이에요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <div class="tab-panel active" id="tab-explore">
     <div class="card">
       <div class="explore-grid">
         <div class="canvas-panel">
-          <canvas id="cv" width="440" height="390"></canvas>
+          <canvas id="cv" width="440" height="390" role="img" aria-label="손전등 설계하기 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
           <div class="control-block">
             <div class="control-label">1. 전지 개수</div>
             <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">같은 전지를 여러 개</span><span class="slider-val"><span id="nVal">2</span> 개</span></div>
-            <input type="range" id="nSlider" min="1" max="4" step="1" value="2">
+            <input type="range" id="nSlider" min="1" max="4" step="1" value="2" aria-label="전지 개수">
             <div class="control-label">2. 연결 방식</div>
             <div class="btn-row" id="modeRow">
               <button class="btn-choice active" data-m="s">직렬 연결<small>한 줄로 이어 붙이기</small></button>
@@ -147,7 +235,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
           <div class="insight-box" style="margin-top:14px;">
             <b>직렬</b>은 전지를 한 줄로 이어서 <b>미는 힘을 합치는</b> 연결입니다 — 전구가 훨씬 밝아집니다.<br>
             <b>병렬</b>은 전지를 나란히 묶어 <b>일을 나눠 맡는</b> 연결입니다 — 밝기는 전지 1개일 때와 같지만 훨씬 오래 갑니다.<br>
-            전지 1개를 그냥 쓰면 밝기 1배로 <b>60분</b> 동안 켜집니다. 이것을 기준으로 삼습니다.
+            전지 1개를 그냥 쓰면 밝기 1배로 <b>60분</b> 동안 켜집니다. 이것을 기준으로 삼습니다. (60분과 배율은 비교용 모형값이에요.)
           </div>
         </div>
       </div>
@@ -164,7 +252,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
       <div id="validationContent" style="display:none;">
 
         <div class="section-title">1. 밝기와 사용 시간</div>
-        <canvas id="g1" width="880" height="440" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;"></canvas>
+        <canvas id="g1" width="880" height="440" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;" role="img" aria-label="손전등 설계하기 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
         <div id="i1"></div>
 
         <div class="section-title">2. 숨어 있는 규칙 찾기</div>
@@ -184,7 +272,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
         <div class="section-title">4. 계산해보기 — 병렬의 사용 시간</div>
         <div class="quiz-box">
           <p>전지 1개는 <b>60분</b> 동안 켜집니다. <b>3개를 병렬</b>로 묶으면 몇 분 동안 켜질까요?</p>
-          <div class="predict-row"><input type="number" step="1" id="p2" placeholder="분"><button class="btn-choice" id="p2btn">확인하기</button></div>
+          <div class="predict-row"><input type="number" step="1" id="p2" placeholder="분" aria-label="답 입력 (분)"><button class="btn-choice" id="p2btn">확인하기</button></div>
           <div class="feedback" id="fb2"></div>
         </div>
 
@@ -207,7 +295,8 @@ tbody tr:nth-child(even){background:#fafcfb;}
             전지를 어떻게 연결하든, 담긴 에너지를 <b>없던 것으로 만들거나 새로 만들어 낼 수는 없습니다.</b><br><br>
             직렬은 그 에너지를 <b>빨리 몰아서</b> 쓰는 방법이고, 병렬은 <b>아껴서 천천히</b> 쓰는 방법입니다.
             물통에 담긴 물을 콸콸 쏟느냐 졸졸 흘리느냐의 차이일 뿐, <b>물의 총량은 똑같은 것</b>과 같습니다.<br><br>
-            그래서 설계자는 늘 이렇게 묻습니다 — <b>"이 제품은 밝은 게 중요한가, 오래 가는 게 중요한가?"</b>
+            (실제 손전등은 전구·LED와 전지의 특성 때문에 밝기 × 시간이 정확히 일정하지는 않지만, '에너지 총량은 정해져 있다'는 생각은 그대로예요.)<br><br>
+  그래서 설계자는 늘 이렇게 묻습니다 — <b>"이 제품은 밝은 게 중요한가, 오래 가는 게 중요한가?"</b>
             자동차 상향등은 직렬처럼 세게, 비상등은 병렬처럼 오래 — 쓰임에 맞게 고르는 것이지
             어느 한쪽이 더 좋은 연결인 것은 아닙니다.
           </div>
@@ -358,10 +447,11 @@ function bulbSymbol(g,cx,cy,r,bright){
   g.beginPath(); g.moveTo(cx+r*0.7,cy-r*0.7); g.lineTo(cx-r*0.7,cy+r*0.7); g.stroke();
 }
 
-/* ===== 모형 =====
-   전지 1개 기준 : 밝기 1배 · 사용 시간 60분
-   직렬 n개 : 미는 힘도 n배, 흐르는 양도 n배 → 밝기 n×n 배, 시간 60÷n 분
-   병렬 n개 : 밝기는 그대로 1배, n개가 일을 나눠 맡아 시간 60×n 분
+/* ===== 모형 (교육용 이상 회로: 전구 저항 일정, 전지 내부 저항 무시) =====
+전지 1개 기준 : 밝기 1배 · 사용 시간 60분 (비교용 대표값)
+직렬 n개 : 미는 힘도 n배, 흐르는 양도 n배 → 밝기 n×n 배, 시간 60÷n 분
+병렬 n개 : 밝기는 그대로 1배, n개가 일을 나눠 맡아 시간 60×n 분
+실제 전구는 뜨거워지면 저항이 커지고 LED는 일정 전압 이상에서만 켜지므로 실제 배율은 이와 다르다
    어느 쪽이든  밝기 × 시간 = 60 × 전지 개수  (전지에 담긴 에너지의 총량) */
 const BASE_MIN=60;
 let N=2, mode='s', recs=[], busy=false;
@@ -550,7 +640,7 @@ document.querySelectorAll('[data-q="p1"]').forEach(btn=>{
     const f=document.getElementById('fb1'), ok=btn.dataset.v==='4';
     f.className='feedback show '+(ok?'ok':'no');
     f.innerHTML= ok
-     ? '정답입니다! 직렬로 이으면 <b>미는 힘도 2배, 흐르는 양도 2배</b>가 되어 밝기는 2 × 2 = <b>4배</b>가 됩니다.<br>대신 전지를 2배 빠르게 쓰므로 시간은 60분 → <b>30분</b>으로 줄어듭니다.'
+     ? '정답입니다! 이 모형에서는 직렬로 이으면 <b>미는 힘도 2배, 흐르는 양도 2배</b>가 되어 밝기는 2 × 2 = <b>4배</b>가 됩니다.<br>대신 전지를 2배 빠르게 쓰므로 시간은 60분 → <b>30분</b>으로 줄어듭니다. (실제 전구는 저항이 변해 4배보다 적게 밝아져요.)'
      : '아쉽습니다. 직렬은 힘과 흐름이 <b>둘 다</b> 2배가 되므로 밝기는 2 × 2 = <b>4배</b>입니다. 기록표에서 직렬 1개와 2개의 밝기를 비교해 보세요.';
   });
 });
@@ -578,6 +668,51 @@ document.getElementById('hintBtn').addEventListener('click',()=>document.getElem
 drawCircuit(0); render();
 setInterval(()=>{ if(!busy) drawCircuit(1); }, 60);
 </script>
-<script src="/fesicsExternal/embed-resize.js"></script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
 </body>
 </html>

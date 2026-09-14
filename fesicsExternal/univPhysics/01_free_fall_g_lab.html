@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>실험 01 · 자유낙하와 중력가속도 측정 | 제로 랩 대학편</title>
@@ -116,22 +136,92 @@ tbody tr:nth-child(even){background:#f7f9fd}
 .formula{background:#101827; color:#e8edf7; padding:.7rem .9rem; border-radius:.5rem; font-size:1rem; overflow-x:auto}
 .lack{padding:2rem 1rem; text-align:center; color:#6a7488; font-weight:700}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
   <h1>실험 01 · 자유낙하로 중력가속도 <i>g</i> 측정하기</h1>
-  <p class="sub">낙하 높이를 바꿔 가며 낙하 시간을 재고, <i>h</i>–<i>t</i>² 그래프의 기울기에서 <i>g</i>를 구합니다. 공기저항이 만드는 계통오차까지 확인합니다.</p>
+  <p class="sub">낙하 높이를 바꿔 가며 낙하 시간을 재고, <i>h</i>–<i>t</i>² 그래프의 기울기에서 <i>g</i>를 구합니다. 공기저항이 만드는 계통오차까지 확인합니다.<br><span style="font-size:.9em;color:#a86825">※ 이 시뮬레이션의 기준값은 <b>표준중력 9.80665 m/s²</b>이에요. 실제 실험에서는 위도·고도에 따라 다른 <b>실험 장소의 지역 중력값</b>(서울 약 9.7995)을 기준으로 비교하세요. 항력계수 0.47과 공기 밀도 1.204 kg/m³는 근사 대표값이에요.</span></p>
 
   <div class="tabs">
     <button class="tab on" id="tabE" type="button">🔬 자유 탐구</button>
     <button class="tab" id="tabV" type="button">✅ 데이터 검증</button>
   </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 최소제곱 회귀로 g 구하기와 오차의 종류</h3>
+<p>공기 저항이 없으면 h = ½gt²이므로 <b>h–t² 그래프</b>는 원점을 지나는 직선이고 기울기 a = g/2예요. 여러 높이에서 낙하 시간을 재어 <b>최소제곱 회귀</b>로 기울기와 그 표준 오차를 구하면 g = 2a ± 2σ_a를 얻어요. 측정에는 두 종류의 오차가 있어요. <b>무작위 오차</b>(포토게이트 타이밍 흔들림)는 점들을 직선 위아래로 흩뜨리고 반복 측정으로 √n에 비례해 줄어요. <b>계통 오차</b>(공기 저항)는 한 방향으로만 작용해 아무리 반복해도 사라지지 않고, 모형 자체(h = ½gt²)를 고쳐야 해요.</p>
+
+<h3>⚙️ 두 물체 비교</h3>
+<ul>
+<li><b>강철구</b>: 항력 ½ρC_dAv²이 무게에 비해 작아(2 m 낙하에서 0.1 % 이하) 직선에 잘 맞고 g ≈ 9.80 ± 0.02.</li>
+<li><b>스티로폼구</b>: 질량/단면적이 작아 감속이 커요. 높은 h에서 t가 길어져 점이 직선 아래로 처지고 g가 9.3~9.5로 <b>계통적으로 작게</b> 나와요. 절편도 0에서 벗어나요.</li>
+<li>두 g의 차이가 결합 불확도 √(σ₁² + σ₂²)보다 훨씬 크면(여러 σ) 통계로 설명되지 않는 <b>계통 오차</b>라는 뜻이에요.</li>
+<li>잔차 그래프(측정 − 직선)가 무작위가 아니라 곡선 패턴이면 모형이 틀린 신호예요.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>낙하: <span class="fx-formula">m·dv/dt = mg − ½ρC_dAv²</span> 수치 적분(ρ = 1.204, C_d = 0.47) + 타이밍 잡음 σ = 1.8 ms; 회귀: <span class="fx-formula">a = Σ(x−x̄)(y−ȳ)/Σ(x−x̄)²</span>, σ_a = s/√Σ(x−x̄)², g = 2a</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 기준값은 <b>표준중력 9.80665 m/s²</b>이에요. 실제 g는 위도·고도에 따라 9.78~9.83으로 달라(서울 약 9.7995) 실제 실험에서는 <b>지역 중력값</b>과 비교해야 해요.<br>
+· C_d = 0.47과 공기 밀도는 근사 대표값이고 C_d는 속력(레이놀즈 수)에 따라 변해요. 실제 실험에는 낙하 시작 지연(전자석 잔류 자기), 높이 측정 오차, 게이트 위치 오차 같은 추가 계통 오차가 있어요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>정밀 중력계(낙하식 절대 중력계)는 진공 속에서 이 원리로 g를 10⁻⁹ 정밀도로 재어 지하 자원·지하수 변화를 탐지해요.</li>
+<li>"반복 측정으로 줄일 수 있는 오차와 없는 오차"의 구분은 모든 실험 과학·통계 분석의 기본이에요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <!-- ============ 자유 탐구 ============ -->
   <section class="panel" id="panelE">
     <div class="grid">
       <div class="card">
-        <canvas id="cv" width="460" height="620"></canvas>
+        <canvas id="cv" width="460" height="620" role="img" aria-label="실험 01 · 자유낙하와 중력가속도 측정 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
         <div class="readout">
           <div class="chip">낙하 높이 <b id="roH">1.500</b> m</div>
           <div class="chip">측정 시간 <b id="roT">—</b> s</div>
@@ -150,12 +240,11 @@ tbody tr:nth-child(even){background:#f7f9fd}
 
         <div class="row">
           <div class="label">낙하 높이 <span id="hLab">1.500 m</span></div>
-          <input type="range" id="hSlider" min="0.400" max="3.000" step="0.005" value="1.500">
+          <input type="range" id="hSlider" min="0.400" max="3.000" step="0.005" value="1.500" aria-label="낙하 높이">
         </div>
 
         <div class="row btns">
           <button class="btn" id="runBtn" type="button">낙하시키기</button>
-          <button class="btn rec" id="recBtn" type="button" disabled>기록하기</button>
           <button class="btn" id="clrBtn" type="button" style="background:#7a8398">기록 지우기</button>
         </div>
 
@@ -166,7 +255,7 @@ tbody tr:nth-child(even){background:#f7f9fd}
         <div class="tablebox">
           <table>
             <thead><tr><th>#</th><th>물체</th><th>h (m)</th><th>t (s)</th><th>t² (s²)</th></tr></thead>
-            <tbody id="tbody"><tr><td colspan="5" class="empty">아직 기록이 없습니다. 낙하시킨 뒤 “기록하기”를 누르세요.</td></tr></tbody>
+            <tbody id="tbody"><tr><td colspan="5" class="empty">아직 기록이 없습니다. 낙하시키면 자동으로 기록됩니다.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -203,9 +292,9 @@ tbody tr:nth-child(even){background:#f7f9fd}
 <script>
 "use strict";
 /* ---------- 물리 상수 및 물체 ---------- */
-var G_TRUE = 9.80665;       // m/s^2 (표준중력가속도)
+var G_TRUE = 9.80665;       // m/s^2 — 시뮬레이션 기준값(표준중력). 실제 실험에서는 실험 장소의 지역 중력값(서울 약 9.7995, 위도·고도에 따라 다름)을 기준으로 써야 함
 var RHO_AIR = 1.204;        // kg/m^3 (20 도씨, 1 atm)
-var CD_SPHERE = 0.47;       // 구의 항력계수 (공개된 값)
+var CD_SPHERE = 0.47;       // 구의 항력계수 — 레이놀즈 수 10³~10⁵ 구간의 대표값(근사). 공기 밀도도 20 ℃·1 atm 고정값
 
 var OBJS = {
   steel: { key:"steel", name:"강철구", m:0.0659, r:0.0125, color:"#b9c2d4", edge:"#e6ebf5" },
@@ -333,7 +422,7 @@ function play(sim, h, obj, onEnd){
 var hSlider = document.getElementById("hSlider");
 var hLab = document.getElementById("hLab");
 var roH = document.getElementById("roH"), roT = document.getElementById("roT"), roV = document.getElementById("roV");
-var runBtn = document.getElementById("runBtn"), recBtn = document.getElementById("recBtn"), clrBtn = document.getElementById("clrBtn");
+var runBtn = document.getElementById("runBtn"), recBtn = document.createElement('button'), clrBtn = document.getElementById("clrBtn");
 var objPick = document.getElementById("objPick");
 
 function setH(v){
@@ -369,22 +458,22 @@ runBtn.addEventListener("click", function(){
 
   play(sim, curH, obj, function(){
     running = false;
-    runBtn.disabled = false; recBtn.disabled = false; hSlider.disabled = false;
+    runBtn.disabled = false; hSlider.disabled = false;
     var bs2 = objPick.querySelectorAll(".pick"); for(var j=0;j<bs2.length;j++) bs2[j].disabled = false;
     roT.textContent = tMeas.toFixed(3);
     roV.textContent = sim.V.toFixed(2);
     lastResult = { objKey: obj.key, h: curH, t: tMeas };
+    autoRecord();
   });
 });
 
-recBtn.addEventListener("click", function(){
+function autoRecord(){ /* 측정이 끝나면 바로 기록 (기록 버튼 제거) */
   if(!lastResult) return;
   seq += 1;
   records.push({ n:seq, objKey:lastResult.objKey, h:lastResult.h, t:lastResult.t });
-  recBtn.disabled = true;
   renderTable();
   refreshVerify();
-});
+}
 
 clrBtn.addEventListener("click", function(){
   records = []; seq = 0; renderTable(); refreshVerify();
@@ -393,7 +482,7 @@ clrBtn.addEventListener("click", function(){
 function renderTable(){
   var tb = document.getElementById("tbody");
   if(records.length === 0){
-    tb.innerHTML = '<tr><td colspan="5" class="empty">아직 기록이 없습니다. 낙하시킨 뒤 “기록하기”를 누르세요.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="5" class="empty">아직 기록이 없습니다. 낙하시키면 자동으로 기록됩니다.</td></tr>';
     return;
   }
   var html = "";
@@ -456,7 +545,7 @@ function boxHTML(objKey, id){
   if(sel.length < 4){
     return '<div class="lack">데이터 부족 — 이 물체로 최소 4회 필요 (현재 ' + sel.length + '회)</div>';
   }
-  return '<canvas id="' + id + '" width="520" height="330"></canvas><div id="' + id + '_st"></div>';
+  return '<canvas id="' + id + '" width="520" height="330" role="img" aria-label="실험 01 · 자유낙하와 중력가속도 측정 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><div id="' + id + '_st"></div>';
 }
 
 function fillBox(objKey, id, color){
@@ -479,7 +568,7 @@ function fillBox(objKey, id, color){
     '<div class="stat"><span>절편 b</span><span>' + f.b.toFixed(4) + ' ± ' + f.sb.toFixed(4) + ' m</span></div>' +
     '<div class="stat"><span>잔차 표준편차 s</span><span>' + f.s.toFixed(4) + ' m</span></div>' +
     '<div class="stat"><span>g = 2a</span><span class="big">' + g.toFixed(2) + ' ± ' + sg.toFixed(2) + ' m/s²</span></div>' +
-    '<div class="stat"><span>참값 9.81 대비 상대오차</span><span class="' + (Math.abs(err)<1?"ok":"warn") + '">' +
+    '<div class="stat"><span>기준값 9.807(표준중력) 대비 상대오차</span><span class="' + (Math.abs(err)<1?"ok":"warn") + '">' +
       (err>=0?"+":"") + err.toFixed(2) + ' %</span></div>';
   return { g:g, sg:sg, err:err, f:f };
 }
@@ -499,7 +588,7 @@ function refreshVerify(){
   var html = "";
   if(rs){
     html += "<p><b>강철구:</b> 밀도가 커서 항력 " + "½ρC<sub>d</sub>Av²" + " 이 중력에 비해 무시할 만합니다. " +
-            "따라서 기울기에서 얻은 g가 참값에 가깝고, 남은 흩어짐은 게이트 타이밍의 <b>무작위오차</b>뿐입니다. " +
+            "따라서 기울기에서 얻은 g가 기준값(이 시뮬레이션은 표준중력 9.807; 실제 실험에서는 실험 장소의 지역 중력값을 기준으로 삼으세요)에 가깝고, 남은 흩어짐은 게이트 타이밍의 <b>무작위오차</b>뿐입니다. " +
             "측정 횟수를 늘리면 불확도 ±" + rs.sg.toFixed(2) + " 가 √n에 비례해 줄어듭니다.</p>";
   }
   if(rf){
@@ -508,16 +597,17 @@ function refreshVerify(){
             "이것은 측정을 반복해도 사라지지 않는 <b>계통오차</b>이며, 모형(h = ½gt²)이 틀린 것이 원인입니다.</p>";
   }
   if(rs && rf){
+    var sDiff = Math.sqrt(rs.sg*rs.sg + rf.sg*rf.sg);   /* 독립 측정이므로 차이의 불확도는 제곱합의 제곱근으로 결합 */
     html += "<p><b>결론:</b> 두 결과의 차이 " + Math.abs(rs.g - rf.g).toFixed(2) +
-            " m/s² 는 불확도 ±" + Math.max(rs.sg, rf.sg).toFixed(2) +
-            " 보다 훨씬 큽니다. 통계적 불확도로는 설명되지 않으므로 물리 모형을 고쳐야 합니다 — 항력항을 포함한 " +
+    " m/s² 는 결합 불확도 √(σ₁²+σ₂²) = ±" + sDiff.toFixed(2) +
+    " 보다 훨씬 큽니다(약 " + (Math.abs(rs.g - rf.g)/sDiff).toFixed(1) + "σ). 통계적 불확도로는 설명되지 않으므로 물리 모형을 고쳐야 합니다 — 항력항을 포함한 " +
             "m dv/dt = mg − ½ρC<sub>d</sub>Av² 를 풀어야 합니다.</p>";
   }
   if(rs && !rf){
     html += "<p>스티로폼구로도 4회 이상 재서 두 물체를 비교해 보세요. 공기저항이 <i>g</i> 측정에 어떤 계통오차를 만드는지 드러납니다.</p>";
   }
   if(!rs && rf){
-    html += "<p>강철구로도 4회 이상 재서 비교해 보세요. 어느 쪽이 참값에 가까운지가 핵심입니다.</p>";
+    html += "<p>강철구로도 4회 이상 재서 비교해 보세요. 어느 쪽이 기준값에 가까운지가 핵심입니다.</p>";
   }
   document.getElementById("interp").innerHTML = html;
 }
@@ -540,6 +630,52 @@ tabV.addEventListener("click", function(){
 setH(1.500);
 renderTable();
 refreshVerify();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
 </script>
 </body>
 </html>

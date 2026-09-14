@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>일반생물 실험 8 · 전기영동과 DNA 크기 결정</title>
@@ -71,6 +91,28 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 #std{background:#fff;border:1px solid var(--line);border-radius:10px;}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -83,11 +125,43 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
   <button class="tab" data-p="verify">✅ 데이터 검증</button>
 </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 아가로스 젤 전기영동과 표준 곡선</h3>
+<p>DNA는 인산기 때문에 균일하게 <b>음전하</b>를 띠어 전기장에서 (+)극으로 이동해요. 아가로스 젤은 그물 구조라 <b>짧은 조각일수록 빨리</b>, 긴 조각은 느리게 통과해 크기별로 분리돼요. 넓은 범위에서 이동 거리는 <b>log(크기)에 반비례</b>하므로, 크기를 아는 <b>마커(래더)</b>의 log(bp) vs 이동 거리로 <b>표준 곡선</b>(직선)을 그리고 미지 밴드의 이동 거리를 대입해 크기를 구해요. 젤 농도가 높을수록 그물이 촘촘해 작은 조각 분리에, 낮을수록 큰 조각 분리에 알맞아요.</p>
+
+<h3>⚙️ 계산해 보기</h3>
+<ul>
+<li>1.0 % 젤: 래더 3 000 → 2 000 → … → 250 bp가 아래로 갈수록 간격이 넓어지며 배열(log 눈금이라 250·500·1 000이 등간격).</li>
+<li>표준 곡선 log(bp) = a − b·d에서 미지 밴드 d를 넣어 bp = 10^(a − bd). 예: 미지 A는 2 000과 1 500 사이 → 약 1 800 bp.</li>
+<li>0.7 % 젤은 3 000~1 000 구간을 잘 벌리고, 2.0 % 젤은 500 bp 이하를 잘 벌려요. 분리 범위 밖에서는 곡선이 휘어 오차가 커요.</li>
+<li>전압이 높으면 빨리 가지만 열로 밴드가 번지고(140 V 이상 왜곡), 시간이 길면 작은 조각이 젤 밖으로 나가요.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>이동도 <span class="fx-formula">d ∝ (4.30 − log₁₀bp) × s(젤) × V × t</span> + 잡음(전압 왜곡 포함); 표준 곡선 최소제곱 회귀 → 미지 크기 = 10^(a − b·d)</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· log 선형 관계는 젤의 <b>분리 범위 안에서만</b> 성립해요. 아주 큰 조각(&gt; 20 kb)은 크기와 무관하게 비슷하게 움직이고(펄스장 전기영동 필요), 아주 작은 조각은 젤 농도에 따라 휘어요.<br>
+· 실제 밴드 이동은 DNA 형태(선형·원형·초나선), 완충액 이온 세기, 온도, 젤 두께에 따라 달라 같은 젤의 마커와 비교해야 하고, 밴드 위치 읽기에 ±0.5 mm 오차가 있어요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>PCR 검사 결과 확인, 친자 확인·범죄 수사의 DNA 지문(STR 길이 비교), 유전자 재조합 실험의 절편 확인이 모두 전기영동이에요.</li>
+<li>단백질은 SDS로 전하를 균일하게 만든 뒤 같은 원리(SDS-PAGE)로 크기별 분리해요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
 <section class="panel on" id="explore">
 <div class="grid">
 
   <div class="card">
-    <canvas id="cv" width="450" height="470"></canvas>
+    <canvas id="cv" width="450" height="470" role="img" aria-label="일반생물 실험 8 · 전기영동과 DNA 크기 결정 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
     <p style="font-size:.95rem;color:var(--ink-2);margin:.6rem 0 0;">
       1번 레인 = DNA 마커 · 2~4번 레인 = 미지 시료 A, B, C</p>
   </div>
@@ -110,7 +184,6 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 
     <div class="btns">
       <button class="act warm" id="btnRun">전원 켜기</button>
-      <button class="act ghost" id="btnRecord" disabled>이동 거리 기록</button>
       <button class="act ghost" id="btnClear">겔 다시 붓기</button>
     </div>
 
@@ -217,25 +290,24 @@ function run(){
     draw(f);
     if(f<1) requestAnimationFrame(step);
     else{
-      done=true; ran=true; lock(false); $('btnRecord').disabled=false;
+      done=true; ran=true; lock(false); record(); /* 자동 기록 */
       const off=LADDER.filter(bp=>dist(bp)>=9.15).length;
       $('msg').innerHTML='전기영동 완료. '+
         (off>0? '<b>작은 단편 '+off+'개가 겔 끝까지 내려갔습니다.</b> 시간을 줄이거나 전압을 낮추세요.'
-              : '밴드 위치를 기록하세요.');
+              : '밴드 위치를');
     }
   })(t0);
 }
 function lock(on){
   ['volt','time'].forEach(i=>$(i).disabled=on);
-  ['btnRun','btnRecord','btnClear'].forEach(i=>$(i).disabled=on);
+  ['btnRun','btnClear'].forEach(i=>$(i).disabled=on);
   document.querySelectorAll('.chip').forEach(c=>c.disabled=on);
-  if(!on) $('btnRecord').disabled=!ran;
 }
 function record(){
   if(!ran) return;
   const md=LADDER.map(bp=>+dist(bp).toFixed(2));
   const ud={A:+dist(UNK.A).toFixed(2),B:+dist(UNK.B).toFixed(2),C:+dist(UNK.C).toFixed(2)};
-  rows.push({gel,V,T,md,ud}); renderTable(); ran=false; $('btnRecord').disabled=true;
+  rows.push({gel,V,T,md,ud}); renderTable(); ran=false;
   $('msg').innerHTML='기록했습니다 ('+rows.length+'개). 겔 농도나 조건을 바꿔 다시 해 보세요.';
 }
 function renderTable(){
@@ -246,7 +318,7 @@ function renderTable(){
     <td>${r.ud.A.toFixed(2)}</td><td>${r.ud.B.toFixed(2)}</td><td>${r.ud.C.toFixed(2)}</td></tr>`).join('');
 }
 function clearAll(){ cv.scrollIntoView({behavior:'smooth',block:'center'});
-  done=false; ran=false; $('btnRecord').disabled=true; draw(0);
+  done=false; ran=false; draw(0);
   $('msg').innerHTML='새 겔을 부었습니다.'; }
 
 function fit(pts){
@@ -288,7 +360,7 @@ function buildVerify(){
       html+=`<li><b>시료 ${k}</b> — 추정 ${Math.round(m)} bp · 실제 ${UNK[k]} bp · 오차 ${err.toFixed(1)}%</li>`;
     });
     html+='</ul>';
-    html+='<canvas id="std" width="800" height="360" style="width:100%;height:auto;margin-top:.5rem;"></canvas>';
+    html+='<canvas id="std" width="800" height="360" style="width:100%;height:auto;margin-top:.5rem;" role="img" aria-label="일반생물 실험 8 · 전기영동과 DNA 크기 결정 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>';
     html+=`<div class="note"><b>왜 log를 취하는가.</b> DNA는 겔의 그물 구조를 뚫고 지나가므로
       이동 거리가 크기에 반비례하는 것이 아니라 <b>log(크기)에 대해 직선</b>이 됩니다.
       그래서 y축을 로그로 잡아야 표준 곡선이 직선이 되고, 내삽으로 미지 크기를 읽을 수 있습니다.
@@ -375,16 +447,61 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
 document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
   document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
   c.classList.add('on'); gel=c.dataset.g; $('gelTxt').textContent=gel+' %';
-  done=false; ran=false; $('btnRecord').disabled=true; draw(0);
+  done=false; ran=false; draw(0);
 }));
 $('volt').addEventListener('input',e=>{V=+e.target.value; $('voltTxt').textContent=V;
-  done=false; ran=false; $('btnRecord').disabled=true; draw(0);});
+  done=false; ran=false; draw(0);});
 $('time').addEventListener('input',e=>{T=+e.target.value; $('timeTxt').textContent=T;
-  done=false; ran=false; $('btnRecord').disabled=true; draw(0);});
+  done=false; ran=false; draw(0);});
 $('btnRun').addEventListener('click',run);
-$('btnRecord').addEventListener('click',record);
 $('btnClear').addEventListener('click',clearAll);
 draw(0);
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
 </script>
 </body>
 </html>

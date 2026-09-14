@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>물 온도와 증발 시간</title>
@@ -105,6 +125,28 @@ tbody tr:nth-child(even){background:#fafcfb;}
 .nudge button:hover{filter:brightness(1.1);} .nudge button:active{transform:translateY(1px);}
 .nudge .go{background:var(--brass);color:#fff;} .nudge .later{background:#3d5a61;color:#dfe9e8;}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="app">
@@ -117,15 +159,62 @@ tbody tr:nth-child(even){background:#fafcfb;}
     <button class="tab-btn" data-tab="validate">✅ 데이터 확인</button>
   </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리</h3>
+<p><b>증발</b>은 물 표면의 알갱이(분자) 중 <b>빠르게 움직이는 것</b>이 공기 중으로 튀어나가는 현상이에요. 물이 뜨거울수록 빠른 알갱이가 훨씬 많아져서 증발이 훨씬 빨라집니다. 끓지 않아도 물은 늘 조금씩 증발하고 있어요.</p>
+
+<h3>⚙️ 왜 온도에 따라 이렇게 크게 달라질까?</h3>
+<p>물 알갱이들은 서로 잡아당기고 있어서, 표면을 벗어나려면 그 힘을 이길 만큼 빨라야 해요. 온도가 오르면 평균 속력이 조금 오르는 것이 아니라, <b>충분히 빠른 알갱이의 수가 몇 배씩</b> 늘어납니다. 그래서 20°C에서 90°C로 올리면 증발이 몇십 배나 빨라져요.</p>
+<p>이 '날아가려는 힘'을 과학에서는 <b>포화 수증기압</b>이라고 불러요. 공기가 이미 머금은 수증기(방 안 습도)가 그 힘을 조금 눌러 주므로, 실제 증발 빠르기는 둘의 <b>차이</b>에 비례합니다.</p>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">날아가려는 힘 = 물의 포화 수증기압 − 방 공기의 수증기압(14 hPa)</span></p>
+<p><span class="fx-formula">증발 시간 = 2200 ÷ 날아가려는 힘</span> → 힘 × 시간 = 일정</p>
+<p>포화 수증기압은 실제 기상학에서 쓰는 식(마그누스 식)으로 계산해요.</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 방 공기를 <b>20°C·습도 60%</b>, 바람 없음, 접시 넓이 일정으로 고정하고, 물의 온도가 끝까지 유지된다고 가정한 <b>교육용 모형</b>이에요.<br>
+· 실제로는 뜨거운 물이 <b>식으면서</b> 증발이 점점 느려지고, 바람이 불면 표면 위 수증기를 걷어 가서 훨씬 빨라지며, 습한 날에는 느려집니다.<br>
+· 증발은 표면에서만 일어나므로 <b>접시가 넓을수록</b> 빨리 마릅니다.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>빨래는 햇볕(온도↑)·바람·펴서 널기(표면↑)가 합쳐질 때 가장 빨리 말라요.</li>
+<li>땀이 증발하면서 몸의 열을 가져가기 때문에 우리 몸이 시원해집니다.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <div class="tab-panel active" id="tab-explore">
     <div class="card">
       <div class="explore-grid">
         <div class="canvas-panel">
-          <canvas id="eCanvas" width="440" height="380"></canvas>
+          <canvas id="eCanvas" width="440" height="380" role="img" aria-label="물 온도와 증발 시간 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
           <div class="control-block">
             <div class="control-label">물의 온도</div>
             <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">접시에 물 10 mL</span><span class="slider-val"><span id="tVal">40</span> °C</span></div>
-            <input type="range" id="tSlider" min="20" max="90" step="10" value="40">
+            <input type="range" id="tSlider" min="20" max="90" step="10" value="40" aria-label="물의 온도">
             <button class="action" id="evapBtn">증발시켜 보기 ▶</button>
             <div class="readout" id="eRead">물의 온도를 정하고 버튼을 누르면, 물이 모두 날아갈 때까지 걸린 시간을 잽니다.</div>
           </div>
@@ -140,8 +229,9 @@ tbody tr:nth-child(even){background:#fafcfb;}
           </div>
           <div class="insight-box" style="margin-top:14px;">
             물 표면의 알갱이 중 <b>빠르게 움직이는 것</b>이 공기 중으로 튀어나가는 것이 증발입니다.
-            물이 뜨거울수록 빠른 알갱이가 훨씬 많아지므로 증발도 훨씬 빨라집니다.
-          </div>
+            물이 뜨거울수록 빠른 알갱이가 훨씬 많아지므로 증발도 훨씬 빨라집니다.<br>
+            <span style="font-size:.9rem;color:#a86825">※ 이 실험은 방 공기를 <b>20°C·습도 60%</b>, 바람 없음, 접시 넓이 일정으로 고정하고 물의 온도도 계속 유지된다고 가정한 <b>교육용 모형</b>이에요. 실제로는 바람·습도·접시 넓이에 따라 시간이 크게 달라지고, 뜨거운 물은 식으면서 점점 느리게 증발합니다.</span>
+            </div>
         </div>
       </div>
     </div>
@@ -157,7 +247,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
       <div id="validationContent" style="display:none;">
 
         <div class="section-title">1. 온도와 증발 시간</div>
-        <canvas id="g1" width="880" height="430" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;"></canvas>
+        <canvas id="g1" width="880" height="430" style="width:100%;height:auto;background:#fff;border:1px solid var(--grid);border-radius:14px;" role="img" aria-label="물 온도와 증발 시간 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
         <div id="i1"></div>
         <div class="section-title">2. 곱하면 일정한 값 찾기</div>
         <div id="i2"></div>
@@ -165,7 +255,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
         <div class="section-title">3. 예측해보기</div>
         <div class="quiz-box">
           <p>물이 <b>70 °C</b>일 때 증발 시간은 몇 분일까요? (표의 '힘 × 시간' 값을 이용하세요)</p>
-          <div class="predict-row"><input type="number" step="0.1" id="p1" placeholder="분"><button class="btn-choice" id="p1btn">확인하기</button></div>
+          <div class="predict-row"><input type="number" step="0.1" id="p1" placeholder="분" aria-label="답 입력 (분)"><button class="btn-choice" id="p1btn">확인하기</button></div>
           <div class="feedback" id="fb1"></div>
         </div>
 
@@ -597,7 +687,7 @@ document.getElementById('evapBtn').addEventListener('click',()=>{
     recs.push({T:temp, e:es(temp)-E_AIR, m:m});
     render();
     document.getElementById('eRead').innerHTML=
-      `${temp}°C · 날아가려는 힘 ${(es(temp)-E_AIR).toFixed(0)} hPa → 모두 증발하는 데 <span class="big">${m.toFixed(0)}</span> 분`;
+      `${temp}°C · 날아가려는 힘 ${(es(temp)-E_AIR).toFixed(0)} hPa → 모두 증발하는 데 약 <span class="big">${m.toFixed(0)}</span> 분 <span style="font-size:.85em;color:#a86825">(공기 20°C·60% 고정 모형)</span>`;
     maybeNudge(recs.length);
   });
 });
@@ -626,8 +716,8 @@ function renderValidation(){
   const vals=recs.map(r=>r.e*r.m), avg=vals.reduce((a,b)=>a+b,0)/vals.length;
   document.getElementById('i2').innerHTML=`<div class="analysis-card">`+
     recs.map(r=>`<div class="mini-row"><span>${r.T}°C · ${r.m.toFixed(0)}분</span><span class="mono">${r.e.toFixed(0)} × ${r.m.toFixed(0)} = ${Math.round(r.e*r.m)}</span></div>`).join('')+
-    `<div class="insight-box">온도를 바꿔도 <b>날아가려는 힘 × 시간</b>은 항상 약 <span class="mono">${Math.round(avg)}</span>입니다.
-    따뜻할수록 물이 <b>날아가려는 힘</b>이 세져서 훨씬 빨리 마른다는 뜻입니다.</div></div>`;
+    `<div class="insight-box">이 모형에서는 온도를 바꿔도 <b>날아가려는 힘 × 시간</b>이 항상 약 <span class="mono">${Math.round(avg)}</span>입니다.
+    따뜻할수록 물이 <b>날아가려는 힘</b>이 세져서 훨씬 빨리 마른다는 뜻입니다. (공기 20°C·습도 60%, 바람 없음, 접시 넓이 일정이라는 조건에서의 값이에요.)</div></div>`;
 }
 document.getElementById('p1btn').addEventListener('click',()=>{
   const v=parseFloat(document.getElementById('p1').value), f=document.getElementById('fb1');
@@ -640,6 +730,51 @@ document.getElementById('p1btn').addEventListener('click',()=>{
 document.getElementById('hintBtn').addEventListener('click',()=>document.getElementById('hintBody').classList.toggle('show'));
 drawEvap(0); render();
 </script>
-<script src="/fesicsExternal/embed-resize.js"></script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
 </body>
 </html>

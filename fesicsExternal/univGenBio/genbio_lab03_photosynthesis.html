@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>일반생물 실험 3 · 광합성 속도와 제한 요인</title>
@@ -71,6 +91,28 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 .plots canvas{background:#fff;border:1px solid var(--line);}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -83,11 +125,43 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
   <button class="tab" data-p="verify">✅ 데이터 검증</button>
 </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 광합성 속도, 제한 요인, 작용 스펙트럼</h3>
+<p>광합성 속도는 빛·CO₂·온도가 함께 정하고 <b>가장 부족한 요인</b>이 상한을 정해요(제한 요인). 빛에 대한 반응은 <b>포화 곡선</b> P = P_max·I/(I_K + I)이고, 산소 발생으로 재는 값은 <b>순광합성 = 총광합성 − 호흡</b>이라 빛이 없으면 음수(산소 소비)예요. 순광합성이 0이 되는 광량이 <b>보상점</b>. 빛의 <b>파장</b>도 중요해요: 엽록소가 파랑(430~450 nm)·빨강(660~680 nm)을 잘 흡수하므로 그 파장의 빛에서 광합성이 활발하고 초록(530~550 nm)에서는 낮아요(<b>작용 스펙트럼</b>). 온도는 효소 반응 특성상 Q₁₀ ≈ 2로 오르다 고온에서 급감해요.</p>
+
+<h3>⚙️ 모형값으로 보기</h3>
+<ul>
+<li>백색광, CO₂ 400 ppm, 25 ℃: P_max = 32, I_K = 220 → I = 220에서 16, 1 000에서 26(상대 단위). 호흡 5를 빼면 순광합성 11, 21.</li>
+<li>보상점: P_max·I/(I_K + I) = 5 → I ≈ 41. 이 아래에서는 산소가 오히려 줄어요.</li>
+<li>CO₂를 1 000 ppm으로 올리면 CO₂ 항(C/(K_C + C), K_C = 180)이 0.69 → 0.85로 커져 광포화 수준이 올라가요.</li>
+<li>파장 550 nm(초록)의 상대 작용 0.18 → 같은 광량에서 백색광의 1/5 수준.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">P = P_max × I/(I_K + I) × C/(K_C + C) × f(T) × A(λ)</span>, 순광합성 = P − R(T); A(λ)는 작용 스펙트럼 보간, f(T) = 2^((T−25)/10) × 고온 감소</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· P_max·I_K·K_C·호흡률은 <b>교육용 모형값</b>이에요. 실제 값은 식물 종·잎 상태·순응 조건에 따라 크게 달라요. 요인들을 곱으로 결합한 것도 단순화예요(실제는 광호흡·기공 반응 등이 얽힘).<br>
+· 산소 발생 측정(기포·용존 산소)은 용해·온도 보정이 필요하고, 실제 작용 스펙트럼은 보조 색소(카로티노이드)의 기여로 초록 영역이 0이 되지는 않아요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>식물 공장·온실은 빨강+파랑 LED, CO₂ 1 000 ppm, 최적 온도로 세 요인을 동시에 최적화해요.</li>
+<li>해양 광합성은 물이 빨강을 먼저 흡수해 깊어질수록 파랑·초록 빛만 남아 홍조류가 깊은 곳에 사는 이유가 돼요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
 <section class="panel on" id="explore">
 <div class="grid">
 
   <div class="card">
-    <canvas id="cv" width="440" height="420"></canvas>
+    <canvas id="cv" width="440" height="420" role="img" aria-label="일반생물 실험 3 · 광합성 속도와 제한 요인 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
     <div class="readout">
       <div class="rd"><span>순 산소 발생</span><b id="rdV">—</b></div>
       <div class="rd"><span>상태</span><b id="rdS">—</b></div>
@@ -113,7 +187,6 @@ ul{margin:.4rem 0 .4rem 1.1rem;padding:0;}li{margin:.25rem 0;}
 
     <div class="btns">
       <button class="act warm" id="btnRun">5분간 측정</button>
-      <button class="act ghost" id="btnRecord" disabled>기록하기</button>
     </div>
 
     <div class="note" id="msg">광량 0에서도 재 보세요. 산소가 오히려 줄어드는 것이 호흡의 증거입니다.</div>
@@ -258,21 +331,20 @@ function run(){
       lastV=obs; ran=true; lock(false);
       $('rdV').textContent=obs.toFixed(1)+' 기포/분';
       $('rdS').textContent = obs>0.5? '순 O₂ 방출' : obs<-0.5? '순 O₂ 소비' : '거의 0';
-      $('btnRecord').disabled=false;
+      record(); /* 자동 기록 */
       $('msg').innerHTML='순 발생 속도 <b>'+obs.toFixed(1)+'</b>. '+
         (obs<0? '광합성보다 호흡이 큽니다. 광보상점 아래입니다.' :
-         T>40? '수온이 너무 높아 효소가 변성되고 있습니다.' : '기록하세요.');
+         T>40? '수온이 너무 높아 효소가 변성되고 있습니다.' : '');
     }
   })(t0);
 }
 function lock(on){
   ['light','co2','temp','wl'].forEach(i=>$(i).disabled=on);
-  ['btnRun','btnRecord'].forEach(i=>$(i).disabled=on);
-  if(!on) $('btnRecord').disabled=!ran;
+  ['btnRun'].forEach(i=>$(i).disabled=on);
 }
 function record(){
   if(!ran) return;
-  rows.push({I,CO2,T,WL,v:lastV}); renderTable(); ran=false; $('btnRecord').disabled=true;
+  rows.push({I,CO2,T,WL,v:lastV}); renderTable(); ran=false;
   $('msg').innerHTML='기록했습니다 ('+rows.length+'개).';
 }
 function renderTable(){
@@ -323,7 +395,7 @@ function buildVerify(){
     }else{
       html+='<div class="warn">광량 0에서 한 번 재 보세요. 호흡 속도를 직접 얻을 수 있어 총광합성을 계산할 수 있습니다.</div>';
     }
-    html+='<div class="plots"><canvas id="p1" width="620" height="330"></canvas><canvas id="p2" width="620" height="330"></canvas></div>';
+    html+='<div class="plots"><canvas id="p1" width="620" height="330" role="img" aria-label="일반생물 실험 3 · 광합성 속도와 제한 요인 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><canvas id="p2" width="620" height="330" role="img" aria-label="일반생물 실험 3 · 광합성 속도와 제한 요인 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>';
     setTimeout(()=>{
       const c=document.getElementById('p1'); if(!c)return; const g=c.getContext('2d');
       const L=76,R=c.width-24,Tp=24,B=c.height-48;
@@ -420,15 +492,60 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   t.classList.add('on'); $(t.dataset.p).classList.add('on');
   if(t.dataset.p==='verify') buildVerify();
 }));
-$('light').addEventListener('input',e=>{I=+e.target.value; $('lightTxt').textContent=I; ran=false; $('btnRecord').disabled=true;});
-$('co2').addEventListener('input',e=>{CO2=+e.target.value; $('co2Txt').textContent=CO2; ran=false; $('btnRecord').disabled=true;});
-$('temp').addEventListener('input',e=>{T=+e.target.value; $('tempTxt').textContent=T; ran=false; $('btnRecord').disabled=true;});
+$('light').addEventListener('input',e=>{I=+e.target.value; $('lightTxt').textContent=I; ran=false;});
+$('co2').addEventListener('input',e=>{CO2=+e.target.value; $('co2Txt').textContent=CO2; ran=false;});
+$('temp').addEventListener('input',e=>{T=+e.target.value; $('tempTxt').textContent=T; ran=false;});
 $('wl').addEventListener('input',e=>{WL=+e.target.value; $('wlTxt').textContent=WL<395?'백색광':WL+' nm';
-  ran=false; $('btnRecord').disabled=true;});
+  ran=false;});
 $('btnRun').addEventListener('click',run);
-$('btnRecord').addEventListener('click',record);
 draw(0);
 setInterval(()=>{ if(!ran) draw(0); },140);
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
 </script>
 </body>
 </html>

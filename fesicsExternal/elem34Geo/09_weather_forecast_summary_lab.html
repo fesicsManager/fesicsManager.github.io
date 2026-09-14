@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>내가 만드는 일기 예보</title>
@@ -141,26 +161,95 @@ tbody tr:nth-child(even){background:#f7faf9;}
 .nudge .later:hover{background:#22434a;color:#fff;}
 .nudge .later:active{transform:translateY(1px) scale(.97);}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="app">
   <header class="page-head">
     <h1>내가 만드는 일기 예보</h1>
-    <p>오늘 잰 값으로 내일 날씨를 짐작해 보자.</p>
+    <p>오늘 잰 값으로 내일 날씨를 짐작해 보자. (습도와 구름만 보는 <b>교육용 예보 규칙</b>이에요.)</p>
   </header>
   <div class="tabs">
     <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
     <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
   </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리</h3>
+<p>비가 오려면 공기 속에 <b>수증기가 충분히 많고(습도 높음)</b>, 그 수증기가 위로 올라가 식어서 <b>구름</b>이 되고, 구름 속 물방울이 커져 떨어질 만큼 무거워져야 해요. 그래서 이 실험은 <b>습도와 구름의 양</b>을 함께 보고 내일 날씨를 짐작합니다.</p>
+
+<h3>⚙️ 구름과 비는 어떻게 생길까?</h3>
+<ol>
+<li>따뜻하고 습한 공기가 <b>위로 올라가면</b> 온도가 내려가요(높이 올라갈수록 공기가 차가워짐).</li>
+<li>차가워진 공기는 수증기를 다 머금지 못해(이슬점 아래) 작은 <b>물방울이나 얼음 알갱이</b>로 응결해요. 이것이 <b>구름</b>입니다.</li>
+<li>구름 속 물방울들이 서로 뭉쳐 커지면 공기가 떠받치지 못해 <b>비</b>가 되어 떨어져요.</li>
+</ol>
+<p>습도만 높고 구름이 없으면 후텁지근하기만 하고, 구름이 얇으면 흐리기만 하고 비는 안 와요.</p>
+
+<h3>🧭 실제 일기 예보는</h3>
+<p>기상청은 전국의 관측소·위성·레이더로 <b>기온, 습도, 바람, 기압, 구름</b>을 재고, 슈퍼컴퓨터로 공기의 움직임을 계산해요. 특히 <b>기압이 내려가는지</b>(저기압이 다가오면 공기가 상승해 비가 오기 쉬움), <b>공기가 위로 잘 올라가는 상태인지</b>(대기 안정도)를 중요하게 봅니다. 날씨는 영향을 주는 요소가 아주 많고 조금만 달라져도 결과가 크게 바뀌어서, 예보는 <b>확률</b>로 말해요.</p>
+
+<div class="fx-model"><b>📌 이 실험은 교육용 규칙</b><br>
+· 습도와 구름의 양 두 가지만으로 정한 <b>교육용 예보 규칙</b>이에요. 실제 예보 기준이 아닙니다.<br>
+· 기압 변화, 바람의 방향, 대기 안정도, 구름의 두께와 종류가 빠져 있어서, 습도와 구름이 같아도 실제로는 비가 안 오거나 반대로 올 수 있어요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>"제비가 낮게 날면 비가 온다"는 속담은 습도가 높으면 곤충이 낮게 날기 때문이라는 설명이 있어요. 옛사람들도 여러 징조를 모아 날씨를 짐작했습니다.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <div class="tab-panel active" id="tab-explore">
     <div class="card">
       <div class="explore-grid">
         <div class="canvas-panel">
-          <canvas id="fcCanvas" width="400" height="330"></canvas>
+          <canvas id="fcCanvas" width="400" height="330" role="img" aria-label="내가 만드는 일기 예보 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
           <div class="note" id="n9">오늘 관측한 값을 넣고 예보해보세요.</div>
           <div class="control-block">
             <div class="control-label">오늘 잰 습도: <span class="slider-val" id="fv">60</span> %</div>
-            <input type="range" id="fs" min="30" max="95" step="5" value="60">
+            <input type="range" id="fs" min="30" max="95" step="5" value="60" aria-label="오늘 잰 습도">
             <div class="control-label">하늘에 구름은?</div>
             <div class="btn-row" id="row9">
               <button class="btn-choice active" data-c="few">거의 없음</button>
@@ -182,8 +271,9 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="insight-box warm" style="margin-top:14px;">
             🔭 <b>예보하는 방법</b> — 비가 오려면 <b>공기 중에 수증기가 많고(습도 높음)</b>
             그 수증기가 <b>구름으로 모여야</b> 합니다. 그래서 둘을 함께 봅니다.<br>
-            습도만 높고 구름이 없으면 후텁지근하기만 하고, 구름만 있고 건조하면 흐리기만 해요.
-          </div>
+            습도만 높고 구름이 없으면 후텁지근하기만 하고, 구름만 있고 건조하면 흐리기만 해요.<br>
+            <span style="font-size:.9rem;color:#a86825">※ 이 실험의 예보는 습도와 구름의 양만으로 정한 <b>교육용 규칙</b>이에요. 실제 예보는 기압의 변화, 바람, 공기가 위로 잘 올라가는지(대기 안정도), 구름이 두껍게 발달하는지까지 함께 봅니다.</span>
+            </div>
         </div>
       </div>
     </div>
@@ -670,7 +760,7 @@ document.getElementById('go9').addEventListener('click',()=>{
     records.push({hum:hum, cloud:CLOUDS[cloud].name, name:f.name, cls:f.cls});
     renderTable();
     const r=document.getElementById('r9'); r.className='result-box ok';
-    r.innerHTML='내일 예보: <span class="big-val">'+f.name+'</span>';
+    r.innerHTML='내일 예보: <span class="big-val">'+f.name+'</span> <span style="font-size:.85em;color:#a86825">(교육용 규칙)</span>';
     NOTE('n9', f.why);
     afterRecord();
   });
@@ -697,7 +787,7 @@ function renderVerify(){
   const rainy=records.filter(r=>r.cls==='rain');
   document.getElementById('ins9').innerHTML='<div class="insight-box">'+
     (rainy.length
-      ? '비 예보가 나온 경우는 모두 <b>습도가 높고 구름도 많은</b> 날이었습니다. 둘 중 하나만으로는 비가 오지 않아요.'
+      ? '비 예보가 나온 경우는 모두 <b>습도가 높고 구름도 많은</b> 날이었습니다. 이 규칙에서는 둘 중 하나만으로는 비 예보가 나오지 않아요. (실제로는 기압·바람·대기 안정도도 함께 봐야 해서, 습도와 구름이 같아도 비가 안 오거나 반대로 올 수 있습니다.)'
       : '아직 비 예보가 안 나왔네요. 습도를 80% 이상으로 올리고 구름을 "가득함"으로 두고 다시 예보해보세요.')+
     '</div>';
 }
@@ -736,6 +826,51 @@ document.getElementById('ht').addEventListener('click',()=>{
 });
 
 </script>
-<script src="/fesicsExternal/embed-resize.js"></script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
 </body>
 </html>

@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>전류·전압·저항 실험실</title>
 <style>
@@ -104,29 +124,92 @@ input[type=range]{cursor:pointer;height:24px;}
   transition:transform .28s cubic-bezier(.2,.8,.3,1),opacity .28s ease;}
 .mini-toast.show{transform:translateX(-50%) translateY(0);opacity:1;}
 </style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
 </head>
 <body>
 <div class="app">
 <h1>전류·전압·저항 실험실</h1>
-<p class="subtitle">전지를 여러 개 이어 전압을 올리고, 니크롬선을 길게 바꿔 저항을 키워 봅니다. 전압-전류 데이터를 측정해 옴의 법칙(V=IR)을 확인해 보세요.</p>
+<p class="subtitle">전지를 여러 개 이어 전압을 올리고, 니크롬선을 길게 바꿔 저항을 키워 봅니다. 전압-전류 데이터를 측정해 옴의 법칙(V=IR)을 확인해 보세요.<br><span style="font-size:.9em;color:#a86825">※ 이 실험은 니크롬선의 저항이 <b>변하지 않고</b> 전지에 <b>내부 저항이 없다</b>고 가정한 교육용 모형이에요. 실제로는 전류가 크면 니크롬선이 뜨거워져 저항이 조금 커지고(20 V·2 Ω면 10 A, 100 W — 선이 벌겋게 달아오름), 전지의 내부 저항 때문에 전지를 많이 이어도 전압이 기대만큼 오르지 않아요.</span></p>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="explore">🔬 자유 탐구</button>
   <button class="tab-btn" data-tab="verify">✅ 데이터 확인</button>
 </div>
 
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 옴의 법칙</h3>
+<p>회로에 흐르는 <b>전류(I)</b>는 전지가 미는 힘인 <b>전압(V)</b>에 비례하고, 흐름을 방해하는 <b>저항(R)</b>에 반비례해요: <span class="fx-formula">V = I × R</span>. 저항이 일정하면 전압–전류 그래프는 원점을 지나는 직선이고, 기울기(I/V)의 역수가 저항이에요. 단위는 전압 V(볼트), 전류 A(암페어), 저항 Ω(옴).</p>
+
+<h3>⚙️ 저항은 무엇으로 정해질까?</h3>
+<ul>
+<li>도선의 저항은 <b>길이에 비례</b>하고 <b>단면적(굵기)에 반비례</b>하며 재질에 따라 달라요. 지름 0.26 mm 니크롬선은 1 cm당 약 0.2 Ω.</li>
+<li>니크롬(니켈+크로뮴 합금)은 구리보다 저항이 60배쯤 커서 열선(토스터, 전기난로)에 쓰여요.</li>
+<li>전지를 직렬로 이으면 전압이 더해져요(1.5 V × 개수).</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">저항 = 0.2 Ω/cm × 길이</span>, <span class="fx-formula">전류 = 전압 ÷ 저항</span> — 데이터 확인의 기울기 역수 = 저항</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 저항이 <b>일정</b>하고 전지에 <b>내부 저항이 없다</b>고 가정한 이상 모형이에요. 실제 니크롬선은 전류가 크면 뜨거워져 저항이 조금 커지고(20 V·2 Ω면 10 A, 100 W — 선이 벌겋게 달아오름), 전지는 내부 저항 때문에 전류가 클수록 실제 전압이 낮아져요.<br>
+· 전구의 필라멘트, 다이오드처럼 옴의 법칙을 따르지 않는(비선형) 부품도 많아요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>가정용 220 V에 22 Ω의 전열기를 꽂으면 10 A가 흘러요. 멀티탭에 너무 많이 꽂으면 전류가 커져 뜨거워지는 까닭이에요.</li>
+<li>가변 저항(볼륨 노브, 조광기)은 저항을 바꿔 전류를 조절해요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <div id="exploreTab">
 <main class="layout">
   <section class="card">
     <h2>간단한 회로</h2>
-    <canvas id="circuitCanvas" width="480" height="300"></canvas>
+    <canvas id="circuitCanvas" width="480" height="300" role="img" aria-label="전류·전압·저항 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
     <div class="control-row">
       <label>직렬로 이은 전지 (1개 = 1.5V) <b id="cellVal">2개</b></label>
-      <input type="range" id="cellSlider" min="1" max="8" step="1" value="2">
+      <input type="range" id="cellSlider" min="1" max="8" step="1" value="2" aria-label="직렬로 이은 전지 (1개 = 1.5V)">
     </div>
     <div class="control-row">
       <label>니크롬선 길이 <b id="lenVal">25 cm</b></label>
-      <input type="range" id="lenSlider" min="10" max="50" step="5" value="25">
+      <input type="range" id="lenSlider" min="10" max="50" step="5" value="25" aria-label="니크롬선 길이">
     </div>
     <div class="readout"><span>전압</span><b id="voltVal">3.0 V</b><span>저항</span><b id="resVal">5.0 Ω</b></div>
     <div class="readout"><span>전류</span><b id="currVal">- A</b></div>
@@ -163,7 +246,7 @@ input[type=range]{cursor:pointer;height:24px;}
     <h3 class="section-title">🔍 측정하지 않은 전압을 예측해 보세요</h3>
     <p class="hint-text">전압이 <b>20V</b>일 때 전류는 몇 A일까요?</p>
     <div class="predict-row">
-      <input type="number" step="0.01" id="predictInput" placeholder="예측값">
+      <input type="number" step="0.01" id="predictInput" placeholder="예측값" aria-label="예측값 입력">
       <span style="color:var(--ink-soft);">A</span>
       <button class="action" id="checkBtn">확인하기</button>
     </div>
@@ -174,6 +257,11 @@ input[type=range]{cursor:pointer;height:24px;}
 <footer>전류·전압·저항 실험실 · 중2 과학 · 전기와 자기</footer>
 </div>
 
+<div class="zl-nudge" id="zlNudge">
+  <span>🎉 데이터가 충분히 모였어요! 데이터 확인 탭에서 결과를 볼까요?</span>
+  <button class="zl-go" id="zlNudgeGo">가기</button>
+  <button class="zl-later" id="zlNudgeLater">나중에</button>
+</div>
 <script>
 
 /* ===== 화면 튐 방지 (공통) =====
@@ -227,7 +315,7 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
 /* 전압: 1.5V 전지를 직렬로 n개  →  V = 1.5 n
    저항: 같은 굵기(지름 0.26mm) 니크롬선은 길이에 비례 (R = ρL/A ≈ 0.2 Ω/cm)
         →  R = 0.2 × 길이(cm) */
-const CELL_V=1.5, OHM_PER_CM=0.2;
+const CELL_V=1.5, OHM_PER_CM=0.2;   /* 교육용 모형: 저항 일정, 전지 내부 저항 0 가정 */
 const cellSlider=document.getElementById('cellSlider'), cellVal=document.getElementById('cellVal');
 const lenSlider=document.getElementById('lenSlider'), lenVal=document.getElementById('lenVal');
 const voltVal=document.getElementById('voltVal'), resVal=document.getElementById('resVal'), currVal=document.getElementById('currVal');
@@ -422,7 +510,7 @@ document.getElementById('checkBtn').addEventListener('click',()=>{
   const ok=Math.abs(val-truth)<=Math.max(0.3,truth*0.1);
   fb.className='feedback show '+(ok?'ok':'no');
   fb.innerHTML = ok
-    ? `잘 예측했습니다! 내 추세선으로 계산한 값은 <b>${truth.toFixed(2)} A</b>입니다. 전압과 전류는 정비례하고, 그 비례상수의 역수가 저항입니다.`
+    ? `잘 예측했습니다! 내 추세선으로 계산한 값은 <b>${truth.toFixed(2)} A</b>입니다. 저항이 일정하면 전압과 전류는 정비례하고, 그 비례상수의 역수가 저항입니다. (실제로는 이만한 전류에서 니크롬선이 뜨거워져 저항이 커지므로 전류가 이보다 조금 작아요.)`
     : `내 추세선으로 계산한 값은 <b>${truth.toFixed(2)} A</b>입니다. 기울기(전류÷전압 = 1/저항)를 이용해 다시 계산해 보세요.`;
 });
 
@@ -465,11 +553,6 @@ document.getElementById('checkBtn').addEventListener('click',()=>{
   document.getElementById('zlNudgeLater').addEventListener('click',()=>{ nudge.classList.remove('show'); });
 })();
 </script>
-<div class="zl-nudge" id="zlNudge">
-  <span>🎉 데이터가 충분히 모였어요! 데이터 확인 탭에서 결과를 볼까요?</span>
-  <button class="zl-go" id="zlNudgeGo">가기</button>
-  <button class="zl-later" id="zlNudgeLater">나중에</button>
-</div>
 <div class="mini-toast" id="miniToast"></div>
 <script>
 /* alert 대신 쓰는 작은 안내 쪽지 */
@@ -482,6 +565,51 @@ function notify(msg){
   zlMiniTimer=setTimeout(function(){ el.classList.remove('show'); }, 2400);
 }
 </script>
-<script src="/fesicsExternal/embed-resize.js"></script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
 </body>
 </html>

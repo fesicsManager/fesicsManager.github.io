@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>정비례 실험실 — 그래프가 직선이면 정비례일까?</title>
+<style>
+:root{
+  --bg:#f6f9fc; --ink:#1f2937; --sub:#52627a; --line:#d7e0ec;
+  --card:#ffffff; --accent:#2563eb; --ok:#0f9d58; --no:#dc2626;
+}
+html{font-size:20px}
+@media (max-width:760px){html{font-size:19.5px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:1.2rem 0 3rem;
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.6;
+  background-color:var(--bg);
+  background-image:radial-gradient(circle,#ccd7e6 1.3px,transparent 1.3px);
+  background-size:22px 22px;
+}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .3rem}
+.lead{font-size:1rem;color:var(--sub);margin:0 0 1.1rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.6rem 1.1rem;
+  border:2px solid var(--line);border-radius:.7rem;background:#fff;color:var(--sub);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .1s,filter .15s}
+.tab-btn:hover{filter:brightness(.97);border-color:#b9c8dc}
+.tab-btn:active{transform:translateY(2px) scale(.98)}
+.tab-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) 1fr;gap:1rem;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:2px solid var(--line);border-radius:1rem;padding:1rem}
+.grid>*{min-width:0} /* 표가 넓어도 그리드 열이 화면 밖으로 늘어나지 않게 */
+.readout>*{min-width:0;overflow-wrap:anywhere}
+.card h2{font-size:1.1rem;margin:0 0 .7rem}
+canvas{width:100%;height:auto;display:block;border-radius:.7rem;background:#fff}
+.ctrl{margin:.9rem 0}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:1rem;font-weight:700;margin-bottom:.1rem}
+.ctrl .val{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;width:.95rem;height:.95rem;border-radius:.25rem;margin-right:.4rem;vertical-align:-.1rem}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;
+  cursor:pointer;touch-action:manipulation;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-moz-range-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#fff;border:4px solid var(--accent);margin-top:-7px;transition:transform .12s,box-shadow .12s}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;
+  border:4px solid var(--accent);transition:transform .12s,box-shadow .12s}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:active::-moz-range-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+.btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.65rem 1.15rem;border:none;
+  border-radius:.7rem;background:var(--accent);color:#fff;cursor:pointer;transition:filter .15s,transform .1s}
+.btn.alt{background:#0f9d58}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px) scale(.98)}
+.btn:disabled{background:#aebdd0;cursor:not-allowed;filter:none;transform:none}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.9rem}
+.readout div{background:#f1f6fd;border:1px solid var(--line);border-radius:.6rem;padding:.55rem .7rem;font-size:.95rem}
+.readout b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.95rem;color:var(--sub);margin-top:.7rem}
+.tablewrap{max-height:26rem;overflow:auto;border:1px solid var(--line);border-radius:.7rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .45rem;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:#eaf1fa;font-weight:700;z-index:2}
+tbody tr:nth-child(even){background:#fafcff}
+.empty{padding:1.6rem;text-align:center;color:var(--sub);font-size:1rem}
+.ok{color:var(--ok);font-weight:700}
+.no{color:var(--no);font-weight:700}
+.concl{background:#eef7ff;border:2px solid #a9cff5;border-radius:.8rem;padding:.9rem 1rem;font-size:1.05rem;margin-top:1rem}
+.hidden{display:none}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.9rem}
+.stat{background:#f4f8fe;border:1px solid var(--line);border-radius:.7rem;padding:.8rem}
+.stat h3{margin:0 0 .3rem;font-size:1rem}
+.stat p{margin:0;font-size:.95rem;color:var(--sub)}
+.stat .big{font-size:1.3rem;font-weight:800;color:var(--ink);margin-bottom:.2rem}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>정비례 실험실 — 그래프가 직선이면 정비례일까?</h1>
+  <p class="lead">세 가지 관계의 표를 만들어 y÷x와 x×y가 일정한지 확인하고, 그래프 모양과 비교한다.</p>
+
+  <div class="tabs">
+    <button class="tab-btn on" id="tabA">🔬 자유 탐구</button>
+    <button class="tab-btn" id="tabB">✅ 데이터 확인</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 정비례는 y ÷ x가 일정, 반비례는 x × y가 일정</h3>
+<p>y = ax + b도 그래프는 직선이지만 y ÷ x가 일정하지 않아 <b>정비례가 아니에요</b>. 그래프 모양만으로는 판단할 수 없어요. <b>y ÷ x = a(일정)</b>이면 정비례(원점을 지나는 직선), <b>x × y = a(일정)</b>이면 반비례(쌍곡선)예요. 정비례 그래프는 반드시 원점을 지나요.</p>
+<h3>⚙️ 왜 그럴까</h3>
+<ul>
+<li>y = 2x: (1, 2), (2, 4), (3, 6) → y/x = 2. y = 2x + 1: (1, 3), (2, 5) → y/x = 3, 2.5로 변함.</li>
+<li>y = 6/x: (1, 6), (2, 3) → xy = 6.</li>
+<li>정비례는 x가 2배면 y도 2배. y = 2x + 1은 x가 2배여도 y는 2배가 아니에요.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>x = 1~4에서 y 계산 → y/x, xy가 일정한지 판정, 그래프 모양과 대조</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· "직선이면 정비례" → 원점을 지나야 해요. 택시 요금(기본요금 있음)은 직선이지만 정비례 아님.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>연필 값(정비례), 기본요금 있는 통신비(정비례 아님), 일정 거리의 속력–시간(반비례).</li></ul>
+</div>
+</section>
+
+
+  <section id="paneA">
+    <div class="grid">
+      <div class="card">
+        <h2 id="cvTitle">실험판</h2>
+        <canvas id="cv" role="img" aria-label="정비례 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
+      </div>
+      <div class="card">
+        <h2>조절하기</h2>
+        <div id="controls"></div>
+        <div class="btns">
+          <button class="btn" id="btnAct">실행</button>
+        </div>
+        <div class="readout" id="readout"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>기록표 <span style="font-weight:400;font-size:.95rem;color:var(--sub)">(<span id="cntA">0</span>개 기록됨)</span></h2>
+      <div class="tablewrap"><table><thead id="thA"></thead><tbody id="tbA"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="paneB" class="hidden">
+    <div class="card">
+      <h2>내가 기록한 데이터 분석</h2>
+      <div id="lack" class="empty">데이터 부족 — 기록이 4개 이상 있어야 분석할 수 있다. (지금 <span id="cntB">0</span>개)</div>
+      <div id="analysis" class="hidden">
+        <div class="tablewrap"><table><thead id="thB"></thead><tbody id="tbB"></tbody></table></div>
+        <div class="statgrid" id="statgrid"></div>
+        <div class="concl" id="concl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+
+function lbl(ctx,t,x,y,c,sz,al){ctx.fillStyle=c;ctx.font='bold '+(sz||18)+'px sans-serif';ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillText(t,x,y);}
+function box(ctx,x,y,w,h){ctx.fillStyle='#f1f6fd';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#c7d8ee';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+function r1(v){return Math.round(v*10)/10;}
+function r2(v){return Math.round(v*100)/100;}
+function r3(v){return Math.round(v*1000)/1000;}
+function pn(v){return (v<0)?('('+v+')'):(''+v);}
+function sgnStr(v){return (v<0)?(' − '+(-v)):(' + '+v);}
+
+var KINDS=['y = ax (정비례)','y = a/x (반비례)','y = ax + b'];
+var LAB = {
+  cw:440, ch:430, cvTitle:'관계 판별판',
+  action:'표와 그래프 그리기',
+  hint0:'관계와 상수를 정하고, x가 1·2·3·4일 때 y를 구해 보자.',
+  sliders:[
+    {id:'kind',label:'관계',min:0,max:2,value:2,color:'#2563eb',fmt:function(v){return KINDS[v];}},
+    {id:'a',label:'a',min:1,max:6,value:2,color:'#16a34a',unit:''},
+    {id:'b',label:'b (셋째 관계에만)',min:1,max:6,value:3,color:'#f59e0b',unit:''}
+  ],
+  f:function(S,x){
+    if(S.kind===0) return S.a*x;
+    if(S.kind===1) return S.a/x;
+    return S.a*x+S.b;
+  },
+  vals:function(S){
+    var v=[],i;
+    for(i=1;i<=4;i++){ v.push(this.f(S,i)); }
+    return v;
+  },
+  readout:function(S,ran){
+    var v=this.vals(S);
+    return [{k:'식',v:(S.kind===0)?('y = '+S.a+'x'):((S.kind===1)?('y = '+S.a+'/x'):('y = '+S.a+'x + '+S.b))},
+            {k:'y 값',v:ran?v.map(function(z){return r2(z);}).join(', '):'구해 보자'}];
+  },
+  doneMsg:function(S){
+    var v=this.vals(S),i;
+    var qs=[],ps=[];
+    for(i=0;i<4;i++){ qs.push(r3(v[i]/(i+1))); ps.push(r3(v[i]*(i+1))); }
+    var qc=(qs[0]===qs[1]&&qs[1]===qs[2]&&qs[2]===qs[3]);
+    var pc=(ps[0]===ps[1]&&ps[1]===ps[2]&&ps[2]===ps[3]);
+    return 'y÷x가 '+(qc?'일정':'일정하지 않음')+', x×y가 '+(pc?'일정':'일정하지 않음')+'. '
+      +(qc?'정비례다.':(pc?'반비례다.':'정비례도 반비례도 아니다.'))+' 기록해 보자.';
+  },
+  draw:function(ctx,S,t,ran){
+    var v=this.vals(S), i;
+    var shown=(t===null)?0:Math.ceil(Math.min(1,t)*4);
+    var X0=44, Y0=76, CW=60;
+    lbl(ctx,(S.kind===0)?('y = '+S.a+'x'):((S.kind===1)?('y = '+S.a+' / x'):('y = '+S.a+'x + '+S.b)),24,40,'#1d4ed8',20);
+    var rows=['x','y','y ÷ x','x × y'];
+    for(i=0;i<4;i++){ lbl(ctx,rows[i],X0-6,Y0+i*30+20,'#475569',14,'right'); }
+    for(i=0;i<4;i++){
+      var x=X0+i*CW, on=(i<shown);
+      ctx.fillStyle='#fff';
+      ctx.strokeStyle='#94a3b8';ctx.lineWidth=1.4;
+      var j;
+      for(j=0;j<4;j++){
+        ctx.fillStyle=(j===0)?'#f1f5f9':'#fff';
+        ctx.fillRect(x,Y0+j*30,CW,30);
+        ctx.strokeRect(x,Y0+j*30,CW,30);
+      }
+      ctx.font='bold 14px sans-serif';ctx.textAlign='center';
+      ctx.fillStyle='#1f2937';ctx.fillText(i+1,x+CW/2,Y0+20);
+      ctx.fillStyle=on?'#1d4ed8':'#cbd5e1';
+      ctx.fillText(on?r2(v[i]):'?',x+CW/2,Y0+50);
+      ctx.fillStyle=on?'#b45309':'#cbd5e1';
+      ctx.fillText(on?r3(v[i]/(i+1)):'?',x+CW/2,Y0+80);
+      ctx.fillStyle=on?'#15803d':'#cbd5e1';
+      ctx.fillText(on?r3(v[i]*(i+1)):'?',x+CW/2,Y0+110);
+    }
+    ctx.textAlign='left';
+    var GX=60, GY=330, GW=320, GH=110;
+    ctx.strokeStyle='#334155';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(GX,GY);ctx.lineTo(GX+GW,GY);ctx.moveTo(GX,GY);ctx.lineTo(GX,GY-GH);ctx.stroke();
+    var mx=0;
+    for(i=0;i<4;i++){ if(v[i]>mx) mx=v[i]; }
+    if(mx<=0) mx=1;
+    ctx.strokeStyle='#dc2626';ctx.lineWidth=2.5;ctx.beginPath();
+    var started=false;
+    for(i=0;i<40;i++){
+      var xx=0.4+i*0.14;
+      if(xx>4.4) break;
+      var yy=this.f(S,xx);
+      var px2=GX+GW*xx/4.6, py2=GY-GH*yy/(mx*1.15);
+      if(py2<GY-GH) continue;
+      if(!started){ ctx.moveTo(px2,py2); started=true; } else ctx.lineTo(px2,py2);
+    }
+    if(shown>0&&started) ctx.stroke();
+    lbl(ctx,'그래프 모양만 보고 정비례라고 할 수 있을까?',GX,GY+22,'#52627a',15);
+  },
+  record:function(S){
+    var v=this.vals(S),i,qs=[],ps=[];
+    for(i=0;i<4;i++){ qs.push(r3(v[i]/(i+1))); ps.push(r3(v[i]*(i+1))); }
+    var qc=(qs[0]===qs[1]&&qs[1]===qs[2]&&qs[2]===qs[3]);
+    var pc=(ps[0]===ps[1]&&ps[1]===ps[2]&&ps[2]===ps[3]);
+    var line=(S.kind!==1);
+    return {kind:S.kind,name:KINDS[S.kind],a:S.a,b:S.b,
+            v:v.map(function(z){return r2(z);}).join(', '),
+            q:qs.join(', '),p:ps.join(', '),qc:qc,pc:pc,line:line,
+            verdict:qc?'정비례':(pc?'반비례':'둘 다 아님')};
+  },
+  headA:['번호','식','y 값','y ÷ x','일정?','x × y','일정?','판정','그래프가 직선?'],
+  rowA:function(r,i){
+    var eq=(r.kind===0)?('y='+r.a+'x'):((r.kind===1)?('y='+r.a+'/x'):('y='+r.a+'x+'+r.b));
+    return [i+1,eq,r.v,r.q,
+            '<span class="'+(r.qc?'ok':'no')+'">'+(r.qc?'○':'×')+'</span>',
+            r.p,
+            '<span class="'+(r.pc?'ok':'no')+'">'+(r.pc?'○':'×')+'</span>',
+            '<b>'+r.verdict+'</b>',r.line?'○':'×'];
+  },
+  analyze:function(rec){
+    var rows=[],lineN=0,lineProp=0,kinds={},kn=0;
+    for(var i=0;i<rec.length;i++){
+      var r=rec[i];
+      if(r.line){ lineN++; if(r.qc) lineProp++; }
+      kinds[r.kind]=true;
+      var eq=(r.kind===0)?('y='+r.a+'x'):((r.kind===1)?('y='+r.a+'/x'):('y='+r.a+'x+'+r.b));
+      rows.push([eq, r.v, r.q,
+                 '<span class="'+(r.qc?'ok':'no')+'">'+(r.qc?'○':'×')+'</span>',
+                 r.p,
+                 '<span class="'+(r.pc?'ok':'no')+'">'+(r.pc?'○':'×')+'</span>',
+                 '<b>'+r.verdict+'</b>', r.line?'직선':'곡선']);
+    }
+    for(var k in kinds) kn++;
+    var stats=[
+      {t:'그래프가 직선이었던 기록',big:lineN+'개',
+       p:lineN?('그중 정비례였던 것 '+lineProp+'개.'):'직선이 되는 관계도 기록해 보자.'},
+      {t:'시험한 관계의 종류',big:kn+'가지',p:kn>2?'세 관계를 모두 확인했다.':'세 가지 관계를 모두 기록해 보자.'},
+      {t:'전체 기록',big:rec.length+'개',p:'판정은 표의 y÷x, x×y가 일정한지로 한다.'}
+    ];
+    var concl;
+    if(kn<3){
+      concl='<b>더 해 보자</b> — y = ax, y = a/x, y = ax + b <b>세 가지를 모두</b> 기록해야 비교할 수 있다.';
+    } else if(lineProp<lineN){
+      concl='<b>정리</b> — y = ax + b도 그래프는 <b>직선</b>이었지만 y ÷ x가 일정하지 않아 정비례가 아니었다. '
+           +'그래프 모양만으로는 판단할 수 없다. <b>y ÷ x가 일정하면 정비례, x × y가 일정하면 반비례</b>이고, '
+           +'정비례 그래프는 반드시 원점을 지난다.';
+    } else {
+      concl='<b>정리</b> — 표의 y÷x와 x×y로 관계를 판정했다. y = ax + b 형태도 기록해 직선이지만 정비례가 아닌 경우를 확인해 보자.';
+    }
+    return {head:['식','y 값','y÷x','일정?','x×y','일정?','판정','그래프'],rows:rows,stats:stats,concl:concl};
+  }
+};
+
+
+/* ================= 공통 엔진 ================= */
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  cv.width = LAB.cw; cv.height = LAB.ch;
+  cv.style.maxWidth = LAB.cw + 'px';
+  var ctx = cv.getContext('2d');
+  document.getElementById('cvTitle').textContent = LAB.cvTitle;
+
+  var S = {}, records = [], animating = false, ran = false;
+  var DUR = 2400, MIN = 4;
+
+  var h = '', i;
+  for(i=0;i<LAB.sliders.length;i++){
+    var s = LAB.sliders[i];
+    h += '<div class="ctrl"><div class="row"><span><span class="chip" style="background:' + s.color + '"></span>'
+       + s.label + '</span><span class="val" id="v_' + s.id + '"></span></div>'
+       + '<input type="range" id="s_' + s.id + '" aria-label="' + s.label + '" min="' + s.min + '" max="' + s.max
+       + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
+  }
+  document.getElementById('controls').innerHTML = h;
+
+  var btnAct = document.getElementById('btnAct');
+  var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
+  var hint = document.getElementById('hint');
+  btnAct.textContent = LAB.action;
+
+  function readSliders(){
+    for(var i=0;i<LAB.sliders.length;i++){
+      var s = LAB.sliders[i];
+      var el = document.getElementById('s_' + s.id);
+      S[s.id] = parseFloat(el.value);
+      document.getElementById('v_' + s.id).textContent = s.fmt ? s.fmt(S[s.id]) : (S[s.id] + (s.unit || ''));
+    }
+  }
+  function lock(on){
+    for(var i=0;i<LAB.sliders.length;i++){ document.getElementById('s_' + LAB.sliders[i].id).disabled = on; }
+    btnAct.disabled = on || ran;
+    btnRec.disabled = on || !ran;
+  }
+  function readout(){
+    var arr = LAB.readout(S, ran), s = '';
+    for(var i=0;i<arr.length;i++){ s += '<div>' + arr[i].k + '<b>' + arr[i].v + '</b></div>'; }
+    document.getElementById('readout').innerHTML = s;
+  }
+  function paint(t){
+    ctx.clearRect(0,0,LAB.cw,LAB.ch);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,LAB.cw,LAB.ch);
+    ctx.strokeStyle = '#e5ecf5'; ctx.lineWidth = 2; ctx.strokeRect(1,1,LAB.cw-2,LAB.ch-2);
+    LAB.draw(ctx, S, t, ran);
+  }
+  function onSlide(){
+    if(animating) return;
+    readSliders(); ran = false;
+    btnAct.disabled = false; btnRec.disabled = true;
+    hint.textContent = LAB.hint0;
+    readout(); paint(null);
+  }
+  for(i=0;i<LAB.sliders.length;i++){
+    document.getElementById('s_' + LAB.sliders[i].id).addEventListener('input', onSlide);
+  }
+
+  btnAct.addEventListener('click', function(){
+    if(animating || ran) return;
+    cv.scrollIntoView({behavior:'smooth', block:'center'});
+    animating = true; lock(true);
+    var t0 = performance.now();
+    function frame(now){
+      var p = (now - t0) / DUR;
+      if(p > 1) p = 1;
+      paint(p);
+      if(p < 1){ requestAnimationFrame(frame); }
+      else {
+        animating = false; ran = true; lock(false);
+        records.push(LAB.record(S));
+        renderA(); renderB();
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)';
+        readout(); paint(1);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+
+  function th(list){
+    var s = '<tr>';
+    for(var i=0;i<list.length;i++){ s += '<th>' + list[i] + '</th>'; }
+    return s + '</tr>';
+  }
+  function renderA(){
+    document.getElementById('cntA').textContent = records.length;
+    document.getElementById('thA').innerHTML = th(LAB.headA);
+    var tb = document.getElementById('tbA');
+    if(records.length === 0){
+      tb.innerHTML = '<tr><td colspan="' + LAB.headA.length + '" class="empty">아직 기록이 없다.</td></tr>';
+      return;
+    }
+    var s = '';
+    for(var i=0;i<records.length;i++){
+      var cells = LAB.rowA(records[i], i);
+      s += '<tr>';
+      for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
+      s += '</tr>';
+    }
+    tb.innerHTML = s;
+  }
+  function renderB(){
+    document.getElementById('cntB').textContent = records.length;
+    var lack = document.getElementById('lack'), an = document.getElementById('analysis');
+    if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
+    lack.classList.add('hidden'); an.classList.remove('hidden');
+    var res = LAB.analyze(records);
+    document.getElementById('thB').innerHTML = th(res.head);
+    var s = '';
+    for(var i=0;i<res.rows.length;i++){
+      s += '<tr>';
+      for(var j=0;j<res.rows[i].length;j++){ s += '<td>' + res.rows[i][j] + '</td>'; }
+      s += '</tr>';
+    }
+    document.getElementById('tbB').innerHTML = s;
+    var g = '';
+    for(var k=0;k<res.stats.length;k++){
+      g += '<div class="stat"><h3>' + res.stats[k].t + '</h3><p class="big">' + res.stats[k].big
+         + '</p><p>' + res.stats[k].p + '</p></div>';
+    }
+    document.getElementById('statgrid').innerHTML = g;
+    document.getElementById('concl').innerHTML = res.concl;
+  }
+
+  var tabA = document.getElementById('tabA'), tabB = document.getElementById('tabB');
+  var paneA = document.getElementById('paneA'), paneB = document.getElementById('paneB');
+  tabA.addEventListener('click', function(){
+    tabA.classList.add('on'); tabB.classList.remove('on');
+    paneA.classList.remove('hidden'); paneB.classList.add('hidden');
+  });
+  tabB.addEventListener('click', function(){
+    tabB.classList.add('on'); tabA.classList.remove('on');
+    paneB.classList.remove('hidden'); paneA.classList.add('hidden');
+    renderB();
+  });
+
+  readSliders(); readout(); paint(null);
+  hint.textContent = LAB.hint0;
+  renderA(); renderB();
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>
