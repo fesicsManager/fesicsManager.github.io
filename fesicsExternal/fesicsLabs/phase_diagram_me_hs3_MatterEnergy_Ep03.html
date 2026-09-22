@@ -366,9 +366,9 @@ function hbars(items, max){
 var LAB = (function(){
 // 실제 삼중점·임계점 값
 var SUB = [
-  {name:'물 H₂O', nbp:100, tp:[0.01, 0.6117], cp:[373.95, 220640], mp:[0, 101.325], bp:[100, 101.325], slope:-1, note:'융해 곡선의 기울기가 음수 (얼음이 물보다 부피가 큼)'},
-  {name:'이산화 탄소 CO₂', tp:[-56.6, 518], cp:[31.0, 7377], mp:[null, null], bp:[-78.5, 101.325], slope:1, note:'1기압에서 액체가 없어 승화함 (드라이아이스)'},
-  {name:'암모니아 NH₃', nbp:-33.3, tp:[-77.7, 6.1], cp:[132.4, 11333], mp:[-77.7, 101.325], bp:[-33.3, 101.325], slope:1, note:'냉매로 쓰임'}
+  {name:'물 H₂O', nbp:100, tp:[0.01, 0.6117], cp:[373.95, 22064], mp:[0, 101.325], bp:[100, 101.325], slope:-1, dHsub:51.1, note:'융해 곡선의 기울기가 음수 (얼음이 물보다 부피가 큼)'},
+  {name:'이산화 탄소 CO₂', tp:[-56.6, 518], cp:[31.0, 7377], mp:[null, null], bp:[-78.5, 101.325], slope:1, dHsub:25.2, note:'1기압에서 액체가 없어 승화함 (드라이아이스)'},
+  {name:'암모니아 NH₃', nbp:-33.3, tp:[-77.7, 6.1], cp:[132.4, 11333], mp:[-77.7, 101.325], bp:[-33.3, 101.325], slope:1, dHsub:31.2, note:'냉매로 쓰임'}
 ];
 var TEMPS = [-100, -50, 0, 25, 100, 200, 400];
 var PRESS = [0.001, 0.1, 1, 10, 100, 300];   // 기압
@@ -383,6 +383,12 @@ function curveP(S, T){
   }
   return seg(t1, p1, tc, pc);
 }
+function sublP(S, T){
+  // 승화 곡선: 삼중점에서 출발해 승화열(ΔH_sub, kJ/mol)로 클라우지우스-클라페이롱 (삼중점 아래 온도)
+  var t1 = S.tp[0] + 273.15;
+  return S.tp[1] * Math.exp(-S.dHsub * 1000 / 8.314 * (1 / (T + 273.15) - 1 / t1));
+}
+function boundP(S, T){ return T < S.tp[0] ? sublP(S, T) : curveP(S, T); }   // 그리기와 상태 판정이 같은 경계를 씀
 function meltT(S, P){
   // 융해 곡선: 삼중점에서 기울기 부호에 따라 살짝 기욺
   var Ttp = S.tp[0], k = S.slope < 0 ? -0.0075 : 0.03;
@@ -391,9 +397,14 @@ function meltT(S, P){
 function state(S, T, Patm){
   var P = Patm * 101.325;                                  // kPa
   if (T + 273.15 > S.cp[0] + 273.15 && P > S.cp[1]) return {s:'초임계 유체', c:'#7657B3'};
-  var Pv = curveP(S, T), Tm = meltT(S, P);
-  if (T < Tm) return {s:'고체', c:'#5B8FD6'};
+  var Pv = boundP(S, T), Tm = meltT(S, P);
+  // 경계 근처(압력 ±5 %, 온도 ±0.5 ℃)는 두 상 공존, 삼중점 근처는 세 상 공존
+  var nearV = Math.abs(Math.log(P / Pv)) < 0.05, nearM = P >= S.tp[1] * 0.95 && Math.abs(T - Tm) < 0.5;
+  if (nearV && Math.abs(T - S.tp[0]) < 0.5) return {s:'고체+액체+기체 공존 (삼중점)', c:'#1E2833'};
+  if (nearV) return T < S.tp[0] ? {s:'고체+기체 공존 (승화 곡선)', c:'#8C99A8'} : {s:'액체+기체 공존 (증기압 곡선)', c:'#C8463D'};
   if (P < Pv) return {s:'기체', c:'#C8CFD8'};
+  if (nearM) return {s:'고체+액체 공존 (융해 곡선)', c:'#2B5FA3'};
+  if (T < Tm) return {s:'고체', c:'#5B8FD6'};
   return {s:'액체', c:'#3A8FB7'};
 }
 return {
@@ -404,11 +415,11 @@ return {
     {key:'s', type:'seg', label:'물질', cols:3, value:0, options:SUB.map(function(x){ return x.name; })},
     {key:'t', type:'seg', label:'온도', cols:7, value:3, options:TEMPS.map(function(v){ return v + ''; })},
     {key:'p', type:'seg', label:'압력 (기압)', cols:6, value:2, options:PRESS.map(function(v){ return v < 1 ? f(v, 3) : v + ''; }),
-      note:'삼중점은 고체·액체·기체가 함께 있는 점, 임계점 너머는 액체와 기체를 구별할 수 없는 초임계 유체입니다. 값은 실측값입니다.'}
+      note:'삼중점은 고체·액체·기체가 함께 있는 점, 임계점 너머는 액체와 기체를 구별할 수 없는 초임계 유체입니다. 삼중점·끓는점·임계점 값은 실측값이지만, 그 사이를 잇는 증기압·융해·승화 곡선은 이 점들을 지나도록 맞춘 정성적 근사 모형입니다. 경계 가까이에서는 실제 상평형도와 상태 판정이 다를 수 있습니다.'}
   ],
   compute: function(p){
     var S = SUB[p.s], T = TEMPS[p.t], Pa = PRESS[p.p], st = state(S, T, Pa);
-    return {S:S, T:T, Pa:Pa, P:Pa * 101.325, st:st, Pv:curveP(S, T), Tm:meltT(S, Pa * 101.325)};
+    return {S:S, T:T, Pa:Pa, P:Pa * 101.325, st:st, Pv:boundP(S, T), Tm:meltT(S, Pa * 101.325)};
   },
   draw: function(c, W, H, p, r, tau){
     var S = SUB[p.s], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -425,7 +436,7 @@ return {
     c.stroke();
     // 승화 곡선
     c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.beginPath();
-    for (var T2 = S.tp[0]; T2 >= -140; T2 -= 2){ var pv2 = curveP(S, T2) * 0.55; if (T2 === S.tp[0]) c.moveTo(P.X(T2), Y2(curveP(S, T2))); else c.lineTo(P.X(T2), Y2(pv2)); }
+    for (var T2 = S.tp[0]; T2 >= -140; T2 -= 2){ var pv2 = sublP(S, T2); if (T2 === S.tp[0]) c.moveTo(P.X(T2), Y2(pv2)); else c.lineTo(P.X(T2), Y2(pv2)); }   // 상태 판정(state)과 같은 승화 곡선
     c.stroke();
     // 점
     c.fillStyle = '#1E2833'; c.beginPath(); c.arc(P.X(S.tp[0]), Y2(S.tp[1]), 6, 0, Math.PI * 2); c.fill();
@@ -446,20 +457,21 @@ return {
     }
     txt(c, S.name, 12, 26, {bold:true});
     txt(c, S.note, 12, 46, {color:'#4A5868'});
+    txt(c, '※ 정성적 근사 모형: 삼중점·끓는점·임계점만 실측값, 곡선은 근사', W - 12, 26, {align:'right', color:'#C8463D'});
     var by = H - 90;
     if (!r) return;
     txt(c, r.T + ' ℃, ' + r.Pa + ' 기압 (' + f(r.P, 1) + ' kPa) → ' + r.st.s, 12, by, {bold:true, color:r.st.c === '#C8CFD8' ? '#5B6776' : r.st.c});
-    txt(c, '이 온도의 증기압 ' + (r.Pv >= 1 ? f(r.Pv, 1) + ' kPa' : r.Pv.toExponential(2) + ' kPa') + ' · 이 압력의 녹는점 ' + f(r.Tm, 2) + ' ℃', 12, by + 28, {color:'#4A5868'});
+    txt(c, (r.T < S.tp[0] ? '이 온도의 승화 압력 ' : '이 온도의 증기압 ') + (r.Pv >= 1 ? f(r.Pv, 1) + ' kPa' : r.Pv.toExponential(2) + ' kPa') + ' · 이 압력의 녹는점 ' + f(r.Tm, 2) + ' ℃', 12, by + 28, {color:'#4A5868'});
   },
   stats: function(p, r){
     var S = r.S;
     return [['물질', S.name], ['조건', r.T + ' ℃, ' + r.Pa + ' 기압'], ['상태', r.st.s, PAL[0]],
-      ['이 온도의 증기압', r.Pv >= 1 ? f(r.Pv, 1) + ' kPa' : r.Pv.toExponential(2) + ' kPa'],
+      [r.T < S.tp[0] ? '이 온도의 승화 압력' : '이 온도의 증기압', r.Pv >= 1 ? f(r.Pv, 1) + ' kPa' : r.Pv.toExponential(2) + ' kPa'],
       ['이 압력의 녹는점', f(r.Tm, 2) + ' ℃'],
       ['삼중점', S.tp[0] + ' ℃, ' + (S.tp[1] >= 1 ? f(S.tp[1], 1) : f(S.tp[1], 4)) + ' kPa', PAL[4]],
       ['임계점', S.cp[0] + ' ℃, ' + S.cp[1].toLocaleString() + ' kPa', PAL[3]]];
   },
-  columns: ['물질', 'T (℃)', 'P (기압)', '상태', '증기압 (kPa)', '그 압력의 녹는점 (℃)'],
+  columns: ['물질', 'T (℃)', 'P (기압)', '상태', '증기압·승화 압력 (kPa)', '그 압력의 녹는점 (℃)'],
   record: function(p, r){ return {s:p.s, name:r.S.name, T:r.T, Pa:r.Pa, st:r.st.s, Pv:r.Pv, Tm:r.Tm}; },
   row: function(d){ return [d.name, d.T, d.Pa, d.st, d.Pv >= 1 ? f(d.Pv, 1) : d.Pv.toExponential(2), f(d.Tm, 2)]; },
   verify: function(rec, box){

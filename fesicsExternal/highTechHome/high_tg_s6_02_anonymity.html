@@ -107,11 +107,11 @@ tbody tr:nth-child(even){background:#fafcff}
       </div>
       <div class="card">
         <h2>조절하고 관찰하기</h2>
-        <div id="controls"><div class="ctrl"><label>전체 인원 <span class="val" id="vN">10000</span>명</label><input type="range" id="n" min="500" max="200000" step="500" value="10000"></div>
-<div class="ctrl"><label>성별 공개</label><select id="g"><option value="1">안 함</option><option value="2">공개 (2종)</option></select></div>
-<div class="ctrl"><label>나이</label><select id="a"><option value="1">안 함</option><option value="8">10세 단위 (8종)</option><option value="70">한 살 단위 (70종)</option></select></div>
-<div class="ctrl"><label>거주지</label><select id="r"><option value="1">안 함</option><option value="17">시·도 (17종)</option><option value="250">시·군·구 (250종)</option><option value="3500">읍·면·동 (3500종)</option></select></div>
-<div class="ctrl"><label>직업군</label><select id="j"><option value="1">안 함</option><option value="10">대분류 (10종)</option><option value="60">중분류 (60종)</option></select></div></div>
+        <div id="controls"><div class="ctrl"><label for="n">전체 인원 <span class="val" id="vN">10000</span>명</label><input type="range" id="n" min="500" max="200000" step="500" value="10000"></div>
+<div class="ctrl"><label for="g">성별 공개</label><select id="g"><option value="1">안 함</option><option value="2">공개 (2종)</option></select></div>
+<div class="ctrl"><label for="a">나이</label><select id="a"><option value="1">안 함</option><option value="8">10세 단위 (8종)</option><option value="70">한 살 단위 (70종)</option></select></div>
+<div class="ctrl"><label for="r">거주지</label><select id="r"><option value="1">안 함</option><option value="17">시·도 (17종)</option><option value="250">시·군·구 (250종)</option><option value="3500">읍·면·동 (3500종)</option></select></div>
+<div class="ctrl"><label for="j">직업군</label><select id="j"><option value="1">안 함</option><option value="10">대분류 (10종)</option><option value="60">중분류 (60종)</option></select></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">데이터 공개해 보기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -123,7 +123,7 @@ tbody tr:nth-child(even){background:#fafcff}
             <tbody id="tbody"></tbody>
           </table>
         </div>
-        <div class="note">계산식: 준식별자 조합 수 = 각 항목의 값 개수를 모두 곱한 값. 평균 집단 크기 k = 전체 인원 ÷ 조합 수. k가 작을수록 한 사람을 집어내기 쉬워지고, 보통 k ≥ 5를 최소 기준으로 봅니다.</div>
+        <div class="note">계산 방법: 준식별자 조합 수 = 각 항목의 값 개수를 모두 곱한 값. 전체 인원만큼 가상 레코드를 만들어(값마다 사람 수가 고르지 않다고 가정) 조합별 인원을 세고, 그중 <b>가장 작은 집단의 인원</b>을 k로 봅니다. 이것이 k-익명성의 k이며, 전체 인원 ÷ 조합 수는 <b>평균 집단 크기</b>일 뿐 안전 판정 기준이 아닙니다. 흔히 k ≥ 5를 최소 기준으로 봅니다.</div>
       </div>
     </div>
   </section>
@@ -146,51 +146,70 @@ var out,c,cvv;
 var n=document.getElementById('n'),g=document.getElementById('g'),a=document.getElementById('a'),r=document.getElementById('r'),j=document.getElementById('j');
 n.oninput=function(){document.getElementById('vN').textContent=n.value;draw(1);};
 g.onchange=a.onchange=r.onchange=j.onchange=function(){draw(1);};
+/* k-익명성의 k는 '평균 집단 크기'가 아니라 모든 동질집합(같은 준식별자 조합) 중
+   '가장 작은 집단의 인원'이다. 그래서 가상 레코드 N명을 실제로 만들어
+   조합별 빈도를 세고 그 최솟값을 k로 쓴다. 인구는 균등하지 않다고 가정(값마다 치우침). */
+var cache={};
+function rng(seed){ // 고정 시드 → 같은 조건이면 같은 결과
+  var s=seed>>>0;
+  return function(){ s=(s+0x6D2B79F5)>>>0; var t=s; t=Math.imul(t^(t>>>15),t|1); t^=t+Math.imul(t^(t>>>7),t|61); return ((t^(t>>>14))>>>0)/4294967296; };
+}
+function skewPick(u,m){ return Math.min(m-1,Math.floor(m*Math.pow(u,1.6))); } // 앞쪽 값에 사람이 몰림
 function calc(){
-  var N=Number(n.value);
-  var combos=Number(g.value)*Number(a.value)*Number(r.value)*Number(j.value);
-  var k=N/combos;
-  var unique=(k<1)?(1-k):0;
-  return {N:N,combos:combos,k:k,safe:k>=5,
-          risk:k>=5?'낮음':(k>=2?'주의':'높음')};
+  var N=Number(n.value),G=Number(g.value),A=Number(a.value),R=Number(r.value),J=Number(j.value);
+  var key=N+'|'+G+'|'+A+'|'+R+'|'+J;
+  if(cache[key])return cache[key];
+  var combos=G*A*R*J;
+  var counts={},rand=rng(N*31+combos*7+1);
+  for(var i=0;i<N;i++){
+    var id=((skewPick(rand(),G)*A+skewPick(rand(),A))*R+skewPick(rand(),R))*J+skewPick(rand(),J);
+    counts[id]=(counts[id]||0)+1;
+  }
+  var kmin=Infinity,groups=0,people1=0,peopleLt5=0,sizes=[];
+  for(var idKey in counts){
+    var cnt=counts[idKey];groups++;sizes.push(cnt);
+    if(cnt<kmin)kmin=cnt;
+    if(cnt===1)people1++;
+    if(cnt<5)peopleLt5+=cnt;
+  }
+  var v={N:N,combos:combos,kavg:N/combos,k:kmin,groups:groups,people1:people1,peopleLt5:peopleLt5,
+         pct1:people1/N*100,pctLt5:peopleLt5/N*100,sizes:sizes,safe:kmin>=5};
+  v.risk=v.safe?'5-익명성 만족':(v.pctLt5<5?'5-익명성 미달 (일부 위험)':'5-익명성 미달 (위험)');
+  cache[key]=v;
+  return v;
 }
 function draw(prog){
   var v=calc();
   c.clearRect(0,0,cvv.width,cvv.height);
-  var cols=30,rows=14,cw=(cvv.width-50)/cols,ch=12;
+  var cols=30,rowsN=14,cw=(cvv.width-50)/cols,ch=12;
   var top=46;
-  var groups=Math.min(v.combos,cols*rows);
-  var perGroup=Math.max(v.k,0.02);
-  for(var i=0;i<cols*rows;i++){
+  var cells=Math.min(v.sizes.length,cols*rowsN);
+  for(var i=0;i<cols*rowsN;i++){
     var cx=25+(i%cols)*cw,cy=top+Math.floor(i/cols)*ch;
-    var filled=(i<groups*prog);
-    var alone=(perGroup<2);
-    c.fillStyle=filled?(alone?'#e05c6e':(perGroup<5?'#f0903a':'#6ab98a')):'#eef1f6';
+    var filled=(i<cells*prog);
+    var sz=filled?v.sizes[i]:0;
+    c.fillStyle=filled?(sz===1?'#e05c6e':(sz<5?'#f0903a':'#6ab98a')):'#eef1f6';
     c.fillRect(cx,cy,cw-1.5,ch-1.5);
   }
   c.fillStyle='#53617a';c.font='11px sans-serif';c.textAlign='left';
-  c.fillText('칸 하나 = 같은 조합을 가진 사람들의 집단',25,34);
-  var by=top+rows*ch+26;
-  c.fillStyle='#1d2433';c.font='bold 17px sans-serif';c.textAlign='center';
-  c.fillText('조합 수 '+v.combos.toLocaleString()+'가지 · 집단 평균 '+v.k.toFixed(2)+'명',cvv.width/2,by);
+  c.fillText('칸 하나 = 같은 조합을 가진 사람들의 집단 (빨강 1명 · 주황 2~4명 · 초록 5명 이상)',25,34);
+  var by=top+rowsN*ch+26;
+  c.fillStyle='#1d2433';c.font='bold 16px sans-serif';c.textAlign='center';
+  c.fillText('조합 '+v.combos.toLocaleString()+'가지 · 실제 최소 집단 k = '+(isFinite(v.k)?v.k:'-')+'명 (평균 '+v.kavg.toFixed(2)+'명)',cvv.width/2,by);
   c.font='bold 15px sans-serif';
   c.fillStyle=v.safe?'#3f8a63':'#b3384a';
-  c.fillText('재식별 위험 '+v.risk+(v.safe?' (k ≥ 5)':' (k < 5)'),cvv.width/2,by+28);
+  c.fillText(v.risk,cvv.width/2,by+28);
   c.font='13px sans-serif';c.fillStyle='#53617a';
-  if(v.k<1){
-    c.fillText('평균 집단이 1명 미만 — 조합만으로 개인이 특정됩니다',cvv.width/2,by+52);
-  }else{
-    c.fillText('한 조합을 알면 후보가 '+Math.max(1,Math.round(v.k))+'명으로 좁혀집니다',cvv.width/2,by+52);
-  }
+  c.fillText('혼자뿐인 사람 '+v.people1.toLocaleString()+'명('+v.pct1.toFixed(1)+'%) · 5명 미만 집단 소속 '+v.pctLt5.toFixed(1)+'%',cvv.width/2,by+52);
 }
 return {
-  columns:['인원','조합 수','평균 k','판정'],
+  columns:['인원','조합 수','평균 집단','최소 k','혼자인 사람','판정'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
-    out.innerHTML='공개 항목을 하나씩 켜 보고 <b>데이터 공개해 보기</b>를 눌러 k가 어떻게 줄어드는지 보세요.';},
+    out.innerHTML='공개 항목을 하나씩 켜 보고 <b>데이터 공개해 보기</b>를 눌러 최소 집단 k가 어떻게 줄어드는지 보세요.';},
   run:function(done){
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/22,1));
       if(t>=22){clearInterval(iv);var v=calc();
-        out.innerHTML='조합 <b>'+v.combos.toLocaleString()+'가지</b> · 평균 집단 <b>'+v.k.toFixed(2)+'명</b> · 위험 '+v.risk;
+        out.innerHTML='조합 <b>'+v.combos.toLocaleString()+'가지</b> · 최소 집단 <b>k = '+v.k+'명</b> (평균 '+v.kavg.toFixed(2)+'명) · 혼자뿐인 사람 <b>'+v.people1.toLocaleString()+'명</b> · '+v.risk;
         done();}},30);
   },
   record:function(){
@@ -200,29 +219,35 @@ return {
     if(Number(a.value)>1)open.push('나이');
     if(Number(r.value)>1)open.push('거주지');
     if(Number(j.value)>1)open.push('직업');
-    return {cells:[v.N.toLocaleString(),v.combos.toLocaleString(),v.k.toFixed(2),v.risk],
-            raw:{N:v.N,combos:v.combos,k:v.k,safe:v.safe,open:open.join('·')||'없음',cnt:open.length}};
+    return {cells:[v.N.toLocaleString(),v.combos.toLocaleString(),v.kavg.toFixed(2),v.k,v.people1.toLocaleString()+'명('+v.pct1.toFixed(1)+'%)',v.risk],
+            raw:{N:v.N,combos:v.combos,kavg:v.kavg,k:v.k,pct1:v.pct1,pctLt5:v.pctLt5,safe:v.safe,open:open.join('·')||'없음',cnt:open.length}};
   },
   verify:function(rs){
-    var mx=0,safe=0,best=null;
+    var mx=0,safe=0,best=null,gap=null;
     for(var i=0;i<rs.length;i++){
       if(rs[i].raw.k>mx)mx=rs[i].raw.k;
       if(rs[i].raw.safe){safe++;if(!best||rs[i].raw.cnt>best.cnt)best=rs[i].raw;}
+      if(!rs[i].raw.safe&&rs[i].raw.kavg>=5&&!gap)gap=rs[i].raw;
     }
-    var h='<div class="vgrid"><div><h3>공개 항목과 집단 크기</h3>';
+    var h='<div class="vgrid"><div><h3>공개 항목과 최소 집단 크기</h3>';
     for(var j2=0;j2<rs.length;j2++){
       var r2=rs[j2].raw;
-      h+='<div style="font-size:.95rem">'+r2.open+' → 조합 '+r2.combos.toLocaleString()+' · k '+r2.k.toFixed(2)+'</div>'+
+      h+='<div style="font-size:.95rem">'+r2.open+' → 조합 '+r2.combos.toLocaleString()+' · 평균 '+r2.kavg.toFixed(2)+' · <b>최소 k '+r2.k+'</b> · 혼자 '+r2.pct1.toFixed(1)+'%</div>'+
          '<div class="barwrap"><div class="bar" style="width:'+(mx?Math.min(r2.k/mx*100,100):0)+'%;background:'+(r2.safe?'#6ab98a':'#e05c6e')+'"></div></div>';
     }
-    h+='<p style="font-size:1.03rem;line-height:1.85">k ≥ 5를 지킨 경우 <b>'+safe+'</b> / 전체 '+rs.length+'건</p></div>';
+    h+='<p style="font-size:1.03rem;line-height:1.85">최소 집단 k ≥ 5(5-익명성)를 만족한 경우 <b>'+safe+'</b> / 전체 '+rs.length+'건</p></div>';
     h+='<div><h3>읽어 내기</h3>'+
-       '<p style="font-size:1.03rem;line-height:1.85">조합 수는 항목마다 <b>곱해집니다</b>. 항목 하나를 더 공개할 때마다 집단이 그만큼 잘게 쪼개집니다.</p>';
+       '<p style="font-size:1.03rem;line-height:1.85">조합 수는 항목마다 <b>곱해집니다</b>. 항목 하나를 더 공개할 때마다 집단이 그만큼 잘게 쪼개집니다.</p>'+
+       '<p style="font-size:1.03rem;line-height:1.85">k-익명성의 k는 <b>가장 작은 집단</b>의 인원입니다. 평균이 5명을 넘어도 어느 한 조합에 1명만 있으면 그 사람은 특정됩니다.</p>';
+    if(gap){
+      h+='<p style="font-size:1.03rem;line-height:1.85">실제로 <b>'+gap.open+'</b> 조건은 평균 집단이 '+gap.kavg.toFixed(1)+'명이었지만 최소 집단은 '+gap.k+'명이라 5-익명성을 만족하지 못했습니다.</p>';
+    }
     if(best){
-      h+='<p style="font-size:1.03rem;line-height:1.85">k ≥ 5를 지키면서 가장 많이 공개한 조합은 <b>'+best.open+'</b>('+best.cnt+'개 항목)였습니다.</p>';
+      h+='<p style="font-size:1.03rem;line-height:1.85">5-익명성을 지키면서 가장 많이 공개한 조합은 <b>'+best.open+'</b>('+best.cnt+'개 항목)였습니다.</p>';
     }
     h+='<ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
-       '<li>나이를 한 살 단위에서 10세 단위로 바꾸면 k가 몇 배가 되나요? 이것을 무엇이라 부를까요?</li>'+
+       '<li>나이를 한 살 단위에서 10세 단위로 바꾸면 최소 k와 혼자인 사람 비율이 어떻게 달라지나요? 이것을 무엇이라 부를까요?</li>'+
+       '<li>평균 집단 크기만 보고 안전하다고 판단하면 왜 위험한가요?</li>'+
        '<li>거주지를 읍·면·동까지 공개하면 왜 급격히 위험해지나요?</li>'+
        '<li>최소 수집·목적 제한 원칙이 왜 기술적으로도 필요한지 이 계산으로 설명해 보세요.</li>'+
        '<li>이름을 지운 자료도 \'익명\'이라고 부를 수 있을까요?</li></ol></div></div>'+
@@ -297,5 +322,30 @@ LAB.init(ctx,cv,document.getElementById('readout'));
 renderTable();renderVerify();
 })();
 </script>
+<!-- fxNoteLink:start -->
+<style>
+.fx-note-cta{margin-top:18px;padding:16px 18px;border-radius:14px;background:#fff8ee;border:1px dashed #d98e3b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:.98rem;line-height:1.6}
+.fx-note-cta a{display:inline-block;background:#173238;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:10px;white-space:nowrap}
+.fx-note-cta a:hover{filter:brightness(1.15)}
+</style>
+<script>
+(function(){
+  var href='../notes/highTechHome/high_tg_s6_02_anonymity.html';
+  var ok=function(el){ return el && !/^(BUTTON|A|INPUT|NAV)$/.test(el.tagName) ? el : null; };
+  var host=ok(document.getElementById('validationContent'))||ok(document.getElementById('verifyContent'))||ok(document.getElementById('verifyTab'))
+    ||ok(document.getElementById('panel-verify'))||ok(document.getElementById('panel-validate'))||ok(document.getElementById('verifyBody'))
+    ||ok(document.querySelector('#tab-validate .card, #tab-validate, #tab-verify .card, #tab-verify'))
+    ||ok(document.querySelector('section#verify, section#validate, #verify.panel, #validate.panel'))
+    ||ok(document.querySelector('#paneB .card, #paneB'))
+    ||ok(document.querySelector('#panelB .card, #panelB'))
+    ||ok(document.querySelector('.app, main, .wrap'))||document.body;
+  if(host){
+    var d=document.createElement('div'); d.className='fx-note-cta';
+    d.innerHTML='<div>📝 실험을 마쳤다면 <b>자습 노트</b>에서 개념을 정리하고 확인 문제를 풀어 보세요.</div><a href="'+href+'">자습 노트 열기 →</a>';
+    host.appendChild(d);
+  }
+})();
+</script>
+<!-- fxNoteLink:end -->
 </body>
 </html>

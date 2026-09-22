@@ -184,7 +184,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="부력과 유체의 압력 실험 장면"></canvas>
-          <p class="note">부력은 밀어낸 액체의 무게와 같습니다(아르키메데스 원리). 밀도는 실측값입니다.</p>
+          <p class="note">부력은 밀어낸 액체의 무게와 같습니다(아르키메데스 원리). 밀도는 실측값입니다. 가라앉는 물체는 부피 전체가 잠기지만, 뜨는 물체는 일부만 잠긴 채 부력 = 무게인 평형을 이루므로 두 경우의 부력을 구분해 표시합니다.</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -376,10 +376,12 @@ var FLUID = [
 var DEPTH = [0, 10, 100, 1000];
 var MODE = ['뜨고 가라앉기', '깊이와 압력'];
 function buoy(O, F){
-  var W = O.rho * O.V * G, Fb = F.rho * O.V * G;
+  // FbFull: 물체를 완전히 잠갔을 때의 부력. 떠 있는 물체는 일부만 잠기므로 평형 상태의 부력(Fb)은 무게와 같다.
+  var W = O.rho * O.V * G, FbFull = F.rho * O.V * G;
   var floats = O.rho < F.rho;
   var frac = floats ? O.rho / F.rho : 1;
-  return {W:W, Fb:Fb, floats:floats, frac:frac, net:Fb - W, sub:frac * 100};
+  var Fb = floats ? W : FbFull;
+  return {W:W, Fb:Fb, FbFull:FbFull, floats:floats, frac:frac, net:FbFull - W, sub:frac * 100};
 }
 function press(F, d){ return {P:101325 + F.rho * G * d, atm:(101325 + F.rho * G * d) / 101325}; }
 return {
@@ -395,7 +397,7 @@ return {
   ],
   compute: function(p){
     var O = OBJ[p.o], F = FLUID[p.f], B = buoy(O, F), P = press(F, DEPTH[p.d]);
-    return {O:O, F:F, W:Math.round(B.W * 10) / 10, Fb:Math.round(B.Fb * 10) / 10, floats:B.floats,
+    return {O:O, F:F, W:Math.round(B.W * 10) / 10, Fb:Math.round(B.Fb * 10) / 10, FbFull:Math.round(B.FbFull * 10) / 10, floats:B.floats,
       sub:Math.round(B.sub * 10) / 10, net:Math.round(B.net * 10) / 10, d:DEPTH[p.d],
       P:Math.round(P.P), atm:Math.round(P.atm * 100) / 100};
   },
@@ -436,8 +438,8 @@ return {
     }
     var by2 = 300;
     if (!r) return;
-    txt(c, '무게 ' + f(r.W, 1) + ' N · 부력 ' + f(r.Fb, 1) + ' N (밀어낸 액체의 무게)', 12, by2, {});
-    txt(c, r.floats ? '뜸 — 부피의 ' + f(r.sub, 1) + ' %만 잠김' : '가라앉음 — 알짜힘 ' + f(-r.net, 1) + ' N 아래로', 12, by2 + 30,
+    txt(c, '무게 ' + f(r.W, 1) + ' N · 부력 ' + f(r.Fb, 1) + ' N (밀어낸 액체의 무게' + (r.floats ? ', 일부만 잠긴 평형 상태' : ', 완전히 잠김') + ')', 12, by2, {});
+    txt(c, r.floats ? '뜸 — 부피의 ' + f(r.sub, 1) + ' %만 잠김 (완전히 잠그면 부력 ' + f(r.FbFull, 1) + ' N)' : '가라앉음 — 알짜힘 ' + f(-r.net, 1) + ' N 아래로', 12, by2 + 30,
       {bold:true, color:r.floats ? '#2E9E78' : '#C8463D'});
     txt(c, '잠기는 비율 = 물체 밀도 ÷ 액체 밀도', 12, by2 + 60, {color:'#4A5868'});
   },
@@ -447,10 +449,10 @@ return {
       ['액체가 주는 압력만', (r.P - 101325).toLocaleString() + ' Pa']];
     return [['물체', r.O.name + ' (' + r.O.rho.toLocaleString() + ' kg/m³, ' + r.O.V + ' m³)'],
       ['액체', r.F.name + ' (' + r.F.rho.toLocaleString() + ' kg/m³)'],
-      ['무게', f(r.W, 1) + ' N'], ['부력', f(r.Fb, 1) + ' N', PAL[4]],
+      ['무게', f(r.W, 1) + ' N'], [r.floats ? '부력 (일부 잠긴 평형 상태)' : '부력 (완전히 잠김)', f(r.Fb, 1) + ' N', PAL[4]], ['완전히 잠갔을 때 부력', f(r.FbFull, 1) + ' N'],
       ['뜨는가', r.floats ? '뜸' : '가라앉음', r.floats ? PAL[1] : PAL[4]],
       ['잠기는 비율', r.floats ? f(r.sub, 1) + ' %' : '100 %', PAL[0]],
-      ['알짜힘', sgn(r.net, 1) + ' N']];
+      ['완전히 잠갔을 때 알짜힘', sgn(r.net, 1) + ' N' + (r.floats ? ' (위로 → 떠오름)' : '')]];
   },
   columns: ['물체', '밀도', '액체', '액체 밀도', '무게 (N)', '부력 (N)', '결과', '잠김 (%)'],
   record: function(p, r){ return {md:p.md, o:p.o, name:r.O.name, rho:r.O.rho, V:r.O.V, f:p.f, fn:r.F.name, frho:r.F.rho,

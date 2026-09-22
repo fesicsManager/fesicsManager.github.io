@@ -228,7 +228,7 @@ input[type=range]{cursor:pointer;height:24px;}
     <div class="readout"><span>지금 유도전류</span><b id="currVal">0.0</b><span>최대 유도전류</span><b id="peakVal">0.0</b></div>
     <button class="action" id="addPoint">📍 이 조건 측정하기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
-    <div class="hint">💡 자석이 <b>다가올 때</b> 코일은 같은 극을 만들어 밀어내고, <b>멀어질 때</b>는 반대 극을 만들어 붙잡습니다(렌츠 법칙). 그래서 전류 방향이 반대로 뒤집힙니다.<br><b>자석 멈추기</b>를 눌러 자기장 변화가 없을 때 유도전류가 어떻게 되는지도 꼭 확인해 보세요.</div>
+    <div class="hint">💡 자석이 <b>다가올 때</b> 코일은 같은 극을 만들어 밀어내고, <b>멀어질 때</b>는 반대 극을 만들어 붙잡습니다(렌츠 법칙). 그래서 전류 방향이 반대로 뒤집힙니다.<br><b>자석 멈추기</b>를 눌러 자기장 변화가 없을 때 유도전류가 어떻게 되는지도 꼭 확인해 보세요.<br>속력·감은 수·극을 바꾼 뒤에는 자석이 <b>한 번 왕복한 다음</b> 측정하세요(느릴수록 오래 걸려요). '최대 유도전류'는 그 조건에서 자석이 한 바퀴 도는 동안의 최댓값이에요.</div>
   </section>
   <section class="card">
     <h2>측정 데이터</h2>
@@ -344,15 +344,17 @@ const speedSlider=document.getElementById('speedSlider'), speedValEl=document.ge
 const turnSlider=document.getElementById('turnSlider'), turnValEl=document.getElementById('turnVal');
 const poleBtn=document.getElementById('poleBtn'), pauseBtn=document.getElementById('pauseBtn');
 let speed=3.0, turns=20, poleN=true, paused=false;
+const peakHist=[]; /* 최대 유도전류 판정용 — 자석이 최소 한 바퀴(2π/(0.01·속력) 프레임) 도는 동안의 값을 보관 */
 function updateCtl(){
   speed=parseFloat(speedSlider.value); turns=parseInt(turnSlider.value);
+  peakHist.length=0;   /* 조건이 바뀌면 이전 조건의 피크를 버린다 */
   speedValEl.textContent=speed.toFixed(1);
   turnValEl.textContent=turns+' 회';
 }
 speedSlider.addEventListener('input',updateCtl);
 turnSlider.addEventListener('input',updateCtl);
 poleBtn.addEventListener('click',()=>{
-  poleN=!poleN;
+  poleN=!poleN; peakHist.length=0;
   poleBtn.textContent='🔁 자석 극 바꾸기 (지금: '+(poleN?'N':'S')+'극이 앞)';
 });
 pauseBtn.addEventListener('click',()=>{
@@ -367,7 +369,8 @@ updateCtl();
    유도전류 ∝ -(감은 수) × (자기선속의 변화율).  → 자석이 멈추면 변화율 0 → 전류 0 */
 const AMP=150, SIGMA=58, SCALE=6;
 let t=0, magX=-AMP, prevFlux=null, curI=0;
-const history=[];  /* 그래프용 최근 유도전류 */
+const history=[];  /* 그래프용 최근 유도전류(260프레임) */
+function peakWindow(){ return Math.max(260, Math.ceil(2*Math.PI/(0.010*Math.max(speed,0.1)))+30); }
 function fluxAt(x){ return (poleN?1:-1)*Math.exp(-(x*x)/(2*SIGMA*SIGMA)); }
 function stepPhysics(){
   if(!paused) t += speed*0.010;
@@ -380,12 +383,15 @@ function stepPhysics(){
   if(paused) curI = 0;
   history.push(curI);
   if(history.length>260) history.shift();
+  peakHist.push(curI);
+  while(peakHist.length>peakWindow()) peakHist.shift();
   document.getElementById('currVal').textContent = curI.toFixed(1);
   document.getElementById('peakVal').textContent = peakAbs().toFixed(1);
 }
 function peakAbs(){
-  if(!history.length) return 0;
-  return Math.max(...history.map(Math.abs));
+  if(!peakHist.length) return 0;
+  let m=0; for(let i=0;i<peakHist.length;i++){ const a=Math.abs(peakHist[i]); if(a>m) m=a; }
+  return m;
 }
 /* 설정 범위가 넓으므로 검류계·그래프 눈금은 최근 최댓값에 맞춰 자동 조정 */
 function dispMax(){ return Math.max(6, peakAbs()); }
@@ -425,8 +431,8 @@ const CX=260, CY=118;
 function drawMagnet(x,y){
   const w=88, h=30;
   /* 앞쪽(코일을 향하는 쪽) 극이 poleN 값 */
-  const movingRight = Math.cos(t)>0;
-  const frontRight = movingRight;
+  /* 자석의 방향은 고정 — 왕복해도 극이 뒤바뀌지 않는다. '극 바꾸기'를 눌렀을 때만 poleN이 바뀐다 */
+  const frontRight = true;
   const frontLabel = poleN?'N':'S', backLabel = poleN?'S':'N';
   const leftLabel = frontRight ? backLabel : frontLabel;
   const rightLabel = frontRight ? frontLabel : backLabel;
@@ -508,7 +514,9 @@ function draw(){
     const magnetOnLeft = magX<0;
     /* 자석이 코일로 다가오는가? */
     const comingCloser = (magnetOnLeft && movingRight) || (!magnetOnLeft && !movingRight);
-    const induced = comingCloser ? frontPole : (frontPole==='N'?'S':'N');
+    /* 코일을 향한 극: 자석이 왼쪽에 있으면 앞쪽(오른쪽) 극, 오른쪽에 있으면 뒤쪽(왼쪽) 극 */
+    const facing = magnetOnLeft ? frontPole : (frontPole==='N'?'S':'N');
+    const induced = comingCloser ? facing : (facing==='N'?'S':'N');
     const side = magnetOnLeft ? CX-coilW/2-16 : CX+coilW/2+16;
     cap(ctx, side, CY-58, '코일: '+induced+'극', induced==='N'?'rgba(193,68,60,0.95)':'rgba(47,143,157,0.95)', '#fff', 16);
     cap(ctx, CX, CH-16, comingCloser ? '가까워짐 → 같은 극으로 밀어냄' : '멀어짐 → 반대 극으로 끌어당김', 'rgba(255,255,255,0.96)', '#173238', 16);
@@ -704,5 +712,25 @@ function notify(msg){
   },true);
 })();
 </script>
+<!-- fxNoteLink:start -->
+<style>
+.fx-note-cta{margin-top:18px;padding:16px 18px;border-radius:14px;background:#fff8ee;border:1px dashed #d98e3b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:.98rem;line-height:1.6}
+.fx-note-cta a{display:inline-block;background:#173238;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:10px;white-space:nowrap}
+.fx-note-cta a:hover{filter:brightness(1.15)}
+</style>
+<script>
+(function(){
+  var href='../notes/milddle2PhyAdv/09_induction_direction_lab.html';
+  var host=document.getElementById('validationContent')||document.getElementById('verifyContent')||document.getElementById('verifyTab')
+    ||document.querySelector('#tab-validate .card, #tab-validate, #tab-verify .card, #tab-verify')
+    ||document.querySelector('.app, main, .wrap')||document.body;
+  if(host){
+    var d=document.createElement('div'); d.className='fx-note-cta';
+    d.innerHTML='<div>📝 실험을 마쳤다면 <b>자습 노트</b>에서 개념을 정리하고 확인 문제를 풀어 보세요.</div><a href="'+href+'">자습 노트 열기 →</a>';
+    host.appendChild(d);
+  }
+})();
+</script>
+<!-- fxNoteLink:end -->
 </body>
 </html>

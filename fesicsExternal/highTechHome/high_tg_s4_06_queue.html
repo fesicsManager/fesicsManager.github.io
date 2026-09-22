@@ -107,11 +107,11 @@ tbody tr:nth-child(even){background:#fafcff}
       </div>
       <div class="card">
         <h2>조절하고 관찰하기</h2>
-        <div id="controls"><div class="ctrl"><label>도착률 <span class="val" id="vL">50</span>명/분</label><input type="range" id="lam" min="5" max="120" step="5" value="50"></div>
-<div class="ctrl"><label>문 개수 <span class="val" id="vD">2</span>개</label><input type="range" id="dr" min="1" max="6" step="1" value="2"></div>
-<div class="ctrl"><label>1인 통과 시간 <span class="val" id="vT">2.0</span>초</label><input type="range" id="ts" min="0.8" max="5" step="0.2" value="2"></div>
-<div class="ctrl"><label>우산 등으로 늘어난 시간 <span class="val" id="vU">0.8</span>초</label><input type="range" id="ux" min="0" max="3" step="0.2" value="0.8"></div>
-<div class="ctrl"><label>동선 분리(일방통행)</label><select id="ow"><option value="1">없음</option><option value="0.75">있음 (통과 시간 25% 단축)</option></select></div></div>
+        <div id="controls"><div class="ctrl"><label for="lam">도착률 <span class="val" id="vL">30</span>명/분</label><input type="range" id="lam" min="5" max="120" step="5" value="30"></div>
+<div class="ctrl"><label for="dr">문 개수 <span class="val" id="vD">2</span>개</label><input type="range" id="dr" min="1" max="6" step="1" value="2"></div>
+<div class="ctrl"><label for="ts">1인 통과 시간 <span class="val" id="vT">2.0</span>초</label><input type="range" id="ts" min="0.8" max="5" step="0.2" value="2"></div>
+<div class="ctrl"><label for="ux">우산 등으로 늘어난 시간 <span class="val" id="vU">0.8</span>초</label><input type="range" id="ux" min="0" max="3" step="0.2" value="0.8"></div>
+<div class="ctrl"><label for="ow">동선 분리(일방통행)</label><select id="ow"><option value="1">없음</option><option value="0.75">있음 (통과 시간 25% 단축)</option></select></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">등교 시간 돌리기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -123,7 +123,8 @@ tbody tr:nth-child(even){background:#fafcff}
             <tbody id="tbody"></tbody>
           </table>
         </div>
-        <div class="note">계산식: 통과 능력 μ = 문 개수 × (60 ÷ 1인 통과 시간). 가동률 ρ = 도착률 λ ÷ μ. 평균 대기 시간 W = 1 ÷ (μ − λ), 평균 줄 인원 L = λ × W (리틀의 법칙). ρ이 1에 가까워지면 급격히 나빠집니다.</div>
+        <div class="note">계산식(M/M/c 대기행렬 모형): 문 1개의 처리율 μ₁ = 60 ÷ 1인 통과 시간, 전체 통과 능력 μ = 문 개수 c × μ₁. 가동률 ρ = 도착률 λ ÷ μ. 문이 여러 개이므로 단일 창구 공식 대신 <b>Erlang C</b>로 줄을 서게 될 확률 P<sub>w</sub>를 구하고, 줄에서 기다리는 평균 시간 W<sub>q</sub> = P<sub>w</sub> ÷ (μ − λ), 평균 줄 인원 L<sub>q</sub> = λ × W<sub>q</sub> (리틀의 법칙)로 계산합니다. ρ이 1에 가까워지면 급격히 나빠집니다.<br>
+        <span style="color:#8a5a12">가정: 도착 간격과 통과 시간이 무작위(지수분포)로 흩어져 있고, 줄이 하나이며 빈 문으로 바로 이동한다고 봅니다. 등교 시간처럼 도착이 한꺼번에 몰리는 경우 실제 줄은 이 값보다 길 수 있습니다.</span></div>
       </div>
     </div>
   </section>
@@ -147,14 +148,31 @@ var lam=document.getElementById('lam'),dr=document.getElementById('dr'),ts=docum
 function u(id,el,f){el.oninput=function(){document.getElementById(id).textContent=f?f(el.value):el.value;draw(1);};}
 u('vL',lam);u('vD',dr);u('vT',ts,function(v){return Number(v).toFixed(1);});u('vU',ux,function(v){return Number(v).toFixed(1);});
 ow.onchange=function(){draw(1);};
+/* M/M/c (Erlang C) 모형: 문 D개를 병렬 서버 c개로 본다.
+   mu1 = 문 1개의 처리율(명/분), a = λ/mu1 (제시 부하), ρ = a/c.
+   대기 확률 Pw = (a^c/c!)/(1-ρ) ÷ [ Σ_{k<c} a^k/k! + (a^c/c!)/(1-ρ) ]
+   줄에서 기다리는 평균 시간 Wq = Pw ÷ (c·mu1 − λ), 평균 줄 인원 Lq = λ·Wq (리틀의 법칙). */
+function erlangC(a,c){
+  var sum=0,term=1;
+  for(var k=0;k<c;k++){ if(k>0)term*=a/k; sum+=term; }
+  var last=term*a/c;                 // a^c/c!
+  var rho=a/c;
+  var tail=last/(1-rho);
+  return tail/(sum+tail);
+}
 function calc(){
   var LAM=Number(lam.value),D=Number(dr.value);
   var T=(Number(ts.value)+Number(ux.value))*Number(ow.value);
-  var mu=D*(60/T);
+  var mu1=60/T;
+  var mu=D*mu1;
   var rho=mu>0?LAM/mu:Infinity;
-  var W=(mu>LAM)?(1/(mu-LAM)):Infinity;
-  var L=(isFinite(W))?LAM*W:Infinity;
-  return {LAM:LAM,D:D,T:T,mu:mu,rho:rho,W:W,L:L};
+  var Pw=Infinity,W=Infinity,L=Infinity;
+  if(rho<1){
+    Pw=erlangC(LAM/mu1,D);
+    W=Pw/(mu-LAM);
+    L=LAM*W;
+  }
+  return {LAM:LAM,D:D,T:T,mu:mu,rho:rho,Pw:Pw,W:W,L:L};
 }
 function draw(prog){
   var r=calc();
@@ -195,7 +213,7 @@ function draw(prog){
   c.fillText('가동률 '+(r.rho*100).toFixed(0)+'%',cvv.width/2,by-30);
 }
 return {
-  columns:['도착','문','1인(초)','통과능력','가동률','대기(초)','줄(명)'],
+  columns:['도착','문','1인(초)','통과능력','가동률','줄 설 확률','대기(초)','줄(명)'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='조건을 정하고 <b>등교 시간 돌리기</b>를 눌러 줄 길이를 확인해 보세요.';},
   run:function(done){
@@ -207,8 +225,8 @@ return {
   },
   record:function(){
     var r=calc();
-    return {cells:[r.LAM,r.D,r.T.toFixed(1),r.mu.toFixed(1),(r.rho*100).toFixed(0)+'%',isFinite(r.W)?(r.W*60).toFixed(1):'∞',isFinite(r.L)?r.L.toFixed(1):'∞'],
-            raw:{LAM:r.LAM,D:r.D,T:r.T,mu:r.mu,rho:r.rho,W:r.W,L:r.L,ow:Number(ow.value)}};
+    return {cells:[r.LAM,r.D,r.T.toFixed(1),r.mu.toFixed(1),(r.rho*100).toFixed(0)+'%',isFinite(r.Pw)?(r.Pw*100).toFixed(0)+'%':'100%',isFinite(r.W)?(r.W*60).toFixed(1):'∞',isFinite(r.L)?r.L.toFixed(1):'∞'],
+            raw:{LAM:r.LAM,D:r.D,T:r.T,mu:r.mu,rho:r.rho,Pw:r.Pw,W:r.W,L:r.L,ow:Number(ow.value)}};
   },
   verify:function(rs){
     var fin=[],inf=0;
@@ -222,8 +240,8 @@ return {
     }
     h+='<p style="font-size:1.03rem;line-height:1.85">줄이 감당되지 않은 경우 <b>'+inf+'</b>건</p></div>';
     h+='<div><h3>설계 판단</h3>'+
-       '<p style="font-size:1.03rem;line-height:1.85">대기 시간 W = 1 ÷ (통과 능력 − 도착률)입니다. 분모가 0에 가까워질수록 <b>폭발적으로</b> 커집니다. '+
-       '그래서 평균에 딱 맞춘 설계는 실패합니다.</p>'+
+       '<p style="font-size:1.03rem;line-height:1.85">줄에서 기다리는 시간 W<sub>q</sub> = 줄 설 확률 P<sub>w</sub> ÷ (통과 능력 − 도착률)입니다. 분모가 0에 가까워질수록 <b>폭발적으로</b> 커집니다. '+
+       '그래서 평균에 딱 맞춘 설계는 실패합니다. 문을 늘리면 통과 능력이 커질 뿐 아니라 줄 설 확률 자체도 낮아집니다.</p>'+
        '<ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
        '<li>문을 1개 늘리는 것과 1인 통과 시간을 0.5초 줄이는 것 중 어느 쪽이 대기를 더 줄였나요?</li>'+
        '<li>동선 분리는 비용이 거의 0입니다. 평가 기준(비용·공사 여부·효과)으로 보면 최적안은 무엇인가요?</li>'+
@@ -301,5 +319,30 @@ LAB.init(ctx,cv,document.getElementById('readout'));
 renderTable();renderVerify();
 })();
 </script>
+<!-- fxNoteLink:start -->
+<style>
+.fx-note-cta{margin-top:18px;padding:16px 18px;border-radius:14px;background:#fff8ee;border:1px dashed #d98e3b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:.98rem;line-height:1.6}
+.fx-note-cta a{display:inline-block;background:#173238;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:10px;white-space:nowrap}
+.fx-note-cta a:hover{filter:brightness(1.15)}
+</style>
+<script>
+(function(){
+  var href='../notes/highTechHome/high_tg_s4_06_queue.html';
+  var ok=function(el){ return el && !/^(BUTTON|A|INPUT|NAV)$/.test(el.tagName) ? el : null; };
+  var host=ok(document.getElementById('validationContent'))||ok(document.getElementById('verifyContent'))||ok(document.getElementById('verifyTab'))
+    ||ok(document.getElementById('panel-verify'))||ok(document.getElementById('panel-validate'))||ok(document.getElementById('verifyBody'))
+    ||ok(document.querySelector('#tab-validate .card, #tab-validate, #tab-verify .card, #tab-verify'))
+    ||ok(document.querySelector('section#verify, section#validate, #verify.panel, #validate.panel'))
+    ||ok(document.querySelector('#paneB .card, #paneB'))
+    ||ok(document.querySelector('#panelB .card, #panelB'))
+    ||ok(document.querySelector('.app, main, .wrap'))||document.body;
+  if(host){
+    var d=document.createElement('div'); d.className='fx-note-cta';
+    d.innerHTML='<div>📝 실험을 마쳤다면 <b>자습 노트</b>에서 개념을 정리하고 확인 문제를 풀어 보세요.</div><a href="'+href+'">자습 노트 열기 →</a>';
+    host.appendChild(d);
+  }
+})();
+</script>
+<!-- fxNoteLink:end -->
 </body>
 </html>
