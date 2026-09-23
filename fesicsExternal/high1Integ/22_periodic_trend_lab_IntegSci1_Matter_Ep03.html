@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>번호 순서에 숨은 주기성 | 고1 통합과학</title>
+<style>
+:root{
+  --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
+  --pri:#2B5FA3; --pri-d:#1F4B85; --pri-soft:rgba(43,95,163,.16);
+  --ep:#3867B0; --ek:#E08A2E; --heat:#C8463D;
+}
+html{font-size:21px}
+@media (max-width:760px){html{font-size:20px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); font-size:1rem; line-height:1.55; word-break:keep-all; overflow-wrap:anywhere;
+  font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  background-color:var(--bg);
+  background-image:radial-gradient(var(--dot) 1.2px, transparent 1.4px);
+  background-size:22px 22px;
+}
+.container{width:97%; max-width:1840px; margin:0 auto; padding:1.2rem 0 2.5rem}
+header h1{font-size:1.6rem; margin:0 0 .35rem; letter-spacing:-.01em; line-height:1.3}
+header p{margin:0; color:var(--sub); max-width:62ch}
+
+/* 탭 */
+.tabs{display:flex; gap:.5rem; margin:1.1rem 0 1rem; flex-wrap:wrap}
+.tab{
+  font:inherit; font-weight:700; padding:.55rem 1.1rem; border-radius:999px; cursor:pointer;
+  border:2px solid var(--line); background:var(--paper); color:var(--sub);
+  transition:background .18s, color .18s, border-color .18s, transform .12s, filter .18s;
+}
+.tab:hover{border-color:var(--pri); color:var(--pri); transform:translateY(-1px)}
+.tab:active{transform:translateY(1px) scale(.98)}
+.tab[aria-selected="true"]{background:var(--pri); border-color:var(--pri); color:#fff}
+.tab[aria-selected="true"]:hover{filter:brightness(1.08); color:#fff}
+.panel[hidden]{display:none}
+
+/* 레이아웃 */
+.lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
+.card + .card{margin-top:1rem}
+.card h2{font-size:1.15rem; margin:0 0 .6rem; line-height:1.35}
+.note{color:var(--sub); font-size:.95rem; margin:.6rem 0 0}
+
+#scene{width:100%; height:320px; display:block; border-radius:10px; background:#F7F9FC}
+
+/* 에너지 막대 */
+.ebar{display:flex; height:30px; border-radius:8px; overflow:hidden; background:#E6EBF1; margin-top:.8rem}
+.ebar div{height:100%; transition:none}
+.ebar .ep{background:var(--ep)} .ebar .ek{background:var(--ek)} .ebar .ht{background:var(--heat)}
+.elegend{display:grid; grid-template-columns:repeat(3,1fr); gap:.3rem; margin-top:.45rem; font-size:.95rem}
+.elegend > span{display:flex; align-items:flex-start; gap:.35rem; line-height:1.3}
+.elegend > span > span{display:block}
+.elegend i{width:14px; height:14px; border-radius:3px; flex:none; margin-top:.2rem}
+.elegend b{display:block; font-variant-numeric:tabular-nums}
+
+/* 조작부 */
+.ctrl{margin-bottom:.75rem}
+.ctrl .row{display:flex; justify-content:space-between; align-items:baseline}
+.ctrl .val{font-weight:700; color:var(--pri); font-variant-numeric:tabular-nums}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:30px; margin:0;
+  background:transparent; cursor:pointer; touch-action:manipulation; --p:50%;
+}
+input[type=range]:focus{outline:none}
+input[type=range]:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px; border-radius:6px}
+input[type=range]::-webkit-slider-runnable-track{
+  height:8px; border-radius:4px;
+  background:linear-gradient(to right, var(--pri) var(--p), #D5DDE6 var(--p));
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:24px; height:24px; border-radius:50%; margin-top:-8px;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]::-moz-range-track{height:8px; border-radius:4px; background:#D5DDE6}
+input[type=range]::-moz-range-progress{height:8px; border-radius:4px; background:var(--pri)}
+input[type=range]::-moz-range-thumb{
+  box-sizing:border-box; width:24px; height:24px; border-radius:50%;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-moz-range-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]:disabled{cursor:not-allowed; opacity:.45}
+input[type=range]:disabled::-webkit-slider-thumb{transform:none; box-shadow:none}
+
+.seg{display:grid; grid-template-columns:1fr 1fr; gap:.45rem}
+.seg button{
+  font:inherit; font-size:.95rem; text-align:left; line-height:1.3; padding:.5rem .6rem; cursor:pointer;
+  border:2px solid var(--line); border-radius:10px; background:#fff; color:var(--ink);
+  transition:border-color .18s, background .18s, transform .12s;
+}
+.seg button small{display:block; color:var(--sub); font-size:.95rem; font-variant-numeric:tabular-nums}
+.seg button:hover:not(:disabled){border-color:var(--pri); transform:translateY(-1px)}
+.seg button:active:not(:disabled){transform:translateY(1px) scale(.98)}
+.seg button[aria-pressed="true"]{border-color:var(--pri); background:#EAF1FA}
+.seg button:disabled{cursor:not-allowed; opacity:.5}
+
+.actions{display:flex; gap:.6rem; margin-top:1rem; flex-wrap:wrap}
+.btn{
+  font:inherit; font-weight:700; padding:.65rem 1.2rem; border-radius:12px; cursor:pointer;
+  border:2px solid var(--pri); background:var(--pri); color:#fff;
+  transition:filter .18s, transform .12s, background .18s, color .18s, opacity .18s;
+}
+.btn:hover:not(:disabled){filter:brightness(1.1); transform:translateY(-2px)}
+.btn:active:not(:disabled){transform:translateY(1px) scale(.97)}
+.btn.ghost{background:#fff; color:var(--pri)}
+.btn.ghost:hover:not(:disabled){background:#EAF1FA; filter:none}
+.btn.warn{background:#fff; color:#A33A32; border-color:#E0B4AF}
+.btn.warn:hover:not(:disabled){background:#FBEDEB; filter:none}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px}
+
+/* 측정 결과 */
+.stats{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:.5rem .9rem; margin:0}
+.stats div{border-left:4px solid var(--line); padding:.15rem 0 .15rem .6rem}
+.stats dt{color:var(--sub); font-size:.95rem}
+.stats dd{margin:0; font-weight:700; font-size:1.15rem; font-variant-numeric:tabular-nums}
+.stats .c-ep{border-color:var(--ep)} .stats .c-ek{border-color:var(--ek)} .stats .c-ht{border-color:var(--heat)}
+.msg{padding:.7rem .9rem; border-radius:10px; background:#F3F6FA; color:var(--sub); margin:0}
+.msg.stop{background:#FBEFE3; color:#8A4B12}
+
+/* 기록 표 */
+.tablewrap{max-height:430px; overflow:auto; border:1px solid var(--line); border-radius:10px}
+table{border-collapse:collapse; width:100%; font-size:.95rem; font-variant-numeric:tabular-nums}
+th,td{padding:.4rem .6rem; text-align:right; white-space:nowrap; border-bottom:1px solid #E8EDF2}
+th{position:sticky; top:0; background:#E9EFF6; z-index:1; font-weight:700}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+tbody tr:hover{background:#F5F8FB}
+.empty td{text-align:center; color:var(--sub); padding:1.2rem}
+.dotc{display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:.35rem; vertical-align:-1px}
+
+/* 데이터 검증 */
+.vgrid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem}
+@media (max-width:640px){.vgrid{grid-template-columns:minmax(0,1fr)}}
+.vgrid .card + .card{margin-top:0}
+.chart{width:100%; height:300px; display:block}
+.legend{display:flex; flex-wrap:wrap; gap:.4rem 1rem; font-size:.95rem; margin:0 0 1rem}
+.legend span{display:flex; align-items:center}
+.readout{margin:.6rem 0 0; padding:0; list-style:none}
+.readout li{padding:.2rem 0; font-variant-numeric:tabular-nums}
+.ask{margin:.6rem 0 0; color:var(--sub); font-size:.95rem}
+.shortage{text-align:center; padding:2.2rem 1rem}
+.shortage strong{display:block; font-size:1.3rem; margin-bottom:.4rem}
+.mtable{margin-top:.6rem}
+.mtable table{font-size:.95rem}
+.mtable h3{font-size:1rem; margin:.8rem 0 .3rem}
+
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+.seg.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.seg.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.seg.c4 button{text-align:center; padding:.5rem .3rem}
+.center td,.center th{text-align:center !important}
+.inlegend{display:flex; flex-wrap:wrap; gap:.3rem 1rem; font-size:.95rem; margin:0 0 .4rem}
+.inlegend span{display:flex; align-items:center}
+.gap-top{margin-top:.6rem}
+.wrap td{white-space:normal; text-align:left !important}
+.hbars{display:grid; gap:.5rem; margin:.4rem 0}
+.hb{display:grid; grid-template-columns:minmax(0,9rem) minmax(0,1fr) auto; gap:.6rem; align-items:center}
+.hb .ht{height:18px; background:#E6EBF1; border-radius:6px; overflow:hidden}
+.hb .ht i{display:block; height:100%}
+.hb b{font-variant-numeric:tabular-nums}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>번호 순서에 숨은 주기성</h1>
+    <p>원소를 하나씩 골라 원자 반지름과 첫 번째 이온화 에너지를 조사합니다. 여러 원소를 기록해 원자 번호 순서로 늘어놓으면, 같은 성질이 일정한 간격으로 되풀이되는 모습이 보입니다.</p>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-explore" aria-selected="true" aria-controls="panel-explore">🔬 자유 탐구</button>
+    <button class="tab" role="tab" id="tab-verify" aria-selected="false" aria-controls="panel-verify">✅ 데이터 검증</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 원자가 전자가 만드는 되풀이</h3>
+<p>주기율표는 원소를 <b>원자 번호 순서</b>로 늘어놓은 표예요. 같은 <b>족</b>(세로줄)에 있는 원소는 <b>원자가 전자 수가 같아서</b> 성질이 비슷하고, 같은 <b>주기</b>(가로줄)에서는 오른쪽으로 갈수록 원자핵의 전하가 커져 전자를 더 세게 당겨요. 그래서 원자 반지름은 <b>오른쪽으로 갈수록 작아지고 아래로 갈수록 커지며</b>, 이온화 에너지는 그 반대 경향을 보여요.</p>
+
+<h3>⚙️ 계산해 보기</h3>
+<ul>
+<li>같은 주기: Na(186 pm) → Cl(99 pm)로 반지름이 줄어요. 전자 껍질 수는 같은데 핵전하가 +11에서 +17로 커지기 때문이에요.</li>
+<li>같은 족: F(71 pm) → Cl(99 pm) → Br(114 pm)로 커져요. 전자 껍질이 한 층씩 늘기 때문이에요.</li>
+<li>이온화 에너지는 각 주기의 <b>1족에서 가장 작고 18족에서 가장 커요</b>. Na 496 kJ/mol, Ar 1521 kJ/mol.</li>
+<li>금속은 전자를 잃기 쉬워 이온화 에너지가 작고, 비금속은 전자를 얻으려 해 전기 음성도가 커요.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>원소마다 정해진 값을 불러와 기록하고, 검증 탭에서 <span class="fx-formula">원자 번호 ↔ 이온화 에너지</span>, <span class="fx-formula">족 번호 ↔ 원자 반지름</span>으로 다시 늘어놓아 되풀이를 찾습니다.</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 원자 반지름은 재는 방법(공유 반지름·금속 반지름·판데르발스 반지름)에 따라 값이 달라져요. 여기서는 한 가지 기준으로 통일한 어림값을 썼어요.<br>
+· 4주기는 3~12족(전이 원소)을 건너뛰고 1·2·13~18족만 넣었어요. 전이 원소는 안쪽 껍질을 채워 경향이 더 완만해요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>멘델레예프는 이 되풀이를 믿고 빈칸을 남겨 두어, 아직 발견되지 않은 저마늄의 성질을 미리 예측했어요.</li>
+<li>같은 1족인 Li·Na·K는 모두 물과 세게 반응하고, 같은 17족인 F·Cl·Br은 모두 1가 음이온을 만들어요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+  <section class="panel" id="panel-explore" role="tabpanel">
+    <div class="lab">
+      <div>
+        <div class="card">
+          <canvas id="scene" aria-label="번호 순서에 숨은 주기성 실험 장면"></canvas>
+          <p class="note">값은 실제 측정값을 반올림한 교육용 자료입니다. 비활성 기체의 전기 음성도는 보통 정의하지 않아 “—”로 두었습니다.</p>
+        </div>
+        <div class="card">
+          <div id="controls"></div>
+          <div class="actions">
+            <button class="btn" id="runBtn">이 원소 조사하기</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>측정 결과</h2>
+          <div id="result"></div>
+        </div>
+        <div class="card">
+          <h2>기록한 데이터 <span id="recCount" style="color:var(--sub);font-weight:400"></span></h2>
+          <div class="tablewrap">
+            <table><thead><tr id="recHead"></tr></thead><tbody id="recBody"></tbody></table>
+          </div>
+          <div class="actions"><button class="btn warn" id="clearBtn" disabled>기록 모두 지우기</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-verify" role="tabpanel" hidden>
+    <div id="verifyBody"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ================= 공통 도구 ================= */
+var FONT = 'Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+var ANIM_MS = 1800;
+var PAL = ['#2B5FA3', '#2E9E78', '#A8702F', '#7657B3', '#C8463D', '#3A8FB7', '#D98E04', '#5C6B7A'];
+var $ = function(id){ return document.getElementById(id); };
+function f(x, d){ var s = x.toFixed(d); if (/^-0\.?0*$/.test(s)) s = s.slice(1); return s.replace('-', '−'); }
+function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : '') + s; }
+function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
+function fitCanvas(cv){
+  var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return {c:c, W:W, H:H};
+}
+function niceStep(raw){
+  var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
+  return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
+}
+function axisFrom(lo, hi){
+  if (hi - lo <= 0) hi = lo + 1;
+  var step = niceStep((hi - lo) / 4);
+  return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+function txt(c, s, x, y, o){
+  o = o || {}; var al = o.align || 'left', sz = o.size || 18;
+  c.fillStyle = o.color || '#1E2833'; c.textAlign = al; c.textBaseline = o.base || 'alphabetic';
+  c.font = (o.bold ? '700 ' : '') + sz + 'px ' + FONT;
+  var CW = (c.canvas && c.canvas.clientWidth) || 0;
+  var avail = CW ? (al === 'left' ? CW - x - 4 : al === 'right' ? x - 4 : 2 * Math.min(x, CW - x) - 4) : 0;
+  if (avail > 40){
+    var w = c.measureText(s).width;
+    if (w > avail){ sz = Math.max(11, Math.floor(sz * avail / w)); c.font = (o.bold ? '700 ' : '') + sz + 'px ' + FONT; }
+  }
+  c.fillText(s, x, y);
+}
+function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
+function meter(c, x, y, w, s){
+  c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
+  txt(c, s, x + w - 10, y + 18, {bold:true, color:'#7CF0B0', align:'right', base:'middle'});
+}
+function arrow(c, x1, y1, x2, y2, color, lw){
+  var a = Math.atan2(y2 - y1, x2 - x1), h = 9;
+  c.strokeStyle = color; c.fillStyle = color; c.lineWidth = lw || 2;
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - h * Math.cos(a - 0.4), y2 - h * Math.sin(a - 0.4)); c.lineTo(x2 - h * Math.cos(a + 0.4), y2 - h * Math.sin(a + 0.4)); c.closePath(); c.fill();
+}
+function nmColor(nm){
+  var r = 0, g = 0, b = 0;
+  if (nm < 440){ r = -(nm - 440) / 60; b = 1; } else if (nm < 490){ g = (nm - 440) / 50; b = 1; }
+  else if (nm < 510){ g = 1; b = -(nm - 510) / 20; } else if (nm < 580){ r = (nm - 510) / 70; g = 1; }
+  else if (nm < 645){ r = 1; g = -(nm - 645) / 65; } else { r = 1; }
+  var fct = nm < 420 ? 0.4 + 0.6 * (nm - 380) / 40 : nm > 700 ? 0.4 + 0.6 * (780 - nm) / 80 : 1;
+  return [r, g, b].map(function(v){ return Math.round(255 * Math.pow(Math.max(0, v) * fct, 0.8)); });
+}
+function mean(a){ return a.reduce(function(s, x){ return s + x; }, 0) / a.length; }
+function dot(color){ return '<span class="dotc" style="background:' + color + '"></span>'; }
+function legend(items){ return '<div class="inlegend">' + items.map(function(it){ return '<span>' + dot(it.color) + it.label + '</span>'; }).join('') + '</div>'; }
+function distinct(arr){ var o = {}; arr.forEach(function(v){ o[v] = 1; }); return Object.keys(o).length; }
+function fit0(pts){ var n = 0, d = 0; pts.forEach(function(p){ n += p.x * p.y; d += p.x * p.x; }); return n / d; }
+function linfit(pts){
+  var n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  pts.forEach(function(p){ sx += p.x; sy += p.y; sxx += p.x * p.x; sxy += p.x * p.y; });
+  var k = (n * sxy - sx * sy) / (n * sxx - sx * sx); return {k:k, b:(sy - k * sx) / n};
+}
+function groupBy(arr, keyFn){ var g = {}; arr.forEach(function(d){ var k = keyFn(d); (g[k] = g[k] || []).push(d); }); return g; }
+function card(title, inner){ return '<div class="card"><h2>' + title + '</h2>' + inner + '</div>'; }
+function tableHTML(head, rows, cls){
+  return '<div class="tablewrap' + (cls ? ' ' + cls : '') + '"><table><thead><tr>' + head.map(function(h){ return '<th>' + h + '</th>'; }).join('') +
+    '</tr></thead><tbody>' + rows.map(function(r){ return '<tr>' + r.map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+}
+/* 산점도: series [{color, pts:[{x,y}], hollow}], lines [{k,b,from,to,color,dash} | {h,color,dash}] */
+function drawScatter(cv, opt){
+  var o = fitCanvas(cv), c = o.c, W = o.W, H = o.H;
+  if (!W) return;
+  var padL = 78, padR = 18, padT = 14, padB = 62, xs = [], ys = [];
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){ xs.push(p.x); ys.push(p.y); }); });
+  (opt.lines || []).forEach(function(l){ if (l.h != null) ys.push(l.h); });
+  if (!xs.length){ xs = [1]; ys = [1]; }
+  var head = opt.yHead || 1.08;
+  var xl = Math.min(0, Math.min.apply(null, xs)), xh = Math.max(0, Math.max.apply(null, xs));
+  var yl = Math.min(0, Math.min.apply(null, ys)), yh = Math.max(0, Math.max.apply(null, ys));
+  if (opt.square){ xl = yl = Math.min(xl, yl); xh = yh = Math.max(xh, yh); }
+  var ax = axisFrom(xl * 1.08, xh * 1.08), ay = opt.square ? ax : axisFrom(yl * head, yh * head);
+  if (opt.xHi != null){ ax = {lo:0, hi:opt.xHi, step:opt.xStep || niceStep(opt.xHi / 4)}; }
+  if (opt.tightX){ var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), px = (x1 - x0) * 0.1 || 1; ax = axisFrom(x0 - px, x1 + px); }
+  if (opt.tightY){ var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys), py = (y1 - y0) * 0.15 || 0.5; ay = axisFrom(y0 - py, y1 + py); }
+  var pw = W - padL - padR, ph = H - padT - padB;
+  var X = function(x){ return padL + (x - ax.lo) / (ax.hi - ax.lo) * pw; };
+  var Y = function(y){ return padT + ph - (y - ay.lo) / (ay.hi - ay.lo) * ph; };
+  c.clearRect(0, 0, W, H); c.font = '18px ' + FONT;
+  c.strokeStyle = '#E3E8EE'; c.lineWidth = 1; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((ax.hi - ax.lo) / ax.step), ny = Math.round((ay.hi - ay.lo) / ay.step);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = ax.lo + i * ax.step; c.beginPath(); c.moveTo(X(v), padT); c.lineTo(X(v), padT + ph); c.stroke(); c.fillText(f(v, decOf(ax.step)), X(v), padT + ph + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = ay.lo + i * ay.step; c.beginPath(); c.moveTo(padL, Y(v)); c.lineTo(padL + pw, Y(v)); c.stroke(); c.fillText(f(v, decOf(ay.step)), padL - 8, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(padL, padT); c.lineTo(padL, padT + ph); c.lineTo(padL + pw, padT + ph); c.stroke();
+  if (ay.lo < 0){ c.beginPath(); c.moveTo(padL, Y(0)); c.lineTo(padL + pw, Y(0)); c.stroke(); }
+  if (ax.lo < 0){ c.beginPath(); c.moveTo(X(0), padT); c.lineTo(X(0), padT + ph); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+  c.fillText(opt.xLabel, padL + pw / 2, H - 4);
+  c.save(); c.translate(18, padT + ph / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(opt.yLabel, 0, 0); c.restore();
+  c.save(); c.beginPath(); c.rect(padL, padT, pw, ph); c.clip();
+  (opt.lines || []).forEach(function(l){
+    c.strokeStyle = l.color; c.lineWidth = 2; c.setLineDash(l.dash ? [7, 5] : []); c.beginPath();
+    if (l.h != null){ c.moveTo(padL, Y(l.h)); c.lineTo(padL + pw, Y(l.h)); }
+    else {
+      var b = l.b || 0, x1 = Math.max(l.from != null ? l.from : ax.lo, ax.lo), x2 = Math.min(l.to != null ? l.to : ax.hi, ax.hi);
+      c.moveTo(X(x1), Y(l.k * x1 + b)); c.lineTo(X(x2), Y(l.k * x2 + b));
+    }
+    c.stroke();
+  });
+  c.setLineDash([]);
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){
+    c.lineWidth = 2.5;
+    if (s.hollow){ c.fillStyle = '#fff'; c.strokeStyle = s.color; }
+    else { c.fillStyle = s.color; c.strokeStyle = '#fff'; }
+    c.beginPath(); c.arc(X(p.x), Y(p.y), 6.5, 0, Math.PI * 2); c.fill(); c.stroke();
+  }); });
+  c.restore();
+}
+
+/* 탐구 화면용 좌표축: xr, yr = [lo, hi, step] */
+function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
+  var X = function(v){ return x + (v - xr[0]) / (xr[1] - xr[0]) * w; }, Y = function(v){ return y + h - (v - yr[0]) / (yr[1] - yr[0]) * h; };
+  c.fillStyle = '#F7F9FC'; c.fillRect(x, y, w, h);
+  c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
+  if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
+  if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
+  c.textBaseline = 'alphabetic';
+  return {X:X, Y:Y};
+}
+function glow(c, x, y, r, color, alpha){
+  if (alpha <= 0) return;
+  var g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.globalAlpha = Math.min(alpha, 1); c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.globalAlpha = 1;
+}
+function hbars(items, max){
+  return '<div class="hbars">' + items.map(function(it){
+    return '<div class="hb"><span class="hl">' + it.label + '</span><span class="ht"><i style="width:' + Math.max(0, Math.min(100, it.v / max * 100)) + '%;background:' + it.color + '"></i></span><b>' + it.text + '</b></div>';
+  }).join('') + '</div>';
+}
+
+/* ================= 실험별 설정 ================= */
+var LAB = (function(){
+
+var GNAME = ['1족', '2족', '13족', '14족', '15족', '16족', '17족', '18족'];
+var GNUM = [1, 2, 13, 14, 15, 16, 17, 18];
+var EL = [
+ [{s:'Li',n:'리튬',z:3,r:152,ie:520,en:0.98,c:'금속'},{s:'Be',n:'베릴륨',z:4,r:112,ie:900,en:1.57,c:'금속'},{s:'B',n:'붕소',z:5,r:85,ie:801,en:2.04,c:'준금속'},{s:'C',n:'탄소',z:6,r:77,ie:1086,en:2.55,c:'비금속'},{s:'N',n:'질소',z:7,r:75,ie:1402,en:3.04,c:'비금속'},{s:'O',n:'산소',z:8,r:73,ie:1314,en:3.44,c:'비금속'},{s:'F',n:'플루오린',z:9,r:71,ie:1681,en:3.98,c:'비금속'},{s:'Ne',n:'네온',z:10,r:69,ie:2081,en:null,c:'비금속'}],
+ [{s:'Na',n:'나트륨',z:11,r:186,ie:496,en:0.93,c:'금속'},{s:'Mg',n:'마그네슘',z:12,r:160,ie:738,en:1.31,c:'금속'},{s:'Al',n:'알루미늄',z:13,r:143,ie:578,en:1.61,c:'금속'},{s:'Si',n:'규소',z:14,r:118,ie:787,en:1.90,c:'준금속'},{s:'P',n:'인',z:15,r:110,ie:1012,en:2.19,c:'비금속'},{s:'S',n:'황',z:16,r:103,ie:1000,en:2.58,c:'비금속'},{s:'Cl',n:'염소',z:17,r:99,ie:1251,en:3.16,c:'비금속'},{s:'Ar',n:'아르곤',z:18,r:97,ie:1521,en:null,c:'비금속'}],
+ [{s:'K',n:'칼륨',z:19,r:227,ie:419,en:0.82,c:'금속'},{s:'Ca',n:'칼슘',z:20,r:197,ie:590,en:1.00,c:'금속'},{s:'Ga',n:'갈륨',z:31,r:135,ie:579,en:1.81,c:'금속'},{s:'Ge',n:'저마늄',z:32,r:122,ie:762,en:2.01,c:'준금속'},{s:'As',n:'비소',z:33,r:120,ie:947,en:2.18,c:'준금속'},{s:'Se',n:'셀레늄',z:34,r:119,ie:941,en:2.55,c:'비금속'},{s:'Br',n:'브로민',z:35,r:114,ie:1140,en:2.96,c:'비금속'},{s:'Kr',n:'크립톤',z:36,r:110,ie:1351,en:null,c:'비금속'}]
+];
+var CCOL = {'금속':'#A8702F', '준금속':'#7657B3', '비금속':'#2B5FA3'};
+return {
+  sceneHeight: 470,
+  minRec: 5,
+  idle: '주기와 족을 골라 <b>이 원소 조사하기</b>를 누르세요.',
+  shortHint: '자유 탐구 탭에서 여러 원소를 기록하세요. 같은 주기·같은 족을 고루 모으면 경향이 잘 보입니다.',
+  params: [
+    {key:'p', type:'seg', label:'주기 (가로줄)', cols:3, value:1, options:['2주기', '3주기', '4주기']},
+    {key:'g', type:'seg', label:'족 (세로줄)', cols:4, value:0, options:GNAME,
+      note:'4주기는 3~12족(전이 원소)을 뺀 1·2·13~18족만 다룹니다. 같은 족을 세로로, 같은 주기를 가로로 비교해 보세요.'}
+  ],
+  compute: function(p){
+    var e = EL[p.p][p.g];
+    return {e:e, per:p.p + 2, gnum:GNUM[p.g], gi:p.g, pi:p.p};
+  },
+  draw: function(c, W, H, p, r, tau){
+    var cw = Math.min(64, (W - 60) / 8), ch = 50, ox = 30, oy = 56;
+    txt(c, '주기율표 (1·2·13~18족)', ox, 34, {bold:true, color:'#4A5868'});
+    for (var i = 0; i < 3; i++) for (var j = 0; j < 8; j++){
+      var el = EL[i][j], x = ox + j * cw, y = oy + i * ch;
+      var on = (i === p.p && j === p.g);
+      c.fillStyle = on ? '#EAF1FA' : '#F7F9FC'; c.fillRect(x, y, cw - 4, ch - 4);
+      c.strokeStyle = on ? '#2B5FA3' : '#D4DCE5'; c.lineWidth = on ? 3 : 1; c.strokeRect(x, y, cw - 4, ch - 4);
+      txt(c, el.s, x + (cw - 4) / 2, y + 22, {align:'center', bold:true, color:CCOL[el.c]});
+      txt(c, String(el.z), x + (cw - 4) / 2, y + 40, {align:'center', color:'#4A5868'});
+    }
+    var ly = oy + 3 * ch + 26;
+    ['금속', '준금속', '비금속'].forEach(function(k, i){
+      c.fillStyle = CCOL[k]; c.fillRect(ox + i * 110, ly - 12, 14, 14);
+      txt(c, k, ox + i * 110 + 20, ly, {color:'#4A5868'});
+    });
+    if (!r){ txt(c, '칸을 고르고 조사 단추를 누르면 값을 재어 기록해요.', ox, H - 18, {color:'#4A5868'}); return; }
+    var e = r.e, by = ly + 44, bw = Math.min(360, W - ox - 220), k = Math.min(tau / 0.8, 1);
+    txt(c, e.n + ' ' + e.s + ' (원자 번호 ' + e.z + ', ' + r.per + '주기 ' + r.gnum + '족, ' + e.c + ')', ox, by - 10, {bold:true});
+    txt(c, '원자 반지름', ox, by + 26, {color:'#4A5868'});
+    c.fillStyle = '#E6EBF1'; c.fillRect(ox + 130, by + 12, bw, 20);
+    c.fillStyle = '#2B5FA3'; c.fillRect(ox + 130, by + 12, bw * (e.r / 240) * k, 20);
+    txt(c, f(e.r, 0) + ' pm', ox + 130 + bw + 10, by + 28, {bold:true, color:'#2B5FA3'});
+    txt(c, '이온화 에너지', ox, by + 62, {color:'#4A5868'});
+    c.fillStyle = '#E6EBF1'; c.fillRect(ox + 130, by + 48, bw, 20);
+    c.fillStyle = '#C8463D'; c.fillRect(ox + 130, by + 48, bw * (e.ie / 2200) * k, 20);
+    txt(c, f(e.ie, 0) + ' kJ/mol', ox + 130 + bw + 10, by + 64, {bold:true, color:'#C8463D'});
+    txt(c, '전기 음성도 ' + (e.en === null ? '— (비활성 기체)' : f(e.en, 2)), ox, by + 98, {color:'#4A5868'});
+  },
+  stats: function(p, r){
+    var e = r.e;
+    return [['원소', e.n + ' (' + e.s + ')'], ['원자 번호', String(e.z)], ['자리', r.per + '주기 ' + r.gnum + '족'],
+      ['원자가 전자 수', String(r.gnum <= 2 ? r.gnum : (r.gnum - 10))],
+      ['원자 반지름', f(e.r, 0) + ' pm', PAL[0]], ['첫 번째 이온화 에너지', f(e.ie, 0) + ' kJ/mol', PAL[4]],
+      ['전기 음성도', e.en === null ? '—' : f(e.en, 2)], ['분류', e.c]];
+  },
+  columns: ['원소', '원자 번호', '주기', '족', '원자가 전자', '반지름 (pm)', '이온화 E (kJ/mol)', '전기 음성도', '분류'],
+  record: function(p, r){
+    var e = r.e;
+    return {sym:e.s, nm:e.n, z:e.z, per:r.per, g:r.gnum, gi:r.gi, pi:r.pi, ve:r.gnum <= 2 ? r.gnum : r.gnum - 10, rad:e.r, ie:e.ie, en:e.en, cls:e.c};
+  },
+  row: function(d){ return [d.nm + ' ' + d.sym, d.z, d.per + '주기', d.g + '족', d.ve, d.rad, d.ie, d.en === null ? '—' : f(d.en, 2), d.cls]; },
+  verify: function(rec, box){
+    box.innerHTML = '<div class="vgrid">' +
+      card('원자 번호 순서와 이온화 에너지', '<canvas class="chart" id="ch1" role="img" aria-label="원자 번호와 이온화 에너지 산점도"></canvas><ul class="readout" id="ro1"></ul><p class="ask">값이 커졌다 작아졌다를 되풀이합니다. 갑자기 값이 뚝 떨어지는 자리는 주기율표의 어디인가요?</p>') +
+      card('같은 주기에서 오른쪽으로 갈수록', '<canvas class="chart" id="ch2" role="img" aria-label="족과 원자 반지름 산점도"></canvas><ul class="readout" id="ro2"></ul><p class="ask">전자 껍질 수가 같은데 반지름이 줄어드는 까닭은 무엇일까요? 이온화 에너지와는 반대 방향인 것도 설명해 보세요.</p>') +
+      card('같은 족은 성질이 닮는다', '<div id="ro3"></div><p class="ask">같은 족 원소의 원자가 전자 수를 비교해 보세요. 성질이 닮는 진짜 이유가 무엇인지 말할 수 있나요?</p>') + '</div>';
+    var bp = groupBy(rec, function(d){ return d.pi; }), s1 = [], s2 = [], r1 = [], r2 = [];
+    Object.keys(bp).sort(function(a,b){ return a - b; }).forEach(function(k){
+      var g = bp[k], col = PAL[+k];
+      s1.push({color:col, pts:g.map(function(d){ return {x:d.z, y:d.ie}; })});
+      s2.push({color:col, pts:g.map(function(d){ return {x:d.g > 2 ? d.g - 10 : d.g, y:d.rad}; })});
+      var mn = g.slice().sort(function(a,b){ return a.ie - b.ie; })[0], mx = g.slice().sort(function(a,b){ return b.ie - a.ie; })[0];
+      r1.push('<li>' + dot(col) + (+k + 2) + '주기 기록 ' + g.length + '개 — 가장 작은 값 ' + mn.sym + ' ' + mn.ie + ' (' + mn.g + '족), 가장 큰 값 ' + mx.sym + ' ' + mx.ie + ' (' + mx.g + '족)</li>');
+      if (distinct(g.map(function(d){ return d.g; })) >= 2){
+        var srt = g.slice().sort(function(a,b){ return a.g - b.g; });
+        r2.push('<li>' + dot(col) + (+k + 2) + '주기: ' + srt[0].sym + ' ' + srt[0].rad + ' pm → ' + srt[srt.length-1].sym + ' ' + srt[srt.length-1].rad + ' pm</li>');
+      }
+    });
+    drawScatter($('ch1'), {xLabel:'원자 번호 Z', yLabel:'첫 번째 이온화 에너지 (kJ/mol)', tightX:true, series:s1});
+    $('ro1').innerHTML = r1.join('') + '<li>각 주기에서 <b>1족이 가장 작고 18족이 가장 커요</b>. 다음 주기 1족으로 넘어가는 순간 값이 뚝 떨어지며 같은 모양이 되풀이돼요.</li>';
+    drawScatter($('ch2'), {xLabel:'원자가 전자 수 (1족=1 … 18족=8)', yLabel:'원자 반지름 (pm)', tightX:true, series:s2});
+    $('ro2').innerHTML = (r2.length ? r2.join('') : '<li>같은 주기에서 족을 2가지 이상 바꿔 기록해 보세요.</li>') +
+      '<li>껍질 수는 그대로인데 핵전하가 커져 전자를 더 세게 당기므로 반지름이 <b>작아져요</b>. 그만큼 전자를 떼기 어려워 이온화 에너지는 <b>대체로 커져요</b>.</li>' + '<li>다만 Mg(738) → Al(578), P(1012) → S(1000)처럼 <b>중간에 값이 내려가는 예외</b>가 있어요. 전자가 어느 자리에 들어가 있느냐에 따라 떼어 내기 쉬워지기 때문이에요. 경향은 &lsquo;대체로&rsquo;이지 예외 없는 법칙이 아니에요.</li>';
+    var bg = groupBy(rec, function(d){ return d.g; }), rows = [];
+    Object.keys(bg).sort(function(a,b){ return a - b; }).forEach(function(k){
+      var g = bg[k].slice().sort(function(a,b){ return a.z - b.z; });
+      rows.push([k + '족', String(g[0].ve), g.map(function(d){ return d.sym; }).join(' → '),
+        g.map(function(d){ return d.rad; }).join(' → ') + ' pm', g[0].cls]);
+    });
+    $('ro3').innerHTML = tableHTML(['족', '원자가 전자', '기록한 원소(번호순)', '원자 반지름', '분류'], rows, 'wrap') +
+      '<p class="note">같은 족이면 원자가 전자 수가 같아 화학 반응에서 같은 방식으로 전자를 주고받아요. 그래서 성질이 닮아요.</p>';
+  }
+};
+})();
+
+/* ================= 엔진 ================= */
+var p = {}, running = false, result = null, records = [];
+var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
+
+function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
+
+function buildControls(){
+  var box = $('controls');
+  LAB.params.forEach(function(q){
+    p[q.key] = q.value;
+    var wrap = document.createElement('div'); wrap.className = 'ctrl';
+    if (q.type === 'range'){
+      wrap.innerHTML = '<div class="row"><label for="r_' + q.key + '">' + q.label + '</label><span class="val" id="v_' + q.key + '"></span></div>' +
+        '<input type="range" id="r_' + q.key + '" min="' + q.min + '" max="' + q.max + '" step="' + q.step + '" value="' + q.value + '">';
+      box.appendChild(wrap);
+      var el = $('r_' + q.key);
+      el.addEventListener('input', function(){ p[q.key] = parseFloat(el.value); onParamChange(); });
+    } else {
+      wrap.innerHTML = '<div class="row"><span>' + q.label + '</span></div><div class="seg' + (q.cols ? ' c' + q.cols : '') + '" id="seg_' + q.key + '"></div>' +
+        (q.note ? '<p class="note">' + q.note + '</p>' : '');
+      box.appendChild(wrap);
+      var sb = $('seg_' + q.key);
+      q.options.forEach(function(html, i){
+        var b = document.createElement('button'); b.type = 'button'; b.innerHTML = html;
+        b.setAttribute('aria-pressed', i === q.value ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          if (running) return;
+          p[q.key] = i;
+          Array.prototype.forEach.call(sb.children, function(x, j){ x.setAttribute('aria-pressed', j === i ? 'true' : 'false'); });
+          onParamChange();
+        });
+        sb.appendChild(b);
+      });
+    }
+  });
+}
+function syncLabels(){
+  LAB.params.forEach(function(q){ if (q.type === 'range'){ $('v_' + q.key).textContent = q.fmt(p[q.key]); paintSlider($('r_' + q.key)); } });
+}
+function lockControls(on){
+  Array.prototype.forEach.call($('controls').querySelectorAll('input,button'), function(el){ el.disabled = on; });
+  runBtn.disabled = on;
+  clearBtn.disabled = on || records.length === 0;
+}
+function showIdle(){ $('result').innerHTML = '<p class="msg">' + LAB.idle + '</p>'; }
+function onParamChange(){ result = null; recBtn.disabled = true; syncLabels(); draw(null, 0); showIdle(); }
+function showStats(r){
+  $('result').innerHTML = '<dl class="stats">' + LAB.stats(p, r).map(function(s){
+    return '<div' + (s[2] ? ' style="border-color:' + s[2] + '"' : '') + '><dt>' + s[0] + '</dt><dd>' + s[1] + '</dd></div>';
+  }).join('') + '</dl>';
+}
+
+runBtn.addEventListener('click', function(){
+  scene.scrollIntoView({behavior:'smooth', block:'center'});
+  if (running) return;
+  var r = LAB.compute(p);
+  result = null; recBtn.disabled = true;
+  if (r.fail){ draw(null, 0); $('result').innerHTML = '<p class="msg stop">' + r.fail + '</p>'; return; }
+  running = true; lockControls(true);
+  $('result').innerHTML = '<p class="msg">측정 중…</p>';
+  setTimeout(function(){
+    var t0 = performance.now();
+    function step(now){
+      var tau = Math.min((now - t0) / ANIM_MS, 1);
+      draw(r, tau);
+      if (tau < 1) requestAnimationFrame(step); else finish(r);
+    }
+    requestAnimationFrame(step);
+  }, 300);
+});
+function finish(r){ running = false; result = r; lockControls(false); showStats(r); autoRecord(); }
+function autoRecord(){ /* 측정이 끝나면 바로 기록 (기록 버튼 제거) */
+  if (!result) return;
+  var d = LAB.record(p, result);
+  (Array.isArray(d) ? d : [d]).forEach(function(x){ x._no = records.length + 1; records.push(x); });
+  renderTable();
+}
+
+clearBtn.addEventListener('click', function(){
+  if (!records.length || !confirm('기록한 데이터를 모두 지울까요?')) return;
+  records = []; renderTable();
+});
+function renderTable(){
+  var body = $('recBody');
+  $('recCount').textContent = records.length ? '(' + records.length + '개)' : '';
+  clearBtn.disabled = running || records.length === 0;
+  if (!records.length){
+    body.innerHTML = '<tr class="empty"><td colspan="' + (LAB.columns.length + 1) + '">아직 기록이 없어요. 측정하면 여기에 자동으로 쌓입니다.</td></tr>';
+    return;
+  }
+  body.innerHTML = records.map(function(d){
+    return '<tr><td>' + d._no + '</td>' + LAB.row(d).map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>';
+  }).join('');
+  var wrap = body.closest('.tablewrap'); wrap.scrollTop = wrap.scrollHeight;
+}
+function renderVerify(){
+  var box = $('verifyBody'), need = LAB.minRec || 4;
+  if (records.length < need){
+    box.innerHTML = '<div class="card shortage"><strong>데이터 부족</strong>분석하려면 기록이 ' + need + '개 이상 필요해요. 지금 ' + records.length + '개입니다. ' + LAB.shortHint + '</div>';
+    return;
+  }
+  LAB.verify(records, box);
+}
+function redrawExplore(){ if (running) return; sizeScene(); draw(result, result ? 1 : 0); }
+
+var tabs = [$('tab-explore'), $('tab-verify')], panels = [$('panel-explore'), $('panel-verify')];
+tabs.forEach(function(t, i){
+  t.addEventListener('click', function(){
+    tabs.forEach(function(x, j){ x.setAttribute('aria-selected', i === j ? 'true' : 'false'); });
+    panels.forEach(function(pn, j){ pn.hidden = i !== j; });
+    if (i === 1) renderVerify(); else redrawExplore();
+  });
+});
+var rt;
+window.addEventListener('resize', function(){
+  clearTimeout(rt);
+  rt = setTimeout(function(){ if (!panels[1].hidden) renderVerify(); else redrawExplore(); }, 120);
+});
+
+$('recHead').innerHTML = '<th>번호</th>' + LAB.columns.map(function(h){ return '<th>' + h + '</th>'; }).join('');
+buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null, 0);
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+<!-- fxNoteLink:start -->
+<style>
+.fx-note-cta{margin-top:18px;padding:16px 18px;border-radius:14px;background:#fff8ee;border:1px dashed #d98e3b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:.98rem;line-height:1.6}
+.fx-note-cta a{display:inline-block;background:#173238;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:10px;white-space:nowrap}
+.fx-note-cta a:hover{filter:brightness(1.15)}
+</style>
+<script>
+(function(){
+  var href='../notes/high1Integ/22_periodic_trend_lab_IntegSci1_Matter_Ep03.html';
+  var ok=function(el){ return el && !/^(BUTTON|A|INPUT|NAV)$/.test(el.tagName) ? el : null; };
+  var host=ok(document.getElementById('validationContent'))||ok(document.getElementById('verifyContent'))||ok(document.getElementById('verifyTab'))
+    ||ok(document.getElementById('panel-verify'))||ok(document.getElementById('panel-validate'))||ok(document.getElementById('verifyBody'))
+    ||ok(document.querySelector('#tab-validate .card, #tab-validate, #tab-verify .card, #tab-verify'))
+    ||ok(document.querySelector('section#verify, section#validate, #verify.panel, #validate.panel'))
+    ||ok(document.querySelector('#paneB .card, #paneB'))
+    ||ok(document.querySelector('#panelB .card, #panelB'))
+    ||ok(document.querySelector('.app, main, .wrap'))||document.body;
+  if(host){
+    var d=document.createElement('div'); d.className='fx-note-cta';
+    d.innerHTML='<div>📝 실험을 마쳤다면 <b>자습 노트</b>에서 개념을 정리하고 확인 문제를 풀어 보세요.</div><a href="'+href+'">자습 노트 열기 →</a>';
+    host.appendChild(d);
+  }
+})();
+</script>
+<!-- fxNoteLink:end -->
+</body>
+</html>

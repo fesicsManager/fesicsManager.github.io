@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>뜨거운 도시락, 차가운 팩</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+KR:wght@400;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#eef2f0;--grid:#c9d6d2;--ink:#173238;--ink-soft:#4a636a;--mute:#4a636a;--brass:#d98e3b;--brass-dark:#a86825;--teal:#2f8f9d;--teal-d:#22707c;--teal-dark:#22707c;--coral:#c1443c;--card:#fff;--line:#c9d6d2}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{font-size:18px}
+@media (max-width:760px){html{font-size:16px}}
+@media (max-width:420px){html{font-size:14.5px}}
+body{margin:0;padding:28px 0 96px;color:var(--ink);font-family:'Noto Sans KR',sans-serif;font-size:1rem;line-height:1.6;background-color:var(--paper);background-image:radial-gradient(var(--grid) 1.5px,transparent 1.5px);background-size:24px 24px;min-height:100vh;-webkit-text-size-adjust:100%}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+.lab-head{margin-bottom:22px}
+.lab-head h1{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:2.1rem;font-weight:700;margin:0 0 8px;line-height:1.25}
+.lab-head p{font-size:1.02rem;color:var(--ink-soft);margin:0;line-height:1.65;max-width:70ch}
+.mono{font-family:'IBM Plex Mono',monospace}
+
+/* ---- tabs ---- */
+.tabs{display:flex;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+.tab{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1.05rem;font-weight:600;padding:13px 24px;border-radius:14px;border:2px solid var(--grid);background:var(--card);color:var(--ink-soft);cursor:pointer;transition:background .15s ease,border-color .15s ease,color .15s ease,transform .1s ease}
+.tab:hover{border-color:var(--teal);color:var(--teal);background:#f2fafa}
+.tab:active{transform:translateY(1px)}
+.tab.active{border-color:var(--teal);color:var(--teal);background:#e7f4f5}
+.panel{display:none;background:var(--card);border-radius:18px;border:1px solid var(--grid);box-shadow:0 4px 18px rgba(23,50,56,.06);padding:22px}
+.panel.active{display:block}
+@media (max-width:640px){.panel{padding:14px}}
+
+/* ---- layout ---- */
+.grid{display:grid;grid-template-columns:minmax(400px,480px) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:minmax(0,1fr)}}
+.canvas-box{background:#f6f8f7;border:1px solid var(--grid);border-radius:16px;overflow:hidden}
+#sim{display:block;width:100%;aspect-ratio:4/3}
+.controls{margin-top:16px;display:grid;gap:14px}
+.ctrl{display:grid;gap:.2rem}
+.ctrl .lbl{display:flex;justify-content:space-between;align-items:baseline;gap:.6rem;font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:600;color:var(--ink-soft)}
+.ctrl .val{font-family:'IBM Plex Mono',monospace;font-size:1.1rem;color:var(--teal);font-weight:600;white-space:nowrap}
+.range-ends{display:flex;justify-content:space-between;color:var(--ink-soft);font-size:.9rem}
+/* 슬라이더: 손잡이가 요소 밖으로 나가지 않게 넉넉한 클릭 영역을 준다 */
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;margin:0;padding:0;background:transparent;cursor:pointer;touch-action:manipulation}
+input[type=range]:disabled{cursor:not-allowed;opacity:.55}
+input[type=range]::-webkit-slider-runnable-track{height:10px;border-radius:6px;background:var(--grid)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;margin-top:-7px;border-radius:50%;border:none;background:var(--teal);box-shadow:0 2px 5px rgba(23,50,56,.25);transition:filter .15s ease,transform .1s ease}
+input[type=range]:hover:not(:disabled)::-webkit-slider-thumb{filter:brightness(1.12)}
+input[type=range]:active:not(:disabled)::-webkit-slider-thumb{transform:scale(.92)}
+input[type=range]::-moz-range-track{height:10px;border-radius:6px;background:var(--grid)}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;border:none;background:var(--teal);box-shadow:0 2px 5px rgba(23,50,56,.25)}
+input[type=range]:hover:not(:disabled)::-moz-range-thumb{filter:brightness(1.12)}
+
+/* ---- buttons (모든 클릭 요소에 hover/active) ---- */
+.seg{display:flex;flex-wrap:wrap;gap:9px}
+.seg button{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1rem;font-weight:600;padding:11px 16px;border-radius:12px;border:2px solid var(--grid);background:var(--card);color:var(--ink);cursor:pointer;transition:background .15s ease,border-color .15s ease,color .15s ease,filter .15s ease,transform .1s ease}
+.seg button:hover:not(:disabled){border-color:var(--teal);background:#f2fafa}
+.seg button:active:not(:disabled){transform:translateY(1px) scale(.985)}
+.seg button.on{color:#fff;border-color:transparent;background:var(--teal)}
+.seg button.on:hover:not(:disabled){filter:brightness(1.08);background:var(--teal)}
+.seg button:disabled{opacity:.45;cursor:not-allowed}
+.btn{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1.1rem;font-weight:700;padding:15px 22px;border-radius:14px;border:none;background:var(--teal);color:#fff;cursor:pointer;transition:filter .15s ease,transform .1s ease,background .15s ease,color .15s ease}
+.btn:hover:not(:disabled){filter:brightness(1.1)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn-row .btn{flex:1 1 auto}
+.btn.brass{background:var(--brass);color:#fff;font-size:1rem;padding:11px 18px;border-radius:12px}
+.btn.ghost{background:none;border:2px solid var(--brass);color:var(--brass-dark);font-size:.98rem;font-weight:600;padding:9px 16px;border-radius:10px}
+.btn.ghost:hover:not(:disabled){background:var(--brass);color:#fff;filter:none}
+.note{color:var(--ink-soft);margin:0;font-size:.95rem;line-height:1.65}
+.controls .note{padding:13px 15px;border-radius:12px;background:#f6f8f7;border-left:5px solid var(--grid)}
+
+/* ---- result & table ---- */
+.readout{display:flex;gap:12px;flex-wrap:wrap}
+.ro{flex:1 1 150px;background:#f6f8f7;border:1px solid var(--grid);border-radius:12px;padding:12px 14px}
+.ro span{display:block;font-size:.92rem;color:var(--ink-soft)}
+.ro b{font-family:'IBM Plex Mono',monospace;font-size:1.2rem;font-weight:600;color:var(--teal-dark)}
+.ro b.good{color:var(--teal-dark)}.ro b.bad{color:var(--coral)}
+.rec-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:18px 0 10px}
+.table-title{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:600;font-size:1.08rem;margin-right:auto}
+.table-wrap{max-height:460px;overflow:auto;border-radius:14px;border:1px solid var(--grid);background:#fff}
+@media (max-width:640px){.table-wrap{max-height:36vh}}
+table{width:100%;border-collapse:collapse;font-size:.96rem}
+th,td{padding:11px 12px;text-align:right;white-space:nowrap}
+thead th{position:sticky;top:0;background:#dcebe8;color:var(--ink);font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:600;font-size:.98rem;text-align:center;z-index:2}
+tbody td{border-top:1px solid var(--grid);font-family:'IBM Plex Mono',monospace}
+tbody td.t{font-family:'Noto Sans KR',sans-serif;text-align:left}
+tbody tr:nth-child(even){background:#f7faf9}
+tbody td.empty-row{padding:28px 12px;text-align:center;color:var(--ink-soft);font-family:'Noto Sans KR',sans-serif;font-size:1rem;white-space:normal}
+@keyframes rowIn{from{background:#fff3df}to{background:transparent}}
+tbody tr.fresh{animation:rowIn 1.8s ease-out}
+
+/* ---- validate ---- */
+.empty{text-align:center;padding:56px 22px;color:var(--ink-soft)}
+.empty .lock-icon{font-size:2.6rem;margin-bottom:10px}
+.empty h2{margin:0 0 6px;font-size:1.15rem;color:var(--ink)}
+.empty p{margin:0}
+.empty .lock-count{font-family:'IBM Plex Mono',monospace;font-size:1.25rem;color:var(--teal);margin-top:6px}
+.vcard{background:#f6f8f7;border:1px solid var(--grid);border-radius:14px;padding:16px 18px;margin-bottom:18px;overflow-x:auto}
+.vcard h3{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:1.15rem;font-weight:700;margin:0 0 10px}
+.vcard p{margin:.35rem 0;line-height:1.65}
+.vcard table{margin:.5rem 0;border:1px solid var(--grid);background:#fff}
+.vcard thead th{position:static}
+.chart{display:block;width:100%;aspect-ratio:4/3;background:#fff;border:1px solid var(--grid);border-radius:12px}
+b.hl{color:var(--teal-dark)}
+.key{display:inline-block;width:1rem;height:1rem;border-radius:4px;background:var(--c);border:1px solid rgba(23,50,56,.35);vertical-align:-.15rem;margin:0 .3rem 0 .5rem}
+
+/* ---- 작은 안내 쪽지 / 토스트 ---- */
+.mini-toast{position:fixed;left:50%;top:22px;transform:translateX(-50%) translateY(-140%);background:#173238;color:#fff;padding:12px 20px;border-radius:12px;font-size:.98rem;font-weight:500;box-shadow:0 8px 22px rgba(23,50,56,.28);z-index:70;opacity:0;pointer-events:none;transition:transform .28s cubic-bezier(.2,.8,.3,1),opacity .28s ease}
+.mini-toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(140%);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:var(--ink);color:#fff;padding:14px 18px;border-radius:16px;box-shadow:0 10px 28px rgba(23,50,56,.28);font-size:.98rem;max-width:92vw;z-index:60;opacity:0;pointer-events:none;transition:transform .35s cubic-bezier(.2,.8,.3,1),opacity .35s ease}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
+.toast button{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-weight:700;font-size:.95rem;padding:9px 16px;border-radius:10px;border:none;cursor:pointer;transition:filter .15s ease,transform .1s ease}
+.toast button:hover{filter:brightness(1.12)}
+.toast button:active{transform:translateY(1px)}
+.toast .go{background:var(--teal);color:#fff}
+.toast .later{background:#3d5a61;color:#dfeceb}
+:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+#sim{aspect-ratio:1/1}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="lab-head">
+<h1>뜨거운 도시락, 차가운 팩</h1>
+<p>불 없이 데우는 도시락과 냉장고 없이 차가워지는 팩은 모두 물에 무언가를 녹일 때 생기는 열 출입을 이용합니다. 물질과 양을 바꿔 가며 물의 온도가 얼마나 변하는지 기록해 보세요.<br><span style="font-size:.9em;color:#a86825">※ 물질별 용해열(kJ/g)은 묽은 용액 기준 <b>대표값</b>이고, 온도 변화는 열이 물과 녹은 물질에만 전달된다고 본 <b>단순 계산</b>이에요. 실제로는 용기와 공기로 열이 새고, 녹는 양에 한계(용해도)가 있어요.</span></p>
+</header>
+<nav class="tabs" role="tablist">
+<button class="tab active" data-tab="explore" role="tab" aria-selected="true">🔬 자유 탐구</button>
+<button class="tab" data-tab="verify" role="tab" aria-selected="false">✅ 데이터 검증</button>
+</nav>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 용해열: 녹을 때 열이 드나든다</h3>
+<p>고체가 물에 녹을 때는 ① 결정을 이루던 입자 사이 결합을 <b>끊는 데 에너지가 들고</b>(흡열), ② 떨어져 나온 입자가 물 분자에 둘러싸이며 <b>에너지가 나와요</b>(수화, 발열). 둘의 차이가 <b>용해열</b>이에요. ②가 크면 전체적으로 열을 내놓아 물이 따뜻해지고(염화 칼슘·수산화 나트륨 = 발열 도시락), ①이 크면 열을 흡수해 차가워져요(질산 암모늄·요소 = 냉각 팩). 어느 쪽이든 녹이는 양이 많을수록 열 출입이 비례해 커져요.</p>
+
+<h3>⚙️ 온도 변화 계산</h3>
+<ul>
+<li>열량 Q = 용해열(kJ/g) × 질량. 염화 칼슘 −0.73 kJ/g(발열), 수산화 나트륨 −1.11, 질산 암모늄 +0.32(흡열), 요소 +0.25.</li>
+<li>ΔT = Q ÷ (c × 전체 질량), c = 4.2 J/g·℃. 물 100 g에 CaCl₂ 20 g: Q = 14.6 kJ → ΔT ≈ +29 ℃. NH₄NO₃ 20 g: −6.4 kJ → ΔT ≈ −13 ℃.</li>
+<li>같은 열이라도 물이 많으면 ΔT가 작아요 — 도시락은 물을 적게, 냉각 팩은 적당히.</li>
+<li>엔트로피: 흡열인데도 저절로 녹는 이유는 녹으면서 무질서도(엔트로피)가 크게 늘기 때문이에요.</li>
+</ul>
+
+<h3>🧮 이 실험의 계산 방법</h3>
+<p><span class="fx-formula">Q = −q × m</span> (q: kJ/g, 발열은 음수), <span class="fx-formula">ΔT = Q × 1000 ÷ [4.2 × (W + m)]</span>, T = 20 ℃ + ΔT</p>
+
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 용해열은 <b>묽은 용액 기준 대표값</b>이고, 진한 용액에서는 값이 달라져요. 녹을 수 있는 양에는 한계(용해도)가 있어 너무 많이 넣으면 다 녹지 않아요.<br>
+· 열이 물과 녹은 물질에만 전달된다고 봤어요. 실제로는 용기·공기로 새어 나가 온도 변화가 더 작고, 시간이 지나면 실온으로 돌아와요. 수산화 나트륨은 부식성이 강해 실제 도시락에는 생석회(CaO)를 써요.</div>
+
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>군용·캠핑 발열 도시락은 생석회 + 물(또는 마그네슘 + 물)의 발열을 써요.</li>
+<li>운동 부상용 순간 냉각 팩은 질산 암모늄(또는 요소) 주머니를 터뜨려 물과 섞는 거예요.</li>
+</ul>
+</div>
+</section>
+
+
+
+
+
+
+
+
+
+<section id="tab-explore" class="panel active">
+<div class="grid">
+<div class="col-vis">
+<div class="canvas-box"><canvas id="sim" aria-label="컵 속 물에 물질을 녹이는 모습, 온도계와 열의 이동 화살표"></canvas></div>
+<div class="controls">
+<div class="ctrl">
+<div class="lbl"><span>물에 녹일 물질</span><span class="val" id="sOut"></span></div>
+<div class="seg" data-name="sub">
+<button data-val="cacl2" class="on" aria-pressed="true">염화 칼슘</button>
+<button data-val="naoh" aria-pressed="false">수산화 나트륨</button>
+<button data-val="nh4no3" aria-pressed="false">질산 암모늄</button>
+<button data-val="urea" aria-pressed="false">요소</button>
+</div>
+</div>
+<div class="ctrl">
+<div class="lbl"><label for="m">물질의 양</label><span class="val"><output id="mOut"></output> g</span></div>
+<input type="range" id="m" min="5" max="40" step="5" value="20" data-out="mOut">
+<div class="range-ends"><span>5 g</span><span>40 g</span></div>
+</div>
+<div class="ctrl">
+<div class="lbl"><span>물의 양</span><span class="val" id="wOut"></span></div>
+<div class="seg" data-name="w">
+<button data-val="100" class="on" aria-pressed="true">100 mL</button>
+<button data-val="200" aria-pressed="false">200 mL</button>
+<button data-val="300" aria-pressed="false">300 mL</button>
+</div>
+</div>
+<div class="btn-row"><button class="btn" id="run">녹이기</button></div>
+<p class="note">물의 처음 온도는 20 ℃입니다. 물질 1 g이 녹을 때 드나드는 열은 실제 용해열을 바탕으로 한 값이고, 그 열이 모두 물(비열 4.2 J/(g·℃))의 온도를 바꾸는 데 쓰인다고 가정했습니다.</p>
+</div>
+</div>
+<div class="col-data">
+<div class="readout">
+<div class="ro"><span>녹인 뒤 물 온도</span><b id="rT">—</b></div>
+<div class="ro"><span>온도 변화</span><b id="rDT">—</b></div>
+<div class="ro"><span>드나든 열</span><b id="rQ">—</b></div>
+<div class="ro"><span>반응 종류</span><b id="rKind">—</b></div>
+</div>
+<div class="rec-bar">
+<span class="table-title">측정 기록 (<span id="recCount">0</span>개)</span>
+<button id="btnClear" class="btn ghost">기록 지우기</button>
+</div>
+<div class="table-wrap">
+<table id="recTable"><thead><tr><th>#</th><th>물질</th><th>양 (g)</th><th>물 (mL)</th><th>온도 (℃)</th><th>온도 변화 (℃)</th><th>열 (kJ)</th><th>종류</th></tr></thead><tbody></tbody></table>
+</div>
+</div>
+</div>
+</section>
+<section id="tab-verify" class="panel">
+<div id="verifyEmpty" class="empty"><div class="lock-icon">🔒</div><h2>데이터 부족</h2><p id="needMore"></p><div class="lock-count">현재 <span id="lockedCount">0</span> / 4</div></div>
+<div id="verifyBody" class="grid" hidden>
+<div class="col-vis">
+<div class="vcard"><h3>물질의 양과 온도 변화</h3><canvas id="chart" class="chart" aria-label="물질의 양에 따른 온도 변화 산점도"></canvas><p class="note" id="fitNote"></p></div>
+</div>
+<div class="col-data">
+<div class="vcard" id="vA"></div>
+<div class="vcard" id="vB"></div>
+<div class="vcard" id="vC"></div>
+</div>
+</div>
+</section>
+</div>
+<div class="mini-toast" id="miniToast"></div>
+<div class="toast" id="toast">
+<span>🎉 데이터가 충분히 모였어요! 데이터 검증 탭에서 결과를 볼까요?</span>
+<button class="go" id="toastGo">가기</button>
+<button class="later" id="toastLater">나중에</button>
+</div>
+<script>
+
+const $=s=>document.querySelector(s);
+const $$=s=>Array.from(document.querySelectorAll(s));
+const REC=[];
+const LAB={pending:null,draw(){},row(){return[];},verify(){},onInput(){}};
+function dpr(){return Math.min(window.devicePixelRatio||1,2);}
+function fitCanvas(cv){const r=cv.getBoundingClientRect();const d=dpr();const w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}const ctx=cv.getContext('2d');ctx.setTransform(d,0,0,d,0,0);return{ctx,W:r.width,H:r.height};}
+function fmt(v,d){const k=Math.pow(10,d);return (Math.round(v*k)/k).toFixed(d);}
+function animate(ms,step,done){const t0=performance.now();const f=now=>{const p=Math.min(1,(now-t0)/ms);step(p);if(p<1)requestAnimationFrame(f);else if(done)done();};requestAnimationFrame(f);}
+function lockControls(on){$$('.controls input, .controls button, .controls select').forEach(el=>{el.disabled=on;});}
+function bindSliders(){$$('input[type=range][data-out]').forEach(el=>{const out=document.getElementById(el.dataset.out);const d=el.dataset.dec!==undefined?+el.dataset.dec:null;const upd=()=>{out.textContent=d===null?el.value:Number(el.value).toFixed(d);};el.addEventListener('input',()=>{upd();LAB.onInput();});upd();});}
+function bindSeg(name,cb){$$('.seg[data-name="'+name+'"] button').forEach(b=>b.addEventListener('click',()=>{if(b.disabled)return;$$('.seg[data-name="'+name+'"] button').forEach(x=>{x.classList.toggle('on',x===b);x.setAttribute('aria-pressed',x===b);});cb(b.dataset.val);LAB.onInput();}));}
+function setReadout(map){Object.keys(map).forEach(k=>{const el=document.getElementById(k);if(el)el.textContent=map[k];});}
+/* ===== 화면 튐 방지 =====
+   그림이 화면 밖에 있을 때만, 그것도 '필요한 만큼만' 스크롤한다.
+   방금 누른 버튼이 화면 밖으로 밀려나지 않도록 이동량을 제한한다. */
+let zlAnchor=null;
+document.addEventListener('click',e=>{let t=e.target;while(t&&t!==document){if(t.tagName&&/^(BUTTON|INPUT|SELECT|LABEL|A)$/.test(t.tagName)){zlAnchor=t;break;}t=t.parentNode;}},true);
+document.addEventListener('input',e=>{if(e.target)zlAnchor=e.target;},true);
+function focusCanvas(el){
+ if(!el||!el.getBoundingClientRect)return;
+ const vh=window.innerHeight,M=12,r=el.getBoundingClientRect();
+ const vis=Math.min(r.bottom,vh)-Math.max(r.top,0);
+ if(vis>=Math.min(r.height,vh*0.6)-1)return;
+ const need=Math.min(r.height,Math.max(140,vh*0.3));
+ let d=0;
+ if(r.top<M)d=r.top-M;else if(r.bottom>vh-M)d=r.bottom-(vh-M);
+ if(zlAnchor&&document.body.contains(zlAnchor)){
+  const br=zlAnchor.getBoundingClientRect(),lo=br.bottom-vh+M,hi=br.top-M;
+  if(br.bottom>0&&br.top<vh&&lo<=hi){
+   let c=Math.max(lo,Math.min(d,hi));
+   const va=Math.min(r.bottom-c,vh)-Math.max(r.top-c,0);
+   if(va<need-1){if(d<0)c=Math.max(d,Math.min(c,r.bottom-need));else if(d>0)c=Math.min(d,Math.max(c,r.top-vh+need));}
+   d=c;
+  }
+ }
+ if(Math.abs(d)<2)return;
+ window.scrollBy({top:d,behavior:'smooth'});
+}
+/* alert 대신 쓰는 작은 안내 쪽지 */
+let miniTimer=null;
+function notify(msg){const el=$('#miniToast');el.textContent=msg;el.classList.add('show');if(miniTimer)clearTimeout(miniTimer);miniTimer=setTimeout(()=>el.classList.remove('show'),2200);}
+/* 기록 4개 이상 → 한 번만 안내 팝업 */
+let toastShown=false;
+function maybeToast(n){if(toastShown||n<4)return;toastShown=true;const t=$('#toast');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),12000);}
+$('#toastGo').addEventListener('click',()=>{$('#toast').classList.remove('show');switchTab('verify');});
+$('#toastLater').addEventListener('click',()=>{$('#toast').classList.remove('show');});
+/* ===== 기록 =====
+   실험이 끝나면 setPending(rec)이 표에 바로 기록한다(자동 기록).
+   '기록하기' 버튼(#btnRecord)이 있는 실험(스펙트럼 선 고르기처럼 기록 자체가 선택 행위인 경우)만 수동 방식이다. */
+const tbody=$('#recTable tbody'),tWrap=$('.table-wrap'),btnRec=$('#btnRecord');
+const COLS=$('#recTable thead tr').children.length;
+function updateCount(){$('#recCount').textContent=REC.length;if(!REC.length)tbody.innerHTML='<tr><td colspan="'+COLS+'" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>';}
+function addRecord(rec){
+ const key=JSON.stringify(rec);
+ if(REC.some(r=>JSON.stringify(r)===key)){notify('이미 같은 조건으로 기록했어요. 조건을 바꿔 보세요.');return false;}
+ if(!REC.length)tbody.innerHTML='';
+ REC.push(rec);
+ const tr=document.createElement('tr');tr.className='fresh';
+ tr.innerHTML=LAB.row(rec,REC.length).map(c=>(c!==null&&typeof c==='object')?'<td class="t">'+c.t+'</td>':'<td>'+c+'</td>').join('');
+ tbody.appendChild(tr);updateCount();tWrap.scrollTop=tWrap.scrollHeight;
+ maybeToast(REC.length);return true;
+}
+function setPending(rec){
+ if(btnRec){LAB.pending=rec;btnRec.disabled=!rec;return;}
+ LAB.pending=null;if(rec)addRecord(rec);
+}
+if(btnRec)btnRec.addEventListener('click',()=>{if(!LAB.pending)return;addRecord(LAB.pending);setPending(null);});
+$('#btnClear').addEventListener('click',()=>{if(!REC.length)return;REC.length=0;updateCount();notify('기록을 모두 지웠어요.');});
+function switchTab(name){
+ $$('.tab').forEach(x=>{const on=x.dataset.tab===name;x.classList.toggle('active',on);x.setAttribute('aria-selected',on);});
+ $$('.panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
+ if(name==='verify')renderVerify();else requestAnimationFrame(()=>LAB.draw());
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+$$('.tab').forEach(t=>t.addEventListener('click',()=>switchTab(t.dataset.tab)));
+function renderVerify(){const n=REC.length,empty=$('#verifyEmpty'),body=$('#verifyBody');$('#lockedCount').textContent=n;if(n<4){empty.hidden=false;body.hidden=true;$('#needMore').textContent='아직 데이터가 부족합니다. 자유 탐구 탭에서 '+(4-n)+'개 더 기록하면 내 데이터 분석이 열립니다.';return;}empty.hidden=true;body.hidden=false;requestAnimationFrame(()=>LAB.verify(REC));}
+function niceStep(r,n){const raw=r/n;const p=Math.pow(10,Math.floor(Math.log10(raw)));const f=raw/p;return (f<1.5?1:f<3?2:f<7?5:10)*p;}
+function niceMax(v){if(!(v>0))return 1;const p=Math.pow(10,Math.floor(Math.log10(v)));const f=v/p;return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p;}
+function tickFmt(v,s){const d=s>=1?0:Math.min(3,Math.ceil(-Math.log10(s)-1e-9));return v.toFixed(d);}
+function hasJong(w){const c=w.charCodeAt(w.length-1)-0xAC00;return c>=0&&c<11172&&c%28!==0;}
+function fitOrigin(pts){let a=0,b=0;pts.forEach(p=>{a+=p.x*p.y;b+=p.x*p.x;});return b?a/b:0;}
+function chart(cv,o){const {ctx,W,H}=fitCanvas(cv);ctx.clearRect(0,0,W,H);
+const m={l:94,r:22,t:22,b:66};const x0=o.xMin||0,x1=o.xMax,y0=o.yMin||0,y1=o.yMax;
+const X=v=>m.l+(v-x0)/(x1-x0)*(W-m.l-m.r),Y=v=>H-m.b-(v-y0)/(y1-y0)*(H-m.t-m.b);
+ctx.lineWidth=1;ctx.strokeStyle='#e2e9e6';ctx.font='18px "IBM Plex Mono",monospace';ctx.fillStyle='#4f6168';
+if(o.xTicks!==false){const sx=niceStep(x1-x0,4);ctx.textAlign='center';ctx.textBaseline='top';for(let i=Math.ceil(x0/sx-1e-9);i*sx<=x1+1e-9;i++){const v=i*sx,px=X(v);ctx.beginPath();ctx.moveTo(px,m.t);ctx.lineTo(px,H-m.b);ctx.stroke();ctx.fillText(tickFmt(v,sx),px,H-m.b+8);}}
+const sy=niceStep(y1-y0,4);ctx.textAlign='right';ctx.textBaseline='middle';for(let i=Math.ceil(y0/sy-1e-9);i*sy<=y1+1e-9;i++){const v=i*sy,py=Y(v);ctx.beginPath();ctx.moveTo(m.l,py);ctx.lineTo(W-m.r,py);ctx.stroke();ctx.fillText(tickFmt(v,sy),m.l-8,py);}
+ctx.strokeStyle='#1f2d33';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,H-m.b);ctx.lineTo(W-m.r,H-m.b);ctx.stroke();
+ctx.fillStyle='#1f2d33';ctx.font='18px "Noto Sans KR",sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(o.xLabel||'',(m.l+W-m.r)/2,H-6);
+ctx.save();ctx.translate(18,(m.t+H-m.b)/2);ctx.rotate(-Math.PI/2);ctx.textBaseline='middle';ctx.fillText(o.yLabel||'',0,0);ctx.restore();
+ctx.save();ctx.beginPath();ctx.rect(m.l,m.t,W-m.l-m.r,H-m.t-m.b);ctx.clip();
+(o.lines||[]).forEach(l=>{ctx.strokeStyle=l.color;ctx.lineWidth=2.5;ctx.setLineDash(l.dash||[]);ctx.beginPath();ctx.moveTo(X(x0),Y(l.m*x0+(l.b||0)));ctx.lineTo(X(x1),Y(l.m*x1+(l.b||0)));ctx.stroke();});
+ctx.setLineDash([]);ctx.restore();
+(o.points||[]).forEach(p=>{ctx.beginPath();ctx.arc(X(p.x),Y(p.y),6.5,0,Math.PI*2);ctx.fillStyle=p.color||'#2f8f9d';ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#1f2d33';ctx.stroke();});
+return{ctx,X,Y,W,H,m};}
+function boot(){bindSliders();updateCount();LAB.draw();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>LAB.draw());}
+window.addEventListener('resize',()=>{if($('#sim').getBoundingClientRect().width<60&&$('#tab-explore').classList.contains('active'))return;if($('#tab-explore').classList.contains('active'))LAB.draw();else if(REC.length>=4)LAB.verify(REC);});
+
+
+(function(){
+const cv=$('#sim'),T0=20,C=4.2;
+const SUB={cacl2:{n:'염화 칼슘',q:-0.73,c:'#e9d8a6'},naoh:{n:'수산화 나트륨',q:-1.11,c:'#f4f4f4'},nh4no3:{n:'질산 암모늄',q:0.32,c:'#dfe9f7'},urea:{n:'요소',q:0.25,c:'#fbf5e2'}};
+let sub='cacl2',w=100,res=null,prog=null;
+const sLabel=()=>{const s=SUB[sub];return (s.q<0?'녹으면서 열을 내놓음 ':'녹으면서 열을 흡수함 ')+fmt(Math.abs(s.q),2)+' kJ/g';};
+bindSeg('sub',v=>{sub=v;$('#sOut').textContent=sLabel();});
+bindSeg('w',v=>{w=+v;$('#wOut').textContent=w+' g';});
+$('#sOut').textContent=sLabel();$('#wOut').textContent=w+' g';
+const calc=(s,m,W)=>{const Q=-SUB[s].q*m;const dT=Q*1000/(C*(W+m));return{Q,dT,T:T0+dT,exo:SUB[s].q<0};};
+function clearOut(){setReadout({rT:'—',rDT:'—',rQ:'—',rKind:'—'});$('#rKind').className='';}
+LAB.onInput=()=>{res=null;prog=null;setPending(null);clearOut();LAB.draw();};
+LAB.draw=()=>{
+ const {ctx,W,H}=fitCanvas(cv);ctx.clearRect(0,0,W,H);
+ const m=+$('#m').value,q=prog===null?0:prog;
+ const S=SUB[sub];
+ const cx=W*0.42,cb=H-60,ch=H*0.5,ct=cb-ch,cw=W*0.44;
+ const lvl=(w/300)*ch*0.85+ch*0.1;
+ const Tnow=res?T0+res.dT*Math.min(1,q*1.3):T0;
+ const hot=Math.max(0,Math.min(1,(Tnow-T0)/40)),cold=Math.max(0,Math.min(1,(T0-Tnow)/15));
+ const wc='rgb('+Math.round(190+hot*60-cold*40)+','+Math.round(220-hot*90-cold*10)+','+Math.round(235-hot*120+cold*20)+')';
+ ctx.fillStyle=wc;ctx.fillRect(cx-cw/2+3,cb-lvl,cw-6,lvl);
+ if(q>0&&q<1){ctx.fillStyle=S.c;for(let i=0;i<14;i++){const px=cx-cw/2+12+((i*53)%(cw-24)),py=cb-lvl+((i*37+q*260)%(lvl-10))+4;ctx.globalAlpha=1-q;ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#8a8a8a';ctx.lineWidth=1;ctx.stroke();}ctx.globalAlpha=1;}
+ ctx.lineWidth=4;ctx.strokeStyle='#1f2d33';ctx.beginPath();ctx.moveTo(cx-cw/2,ct-6);ctx.lineTo(cx-cw/2,cb);ctx.lineTo(cx+cw/2,cb);ctx.lineTo(cx+cw/2,ct-6);ctx.stroke();
+ if(res&&q>0.3){const dir=res.exo?1:-1;const al=Math.min(1,(q-0.3)/0.5);ctx.strokeStyle=res.exo?'rgba(193,68,60,'+al+')':'rgba(75,123,212,'+al+')';ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=4;
+  [-1,1].forEach(sd=>{for(let k=0;k<2;k++){const x=cx+sd*(cw/2+16+k*26),y0=cb-lvl*0.65+k*30;const x1=x+sd*dir*22;ctx.beginPath();ctx.moveTo(x,y0);ctx.lineTo(x1,y0);ctx.stroke();ctx.beginPath();ctx.moveTo(x1+sd*dir*8,y0);ctx.lineTo(x1,y0-6);ctx.lineTo(x1,y0+6);ctx.closePath();ctx.fill();}});
+  ctx.font='700 18px "Noto Sans KR",sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(res.exo?'열이 주위로 나감':'주위의 열을 흡수함',cx,ct-16);}
+ ctx.fillStyle='#1f2d33';ctx.font='18px "Noto Sans KR",sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText('물 '+w+' mL + '+S.n+' '+m+' g',cx,cb+12);
+ const tx=W*0.88,tt=H*0.1,tb=H*0.8,th=tb-tt,Tmin=-20,Tmax=100;const ty=T=>tb-(T-Tmin)/(Tmax-Tmin)*th;
+ ctx.fillStyle='#fff';ctx.fillRect(tx-9,tt,18,th);ctx.strokeStyle='#1f2d33';ctx.lineWidth=2.5;ctx.strokeRect(tx-9,tt,18,th);
+ ctx.fillStyle=Tnow>=T0?'#c1443c':'#4b7bd4';ctx.fillRect(tx-5,ty(Math.max(Tmin,Tnow)),10,tb-ty(Math.max(Tmin,Tnow)));ctx.beginPath();ctx.arc(tx,tb+12,15,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.fillStyle='#4f6168';ctx.font='16px "IBM Plex Mono",monospace';ctx.textAlign='right';ctx.textBaseline='middle';
+ for(let T=Tmin;T<=Tmax;T+=20){const y=ty(T);ctx.strokeStyle='#4f6168';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(tx-16,y);ctx.lineTo(tx-9,y);ctx.stroke();ctx.fillText(T,tx-20,y);}
+ ctx.strokeStyle='#d98e3b';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(tx-30,ty(T0));ctx.lineTo(tx+14,ty(T0));ctx.stroke();ctx.setLineDash([]);
+ ctx.fillStyle='#1f2d33';ctx.font='700 20px "IBM Plex Mono",monospace';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(fmt(Tnow,1)+' ℃',tx,tt-8);
+};
+$('#run').addEventListener('click',()=>{
+ focusCanvas(cv);
+ lockControls(true);setPending(null);clearOut();
+ const m=+$('#m').value;res=calc(sub,m,w);
+ animate(2200,p=>{prog=p;LAB.draw();},()=>{
+  prog=1;LAB.draw();
+  setReadout({rT:fmt(res.T,1)+' ℃',rDT:(res.dT>=0?'+':'')+fmt(res.dT,1)+' ℃',rQ:fmt(Math.abs(res.Q),1)+' kJ '+(res.exo?'방출':'흡수'),rKind:res.exo?'발열':'흡열'});
+  $('#rKind').className=res.exo?'bad':'good';
+  setPending({sub,m,w,T:+res.T.toFixed(2),dT:+res.dT.toFixed(2),Q:+res.Q.toFixed(2),exo:res.exo});
+  lockControls(false);
+ });
+});
+LAB.row=(r,i)=>[i,{t:SUB[r.sub].n},r.m,r.w,fmt(r.T,1),(r.dT>=0?'+':'')+fmt(r.dT,1),fmt(Math.abs(r.Q),1),{t:r.exo?'발열':'흡열'}];
+const SC={cacl2:'#d98e3b',naoh:'#c1443c',nh4no3:'#2f8f9d',urea:'#6a5a9c'};
+LAB.verify=(R)=>{
+ const subs=[...new Set(R.map(r=>r.sub))];
+ const ys=R.map(r=>r.dT);const yMax=niceMax(Math.max(5,...ys)*1.15),yMin=-niceMax(Math.max(2,...ys.map(v=>-v))*1.15);
+ const lines=[];subs.forEach(s=>{const rows=R.filter(r=>r.sub===s&&r.w===100);if(rows.length>=2)lines.push({m:fitOrigin(rows.map(r=>({x:r.m,y:r.dT}))),color:SC[s],dash:[6,4]});});
+ chart($('#chart'),{xMin:0,xMax:45,yMin,yMax,xLabel:'물질의 양 (g)',yLabel:'온도 변화 (℃)',points:R.map(r=>({x:r.m,y:r.dT,color:SC[r.sub]})),lines});
+ $('#fitNote').innerHTML='점 색은 물질이에요.'+subs.map(s=>'<span class="key" style="--c:'+SC[s]+'"></span>'+SUB[s].n).join('')+(lines.length?' 점선은 물 100 mL 기록에 맞춘 원점 통과 직선이에요.':'');
+ const exo=R.filter(r=>r.exo),endo=R.filter(r=>!r.exo);
+ let a='<h3>발열 반응과 흡열 반응</h3>';
+ a+='<p>발열 기록 '+exo.length+'개, 흡열 기록 '+endo.length+'개예요.'+(exo.length&&endo.length?'':' 두 종류 모두 기록해 보세요.')+'</p>';
+ if(exo.length)a+='<p>'+[...new Set(exo.map(r=>SUB[r.sub].n))].join(', ')+'이(가) 녹을 때는 열이 <b class="hl">주위(물)로 나가서</b> 물이 뜨거워졌어요. 불 없는 도시락은 이런 물질에 물을 부어 데워요.</p>';
+ if(endo.length)a+='<p>'+[...new Set(endo.map(r=>SUB[r.sub].n))].join(', ')+'이(가) 녹을 때는 <b class="hl">주위의 열을 빼앗아서</b> 물이 차가워졌어요. 냉각 팩은 이 물질이 든 주머니를 눌러 물과 섞어요.</p>';
+ $('#vA').innerHTML=a;
+ let b='<h3>양을 늘리면</h3>';
+ let grp=null;subs.forEach(s=>{[100,200,300].forEach(W=>{const rows=R.filter(r=>r.sub===s&&r.w===W);const n=new Set(rows.map(r=>r.m)).size;if(n>=2&&(!grp||n>grp.n))grp={s,W,rows,n};});});
+ if(!grp)b+='<p>같은 물질·같은 물 양에서 물질의 양만 바꿔 2번 이상 기록해 보세요.</p>';
+ else{const lo=grp.rows.reduce((p,q)=>q.m<p.m?q:p),hi=grp.rows.reduce((p,q)=>q.m>p.m?q:p);b+='<p>'+SUB[grp.s].n+'을(를) 물 '+grp.W+' mL에 '+lo.m+' g 녹였을 때 '+(lo.dT>=0?'+':'')+fmt(lo.dT,1)+' ℃, '+hi.m+' g 녹였을 때 '+(hi.dT>=0?'+':'')+fmt(hi.dT,1)+' ℃였어요. 양이 <b class="hl">'+fmt(hi.m/lo.m,1)+'배</b>가 되자 온도 변화는 <b class="hl">'+fmt(hi.dT/lo.dT,2)+'배</b>가 됐어요.</p><p>드나드는 열은 녹인 양에 정비례해요. 온도 변화가 정확히 비례하지 않는 건 녹인 물질만큼 전체 질량도 조금 늘기 때문이에요.</p>';}
+ $('#vB').innerHTML=b;
+ let c='<h3>물을 늘리면</h3>';
+ let g2=null;subs.forEach(s=>{[5,10,15,20,25,30,35,40].forEach(m=>{const rows=R.filter(r=>r.sub===s&&r.m===m);const n=new Set(rows.map(r=>r.w)).size;if(n>=2&&(!g2||n>g2.n))g2={s,m,rows,n};});});
+ if(!g2)c+='<p>같은 물질·같은 양에서 물의 양만 바꿔 2번 이상 기록해 보세요.</p>';
+ else{const lo=g2.rows.reduce((p,q)=>q.w<p.w?q:p),hi=g2.rows.reduce((p,q)=>q.w>p.w?q:p);c+='<p>'+SUB[g2.s].n+' '+g2.m+' g을 물 '+lo.w+' mL에 녹이면 '+(lo.dT>=0?'+':'')+fmt(lo.dT,1)+' ℃, '+hi.w+' mL에 녹이면 '+(hi.dT>=0?'+':'')+fmt(hi.dT,1)+' ℃였어요. 드나든 열은 둘 다 '+fmt(Math.abs(lo.Q),1)+' kJ로 같아요.</p><p>같은 열이라도 받는 물이 많으면 온도는 조금만 변해요. 열의 양과 온도 변화는 다른 개념이에요.</p>';}
+ $('#vC').innerHTML=c;
+};
+boot();
+})();
+
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>

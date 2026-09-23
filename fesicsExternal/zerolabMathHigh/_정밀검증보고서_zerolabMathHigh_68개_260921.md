@@ -16,7 +16,7 @@
 | 등급 | 파일 | 위치/내용 | 권장 수정 |
 |---|---|---|---|
 | B | `hs_stat_61_combination_repetition_ProbStat_RepComb_Ep01.html` | 생활 속 예시의 “주사위 여러 개의 눈 조합(순서 무시)”는 보통 서로 구별되는 주사위의 표본공간과 충돌해 학생이 중복조합으로 오해할 수 있음 | “같은 종류의 사탕을 맛별로 r개 고르기” 등 순서를 실제로 무시하는 예시로 교체 |
-| C | `hs_calc_56_riemann_sum_Calculus1_Integral.html` | “왼쪽 끝 높이(하합), 오른쪽 끝 높이(상합)”은 이 실험의 `y=x², [0,1]`에서는 맞지만 일반 명제로 읽힐 수 있음 | “이 실험처럼 증가하는 함수에서는”이라는 조건 추가 |
+| C | `hs_calc_56_riemann_sum_Calculus1_Integral_Ep03.html` | “왼쪽 끝 높이(하합), 오른쪽 끝 높이(상합)”은 이 실험의 `y=x², [0,1]`에서는 맞지만 일반 명제로 읽힐 수 있음 | “이 실험처럼 증가하는 함수에서는”이라는 조건 추가 |
 | C | `hs_alg_43_geometric_seq_Algebra_Seq_Ep05.html` | 생활 예시 `복리 원리합계(a(1+i)ⁿ⁻¹)`는 a를 최초 원금으로 보는 일반 금융 문맥에서는 기간 수와 지수가 어긋나 보일 수 있음 | `n번째 시점의 항 aₙ=a₁(1+i)ⁿ⁻¹` 또는 `n기간 후 원리합계 A=P(1+i)ⁿ`으로 기준 구분 |
 
 ## 검증 범위와 방법
@@ -46,12 +46,12 @@
 | 7 | `hs_c1_07_conjugate_roots_CommonMath1_Complex_Ep07.html` | 통과 | 검토 완료 | 이상 없음 |
 | 8 | `hs_c1_08_roots_coefficients_CommonMath1_Complex_Ep06.html` | 통과 | 검토 완료 | 이상 없음 |
 | 9 | `hs_c1_09_quadratic_max_min_CommonMath1_Quad_Ep02.html` | 통과 | 검토 완료 | 이상 없음 |
-| 10 | `hs_c1_10_line_parabola_CommonMath1_Quad_Ep03.html` | 통과 | 검토 완료 | 이상 없음 |
+| 10 | `hs_c1_10_line_parabola_CommonMath1_Quad_Ep01.html` | 통과 | 검토 완료 | 이상 없음 |
 | 11 | `hs_c1_11_quadratic_inequality_CommonMath1_Quad_Ep07.html` | 통과 | 검토 완료 | 이상 없음 |
-| 12 | `hs_c1_12_cubic_root_count_CommonMath1_Quad_Ep04.html` | 통과 | 검토 완료 | 이상 없음 |
+| 12 | `hs_c1_12_cubic_root_count_CommonMath1_Quad_Ep03.html` | 통과 | 검토 완료 | 이상 없음 |
 | 13 | `hs_c1_13_perm_vs_comb_CommonMath1_PermComb_Ep05.html` | 통과 | 검토 완료 | 이상 없음 |
 | 14 | `hs_c1_14_pascal_symmetry_CommonMath1_PermComb_Ep06.html` | 통과 | 검토 완료 | 이상 없음 |
-| 15 | `hs_c1_15_lattice_paths_CommonMath1_PermComb.html` | 통과 | 검토 완료 | 이상 없음 |
+| 15 | `hs_c1_15_lattice_paths_ProbStat_Perm_Ep06.html` | 통과 | 검토 완료 | 이상 없음 |
 | 16 | `hs_c1_16_matrix_dimensions_CommonMath1_Matrix_Ep04.html` | 통과 | 검토 완료 | 이상 없음 |
 | 17 | `hs_c1_17_matrix_noncommutative_CommonMath1_Matrix_Ep05.html` | 통과 | 검토 완료 | 이상 없음 |
 | 18 | `hs_c1_18_matrix_square_CommonMath1_Matrix_Ep05.html` | 통과 | 검토 완료 | 이상 없음 |
@@ -64,7 +64,7 @@
 | 2 | `hs_c2_20_perpendicular_slopes_CommonMath2_Shapes_Ep04.html` | 통과 | 검토 완료 | 이상 없음 |
 | 3 | `hs_c2_21_point_line_distance_CommonMath2_Shapes_Ep06.html` | 통과 | 검토 완료 | 이상 없음 |
 | 4 | `hs_c2_22_circle_line_CommonMath2_Shapes_Ep08.html` | 통과 | 검토 완료 | 이상 없음 |
-| 5 | `hs_c2_23_union_count_CommonMath2_SetLogic.html` | 통과 | 검토 완료 | 이상 없음 |
+| 5 | `hs_c2_23_union_count_CommonMath2_SetLogic_Ep03.html` | 통과 | 검토 완료 | 이상 없음 |
 | 6 | `hs_c2_24_converse_contrapositive_CommonMath2_SetLogic_Ep06.html` | 통과 | 검토 완료 | 이상 없음 |
 | 7 | `hs_c2_25_necessary_sufficient_CommonMath2_SetLogic_Ep07.html` | 통과 | 검토 완료 | 이상 없음 |
 | 8 | `hs_c2_26_composite_order_CommonMath2_Func_Ep03.html` | 통과 | 검토 완료 | 이상 없음 |
@@ -77,8 +77,8 @@
 |---:|---|---|---|---|
 | 1 | `hs_alg_29_nth_root_count_Algebra_ExpLog_Ep01.html` | 통과 | 검토 완료 | 이상 없음 |
 | 2 | `hs_alg_30_exponent_laws_Algebra_ExpLog_Ep02.html` | 통과 | 검토 완료 | 이상 없음 |
-| 3 | `hs_alg_31_log_definition_Algebra_ExpLog_Ep04.html` | 통과 | 검토 완료 | 이상 없음 |
-| 4 | `hs_alg_32_log_laws_Algebra_ExpLog_Ep05.html` | 통과 | 검토 완료 | 이상 없음 |
+| 3 | `hs_alg_31_log_definition_Algebra_ExpLog_Ep05.html` | 통과 | 검토 완료 | 이상 없음 |
+| 4 | `hs_alg_32_log_laws_Algebra_ExpLog_Ep06.html` | 통과 | 검토 완료 | 이상 없음 |
 | 5 | `hs_alg_33_exp_log_inverse_Algebra_ExpLogFunc_Ep05.html` | 통과 | 검토 완료 | 이상 없음 |
 | 6 | `hs_alg_34_exp_translation_Algebra_ExpLogFunc_Ep03.html` | 통과 | 검토 완료 | 이상 없음 |
 | 7 | `hs_alg_35_exp_inequality_Algebra_ExpLogFunc_Ep08.html` | 통과 | 검토 완료 | 이상 없음 |
@@ -107,7 +107,7 @@
 | 5 | `hs_calc_53_secant_to_tangent_Calculus1_Deriv_Ep02.html` | 통과 | 검토 완료 | 이상 없음 |
 | 6 | `hs_calc_54_product_rule_Calculus1_Deriv_Ep05.html` | 통과 | 검토 완료 | 이상 없음 |
 | 7 | `hs_calc_55_increase_extremum_Calculus1_DerivApp_Ep02.html` | 통과 | 검토 완료 | 이상 없음 |
-| 8 | `hs_calc_56_riemann_sum_Calculus1_Integral.html` | 통과 | 표현 보완 | C — 좌합/우합의 하합·상합 설명에 증가함수 조건 명시 권장 |
+| 8 | `hs_calc_56_riemann_sum_Calculus1_Integral_Ep03.html` | 통과 | 표현 보완 | C — 좌합/우합의 하합·상합 설명에 증가함수 조건 명시 권장 |
 | 9 | `hs_calc_57_ftc_Calculus1_Integral_Ep04.html` | 통과 | 검토 완료 | 이상 없음 |
 | 10 | `hs_calc_58_signed_area_Calculus1_IntegralApp_Ep01.html` | 통과 | 검토 완료 | 이상 없음 |
 
