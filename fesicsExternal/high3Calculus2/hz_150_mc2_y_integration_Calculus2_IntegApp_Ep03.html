@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>y 적분 실험실 — 역함수의 넓이</title>
+<style>
+:root{--bg:#0e1420;--pan:#151d2d;--pan2:#1b2436;--line:#2b3550;--tx:#e9eefb;--mut:#9db0d4;--ac:#5ee0c8;--ac2:#7aa2ff;--warn:#ffb86b;--bad:#ff7a8a}
+*{box-sizing:border-box}
+html{font-size:18px}
+@media(max-width:760px){html{font-size:17px}}
+@media(max-width:420px){html{font-size:16px}}
+body{margin:0;color:var(--tx);font-family:'Pretendard','Noto Sans KR',system-ui,-apple-system,sans-serif;font-size:1rem;line-height:1.6;
+background-color:var(--bg);
+background-image:radial-gradient(circle at 1px 1px,rgba(150,180,255,.16) 1.1px,transparent 1.2px);
+background-size:22px 22px}
+.wrap{width:97%;max-width:1840px;margin:0 auto;padding:1.1rem 0 3rem}
+h1{font-size:1.5rem;margin:.1rem 0 .35rem;letter-spacing:-.01em}
+.sub{color:var(--mut);margin:0 0 1.1rem;font-size:.95rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab{font-size:1rem;font-weight:700;padding:.65rem 1.1rem;border-radius:12px 12px 0 0;border:1px solid var(--line);border-bottom:none;
+background:#131a29;color:var(--mut);cursor:pointer;transition:background .15s,color .15s,transform .1s}
+.tab:hover{background:#1c2740;color:var(--tx)}
+.tab:active{transform:translateY(2px)}
+.tab.on{background:var(--pan);color:var(--tx);box-shadow:inset 0 3px 0 var(--ac)}
+.panel{display:none;background:var(--pan);border:1px solid var(--line);border-radius:0 14px 14px 14px;padding:1.1rem}
+.panel.on{display:block}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) minmax(0,1fr);gap:1.2rem;align-items:start}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.viz{background:#0c1220;border:1px solid var(--line);border-radius:14px;padding:.6rem}
+canvas{width:100%;height:auto;display:block;border-radius:10px}
+.side{display:flex;flex-direction:column;gap:.85rem;min-width:0}
+.ctl{background:var(--pan2);border:1px solid var(--line);border-radius:12px;padding:.6rem .8rem .3rem}
+.ctl label{display:block;font-size:.95rem;color:var(--mut);margin-bottom:.1rem}
+.ctl label b{color:var(--ac);font-variant-numeric:tabular-nums}
+.row{display:flex;gap:.6rem;flex-wrap:wrap}
+.row>*{flex:1 1 auto}
+.pick{background:var(--pan2);border:1px solid var(--line);border-radius:12px;padding:.6rem .8rem;font-size:.95rem;color:var(--mut)}
+.pick span{color:var(--tx)}
+.pick label{display:inline-flex;align-items:center;gap:.35rem;margin-right:.9rem;cursor:pointer;color:var(--tx)}
+.pick input{width:20px;height:20px;accent-color:var(--ac2);cursor:pointer}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;touch-action:manipulation;cursor:pointer;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:10px;border-radius:6px;background:linear-gradient(90deg,#3d5cab,#2a3450)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;margin-top:-7px;border-radius:50%;background:#fff;border:3px solid var(--ac2);transition:transform .12s,box-shadow .12s}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.14);box-shadow:0 0 0 7px rgba(122,162,255,.22)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.22);box-shadow:0 0 0 9px rgba(122,162,255,.3)}
+input[type=range]::-moz-range-track{height:10px;border-radius:6px;background:#2a3450}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border:3px solid var(--ac2);border-radius:50%;background:#fff}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btn{font-size:1rem;font-weight:700;padding:.72rem 1rem;border-radius:12px;border:1px solid var(--line);background:#22304d;color:var(--tx);
+cursor:pointer;transition:filter .15s,transform .09s,background .15s}
+.btn:hover{filter:brightness(1.3)}
+.btn:active{transform:translateY(2px) scale(.985)}
+.btn:disabled{opacity:.42;cursor:not-allowed;filter:none;transform:none}
+.btn.go{background:#1f4a63;border-color:#2f6f92}
+.btn.rec{background:#1f4d43;border-color:#2d7a68}
+.btn.clr{background:#3a2431;border-color:#5c3448;flex:0 0 auto}
+.readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
+.readout .k{color:var(--mut)}
+.readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
+th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
+thead th{position:sticky;top:0;background:#1d2740;color:var(--mut);z-index:2}
+tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
+.need{background:#2a2033;border:1px solid #4a3350;border-radius:12px;padding:1.1rem;color:var(--warn);font-weight:700}
+.analysis h3{font-size:1.15rem;margin:.2rem 0 .6rem}
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
+@media(max-width:900px){.vgrid{grid-template-columns:1fr}}
+.card{background:var(--pan2);border:1px solid var(--line);border-radius:12px;padding:.9rem}
+.card h4{margin:.1rem 0 .5rem;font-size:1rem;color:var(--ac2)}
+.ok{color:var(--ac);font-weight:700}
+.no{color:var(--bad);font-weight:700}
+.note{color:var(--mut);font-size:.93rem;margin-top:.5rem}
+.big{font-size:1.15rem;font-weight:700}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>y 적분 실험실 — 역함수의 넓이</h1>
+<p class="sub">같은 영역을 x 로도 y 로도 적분해 값을 비교하고, 역함수의 넓이 관계를 확인합니다.</p>
+<div class="tabs">
+<button class="tab on" data-t="explore">🔬 자유 탐구</button>
+<button class="tab" data-t="verify">✅ 데이터 검증</button>
+</div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — f 의 넓이 + f⁻¹ 의 넓이 = 직사각형의 넓이</h3>
+<p>0 부터 b 까지 f 아래 넓이와, 0 부터 f(b) 까지 f⁻¹ 아래 넓이를 더하면 <b>가로 b, 세로 f(b) 인 직사각형</b>이 됩니다. 두 영역이 정확히 직사각형을 채우기 때문이에요. y 로 적분하는 것은 그래프를 옆으로 보는 것입니다.</p>
+<h3>⚙️ 왜 그럴까</h3>
+<ul>
+<li>f 와 f⁻¹ 는 y = x 대칭이라 두 넓이가 직사각형을 나눕니다.</li>
+<li>∫₀ᵇ f dx + ∫₀^f(b) f⁻¹ dy = b·f(b).</li>
+<li>한쪽이 구하기 어려우면 다른 쪽에서 빼서 구할 수 있습니다.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>b를 바꿔 두 적분을 각각 계산하고, 합이 직사각형 넓이와 같은지 확인</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· “적분은 x 로만 한다” → y 로도 할 수 있고, 그편이 쉬울 때가 있습니다.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>같은 영역을 어느 방향으로 자르든 넓이는 같습니다.</li></ul>
+</div>
+</section>
+
+<section id="explore" class="panel on">
+  <div class="grid">
+    <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="y 적분 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
+    <div class="side">
+      <div class="ctl"><label for="b">오른쪽 끝 b (×0.25) <b><span id="b_v">6.00</span></b></label><input type="range" id="b" min="2" max="12" step="1" value="6" data-fmt="2"></div><div class="row"><button class="btn go" id="goBtn">🔄 축을 바꿔 재기</button></div>
+      <div class="readout" id="readout"></div>
+      <div class="row">
+        <button class="btn clr" id="clrBtn">표 비우기</button>
+      </div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>b</th><th>∫f dx</th><th>∫f⁻¹ dy</th><th>두 넓이의 합</th><th>직사각형 넓이</th><th>같나</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+<section id="verify" class="panel">
+  <div class="need" id="need">데이터 부족 — 자유 탐구 탭에서 <b>4개 이상</b> 기록하면 분석이 열립니다. (현재 <span id="cnt">0</span>개)</div>
+  <div class="analysis" id="analysis" style="display:none"></div>
+</section>
+</div>
+<script>
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
+const $=i=>document.getElementById(i);
+let rows=[],busy=false;
+function nf(n,d){if(d===undefined)d=2;if(!isFinite(n))return'-';let s=(+n).toFixed(d);if(s.indexOf('.')>=0){s=s.replace(/0+$/,'').replace(/\.$/,'');}return s==='-0'?'0':s;}
+function v(id){return parseFloat($(id).value);}
+function trim(c){let i=0;while(i<c.length-1&&Math.abs(c[i])<1e-12)i++;return c.slice(i);}
+function deg(c){c=trim(c);return(c.length===1&&Math.abs(c[0])<1e-12)?-1:c.length-1;}
+function sup(p){return String(p).replace(/[0-9]/g,function(d){return'⁰¹²³⁴⁵⁶⁷⁸⁹'[+d];});}
+function polyStr(c){c=trim(c);const n=c.length-1;let s='';for(let i=0;i<c.length;i++){const k=c[i],p=n-i;if(Math.abs(k)<1e-12)continue;const sg=k<0?(s?' - ':'-'):(s?' + ':'');const a=Math.abs(k);let t=(Math.abs(a-1)<1e-12&&p>0)?'':nf(a,3);if(p>1)t+='x'+sup(p);else if(p===1)t+='x';s+=sg+t;}return s||'0';}
+function ev(c,x){let r=0;for(let i=0;i<c.length;i++)r=r*x+c[i];return r;}
+function polyDiv(A,B){A=A.slice();B=trim(B);const dq=A.length-B.length;if(dq<0)return{Q:[0],R:A,steps:[]};const Q=[],steps=[];
+for(let i=0;i<=dq;i++){const c=A[i]/B[0];Q.push(c);const sub=new Array(A.length).fill(0);for(let j=0;j<B.length;j++){A[i+j]-=c*B[j];sub[i+j]=c*B[j];}
+steps.push({term:c,pow:dq-i,sub:sub.slice(),rem:A.slice()});}
+return{Q:Q,R:A.slice(dq+1),steps:steps};}
+function cstr(re,im,d){if(d===undefined)d=3;const r=Math.abs(re)<1e-9?0:re,m=Math.abs(im)<1e-9?0:im;
+if(m===0)return nf(r,d);if(r===0)return(m===1?'':(m===-1?'-':nf(m,d)))+'i';
+return nf(r,d)+(m>0?' + ':' - ')+(Math.abs(m)===1?'':nf(Math.abs(m),d))+'i';}
+function anim(ms,step){return new Promise(function(res){const t0=performance.now();function f(t){const p=Math.min(1,(t-t0)/ms);step(p);if(p<1)requestAnimationFrame(f);else res();}requestAnimationFrame(f);});}
+function lock(b){busy=b;document.querySelectorAll('#explore input,#explore button').forEach(function(e){e.disabled=b;});}
+function clr(bg){ctx.fillStyle=bg||'#0c1220';ctx.fillRect(0,0,W,H);}
+function plot(xmin,xmax,ymin,ymax,pad){pad=pad||42;
+return{X:function(x){return pad+(x-xmin)/(xmax-xmin)*(W-2*pad);},Y:function(y){return H-pad-(y-ymin)/(ymax-ymin)*(H-2*pad);},xmin:xmin,xmax:xmax,ymin:ymin,ymax:ymax};}
+function axes(p,xlab,ylab){ctx.strokeStyle='#22304d';ctx.lineWidth=1;ctx.font='13px sans-serif';ctx.fillStyle='#7f92b8';ctx.textAlign='center';ctx.textBaseline='middle';
+for(let x=Math.ceil(p.xmin);x<=p.xmax;x++){const px=p.X(x);ctx.beginPath();ctx.moveTo(px,p.Y(p.ymin));ctx.lineTo(px,p.Y(p.ymax));ctx.stroke();}
+for(let y=Math.ceil(p.ymin);y<=p.ymax;y++){const py=p.Y(y);ctx.beginPath();ctx.moveTo(p.X(p.xmin),py);ctx.lineTo(p.X(p.xmax),py);ctx.stroke();}
+ctx.strokeStyle='#6d80a8';ctx.lineWidth=2;
+ctx.beginPath();ctx.moveTo(p.X(p.xmin),p.Y(0));ctx.lineTo(p.X(p.xmax),p.Y(0));ctx.stroke();
+ctx.beginPath();ctx.moveTo(p.X(0),p.Y(p.ymin));ctx.lineTo(p.X(0),p.Y(p.ymax));ctx.stroke();
+ctx.fillStyle='#9db0d4';ctx.font='bold 14px sans-serif';
+if(xlab)ctx.fillText(xlab,W-22,p.Y(0)-14);
+if(ylab)ctx.fillText(ylab,p.X(0)+18,18);}
+function dot(x,y,r,col){ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();}
+function label(t,x,y,col,size,align){ctx.fillStyle=col||'#e9eefb';ctx.font=(size||14)+'px sans-serif';ctx.textAlign=align||'center';ctx.textBaseline='middle';ctx.fillText(t,x,y);}
+function addRow(cells){const tb=document.querySelector('#tbl tbody');const tr=document.createElement('tr');
+let h='<td>'+rows.length+'</td>';for(let i=0;i<cells.length;i++)h+='<td>'+cells[i]+'</td>';tr.innerHTML=h;tb.appendChild(tr);
+tb.parentElement.parentElement.scrollTop=tb.parentElement.parentElement.scrollHeight;}
+function sync(){$('cnt').textContent=rows.length;const ok=rows.length>=4;
+$('need').style.display=ok?'none':'block';$('analysis').style.display=ok?'block':'none';if(ok)analyze();}
+document.querySelectorAll('.tab').forEach(function(t){t.addEventListener('click',function(){
+document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on');});t.classList.add('on');
+document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('on',p.id===t.dataset.t);});
+window.scrollTo({top:0,behavior:'smooth'});});});
+document.querySelectorAll('input[type=range]').forEach(function(s){s.addEventListener('input',function(){
+const o=$(s.id+'_v');if(o)o.textContent=s.dataset.fmt?nf(+s.value,+s.dataset.fmt):s.value;draw();});});
+document.querySelectorAll('input[type=radio]').forEach(function(s){s.addEventListener('change',draw);});
+function autoRec(){const r=record();if(!r)return;rows.push(r);addRow(r.cells);sync();}
+$('clrBtn').addEventListener('click',function(){if(busy)return;rows=[];document.querySelector('#tbl tbody').innerHTML='';sync();});
+
+
+function nint(f,a,b,n){n=n||8000;let s=0;const h=(b-a)/n;
+for(let i=0;i<n;i++)s+=f(a+h*(i+0.5))*h;return s;}
+function nder(f,x){const h=1e-5;return (f(x+h)-f(x-h))/(2*h);}
+
+let gr=1;
+function rv(n){var e=document.querySelector('input[name="'+n+'"]:checked');return e?e.value:null;}
+function seg(a,b,col,wd){ctx.strokeStyle=col;ctx.lineWidth=wd||2;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();}
+function arrow(a,b,col,wd){seg(a,b,col,wd);var an=Math.atan2(b[1]-a[1],b[0]-a[0]);ctx.fillStyle=col;ctx.beginPath();
+ctx.moveTo(b[0],b[1]);ctx.lineTo(b[0]-11*Math.cos(an-0.4),b[1]-11*Math.sin(an-0.4));ctx.lineTo(b[0]-11*Math.cos(an+0.4),b[1]-11*Math.sin(an+0.4));ctx.closePath();ctx.fill();}
+function panel(x,y,w,h,c){ctx.fillStyle=c||"#0f1727";ctx.fillRect(x,y,w,h);ctx.strokeStyle="#2b3550";ctx.lineWidth=1;ctx.strokeRect(x,y,w,h);}
+function ro(h){$("readout").innerHTML=h;}
+function kv(k,v2){return '<span class="k">'+k+'</span> <span class="v">'+v2+'</span>';}
+function fact(n){var r=1;for(var i=2;i<=n;i++)r*=i;return r;}
+function nPr(n,r){return fact(n)/fact(n-r);}
+function nCr(n,r){return (r<0||r>n)?0:fact(n)/(fact(r)*fact(n-r));}
+$('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior:'smooth',block:'center'});
+if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
+
+
+function f(x){return x*x;}
+function finv(y){return Math.sqrt(y);}
+function st(){var b=v('b')/4;
+var A=nint(f,0,b,4000);
+var B=nint(finv,0,f(b),4000);
+var rect=b*f(b);
+return{b:b,A:A,B:B,rect:rect,sum:A+B,
+ok:(Math.abs(A+B-rect)<1e-2)};}
+function draw(){clr();var o=st();
+var hi=Math.max(4,f(o.b)*1.2);
+var pl=plot(-0.3,Math.max(3.4,o.b*1.3),-0.3,hi,46);axes(pl,'x','y');
+ctx.strokeStyle='rgba(157,176,212,.35)';ctx.lineWidth=1.5;ctx.setLineDash([5,4]);
+ctx.beginPath();ctx.moveTo(pl.X(0),pl.Y(0));ctx.lineTo(pl.X(Math.min(3.4,hi)),pl.Y(Math.min(3.4,hi)));ctx.stroke();ctx.setLineDash([]);
+ctx.strokeStyle='rgba(255,184,107,.7)';ctx.lineWidth=2;
+ctx.strokeRect(pl.X(0),pl.Y(f(o.b)),pl.X(o.b)-pl.X(0),pl.Y(0)-pl.Y(f(o.b)));
+ctx.fillStyle='rgba(122,162,255,.3)';
+for(var x=0;x<o.b*gr;x+=0.01){
+ctx.fillRect(pl.X(x),pl.Y(f(x)),Math.max(1,pl.X(x+0.01)-pl.X(x)),pl.Y(0)-pl.Y(f(x)));}
+ctx.fillStyle='rgba(94,224,200,.3)';
+for(var y=0;y<f(o.b)*gr;y+=0.02){
+var xx=finv(y);
+ctx.fillRect(pl.X(0),pl.Y(y+0.02),pl.X(xx)-pl.X(0),Math.max(1,pl.Y(y)-pl.Y(y+0.02)));}
+ctx.strokeStyle='#7aa2ff';ctx.lineWidth=3;ctx.beginPath();
+for(var x2=0;x2<=Math.max(3.4,o.b*1.3);x2+=0.01){var py=pl.Y(f(x2));if(py<-30||py>H+30)continue;
+if(x2===0)ctx.moveTo(pl.X(x2),py);else ctx.lineTo(pl.X(x2),py);}
+ctx.stroke();
+label('y = x² (파랑 아래), x = √y (초록 왼쪽)',W/2,26,'#9db0d4',13);
+panel(24,H-118,W-48,102);
+label('∫₀^'+nf(o.b,2)+' x² dx = '+nf(o.A,5),W/2,H-92,'#7aa2ff',16);
+label('∫₀^'+nf(f(o.b),2)+' √y dy = '+nf(o.B,5),W/2,H-62,'#5ee0c8',16);
+label('합 '+nf(o.sum,5)+'   =   직사각형 '+nf(o.b,2)+' × '+nf(f(o.b),2)+' = '+nf(o.rect,5)+(o.ok?'  ✅':'  ❌'),
+W/2,H-30,o.ok?'#ffb86b':'#ff7a8a',15);
+ro(kv('∫f dx',nf(o.A,5))+' &nbsp;'+kv('∫f⁻¹ dy',nf(o.B,5))+'<br>'+
+kv('합',nf(o.sum,5))+' &nbsp;'+kv('직사각형',nf(o.rect,5)));}
+function record(){var o=st();
+return{cells:[nf(o.b,2),nf(o.A,4),nf(o.B,4),nf(o.sum,4),nf(o.rect,4),o.ok?'✅':'❌'],
+b:o.b,A:o.A,B:o.B,sum:o.sum,rect:o.rect,ok:o.ok};}
+function analyze(){var allok=rows.every(function(r){return r.ok;});
+var t='<table><thead><tr><th>b</th><th>∫f dx</th><th>∫f⁻¹ dy</th><th>합</th><th>직사각형</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+nf(r.b,2)+'</td><td>'+nf(r.A,3)+'</td><td>'+nf(r.B,3)+'</td>'+
+'<td>'+nf(r.sum,3)+'</td><td class="'+(r.ok?'ok':'no')+'">'+nf(r.rect,3)+'</td></tr>';});
+t+='</tbody></table>';
+$('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
+'<div class="card"><h4>1. 두 넓이가 직사각형을 채운다</h4>'+t+'<p class="note">'+
+(allok?'<span class="ok">모든 기록에서 합이 직사각형 넓이와 같았습니다.</span>':'')+'</p></div>'+
+'<div class="card"><h4>2. 왜 그런가</h4>'+
+'<p class="note">f 와 f⁻¹ 는 <b>y = x 에 대해 대칭</b>이라, 두 영역이 겹치지 않으면서 직사각형을 정확히 나눕니다.</p>'+
+'<p class="note">∫₀ᵇ f dx + ∫₀^f(b) f⁻¹ dy = b · f(b) — 한쪽이 구하기 어려우면 <b>다른 쪽에서 빼서</b> 구할 수 있습니다.</p>'+
+'<p class="note">y 로 적분하는 것은 그래프를 옆으로 눕혀 보는 것입니다. 영역이 y 방향으로 단순하면 훨씬 쉬워집니다.</p></div></div>';}
+
+
+draw();sync();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>

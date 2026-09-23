@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>aX + b 실험실 — 더하기는 흩어짐을 바꾸지 않는다</title>
+<style>
+:root{--bg:#0e1420;--pan:#151d2d;--pan2:#1b2436;--line:#2b3550;--tx:#e9eefb;--mut:#9db0d4;--ac:#5ee0c8;--ac2:#7aa2ff;--warn:#ffb86b;--bad:#ff7a8a}
+*{box-sizing:border-box}
+html{font-size:18px}
+@media(max-width:760px){html{font-size:17px}}
+@media(max-width:420px){html{font-size:16px}}
+body{margin:0;color:var(--tx);font-family:'Pretendard','Noto Sans KR',system-ui,-apple-system,sans-serif;font-size:1rem;line-height:1.6;
+background-color:var(--bg);
+background-image:radial-gradient(circle at 1px 1px,rgba(150,180,255,.16) 1.1px,transparent 1.2px);
+background-size:22px 22px}
+.wrap{width:97%;max-width:1840px;margin:0 auto;padding:1.1rem 0 3rem}
+h1{font-size:1.5rem;margin:.1rem 0 .35rem;letter-spacing:-.01em}
+.sub{color:var(--mut);margin:0 0 1.1rem;font-size:.95rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab{font-size:1rem;font-weight:700;padding:.65rem 1.1rem;border-radius:12px 12px 0 0;border:1px solid var(--line);border-bottom:none;
+background:#131a29;color:var(--mut);cursor:pointer;transition:background .15s,color .15s,transform .1s}
+.tab:hover{background:#1c2740;color:var(--tx)}
+.tab:active{transform:translateY(2px)}
+.tab.on{background:var(--pan);color:var(--tx);box-shadow:inset 0 3px 0 var(--ac)}
+.panel{display:none;background:var(--pan);border:1px solid var(--line);border-radius:0 14px 14px 14px;padding:1.1rem}
+.panel.on{display:block}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) minmax(0,1fr);gap:1.2rem;align-items:start}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.viz{background:#0c1220;border:1px solid var(--line);border-radius:14px;padding:.6rem}
+canvas{width:100%;height:auto;display:block;border-radius:10px}
+.side{display:flex;flex-direction:column;gap:.85rem;min-width:0}
+.ctl{background:var(--pan2);border:1px solid var(--line);border-radius:12px;padding:.6rem .8rem .3rem}
+.ctl label{display:block;font-size:.95rem;color:var(--mut);margin-bottom:.1rem}
+.ctl label b{color:var(--ac);font-variant-numeric:tabular-nums}
+.row{display:flex;gap:.6rem;flex-wrap:wrap}
+.row>*{flex:1 1 auto}
+.pick{background:var(--pan2);border:1px solid var(--line);border-radius:12px;padding:.6rem .8rem;font-size:.95rem;color:var(--mut)}
+.pick span{color:var(--tx)}
+.pick label{display:inline-flex;align-items:center;gap:.35rem;margin-right:.9rem;cursor:pointer;color:var(--tx)}
+.pick input{width:20px;height:20px;accent-color:var(--ac2);cursor:pointer}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;touch-action:manipulation;cursor:pointer;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:10px;border-radius:6px;background:linear-gradient(90deg,#3d5cab,#2a3450)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;margin-top:-7px;border-radius:50%;background:#fff;border:3px solid var(--ac2);transition:transform .12s,box-shadow .12s}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.14);box-shadow:0 0 0 7px rgba(122,162,255,.22)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.22);box-shadow:0 0 0 9px rgba(122,162,255,.3)}
+input[type=range]::-moz-range-track{height:10px;border-radius:6px;background:#2a3450}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border:3px solid var(--ac2);border-radius:50%;background:#fff}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btn{font-size:1rem;font-weight:700;padding:.72rem 1rem;border-radius:12px;border:1px solid var(--line);background:#22304d;color:var(--tx);
+cursor:pointer;transition:filter .15s,transform .09s,background .15s}
+.btn:hover{filter:brightness(1.3)}
+.btn:active{transform:translateY(2px) scale(.985)}
+.btn:disabled{opacity:.42;cursor:not-allowed;filter:none;transform:none}
+.btn.go{background:#1f4a63;border-color:#2f6f92}
+.btn.rec{background:#1f4d43;border-color:#2d7a68}
+.btn.clr{background:#3a2431;border-color:#5c3448;flex:0 0 auto}
+.readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
+.readout .k{color:var(--mut)}
+.readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
+th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
+thead th{position:sticky;top:0;background:#1d2740;color:var(--mut);z-index:2}
+tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
+.need{background:#2a2033;border:1px solid #4a3350;border-radius:12px;padding:1.1rem;color:var(--warn);font-weight:700}
+.analysis h3{font-size:1.15rem;margin:.2rem 0 .6rem}
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
+@media(max-width:900px){.vgrid{grid-template-columns:1fr}}
+.card{background:var(--pan2);border:1px solid var(--line);border-radius:12px;padding:.9rem}
+.card h4{margin:.1rem 0 .5rem;font-size:1rem;color:var(--ac2)}
+.ok{color:var(--ac);font-weight:700}
+.no{color:var(--bad);font-weight:700}
+.note{color:var(--mut);font-size:.93rem;margin-top:.5rem}
+.big{font-size:1.15rem;font-weight:700}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>aX + b 실험실 — 더하기는 흩어짐을 바꾸지 않는다</h1>
+<p class="sub">a 와 b 를 바꿔 가며 평균과 분산이 각각 어떻게 변하는지 재어 공식과 대조합니다.</p>
+<div class="tabs">
+<button class="tab on" data-t="explore">🔬 자유 탐구</button>
+<button class="tab" data-t="verify">✅ 데이터 검증</button>
+</div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — E(aX+b) = aE(X)+b, V(aX+b) = a²V(X) — b 는 분산에 영향이 없다</h3>
+<p>b 를 더하면 값들이 <b>통째로 옮겨질 뿐</b> 서로의 간격은 그대로라 분산이 변하지 않아요. a 를 곱하면 간격이 a배가 되고, 분산은 제곱이라 <b>a²배</b>가 됩니다. 표준편차는 |a|배입니다.</p>
+<h3>⚙️ 왜 그럴까</h3>
+<ul>
+<li>편차 (aX+b) − (am+b) = a(X − m) — b 가 사라집니다.</li>
+<li>제곱하면 a²(X−m)² 이라 분산이 a²배.</li>
+<li>a 가 음수여도 제곱하면 양수라 분산은 <b>음수가 되지 않습니다</b>. 다만 |a| &lt; 1 이면 a² &lt; 1 이라 분산은 오히려 <b>줄어듭니다</b>.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>a, b를 바꿔 변환한 분포의 평균과 분산을 직접 계산하고 공식과 비교</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· “V(aX+b) = aV(X) + b” → b 는 사라지고 a 는 제곱됩니다.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>섭씨를 화씨로 바꾸면 평균은 변환되지만 흔들림의 폭은 1.8배만 커집니다.</li></ul>
+</div>
+</section>
+
+<section id="explore" class="panel on">
+  <div class="grid">
+    <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="aX + b 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
+    <div class="side">
+      <div class="ctl"><label for="a">a (×0.5) <b><span id="a_v">4.0</span></b></label><input type="range" id="a" min="-6" max="8" step="1" value="4" data-fmt="1"></div><div class="ctl"><label for="b">b <b><span id="b_v">3</span></b></label><input type="range" id="b" min="-6" max="8" step="1" value="3"></div><div class="row"><button class="btn go" id="goBtn">📏 늘이고 옮겨 보기</button></div>
+      <div class="readout" id="readout"></div>
+      <div class="row">
+        <button class="btn clr" id="clrBtn">표 비우기</button>
+      </div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>a</th><th>b</th><th>E(aX+b)</th><th>aE(X)+b</th><th>V(aX+b)</th><th>a²V(X)</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+<section id="verify" class="panel">
+  <div class="need" id="need">데이터 부족 — 자유 탐구 탭에서 <b>4개 이상</b> 기록하면 분석이 열립니다. (현재 <span id="cnt">0</span>개)</div>
+  <div class="analysis" id="analysis" style="display:none"></div>
+</section>
+</div>
+<script>
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
+const $=i=>document.getElementById(i);
+let rows=[],busy=false;
+function nf(n,d){if(d===undefined)d=2;if(!isFinite(n))return'-';let s=(+n).toFixed(d);if(s.indexOf('.')>=0){s=s.replace(/0+$/,'').replace(/\.$/,'');}return s==='-0'?'0':s;}
+function v(id){return parseFloat($(id).value);}
+function trim(c){let i=0;while(i<c.length-1&&Math.abs(c[i])<1e-12)i++;return c.slice(i);}
+function deg(c){c=trim(c);return(c.length===1&&Math.abs(c[0])<1e-12)?-1:c.length-1;}
+function sup(p){return String(p).replace(/[0-9]/g,function(d){return'⁰¹²³⁴⁵⁶⁷⁸⁹'[+d];});}
+function polyStr(c){c=trim(c);const n=c.length-1;let s='';for(let i=0;i<c.length;i++){const k=c[i],p=n-i;if(Math.abs(k)<1e-12)continue;const sg=k<0?(s?' - ':'-'):(s?' + ':'');const a=Math.abs(k);let t=(Math.abs(a-1)<1e-12&&p>0)?'':nf(a,3);if(p>1)t+='x'+sup(p);else if(p===1)t+='x';s+=sg+t;}return s||'0';}
+function ev(c,x){let r=0;for(let i=0;i<c.length;i++)r=r*x+c[i];return r;}
+function polyDiv(A,B){A=A.slice();B=trim(B);const dq=A.length-B.length;if(dq<0)return{Q:[0],R:A,steps:[]};const Q=[],steps=[];
+for(let i=0;i<=dq;i++){const c=A[i]/B[0];Q.push(c);const sub=new Array(A.length).fill(0);for(let j=0;j<B.length;j++){A[i+j]-=c*B[j];sub[i+j]=c*B[j];}
+steps.push({term:c,pow:dq-i,sub:sub.slice(),rem:A.slice()});}
+return{Q:Q,R:A.slice(dq+1),steps:steps};}
+function cstr(re,im,d){if(d===undefined)d=3;const r=Math.abs(re)<1e-9?0:re,m=Math.abs(im)<1e-9?0:im;
+if(m===0)return nf(r,d);if(r===0)return(m===1?'':(m===-1?'-':nf(m,d)))+'i';
+return nf(r,d)+(m>0?' + ':' - ')+(Math.abs(m)===1?'':nf(Math.abs(m),d))+'i';}
+function anim(ms,step){return new Promise(function(res){const t0=performance.now();function f(t){const p=Math.min(1,(t-t0)/ms);step(p);if(p<1)requestAnimationFrame(f);else res();}requestAnimationFrame(f);});}
+function lock(b){busy=b;document.querySelectorAll('#explore input,#explore button').forEach(function(e){e.disabled=b;});}
+function clr(bg){ctx.fillStyle=bg||'#0c1220';ctx.fillRect(0,0,W,H);}
+function plot(xmin,xmax,ymin,ymax,pad){pad=pad||42;
+return{X:function(x){return pad+(x-xmin)/(xmax-xmin)*(W-2*pad);},Y:function(y){return H-pad-(y-ymin)/(ymax-ymin)*(H-2*pad);},xmin:xmin,xmax:xmax,ymin:ymin,ymax:ymax};}
+function axes(p,xlab,ylab){ctx.strokeStyle='#22304d';ctx.lineWidth=1;ctx.font='13px sans-serif';ctx.fillStyle='#7f92b8';ctx.textAlign='center';ctx.textBaseline='middle';
+for(let x=Math.ceil(p.xmin);x<=p.xmax;x++){const px=p.X(x);ctx.beginPath();ctx.moveTo(px,p.Y(p.ymin));ctx.lineTo(px,p.Y(p.ymax));ctx.stroke();}
+for(let y=Math.ceil(p.ymin);y<=p.ymax;y++){const py=p.Y(y);ctx.beginPath();ctx.moveTo(p.X(p.xmin),py);ctx.lineTo(p.X(p.xmax),py);ctx.stroke();}
+ctx.strokeStyle='#6d80a8';ctx.lineWidth=2;
+ctx.beginPath();ctx.moveTo(p.X(p.xmin),p.Y(0));ctx.lineTo(p.X(p.xmax),p.Y(0));ctx.stroke();
+ctx.beginPath();ctx.moveTo(p.X(0),p.Y(p.ymin));ctx.lineTo(p.X(0),p.Y(p.ymax));ctx.stroke();
+ctx.fillStyle='#9db0d4';ctx.font='bold 14px sans-serif';
+if(xlab)ctx.fillText(xlab,W-22,p.Y(0)-14);
+if(ylab)ctx.fillText(ylab,p.X(0)+18,18);}
+function dot(x,y,r,col){ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();}
+function label(t,x,y,col,size,align){ctx.fillStyle=col||'#e9eefb';ctx.font=(size||14)+'px sans-serif';ctx.textAlign=align||'center';ctx.textBaseline='middle';ctx.fillText(t,x,y);}
+function addRow(cells){const tb=document.querySelector('#tbl tbody');const tr=document.createElement('tr');
+let h='<td>'+rows.length+'</td>';for(let i=0;i<cells.length;i++)h+='<td>'+cells[i]+'</td>';tr.innerHTML=h;tb.appendChild(tr);
+tb.parentElement.parentElement.scrollTop=tb.parentElement.parentElement.scrollHeight;}
+function sync(){$('cnt').textContent=rows.length;const ok=rows.length>=4;
+$('need').style.display=ok?'none':'block';$('analysis').style.display=ok?'block':'none';if(ok)analyze();}
+document.querySelectorAll('.tab').forEach(function(t){t.addEventListener('click',function(){
+document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on');});t.classList.add('on');
+document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('on',p.id===t.dataset.t);});
+window.scrollTo({top:0,behavior:'smooth'});});});
+document.querySelectorAll('input[type=range]').forEach(function(s){s.addEventListener('input',function(){
+const o=$(s.id+'_v');if(o)o.textContent=s.dataset.fmt?nf(+s.value,+s.dataset.fmt):s.value;draw();});});
+document.querySelectorAll('input[type=radio]').forEach(function(s){s.addEventListener('change',draw);});
+function autoRec(){const r=record();if(!r)return;rows.push(r);addRow(r.cells);sync();}
+$('clrBtn').addEventListener('click',function(){if(busy)return;rows=[];document.querySelector('#tbl tbody').innerHTML='';sync();});
+
+
+function nint(f,a,b,n){n=n||8000;let s=0;const h=(b-a)/n;
+for(let i=0;i<n;i++)s+=f(a+h*(i+0.5))*h;return s;}
+function nder(f,x){const h=1e-5;return (f(x+h)-f(x-h))/(2*h);}
+
+let gr=1;
+function rv(n){var e=document.querySelector('input[name="'+n+'"]:checked');return e?e.value:null;}
+function seg(a,b,col,wd){ctx.strokeStyle=col;ctx.lineWidth=wd||2;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();}
+function arrow(a,b,col,wd){seg(a,b,col,wd);var an=Math.atan2(b[1]-a[1],b[0]-a[0]);ctx.fillStyle=col;ctx.beginPath();
+ctx.moveTo(b[0],b[1]);ctx.lineTo(b[0]-11*Math.cos(an-0.4),b[1]-11*Math.sin(an-0.4));ctx.lineTo(b[0]-11*Math.cos(an+0.4),b[1]-11*Math.sin(an+0.4));ctx.closePath();ctx.fill();}
+function panel(x,y,w,h,c){ctx.fillStyle=c||"#0f1727";ctx.fillRect(x,y,w,h);ctx.strokeStyle="#2b3550";ctx.lineWidth=1;ctx.strokeRect(x,y,w,h);}
+function ro(h){$("readout").innerHTML=h;}
+function kv(k,v2){return '<span class="k">'+k+'</span> <span class="v">'+v2+'</span>';}
+function fact(n){var r=1;for(var i=2;i<=n;i++)r*=i;return r;}
+function nPr(n,r){return fact(n)/fact(n-r);}
+function nCr(n,r){return (r<0||r>n)?0:fact(n)/(fact(r)*fact(n-r));}
+$('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior:'smooth',block:'center'});
+if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
+
+
+var XS=[1,3,6],PS=[0.3,0.3,0.4];
+function st(){var a=v('a')/2,b=v('b');
+var m=0,ex2=0;
+for(var i=0;i<3;i++){m+=XS[i]*PS[i];ex2+=XS[i]*XS[i]*PS[i];}
+var vx=ex2-m*m;
+var ys=XS.map(function(x){return a*x+b;});
+var m2=0,e2=0;
+for(var j=0;j<3;j++){m2+=ys[j]*PS[j];e2+=ys[j]*ys[j]*PS[j];}
+var v2=e2-m2*m2;
+return{a:a,b:b,m:m,vx:vx,ys:ys,m2:m2,v2:v2,
+predM:a*m+b,predV:a*a*vx,
+okM:(Math.abs(m2-(a*m+b))<1e-9),okV:(Math.abs(v2-a*a*vx)<1e-9),
+wrongV:a*vx+b};}
+function draw(){clr();var o=st();
+var BX=40,BW=W-80;
+function axis(y,vals,col,lab2,m2v){
+ctx.strokeStyle='#6d80a8';ctx.lineWidth=2;
+ctx.beginPath();ctx.moveTo(BX,y);ctx.lineTo(BX+BW,y);ctx.stroke();
+var lo=-12,hi=22;
+var xm=function(x){return BX+BW*(x-lo)/(hi-lo);};
+vals.forEach(function(x,i){dot(xm(x),y,7,col);
+label(nf(x,1),xm(x),y-16,col,11);});
+ctx.strokeStyle='#ff7a8a';ctx.lineWidth=2;
+ctx.beginPath();ctx.moveTo(xm(m2v),y-16);ctx.lineTo(xm(m2v),y+16);ctx.stroke();
+label(lab2,BX,y-32,'#9db0d4',13,'left');}
+axis(110,XS,'#7aa2ff','원래 X',o.m);
+if(gr>0.4)axis(210,o.ys,'#5ee0c8','변환 '+nf(o.a,1)+'X + '+o.b,o.m2);
+label('빨간 선 = 평균',W-30,80,'#ff7a8a',12,'right');
+panel(24,252,W-48,80);
+label('평균  E(aX+b) = '+nf(o.m2,4),W/2,282,'#5ee0c8',17);
+label('aE(X) + b = '+nf(o.a,1)+'×'+nf(o.m,2)+' + '+o.b+' = '+nf(o.predM,4)+(o.okM?'  ✅':'  ❌'),
+W/2,314,o.okM?'#5ee0c8':'#ff7a8a',15);
+panel(24,340,W-48,80);
+label('분산  V(aX+b) = '+nf(o.v2,4),W/2,370,'#ffb86b',17);
+label('a²V(X) = '+nf(o.a*o.a,2)+'×'+nf(o.vx,3)+' = '+nf(o.predV,4)+(o.okV?'  ✅':'  ❌')+
+'     aV(X)+b = '+nf(o.wrongV,3)+' ✗',W/2,402,o.okV?'#5ee0c8':'#ff7a8a',13);
+ro(kv('E(X)',nf(o.m,3))+' &nbsp;'+kv('V(X)',nf(o.vx,3))+'<br>'+
+kv('E(aX+b)',nf(o.m2,4))+' &nbsp;'+kv('V(aX+b)',nf(o.v2,4))+' &nbsp;'+kv('a²V(X)',nf(o.predV,4)));}
+function record(){var o=st();
+return{cells:[nf(o.a,1),o.b,nf(o.m2,4),nf(o.predM,4),nf(o.v2,4),nf(o.predV,4)],
+a:o.a,b:o.b,m2:o.m2,v2:o.v2,predV:o.predV,wrongV:o.wrongV,
+okM:o.okM,okV:o.okV};}
+function analyze(){var okM=rows.every(function(r){return r.okM;});
+var okV=rows.every(function(r){return r.okV;});
+var bOnly=rows.filter(function(r){return Math.abs(r.a-1)<1e-9;});
+var t='<table><thead><tr><th>a</th><th>b</th><th>V(aX+b)</th><th>a²V(X)</th><th>aV(X)+b</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+nf(r.a,1)+'</td><td>'+r.b+'</td><td><b>'+nf(r.v2,3)+'</b></td>'+
+'<td class="'+(r.okV?'ok':'no')+'">'+nf(r.predV,3)+'</td><td class="no">'+nf(r.wrongV,3)+'</td></tr>';});
+t+='</tbody></table>';
+$('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
+'<div class="card"><h4>1. 공식이 맞는다</h4>'+t+'<p class="note">'+
+(okM?'<span class="ok">평균은 언제나 aE(X)+b</span>, ':'')+(okV?'<span class="ok">분산은 언제나 a²V(X)</span> 였습니다.':'')+
+' aV(X)+b 는 한 번도 맞지 않았습니다.</p></div>'+
+'<div class="card"><h4>2. b 는 왜 사라지나</h4>'+
+'<p class="note">b 를 더하면 값들이 <b>통째로 옮겨질 뿐</b> 서로의 간격은 그대로입니다. 편차 (aX+b) − (am+b) = a(X−m) 에서 b 가 지워집니다.</p>'+
+'<p class="note">'+(bOnly.length?'a = 1 로 두고 b 만 바꾼 기록에서 분산이 변하지 않는 것을 볼 수 있습니다.':'a 를 1.0 으로 두고 b 만 바꿔 보세요 — 분산이 그대로입니다.')+'</p>'+
+'<p class="note">a 는 간격을 a배로 늘리고, 분산은 편차의 <b>제곱</b>이라 a²배가 됩니다. 표준편차는 |a|배입니다 — a 가 음수여도 흩어짐은 줄지 않습니다.</p></div></div>';}
+
+
+draw();sync();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+</body>
+</html>
