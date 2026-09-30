@@ -1,7 +1,7 @@
 /* fesics 실험 공통 효과음 (fxSound)
  * - 소리 파일 없이 Web Audio로 짧은 효과음을 합성한다.
  * - 버튼·슬라이더·탭·선택 조작, 기록표에 줄이 추가될 때(✅/❌ 포함 여부 반영) 소리를 낸다.
- * - 왼쪽 아래 🔊 버튼으로 켜고 끈다(브라우저에 기억, 기본값 켜짐).
+ * - 오른쪽 위 🔊 버튼으로 켜고 끈다(브라우저에 기억, 기본값 켜짐).
  * - 실험 HTML에서는 <script src="../fxsound.js" defer></script> 한 줄로 불러온다.
  */
 (function () {
@@ -131,8 +131,8 @@
     var b = document.createElement('button');
     b.type = 'button'; b.id = 'fxSoundBtn';
     b.setAttribute('aria-label', '효과음 켜기/끄기');
-    b.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:2147483000;width:34px;height:34px;border-radius:50%;' +
-      'border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.85);font-size:16px;line-height:1;cursor:pointer;' +
+    b.style.cssText = 'position:fixed;right:8px;top:8px;z-index:2147483000;width:30px;height:30px;border-radius:50%;' +
+      'border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.85);font-size:14px;line-height:1;cursor:pointer;' +
       'box-shadow:0 1px 4px rgba(0,0,0,.15);padding:0;opacity:.75';
     function paint() { b.textContent = on ? '🔊' : '🔇'; b.title = on ? '효과음 끄기' : '효과음 켜기'; }
     paint();
