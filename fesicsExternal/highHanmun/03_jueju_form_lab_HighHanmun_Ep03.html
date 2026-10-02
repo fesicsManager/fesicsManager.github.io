@@ -231,7 +231,7 @@ tbody tr:hover{background:#F5F8FB}
 <li><b>글자 수의 제약</b>: 오언절구는 20자. 버릴 것을 정해야 하고, 버린 자리가 여백이 됩니다.</li>
 </ul>
 <h3>🧮 이 실험의 점검 방법</h3>
-<p><span class="fx-formula">형식 유지 점수 = 전환 자리 + 압운 + 20자 압축 + 결구의 여백 (각 1점)</span></p>
+<p><span class="fx-formula">형식 유지 점수 = 전환 자리 + 압운 + 20자 압축 + 결구의 여백 (각 1점, 압운은 운자 자리마다 나눠 셈)</span></p>
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
 · 평측(글자 소리의 높낮이 배치)은 이 실험에서 다루지 않았습니다.<br>
 · 「등관작루」는 일반적으로 왕지환의 작품으로, 「춘효」는 맹호연의 작품으로 알려져 있어요.</div>
@@ -487,11 +487,11 @@ var LAB = (function anonymous(
         compute: function(p){
           var po = PO[p.s], o = ORD[p.m];
           var turn = o[2] === 2 ? 1 : 0;
-          var rhyme = po.rh.every(function(pos){ return po.rh.indexOf(o[pos]) >= 0; }) && p.m < 3 ? 1 : 0;
-          if (p.m === 3) rhyme = 0;
+          var rn = po.rh.length, rk = po.rh.filter(function(pos){ var prose = p.m === 4 || (p.m === 3 && pos === 3); return !prose && po.rh.indexOf(o[pos]) >= 0; }).length;
+          var rhyme = rk / rn;
           var cnt = p.m === 4 ? po.L.reduce(function(s, l){ return s + l.g.replace(/ /g, '').length; }, 0) : p.m === 3 ? 15 + po.ex.replace(/ /g, '').length : 20;
           var comp = cnt === 20 ? 1 : 0, gap = (p.m === 3) ? 0 : 1;
-          return {po:po, o:o, ck:[turn, rhyme, comp, gap], sc:turn + rhyme + comp + gap, cnt:cnt};
+          return {po:po, o:o, ck:[turn, rhyme, comp, gap], sc:turn + rhyme + comp + gap, cnt:cnt, rk:rk, rn:rn};
         },
         draw: function(c, W, H, p, r, tau){
           var po = PO[p.s], o = r ? r.o : ORD[0], k = r ? ease(tau / 0.5) : 0, lh = (H - 120) / 4, cs = Math.min(30, (W - 120) / 5.5);
@@ -517,22 +517,22 @@ var LAB = (function anonymous(
           if (r && tau > 0.6){
             var bw = (W - 32) / 4, by = H - 70;
             for (var q = 0; q < 4; q++){
-              var ok = r.ck[q];
-              rbox(c, 16 + q * bw + 3, by, bw - 6, 56, ok ? '#E2F4EC' : '#FBE7E5', ok ? PAL[1] : PAL[4], 2);
+              var ok = r.ck[q], part = ok > 0 && ok < 1, okc = part ? PAL[6] : ok ? PAL[1] : PAL[4];
+              rbox(c, 16 + q * bw + 3, by, bw - 6, 56, part ? '#FBF1E3' : ok ? '#E2F4EC' : '#FBE7E5', okc, 2);
               T(c, CK[q], 16 + q * bw + bw / 2, by + 22, {size:13, align:'center', color:'#4A5868', max:bw - 10});
-              T(c, ok ? '유지' : '무너짐', 16 + q * bw + bw / 2, by + 46, {size:16, bold:true, align:'center', color:ok ? PAL[1] : PAL[4]});
+              T(c, part ? '일부 ' + r.rk + '/' + r.rn : ok ? '유지' : '무너짐', 16 + q * bw + bw / 2, by + 46, {size:16, bold:true, align:'center', color:okc});
             }
           }
         },
         stats: function(p, r){
-          var lost = CK.filter(function(x, i){ return !r.ck[i]; });
+          var lost = CK.map(function(x, i){ return r.ck[i] >= 1 ? '' : r.ck[i] > 0 ? x + ' 일부(운자 ' + (r.rn - r.rk) + '곳)' : x; }).filter(function(x){ return x; });
           return [['시', r.po.t + ' (' + r.po.a + ')'], ['바꾼 형식', MD[p.m], PAL[0]],
-            ['형식 유지 점수', r.sc + ' / 4', r.sc === 4 ? PAL[1] : r.sc >= 2 ? PAL[6] : PAL[4]],
+            ['형식 유지 점수', f(r.sc, r.sc % 1 ? 1 : 0) + ' / 4', r.sc === 4 ? PAL[1] : r.sc >= 2 ? PAL[6] : PAL[4]],
             ['무너진 장치', lost.length ? lost.join(', ') : '없음', PAL[4]], ['글자 수', r.cnt + '자' + (r.cnt > 20 ? ' — 설명이 늘고 여백이 줄어듦' : '')]];
         },
         columns: ['시', '형식', '전환', '압운', '압축', '여백', '점수'],
         record: function(p, r){ return {s:p.s, m:p.m, ck:r.ck, sc:r.sc}; },
-        row: function(d){ var o = function(v){ return v ? '○' : '✕'; }; return [PO[d.s].t.split(' ')[1], MD[d.m], o(d.ck[0]), o(d.ck[1]), o(d.ck[2]), o(d.ck[3]), d.sc + ' / 4']; },
+        row: function(d){ var o = function(v){ return v >= 1 ? '○' : v > 0 ? '△' : '✕'; }; return [PO[d.s].t.split(' ')[1], MD[d.m], o(d.ck[0]), o(d.ck[1]), o(d.ck[2]), o(d.ck[3]), f(d.sc, d.sc % 1 ? 1 : 0) + ' / 4']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('형식 바꾸기별 유지 점수', '<div id="hh3a"></div><p class="ask">가장 많은 장치를 무너뜨린 조작은 무엇이었나요? "결구를 설명문으로" 바꾸면 독자가 할 일이 어떻게 달라지나요?</p>') +
