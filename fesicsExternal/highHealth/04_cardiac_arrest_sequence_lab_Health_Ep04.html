@@ -440,9 +440,9 @@ var LAB = (function(){
       function plan(p){
         var callT = p.c === 2 ? 1 : p.c === 1 ? 4 : null;
         var emsT = callT === null ? null : callT + 8;
-        var aedT = p.a === 0 && p.c > 0 ? (p.c === 2 ? 4 : 7) : null;
+        var aedT = p.a === 0 && p.c > 0 && p.k !== 2 ? (p.c === 2 ? 4 : 7) : null; /* 업고 이동하면 현장으로 오는 AED를 만나지 못함 */
         if (aedT !== null && emsT !== null && aedT > emsT) aedT = emsT;
-        var end = 20, cprStart = p.k === 0 ? 1.5 : emsT === null ? null : emsT;
+        var end = 20, cprStart = p.k === 0 ? 1.5 : p.k === 1 && emsT !== null ? emsT : null; /* 이동: 옮기는 동안 압박 불가, 구급대와도 현장에서 만나지 못함 */
         var segs = [], t = 0;
         if (cprStart === null){ segs.push({a:0, b:end, on:false}); }
         else { segs.push({a:0, b:cprStart, on:false}); segs.push({a:cprStart, b:end, on:true}); }
@@ -462,7 +462,7 @@ var LAB = (function(){
             note:'현장이 안전하다면 망설임이 가장 큰 장애물입니다. 실제 방법은 최신 지침에 따른 실습 교육으로 익히세요.'}
         ],
         compute: function(p){
-          var o = plan(p), risk = o.callT === null ? 3 : o.noflow <= 2 ? 0 : o.noflow <= 8 ? 1 : 2;
+          var o = plan(p), risk = o.callT === null ? 3 : p.k === 0 ? 0 : p.k === 1 ? 1 : 2; /* 신고 없음 > 이동 > 기다림 > 즉시 압박 */
           o.risk = risk; o.score = o.done.reduce(function(s, x){ return s + x; }, 0);
           return o;
         },
@@ -475,10 +475,10 @@ var LAB = (function(){
             o.segs.forEach(function(s){ var b = Math.min(s.b, upto); if (b <= s.a) return; c.fillStyle = s.on ? PAL[1] : PAL[4]; c.fillRect(X(s.a), y0, X(b) - X(s.a), 30); });
             var marks = [];
             if (o.callT !== null) marks.push([o.callT, '신고']);
-            if (o.emsT !== null) marks.push([o.emsT, '구급대']);
+            if (o.emsT !== null && p.k !== 2) marks.push([o.emsT, '구급대']);
             if (o.aedT !== null) marks.push([o.aedT, '⚡AED']);
             marks.forEach(function(m, j){ if (m[0] > upto) return; seg(c, X(m[0]), y0 - 4, X(m[0]), y0 + 38 + j * 22, '#1E2833', 2); tfit(c, m[1], X(m[0]) + 4, y0 + 52 + j * 22, {bold:true}); });
-            if (p.k === 2 && k > 0.2) tfit(c, '이동 중에는 압박이 끊겨요', x0, y0 + 124, {color:PAL[4], bold:true});
+            if (p.k === 2 && k > 0.2) tfit(c, '이동 중에는 압박을 못 하고, 구급대·AED와도 현장에서 엇갈려요', x0, y0 + 124, {color:PAL[4], bold:true});
             if (p.c === 1 && k > 0.2) tfit(c, '모두 "누군가 하겠지" — 신고 지연', x0, y0 + 124 + (p.k === 2 ? 26 : 0), {color:PAL[6], bold:true});
             if (p.c === 0 && k > 0.2) tfit(c, '신고가 없어 구급대가 오지 않아요', x0, y0 + 124 + (p.k === 2 ? 26 : 0), {color:PAL[4], bold:true});
           }
@@ -492,11 +492,11 @@ var LAB = (function(){
           if (!r) tfit(c, '선택을 마치고 실행하세요', 20, H - 16, {color:'#4A5868'});
         },
         stats: function(p, r){
-          var RK = ['짧음 — 목격자가 바로 압박을 시작함', '김 — 구급대가 올 때까지 혈류가 끊김', '매우 김 — 압박이나 신고가 이루어지지 않음', '매우 위험 — 119 신고 없음: 구급대가 오지 않아요. 압박만으로는 자동심장충격기·전문 처치까지 이어지지 않음'];
+          var RK = ['짧음 — 목격자가 바로 압박을 시작함', '김 — 신고는 했지만 구급대가 올 때까지 가슴압박이 없어 혈류가 끊김', '매우 김 — 업고 옮기는 동안 가슴압박을 할 수 없고, 현장으로 오는 구급대·자동심장충격기와도 엇갈려 혈류가 계속 끊김', '매우 위험 — 119 신고 없음: 구급대가 오지 않아요. 압박만으로는 자동심장충격기·전문 처치까지 이어지지 않음'];
           return [['선택', CALL[p.c].name + ' · ' + CPR[p.k].name + ' · ' + AED[p.a]],
-            ['119 신고 시점 (가상)', r.callT === null ? '신고 없음' : f(r.callT, 0) + '분'], ['구급대 도착 (가상)', r.emsT === null ? '오지 않음' : f(r.emsT, 0) + '분'],
+            ['119 신고 시점 (가상)', r.callT === null ? '신고 없음' : f(r.callT, 0) + '분'], ['구급대 도착 (가상)', r.emsT === null ? '오지 않음' : f(r.emsT, 0) + '분' + (p.k === 2 ? ' — 현장에 왔지만 이미 떠나 만나지 못함' : '')],
             ['압박 없는 시간 (가상)', r.noflow >= r.end ? r.end + '분 이상' : f(r.noflow, 1) + '분', [PAL[1], PAL[6], PAL[4], PAL[4]][r.risk]],
-            ['자동심장충격기 사용 (가상)', r.aedT === null ? (r.emsT === null ? '없음' : '구급대 도착 후') : f(r.aedT, 0) + '분'],
+            ['자동심장충격기 사용 (가상)', r.aedT === null ? (p.k === 2 ? '없음 — 이동 중이라 쓸 수 없음' : r.emsT === null ? '없음' : '구급대 도착 후') : f(r.aedT, 0) + '분'],
             ['평가', RK[r.risk], [PAL[1], PAL[6], PAL[4], PAL[4]][r.risk]], ['절차 수행', f(r.score, 1) + ' / 7단계' + (r.callT === null ? ' — 신고가 빠져 구급대까지 이어지지 못함' : ''), r.callT === null ? PAL[4] : undefined]];
         },
         columns: ['도움 요청', '가슴압박', 'AED', '압박 없는 시간(가상)', '절차'],
@@ -509,7 +509,7 @@ var LAB = (function(){
           var seen = {}; rec.forEach(function(d){ seen[d.c + '_' + d.k + '_' + d.a] = d; });
           var ks = Object.keys(seen).sort(function(a, b){ return (seen[a].c === 0 ? 100 : 0) + seen[a].nf - (seen[b].c === 0 ? 100 : 0) - seen[b].nf; });
           $('hh4a').innerHTML = hbars(ks.map(function(key){ var d = seen[key];
-            return {label:['안 함', '"누가"', '지목'][d.c] + ' · ' + ['즉시', '기다림', '이동'][d.k] + ' · AED ' + (d.a === 0 ? '요청' : '안 함'), v:Math.min(d.nf, d.end), color:d.c === 0 || d.nf > 8 ? PAL[4] : d.nf <= 2 ? PAL[1] : PAL[6], text:(d.nf >= d.end ? d.end + '분+' : f(d.nf, 1) + '분') + (d.c === 0 ? ' · 119 신고 없음' : '')}; }), 20);
+            return {label:['안 함', '"누가"', '지목'][d.c] + ' · ' + ['즉시', '기다림', '이동'][d.k] + ' · AED ' + (d.a === 0 ? '요청' : '안 함'), v:Math.min(d.nf, d.end), color:d.c === 0 || d.k === 2 ? PAL[4] : d.k === 0 ? PAL[1] : PAL[6], text:(d.nf >= d.end ? d.end + '분+' : f(d.nf, 1) + '분') + (d.c === 0 ? ' · 119 신고 없음' : '')}; }), 20);
           $('hh4b').innerHTML = tableHTML(['순서', '할 일'], STEPS.map(function(s, i){ return [i + 1, s]; }));
         }
       };

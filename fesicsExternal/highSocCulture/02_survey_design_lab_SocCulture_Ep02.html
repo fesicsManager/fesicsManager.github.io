@@ -232,7 +232,7 @@ tbody tr:hover{background:#F5F8FB}
 <li><b>문항 순서</b>: 앞 문항이 틀을 만들어 뒤 문항 응답을 옮깁니다.</li>
 <li><b>응답 척도</b>: 5점(중립 있음) vs 4점(중립 없음) — 중립층을 어느 쪽으로든 강제로 배분합니다.</li>
 <li><b>표본 추출</b>: 자발적 참여 조사는 관심이 강한 사람이 과대 대표됩니다. 한 반만 묻는 편의 표본은 그 반의 특성이 섞여요.</li>
-<li><b>표본 수</b>: 무작위 표본이면 수가 클수록 우연 오차가 줄지만, 치우친 방법의 오차는 수를 늘려도 줄지 않습니다.</li>
+<li><b>표본 수</b>: 무작위 표본이면 수가 클수록 우연 오차가 줄지만, 치우친 방법의 오차는 수를 늘려도 사라지지 않습니다. 100명 결과에는 우연 오차까지 섞여 있어 치우침이 더 크게도, 작게도 보일 수 있어요.</li>
 </ul>
 <h3>🧮 이 실험의 계산 방법</h3>
 <p><span class="fx-formula">표본 오차(95%) ≈ ±1.96 × √(p(1−p) ÷ n)</span> — 무작위 표본에서만 의미가 있습니다.</p>
@@ -442,6 +442,12 @@ var LAB = (function(){
       var rn0 = rng(9), POP = [];
       for (var i = 0; i < 1000; i++){ var cls = Math.floor(i / 30); POP.push({a:gz(rn0) + 0.05 + (cls === 3 ? 0.6 : 0), cls:cls}); }
       var TRUE = POP.filter(function(q){ return q.a > 0; }).length / 10;
+      function expRate(p){ /* 같은 설계로 '무한히 여러 번' 조사했을 때의 기댓값: 우연 오차를 뺀 설계 자체의 치우침 */
+        var sh = WQ[p.w].sh, sw = 0, sy = 0, lo = p.m === 2 ? 90 : 0, hi = p.m === 2 ? 120 : 1000;
+        for (var k = lo; k < hi; k++){ var q = POP[k], v = q.a + sh, w = p.m === 1 ? Math.min(1, 0.1 + 0.35 * Math.abs(q.a) + (q.a > 0 ? 0.25 : 0)) : 1;
+          sw += w; if (!(p.c === 0 && Math.abs(v) < 0.35) && v > 0) sy += w; }
+        return sy / sw * 100;
+      }
       function pick(p){
         var rn = rng(100 + p.w * 7 + p.c * 13 + p.m * 29 + p.n * 71), n = NS[p.n], idx = [], j;
         if (p.m === 2){ for (j = 90; j < 120; j++) idx.push(j); return idx; }
@@ -453,7 +459,7 @@ var LAB = (function(){
         return idx;
       }
       return {
-        sceneHeight: 420,
+        sceneHeight: function(w){ var d = Math.min(16, (w - 40) / 40); return Math.round(30 + 25 * d + 30 + 100); },
         idle: '설계 요소를 고른 뒤 <b>조사 실시</b>를 누르세요.',
         shortHint: '한 번에 한 요소만 바꿔 가며 기록하세요. 무작위 추출 + (가) + 4점 척도를 기준으로 삼으면 편해요.',
         params: [
@@ -466,7 +472,8 @@ var LAB = (function(){
           var idx = pick(p), sh = WQ[p.w].sh, yes = 0, neu = 0;
           idx.forEach(function(k){ var v = POP[k].a + sh; if (p.c === 0 && Math.abs(v) < 0.35) neu++; else if (v > 0) yes++; });
           var n = idx.length, rate = yes / n * 100, moe = 1.96 * Math.sqrt(rate / 100 * (1 - rate / 100) / n) * 100 * (p.n === 1 && p.m === 0 ? 0 : 1);
-          return {idx:idx, n:n, rate:rate, neu:neu / n * 100, err:rate - TRUE, moe:moe, tr:TRUE};
+          var ex = expRate(p);
+          return {idx:idx, n:n, rate:rate, neu:neu / n * 100, lim:(n - yes - neu) / n * 100, err:rate - TRUE, bias:ex - TRUE, rand:rate - ex, moe:moe, tr:TRUE};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, cols = 40, d = Math.min(16, (W - 40) / cols), gx = (W - d * cols) / 2, gy = 30, sel = {};
@@ -478,16 +485,18 @@ var LAB = (function(){
           var tx = 20 + bw * TRUE / 100; seg(c, tx, by - 10, tx, by + 36, '#1E2833', 2, [5, 4]);
           txt(c, '참값 ' + f(TRUE, 0) + '%', tx, by - 14, {align:'center', color:'#4A5868'});
           if (r){ var v = r.rate * k; c.fillStyle = Math.abs(r.err) > 8 ? PAL[4] : PAL[1]; c.fillRect(20, by, bw * v / 100, 26);
-            if (k >= 1) txt(c, '발표 찬성률 ' + f(r.rate, 0) + '% (오차 ' + sgn(r.err, 0) + '%p)', 20, by + 58, {bold:true, color:Math.abs(r.err) > 8 ? PAL[4] : PAL[1]}); }
+            if (k >= 1) txt(c, (p.w === 1 ? '허용 쪽(제한 반대) ' : '발표 찬성률 ') + f(r.rate, 0) + '% (오차 ' + sgn(r.err, 0) + '%p)', 20, by + 58, {bold:true, color:Math.abs(r.err) > 8 ? PAL[4] : PAL[1]});
+            if (k >= 1 && p.w === 1) txt(c, '질문 그대로의 답: 제한 찬성 ' + f(r.lim, 0) + '%', 20, by + 84, {color:'#4A5868'}); }
         },
         stats: function(p, r){
           return [['문항', WQ[p.w].s], ['척도 · 추출 · 표본', SC[p.c].split(' (')[0] + ' · ' + SM[p.m].s + ' · ' + r.n + '명'],
-            ['발표 찬성률', f(r.rate, 1) + '%', PAL[0]], ['모형 속 참값', f(r.tr, 1) + '%'],
-            ['참값과의 차이', sgn(r.err, 1) + '%p', Math.abs(r.err) > 8 ? PAL[4] : PAL[1]],
+            [p.w === 1 ? '발표 결과 (질문 그대로: 제한 찬성)' : '발표 찬성률', f(p.w === 1 ? r.lim : r.rate, 1) + '%', PAL[0]]].concat(p.w === 1 ? [['허용 쪽 응답률 (= 제한 반대, 참값과 같은 기준)', f(r.rate, 1) + '%' + (p.c === 0 ? ' (중립 ' + f(r.neu, 0) + '% 제외)' : ''), PAL[0]]] : []).concat([['모형 속 참값', f(r.tr, 1) + '%'],
+            ['참값과의 차이', sgn(r.err, 1) + '%p' + (p.c === 0 && r.neu > 0 ? ' (중립 응답을 찬성에 넣지 않은 몫 포함)' : ''), Math.abs(r.err) > 8 ? PAL[4] : PAL[1]],
             ['중립 응답', p.c === 0 ? f(r.neu, 0) + '% (찬성에 넣지 않음)' : '없음 (4점 척도가 강제 배분)', PAL[7]],
-            ['표본 오차 (95%)', p.m === 0 ? (r.moe ? '±' + f(r.moe, 1) + '%p' : '전수에 가까워 거의 0') : '무작위가 아니라 계산 의미 없음', PAL[3]]];
+            ['표본 오차 (95%)', p.m === 0 ? (r.moe ? '±' + f(r.moe, 1) + '%p' : '전수에 가까워 거의 0') : '무작위가 아니라 계산 의미 없음', PAL[3]],
+            ['차이 나누기', '설계에서 오는 치우침 ' + sgn(r.bias, 1) + '%p + 우연 오차 ' + sgn(r.rand, 1) + '%p' + (p.m === 2 ? ' (늘 같은 한 반 30명이라 우연 오차 없음)' : p.m === 0 && p.n === 1 ? ' (전수 조사라 우연 오차 없음)' : ' — 표본 수를 늘리면 우연 오차만 줄고 치우침은 남아요'), Math.abs(r.bias) > 8 ? PAL[4] : PAL[7]]]);
         },
-        columns: ['문항', '척도', '추출', '표본', '찬성률', '차이'],
+        columns: ['문항', '척도', '추출', '표본', '허용 쪽 %', '차이'],
         record: function(p, r){ return {w:p.w, c:p.c, m:p.m, n:r.n, rate:r.rate, err:r.err}; },
         row: function(d){ return [WQ[d.w].s, d.c ? '4점' : '5점', SM[d.m].s, d.n, f(d.rate, 1) + '%', sgn(d.err, 1)]; },
         verify: function(rec, box){
@@ -499,7 +508,7 @@ var LAB = (function(){
             var gr = groupBy(rec, function(d){ return d[g[0]]; });
             g[1].forEach(function(lab, i){ if (gr[i]) { var v = mean(gr[i].map(function(d){ return Math.abs(d.err); })); items.push({label:g[2] + ' · ' + lab, v:v, color:v > 8 ? PAL[4] : PAL[1], text:f(v, 1) + '%p'}); } }); });
           $('sd1').innerHTML = hbars(items, 30);
-          $('sd2').innerHTML = tableHTML(['문항', '척도', '추출', '표본', '찬성률', '차이'], rec.slice(-12).map(function(d){ return [WQ[d.w].s, d.c ? '4점' : '5점', SM[d.m].s, d.n, f(d.rate, 1) + '%', sgn(d.err, 1)]; }));
+          $('sd2').innerHTML = tableHTML(['문항', '척도', '추출', '표본', '허용 쪽 %', '차이'], rec.slice(-12).map(function(d){ return [WQ[d.w].s, d.c ? '4점' : '5점', SM[d.m].s, d.n, f(d.rate, 1) + '%', sgn(d.err, 1)]; }));
         }
       };
     })();
