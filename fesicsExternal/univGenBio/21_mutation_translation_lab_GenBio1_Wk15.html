@@ -252,7 +252,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="돌연변이와 번역 — 염기 하나가 단백질을 얼마나 바꿀까 실험 장면"></canvas>
-          <p class="note">위 줄은 정상 단백질, 아래 줄은 돌연변이 단백질(한 글자 약어)입니다. 빨간 칸이 달라진 아미노산이에요.</p>
+          <p class="note">위 줄은 정상 단백질, 아래 줄은 돌연변이 단백질(한 글자 약어)입니다. 빨간 칸이 달라진 아미노산이에요(정상 줄의 빨간 칸은 빠진 아미노산).</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -461,25 +461,35 @@ var LAB = (function(){
           } else if (p.t === 3){ mut = SEQ.slice(0, i) + 'G' + SEQ.slice(i); desc = i + '번과 ' + (i + 1) + '번 사이에 G 삽입'; }
           else if (p.t === 4){ mut = SEQ.slice(0, i) + SEQ.slice(i + 1); desc = orig + ' 결실'; }
           else { mut = SEQ.slice(0, i) + SEQ.slice(i + 3); desc = SEQ.substr(i, 3) + ' 결실'; }
-          var M = tr(mut), n = Math.max(WT.p.length, M.p.length), diff = 0;
-          for (var j = 0; j < n; j++) if (WT.p[j] !== M.p[j]) diff++;
-          return {mut:mut, desc:desc, M:M, diff:diff, len:M.p.length};
+          var M = tr(mut), A = WT.p, B = M.p, a = 0, b = 0, diff = 0, mk = [], wm = [], j;
+          while (a < A.length && a < B.length && A[a] === B[a]) a++;
+          if (p.t === 5){
+            while (b < A.length - a && b < B.length - a && A[A.length - 1 - b] === B[B.length - 1 - b]) b++;
+            diff = Math.max(A.length - a - b, B.length - a - b);
+            for (j = a; j < B.length - b; j++) mk[j] = true;
+            for (j = a; j < A.length - b; j++) wm[j] = true;
+          } else {
+            for (j = 0; j < Math.max(A.length, B.length); j++) if (A[j] !== B[j]) diff++;
+            for (j = 0; j < B.length; j++) mk[j] = A[j] !== B[j];
+            if (p.t === 2) for (j = B.length; j < A.length; j++) wm[j] = true;
+          }
+          return {mut:mut, desc:desc, M:M, diff:diff, len:M.p.length, mk:mk, wm:wm};
         },
         draw:function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, n = Math.max(WT.p.length, r ? r.M.p.length : 0, 12), bw = Math.min(36, (W - 80) / n);
-          function row(y, arr, other, label, show){
+          function row(y, arr, mk, label, show){
             txt(c, label, 12, y + bw / 2 + 6, {bold:true});
             for (var j = 0; j < arr.length && j < show; j++){
-              var d = other && arr[j] !== other[j];
+              var d = mk && mk[j];
               c.fillStyle = d ? PAL[4] : j === 0 ? PAL[1] : PAL[0]; c.fillRect(64 + j * bw, y, bw - 2, bw);
               txt(c, arr[j], 64 + j * bw + (bw - 2) / 2, y + bw / 2 + 6, {align:'center', bold:true, color:'#fff'});
             }
           }
           txt(c, 'mRNA 5′- ' + SEQ.slice(Math.max(0, Math.floor((p.pos - 1) / 3) * 3 - 3), Math.floor((p.pos - 1) / 3) * 3 + 6).replace(/(...)/g, '$1 ') + '…', 12, 34, {color:'#4A5868'});
-          row(70, WT.p, null, '정상', 99);
+          row(70, WT.p, r && k >= 1 ? r.wm : null, '정상', 99);
           if (r){
             txt(c, '변이 5′- ' + r.mut.slice(Math.max(0, Math.floor((p.pos - 1) / 3) * 3 - 3), Math.floor((p.pos - 1) / 3) * 3 + 6).replace(/(...)/g, '$1 ') + '…', 12, 170, {color:PAL[4]});
-            row(200, r.M.p, WT.p, '변이', Math.ceil(r.M.p.length * k));
+            row(200, r.M.p, r.mk, '변이', Math.ceil(r.M.p.length * k));
             if (k >= 1) txt(c, r.M.stop ? '■ 종결 코돈에서 멈춤' : '■ 종결 코돈 없이 mRNA 끝까지 읽음', 64, 200 + bw + 34, {color:'#4A5868'});
           }
           var cx = 64 + Math.floor((p.pos - 1) / 3) * bw + bw / 2;
