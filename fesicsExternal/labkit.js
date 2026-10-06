@@ -36,7 +36,7 @@
     var s = document.createElement('style');
     s.id = 'labKitStyle';
     s.textContent = [
-      '.lk-ui{font-family:inherit;color:#1f2937;line-height:1.5;box-sizing:border-box}',
+      '.lk-ui{font-family:inherit;color:#1f2937;line-height:1.5;box-sizing:border-box;text-align:left}',
       '.lk-ui *{box-sizing:border-box}',
       '.lk-poe{margin:0 0 14px;padding:12px 14px;border:1px solid #f3d27a;background:#fffbea;border-radius:12px;font-size:15px}',
       '.lk-poe.lk-done{border-color:#a7dcb5;background:#f0fbf3}',
@@ -59,7 +59,13 @@
       '.lk-panel label{display:inline-flex;align-items:center;gap:4px;margin-right:8px}',
       '.lk-cv{display:block;width:100%;height:auto;margin:8px 0 4px;background:#fff;border:1px solid #e5e7eb;border-radius:8px}',
       '.lk-fit{font-size:13px;color:#374151}',
-      '.lk-note{font-size:12px;color:#6b7280}'
+      '.lk-note{font-size:12px;color:#6b7280}',
+      '.lk-guide{margin:0 0 10px;padding:10px 14px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:12px;font-size:15px}',
+      '.lk-guide.lk-mini{padding:2px 6px;border:0;background:none}',
+      '.lk-steps{margin:4px 0 0;padding-left:1.4em}',
+      '.lk-steps li{margin:3px 0}',
+      '@keyframes lkPulse{0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,.0)}50%{box-shadow:0 0 0 6px rgba(37,99,235,.55)}}',
+      '.lk-pulse{animation:lkPulse .65s ease-in-out 4;outline:2px solid #2563eb;outline-offset:2px;border-radius:6px}'
     ].join('\n');
     document.head.appendChild(s);
   }
@@ -477,7 +483,8 @@
     var sel = ['#tab-explore', '#panel-explore', '#panelA', '[data-panel="explore"]', '.tab-panel', 'section.panel', '.panel'];
     for (var i = 0; i < sel.length; i++) {
       var e = document.querySelector(sel[i]);
-      if (e && !e.closest('#fxPrinciple')) return { parent: e, before: e.firstChild };
+      // 일부 실험은 #tab-explore 가 패널이 아니라 탭 버튼이다 — 버튼 안에 넣지 않는다
+      if (e && !e.closest('#fxPrinciple') && !e.closest('button, [role=tab]')) return { parent: e, before: e.firstChild };
     }
     var h1 = document.querySelector('h1');
     if (h1) {
@@ -635,10 +642,94 @@
     poe.appendChild(button('🤔 예측하고 실험하기', 'lk-link', function () { st.skip = false; save(); refreshPoe(true); }));
   }
 
+  // ---------- 시작 안내: 이렇게 해 보세요 ----------
+  // 처음 연 학생이 "뭘 해야 할지" 알도록 화면에 있는 조작(슬라이더·기록 버튼·기록표)을 찾아 3단계로 알려 준다.
+  // 닫으면 실험마다 기억하고, 작은 [❔ 이렇게 해 보세요] 링크만 남긴다.
+  var guide = null;
+
+  function visible(e) { return !!(e && e.getClientRects().length); }
+  function controls() {
+    var ranges = Array.prototype.filter.call(document.querySelectorAll('input[type=range]'), function (e) { return !isOurs(e); });
+    var buttons = Array.prototype.filter.call(document.querySelectorAll('button'), function (b) { return !isOurs(b) && b.id !== 'fxSoundBtn'; });
+    var label = function (b) { return (b.textContent || '').replace(/\s+/g, ' ').trim(); };
+    var rec = buttons.filter(function (b) { var t = label(b); return /기록/.test(t) && !/지우|삭제|초기화|보유/.test(t); })[0] || null;
+    // 실행 버튼: ▶ 표시 → 시작·측정 같은 말 → '…확인하기' 순으로 찾는다(탭·힌트·안내 버튼은 뺀다)
+    var cand = buttons.filter(function (b) {
+      return b.getAttribute('role') !== 'tab' && !/tab|hint|nudge|toast/i.test(b.className + ' ' + b.id) && !/힌트|정답|지우|삭제|초기화|나중에/.test(label(b));
+    });
+    var find = function (re) { return cand.filter(function (b) { return re.test(label(b)); })[0] || null; };
+    var run = find(/▶/) || find(/시작|실행|재생|측정|발사|떨어뜨|굴리|놓기|켜기|비춰|비추|쏘기|던지기/) || find(/확인하기$/);
+    return { ranges: ranges, rec: rec, recText: rec ? label(rec) : '', run: run, runText: run ? label(run) : '' };
+  }
+
+  function guideSteps() {
+    var c = controls();
+    var steps = [];
+    if (c.ranges.length) steps.push({ text: '슬라이더' + (c.ranges.length > 1 ? ' ' + c.ranges.length + '개' : '') + '를 움직여 값을 바꿔 보세요.', target: c.ranges[0] });
+    else if (c.run) steps.push({ text: '[' + c.runText + '] 버튼을 눌러 실험을 시작해 보세요.', target: c.run });
+    else steps.push({ text: '화면의 버튼과 값을 바꿔 보며 무엇이 달라지는지 살펴보세요.', target: null });
+    if (c.rec) steps.push({ text: '[' + c.recText + ']를 눌러 결과를 기록표에 모으세요. 값을 바꿀 때마다 한 번씩!', target: c.rec });
+    else if (c.run && c.ranges.length) steps.push({ text: '[' + c.runText + ']를 눌러 결과를 확인하세요.', target: c.run });
+    else steps.push({ text: '값을 바꿀 때마다 결과가 어떻게 달라지는지 관찰하세요.', target: null });
+    var hasTable = hasRecordTable() || !!c.rec || !!document.querySelector('tbody[id]');
+    steps.push({ text: hasTable ? '기록이 3개 넘게 모이면 [📊 그래프·CSV]로 규칙을 찾아보세요.' : '바꾼 값과 결과 사이의 규칙을 한 문장으로 말해 보세요.', target: null });
+    return steps;
+  }
+
+  function pulse(target) {
+    if (!target) return;
+    // 숨은 탭 안에 있으면 그 탭을 먼저 연다
+    if (!visible(target)) {
+      var panel = target.closest('[id^="tab-"], [role=tabpanel], .tab-panel, .panel');
+      var id = panel && panel.id;
+      var tab = id && document.querySelector('[data-tab="' + id.replace(/^tab-/, '') + '"], [aria-controls="' + id + '"], [data-target="#' + id + '"]');
+      if (tab) tab.click();
+    }
+    try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { target.scrollIntoView(); }
+    target.classList.add('lk-pulse');
+    setTimeout(function () { target.classList.remove('lk-pulse'); }, 2600);
+  }
+
+  function drawGuide() {
+    guide.innerHTML = '';
+    if (st.guide === 'closed') {
+      guide.className = 'lk-ui lk-guide lk-mini';
+      guide.appendChild(button('❔ 이렇게 해 보세요', 'lk-link', function () { st.guide = null; save(); drawGuide(); }));
+      return;
+    }
+    guide.className = 'lk-ui lk-guide';
+    var head = el('div', 'lk-row');
+    head.appendChild(el('b', 'lk-t', '👋 이렇게 해 보세요'));
+    var close = button('닫기', 'lk-link', function () { st.guide = 'closed'; save(); drawGuide(); });
+    close.style.marginLeft = 'auto';
+    head.appendChild(close);
+    guide.appendChild(head);
+    var ol = el('ol', 'lk-steps');
+    guideSteps().forEach(function (s, i) {
+      var li = el('li');
+      li.appendChild(el('span', null, s.text));
+      if (s.target) li.appendChild(button(i === 0 ? '어디요?' : '찾기', 'lk-link', function () { pulse(s.target); }));
+      ol.appendChild(li);
+    });
+    guide.appendChild(ol);
+  }
+
+  function mountGuide() {
+    guide = el('div', 'lk-ui lk-guide');
+    guide.setAttribute('role', 'note');
+    guide.setAttribute('aria-label', '실험 사용법');
+    if (poe && poe.parentNode) poe.parentNode.insertBefore(guide, poe);
+    else { var h = poeHost(); h.parent.insertBefore(guide, h.before); }
+    drawGuide();
+    // 기록표는 조금 뒤에 잡히므로(rescan) 한 번 더 그려 3단계 문구를 맞춘다
+    setTimeout(function () { if (st.guide !== 'closed') drawGuide(); }, 900);
+  }
+
   function init() {
     style();
     mountPoe();
     watchTables();
+    mountGuide();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
