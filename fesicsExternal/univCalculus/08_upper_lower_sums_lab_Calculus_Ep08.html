@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<!-- labgen:univCalculus -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>적분은 넓이 공식 아닌가 | 대학 미적분학</title>
+<style>
+:root{
+  --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
+  --pri:#2B5FA3; --pri-d:#1F4B85; --pri-soft:rgba(43,95,163,.16);
+  --ep:#3867B0; --ek:#E08A2E; --heat:#C8463D;
+}
+html{font-size:21px}
+@media (max-width:760px){html{font-size:20px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); font-size:1rem; line-height:1.55; word-break:keep-all; overflow-wrap:anywhere;
+  font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  background-color:var(--bg);
+  background-image:radial-gradient(var(--dot) 1.2px, transparent 1.4px);
+  background-size:22px 22px;
+}
+.container{width:97%; max-width:1840px; margin:0 auto; padding:1.2rem 0 2.5rem}
+header h1{font-size:1.6rem; margin:0 0 .35rem; letter-spacing:-.01em; line-height:1.3}
+header p{margin:0; color:var(--sub); max-width:62ch}
+
+/* 탭 */
+.tabs{display:flex; gap:.5rem; margin:1.1rem 0 1rem; flex-wrap:wrap}
+.tab{
+  font:inherit; font-weight:700; padding:.55rem 1.1rem; border-radius:999px; cursor:pointer;
+  border:2px solid var(--line); background:var(--paper); color:var(--sub);
+  transition:background .18s, color .18s, border-color .18s, transform .12s, filter .18s;
+}
+.tab:hover{border-color:var(--pri); color:var(--pri); transform:translateY(-1px)}
+.tab:active{transform:translateY(1px) scale(.98)}
+.tab[aria-selected="true"]{background:var(--pri); border-color:var(--pri); color:#fff}
+.tab[aria-selected="true"]:hover{filter:brightness(1.08); color:#fff}
+.panel[hidden]{display:none}
+
+/* 레이아웃 */
+.lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
+.card + .card{margin-top:1rem}
+.card h2{font-size:1.15rem; margin:0 0 .6rem; line-height:1.35}
+.note{color:var(--sub); font-size:.95rem; margin:.6rem 0 0}
+
+#scene{width:100%; height:320px; display:block; border-radius:10px; background:#F7F9FC}
+
+/* 에너지 막대 */
+.ebar{display:flex; height:30px; border-radius:8px; overflow:hidden; background:#E6EBF1; margin-top:.8rem}
+.ebar div{height:100%; transition:none}
+.ebar .ep{background:var(--ep)} .ebar .ek{background:var(--ek)} .ebar .ht{background:var(--heat)}
+.elegend{display:grid; grid-template-columns:repeat(3,1fr); gap:.3rem; margin-top:.45rem; font-size:.95rem}
+.elegend > span{display:flex; align-items:flex-start; gap:.35rem; line-height:1.3}
+.elegend > span > span{display:block}
+.elegend i{width:14px; height:14px; border-radius:3px; flex:none; margin-top:.2rem}
+.elegend b{display:block; font-variant-numeric:tabular-nums}
+
+/* 조작부 */
+.ctrl{margin-bottom:.75rem}
+.ctrl .row{display:flex; justify-content:space-between; align-items:baseline}
+.ctrl .val{font-weight:700; color:var(--pri); font-variant-numeric:tabular-nums}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:30px; margin:0;
+  background:transparent; cursor:pointer; touch-action:manipulation; --p:50%;
+}
+input[type=range]:focus{outline:none}
+input[type=range]:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px; border-radius:6px}
+input[type=range]::-webkit-slider-runnable-track{
+  height:8px; border-radius:4px;
+  background:linear-gradient(to right, var(--pri) var(--p), #D5DDE6 var(--p));
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:24px; height:24px; border-radius:50%; margin-top:-8px;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]::-moz-range-track{height:8px; border-radius:4px; background:#D5DDE6}
+input[type=range]::-moz-range-progress{height:8px; border-radius:4px; background:var(--pri)}
+input[type=range]::-moz-range-thumb{
+  box-sizing:border-box; width:24px; height:24px; border-radius:50%;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-moz-range-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]:disabled{cursor:not-allowed; opacity:.45}
+input[type=range]:disabled::-webkit-slider-thumb{transform:none; box-shadow:none}
+
+.seg{display:grid; grid-template-columns:1fr 1fr; gap:.45rem}
+.seg button{
+  font:inherit; font-size:.95rem; text-align:left; line-height:1.3; padding:.5rem .6rem; cursor:pointer;
+  border:2px solid var(--line); border-radius:10px; background:#fff; color:var(--ink);
+  transition:border-color .18s, background .18s, transform .12s;
+}
+.seg button small{display:block; color:var(--sub); font-size:.95rem; font-variant-numeric:tabular-nums}
+.seg button:hover:not(:disabled){border-color:var(--pri); transform:translateY(-1px)}
+.seg button:active:not(:disabled){transform:translateY(1px) scale(.98)}
+.seg button[aria-pressed="true"]{border-color:var(--pri); background:#EAF1FA}
+.seg button:disabled{cursor:not-allowed; opacity:.5}
+
+.actions{display:flex; gap:.6rem; margin-top:1rem; flex-wrap:wrap}
+.btn{
+  font:inherit; font-weight:700; padding:.65rem 1.2rem; border-radius:12px; cursor:pointer;
+  border:2px solid var(--pri); background:var(--pri); color:#fff;
+  transition:filter .18s, transform .12s, background .18s, color .18s, opacity .18s;
+}
+.btn:hover:not(:disabled){filter:brightness(1.1); transform:translateY(-2px)}
+.btn:active:not(:disabled){transform:translateY(1px) scale(.97)}
+.btn.ghost{background:#fff; color:var(--pri)}
+.btn.ghost:hover:not(:disabled){background:#EAF1FA; filter:none}
+.btn.warn{background:#fff; color:#A33A32; border-color:#E0B4AF}
+.btn.warn:hover:not(:disabled){background:#FBEDEB; filter:none}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px}
+
+/* 측정 결과 */
+.stats{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:.5rem .9rem; margin:0}
+.stats div{border-left:4px solid var(--line); padding:.15rem 0 .15rem .6rem}
+.stats dt{color:var(--sub); font-size:.95rem}
+.stats dd{margin:0; font-weight:700; font-size:1.15rem; font-variant-numeric:tabular-nums}
+.stats .c-ep{border-color:var(--ep)} .stats .c-ek{border-color:var(--ek)} .stats .c-ht{border-color:var(--heat)}
+.msg{padding:.7rem .9rem; border-radius:10px; background:#F3F6FA; color:var(--sub); margin:0}
+.msg.stop{background:#FBEFE3; color:#8A4B12}
+
+/* 기록 표 */
+.tablewrap{max-height:430px; overflow:auto; border:1px solid var(--line); border-radius:10px}
+table{border-collapse:collapse; width:100%; font-size:.95rem; font-variant-numeric:tabular-nums}
+th,td{padding:.4rem .6rem; text-align:right; white-space:nowrap; border-bottom:1px solid #E8EDF2}
+th{position:sticky; top:0; background:#E9EFF6; z-index:1; font-weight:700}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+tbody tr:hover{background:#F5F8FB}
+.empty td{text-align:center; color:var(--sub); padding:1.2rem}
+.dotc{display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:.35rem; vertical-align:-1px}
+
+/* 데이터 검증 */
+.vgrid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem}
+@media (max-width:640px){.vgrid{grid-template-columns:minmax(0,1fr)}}
+.vgrid .card + .card{margin-top:0}
+.chart{width:100%; height:300px; display:block}
+.legend{display:flex; flex-wrap:wrap; gap:.4rem 1rem; font-size:.95rem; margin:0 0 1rem}
+.legend span{display:flex; align-items:center}
+.readout{margin:.6rem 0 0; padding:0; list-style:none}
+.readout li{padding:.2rem 0; font-variant-numeric:tabular-nums}
+.ask{margin:.6rem 0 0; color:var(--sub); font-size:.95rem}
+.shortage{text-align:center; padding:2.2rem 1rem}
+.shortage strong{display:block; font-size:1.3rem; margin-bottom:.4rem}
+.mtable{margin-top:.6rem}
+.mtable table{font-size:.95rem}
+.mtable h3{font-size:1rem; margin:.8rem 0 .3rem}
+
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+.seg.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.seg.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.seg.c4 button{text-align:center; padding:.5rem .3rem}
+.center td,.center th{text-align:center !important}
+.inlegend{display:flex; flex-wrap:wrap; gap:.3rem 1rem; font-size:.95rem; margin:0 0 .4rem}
+.inlegend span{display:flex; align-items:center}
+.gap-top{margin-top:.6rem}
+.wrap td{white-space:normal; text-align:left !important}
+.hbars{display:grid; gap:.5rem; margin:.4rem 0}
+.hb{display:grid; grid-template-columns:minmax(0,9rem) minmax(0,1fr) auto; gap:.6rem; align-items:center}
+.hb .ht{height:18px; background:#E6EBF1; border-radius:6px; overflow:hidden}
+.hb .ht i{display:block; height:100%}
+.hb b{font-variant-numeric:tabular-nums}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}.fx-p-card .fx-formula{white-space:normal;max-width:100%}.fx-p-card table{display:block;max-width:100%;overflow-x:auto}}
+</style>
+<script src="../math-typography.js?v=f6dbf909a314"></script>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>적분은 넓이 공식 아닌가</h1>
+    <p>구간을 n등분해 각 조각에서 <b>가장 큰 값</b>으로 높이를 잡으면 상합 Uₙ, <b>가장 작은 값</b>이면 하합 Lₙ입니다. n을 늘릴 때 Uₙ − Lₙ이 0으로 가면 적분 가능해요. 뭉치는 x²의 U₁₀ − L₁₀을 “상합 0.385”라고 했습니다. 차이만 따로 계산해 보세요. 디리클레 함수도 골라 보세요.</p>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-explore" aria-selected="true" aria-controls="panel-explore">🔬 자유 탐구</button>
+    <button class="tab" role="tab" id="tab-verify" aria-selected="false" aria-controls="panel-verify">✅ 결과 비교</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 적분은 직사각형 합의 극한으로 정의한다</h3>
+<p><span class="fx-formula">Lₙ ≤ ∫f dx ≤ Uₙ,  유계인 f가 적분 가능 ⇔ lim (Uₙ − Lₙ) = 0</span></p>
+<ul>
+<li>증가함수 x²의 [0, 1]: Uₙ − Lₙ = (f(1) − f(0))/n = <b>1/n</b>. 그래서 U₁₀ − L₁₀ = 0.1.</li>
+<li>계단 함수: 상합과 하합이 다른 조각은 ½이 들어 있는 조각 하나뿐 → Uₙ − Lₙ ≤ 1/n → 0, 적분값 ½.</li>
+<li>디리클레 함수(유리수 1, 무리수 0): 모든 조각에서 최대 1, 최소 0 → Uₙ − Lₙ = 1로 고정. 리만 적분 불가.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>증가함수는 조각의 오른쪽 끝이 최대, 왼쪽 끝이 최소입니다. 중점 합 Mₙ은 조각 가운데 높이를 씁니다. x²에서 오차는 정확히 <span class="fx-formula">1/3 − Mₙ = 1/(12n²)</span>, 일반적으로 오차 한계 (b − a)³·max|f″|/(24n²).</p>
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 컴퓨터는 무리수를 정확히 표현하지 못하므로 디리클레 함수는 “각 조각에 유리수·무리수가 모두 있다”는 사실로 계산합니다(조각의 끝점·중점은 유리수라 값 1).<br>
+· 정적분은 부호 있는 넓이입니다. ∫₋₁¹x³dx = 0이지만 그래프와 x축 사이 넓이는 ½이에요.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>공학 데이터는 식이 아니라 측정값 표로 옵니다. 가속도 센서 값을 시간 간격마다 더해 속도를 얻는 것이 바로 리만 합이에요.</li></ul>
+</div>
+</section>
+
+
+
+
+
+
+  <section class="panel" id="panel-explore" role="tabpanel">
+    <div class="lab">
+      <div>
+        <div class="card">
+          <canvas id="scene" aria-label="적분은 넓이 공식 아닌가 실험 장면"></canvas>
+          <p class="note">연한 파랑 직사각형은 상합, 진한 초록은 하합입니다. 둘의 차이(파랑만 보이는 부분)가 Uₙ − Lₙ입니다. 주황 점은 각 조각의 가운데(중점 합)입니다.</p>
+        </div>
+        <div class="card">
+          <div id="controls"></div>
+          <div class="actions">
+            <button class="btn" id="runBtn">직사각형 쌓기</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>결과</h2>
+          <div id="result"></div>
+        </div>
+        <div class="card">
+          <h2>기록한 데이터 <span id="recCount" style="color:var(--sub);font-weight:400"></span></h2>
+          <div class="tablewrap">
+            <table><thead><tr id="recHead"></tr></thead><tbody id="recBody"></tbody></table>
+          </div>
+          <div class="actions"><button class="btn warn" id="clearBtn" disabled>기록 모두 지우기</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-verify" role="tabpanel" hidden>
+    <div id="verifyBody"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ================= 공통 도구 ================= */
+var FONT = 'Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+var ANIM_MS = 1400;
+var PAL = ['#2B5FA3', '#2E9E78', '#A8702F', '#7657B3', '#C8463D', '#3A8FB7', '#D98E04', '#5C6B7A'];
+var $ = function(id){ return document.getElementById(id); };
+function f(x, d){ var s = x.toFixed(d); if (/^-0\.?0*$/.test(s)) s = s.slice(1); return s.replace('-', '−'); }
+function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : '') + s; }
+function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
+function fitCanvas(cv){
+  var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return {c:c, W:W, H:H};
+}
+function niceStep(raw){
+  var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
+  return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
+}
+function axisFrom(lo, hi){
+  if (hi - lo <= 0) hi = lo + 1;
+  var step = niceStep((hi - lo) / 4);
+  return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+function txt(c, s, x, y, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
+function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
+function meter(c, x, y, w, s){
+  c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
+  txt(c, s, x + w - 10, y + 18, {bold:true, color:'#7CF0B0', align:'right', base:'middle'});
+}
+function arrow(c, x1, y1, x2, y2, color, lw){
+  var a = Math.atan2(y2 - y1, x2 - x1), h = 9;
+  c.strokeStyle = color; c.fillStyle = color; c.lineWidth = lw || 2;
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - h * Math.cos(a - 0.4), y2 - h * Math.sin(a - 0.4)); c.lineTo(x2 - h * Math.cos(a + 0.4), y2 - h * Math.sin(a + 0.4)); c.closePath(); c.fill();
+}
+function nmColor(nm){
+  var r = 0, g = 0, b = 0;
+  if (nm < 440){ r = -(nm - 440) / 60; b = 1; } else if (nm < 490){ g = (nm - 440) / 50; b = 1; }
+  else if (nm < 510){ g = 1; b = -(nm - 510) / 20; } else if (nm < 580){ r = (nm - 510) / 70; g = 1; }
+  else if (nm < 645){ r = 1; g = -(nm - 645) / 65; } else { r = 1; }
+  var fct = nm < 420 ? 0.4 + 0.6 * (nm - 380) / 40 : nm > 700 ? 0.4 + 0.6 * (780 - nm) / 80 : 1;
+  return [r, g, b].map(function(v){ return Math.round(255 * Math.pow(Math.max(0, v) * fct, 0.8)); });
+}
+function mean(a){ return a.reduce(function(s, x){ return s + x; }, 0) / a.length; }
+function dot(color){ return '<span class="dotc" style="background:' + color + '"></span>'; }
+function legend(items){ return '<div class="inlegend">' + items.map(function(it){ return '<span>' + dot(it.color) + it.label + '</span>'; }).join('') + '</div>'; }
+function distinct(arr){ var o = {}; arr.forEach(function(v){ o[v] = 1; }); return Object.keys(o).length; }
+function fit0(pts){ var n = 0, d = 0; pts.forEach(function(p){ n += p.x * p.y; d += p.x * p.x; }); return n / d; }
+function linfit(pts){
+  var n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  pts.forEach(function(p){ sx += p.x; sy += p.y; sxx += p.x * p.x; sxy += p.x * p.y; });
+  var k = (n * sxy - sx * sy) / (n * sxx - sx * sx); return {k:k, b:(sy - k * sx) / n};
+}
+function groupBy(arr, keyFn){ var g = {}; arr.forEach(function(d){ var k = keyFn(d); (g[k] = g[k] || []).push(d); }); return g; }
+function card(title, inner){ return '<div class="card"><h2>' + title + '</h2>' + inner + '</div>'; }
+function tableHTML(head, rows, cls){
+  return '<div class="tablewrap' + (cls ? ' ' + cls : '') + '"><table><thead><tr>' + head.map(function(h){ return '<th>' + h + '</th>'; }).join('') +
+    '</tr></thead><tbody>' + rows.map(function(r){ return '<tr>' + r.map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+}
+/* 산점도: series [{color, pts:[{x,y}], hollow}], lines [{k,b,from,to,color,dash} | {h,color,dash}] */
+function drawScatter(cv, opt){
+  var o = fitCanvas(cv), c = o.c, W = o.W, H = o.H;
+  if (!W) return;
+  var padL = 78, padR = 18, padT = 14, padB = 62, xs = [], ys = [];
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){ xs.push(p.x); ys.push(p.y); }); });
+  (opt.lines || []).forEach(function(l){ if (l.h != null) ys.push(l.h); });
+  if (!xs.length){ xs = [1]; ys = [1]; }
+  var head = opt.yHead || 1.08;
+  var xl = Math.min(0, Math.min.apply(null, xs)), xh = Math.max(0, Math.max.apply(null, xs));
+  var yl = Math.min(0, Math.min.apply(null, ys)), yh = Math.max(0, Math.max.apply(null, ys));
+  if (opt.square){ xl = yl = Math.min(xl, yl); xh = yh = Math.max(xh, yh); }
+  var ax = axisFrom(xl * 1.08, xh * 1.08), ay = opt.square ? ax : axisFrom(yl * head, yh * head);
+  if (opt.xHi != null){ ax = {lo:0, hi:opt.xHi, step:opt.xStep || niceStep(opt.xHi / 4)}; }
+  if (opt.tightX){ var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), px = (x1 - x0) * 0.1 || 1; ax = axisFrom(x0 - px, x1 + px); }
+  if (opt.tightY){ var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys), py = (y1 - y0) * 0.15 || 0.5; ay = axisFrom(y0 - py, y1 + py); }
+  var pw = W - padL - padR, ph = H - padT - padB;
+  var X = function(x){ return padL + (x - ax.lo) / (ax.hi - ax.lo) * pw; };
+  var Y = function(y){ return padT + ph - (y - ay.lo) / (ay.hi - ay.lo) * ph; };
+  c.clearRect(0, 0, W, H); c.font = '18px ' + FONT;
+  c.strokeStyle = '#E3E8EE'; c.lineWidth = 1; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((ax.hi - ax.lo) / ax.step), ny = Math.round((ay.hi - ay.lo) / ay.step);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = ax.lo + i * ax.step; c.beginPath(); c.moveTo(X(v), padT); c.lineTo(X(v), padT + ph); c.stroke(); c.fillText(f(v, decOf(ax.step)), X(v), padT + ph + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = ay.lo + i * ay.step; c.beginPath(); c.moveTo(padL, Y(v)); c.lineTo(padL + pw, Y(v)); c.stroke(); c.fillText(f(v, decOf(ay.step)), padL - 8, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(padL, padT); c.lineTo(padL, padT + ph); c.lineTo(padL + pw, padT + ph); c.stroke();
+  if (ay.lo < 0){ c.beginPath(); c.moveTo(padL, Y(0)); c.lineTo(padL + pw, Y(0)); c.stroke(); }
+  if (ax.lo < 0){ c.beginPath(); c.moveTo(X(0), padT); c.lineTo(X(0), padT + ph); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+  c.fillText(opt.xLabel, padL + pw / 2, H - 4);
+  c.save(); c.translate(18, padT + ph / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(opt.yLabel, 0, 0); c.restore();
+  c.save(); c.beginPath(); c.rect(padL, padT, pw, ph); c.clip();
+  (opt.lines || []).forEach(function(l){
+    c.strokeStyle = l.color; c.lineWidth = 2; c.setLineDash(l.dash ? [7, 5] : []); c.beginPath();
+    if (l.h != null){ c.moveTo(padL, Y(l.h)); c.lineTo(padL + pw, Y(l.h)); }
+    else {
+      var b = l.b || 0, x1 = Math.max(l.from != null ? l.from : ax.lo, ax.lo), x2 = Math.min(l.to != null ? l.to : ax.hi, ax.hi);
+      c.moveTo(X(x1), Y(l.k * x1 + b)); c.lineTo(X(x2), Y(l.k * x2 + b));
+    }
+    c.stroke();
+  });
+  c.setLineDash([]);
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){
+    c.lineWidth = 2.5;
+    if (s.hollow){ c.fillStyle = '#fff'; c.strokeStyle = s.color; }
+    else { c.fillStyle = s.color; c.strokeStyle = '#fff'; }
+    c.beginPath(); c.arc(X(p.x), Y(p.y), 6.5, 0, Math.PI * 2); c.fill(); c.stroke();
+  }); });
+  c.restore();
+}
+
+/* 탐구 화면용 좌표축: xr, yr = [lo, hi, step] */
+function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
+  var X = function(v){ return x + (v - xr[0]) / (xr[1] - xr[0]) * w; }, Y = function(v){ return y + h - (v - yr[0]) / (yr[1] - yr[0]) * h; };
+  c.fillStyle = '#F7F9FC'; c.fillRect(x, y, w, h);
+  c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
+  if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
+  if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
+  c.textBaseline = 'alphabetic';
+  return {X:X, Y:Y};
+}
+function glow(c, x, y, r, color, alpha){
+  if (alpha <= 0) return;
+  var g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.globalAlpha = Math.min(alpha, 1); c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.globalAlpha = 1;
+}
+function hbars(items, max){
+  return '<div class="hbars">' + items.map(function(it){
+    return '<div class="hb"><span class="hl">' + it.label + '</span><span class="ht"><i style="width:' + Math.max(0, Math.min(100, it.v / max * 100)) + '%;background:' + it.color + '"></i></span><b>' + it.text + '</b></div>';
+  }).join('') + '</div>';
+}
+
+/* ================= 실험별 설정 ================= */
+var LAB = (function(){
+      var FS = [
+        {name:'x², [0, 1]', sh:'x²', a:0, b:1, inc:true, f:function(x){ return x * x; }, ex:1 / 3, ext:'1/3', yr:[0, 1.2, 0.4]},
+        {name:'x, [0, 2]', sh:'x', a:0, b:2, inc:true, f:function(x){ return x; }, ex:2, ext:'2', yr:[0, 2.5, 0.5]},
+        {name:'계단 (x &lt; ½이면 0, 아니면 1), [0, 1]', sh:'계단', a:0, b:1, step:true, f:function(x){ return x >= 0.5 ? 1 : 0; }, ex:0.5, ext:'1/2', yr:[0, 1.25, 0.25]},
+        {name:'디리클레 (유리수 1, 무리수 0), [0, 1]', sh:'디리클레', a:0, b:1, dir:true, f:function(){ return 1; }, ex:null, ext:'정의 안 됨', yr:[0, 1.25, 0.25]},
+        {name:'x³, [−1, 1] (부호 있는 넓이)', sh:'x³', a:-1, b:1, inc:true, f:function(x){ return x * x * x; }, ex:0, ext:'0', yr:[-1, 1, 0.5]}
+      ];
+      function tr(v, d){ var s = f(v, d); if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, ''); return s; }
+      function sup(n){ var m = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'}; return String(n).split('').map(function(ch){ return m[ch] || ch; }).join(''); }
+      function sci(v, d){ if (!isFinite(v)) return '—'; if (v === 0) return '0'; var e = Math.floor(Math.log10(Math.abs(v))), m = v / Math.pow(10, e); if (Math.abs(Number(m.toFixed(d))) >= 10){ m /= 10; e++; } return f(m, d) + '×10' + sup(e); }
+      function sm(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 14) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y); }
+      function piece(F, n, k){
+        var xl = F.a + (F.b - F.a) * (k - 1) / n, xr = F.a + (F.b - F.a) * k / n, xm = (xl + xr) / 2, hi, lo;
+        if (F.inc){ hi = F.f(xr); lo = F.f(xl); } else if (F.step){ hi = xr >= 0.5 ? 1 : 0; lo = xl >= 0.5 ? 1 : 0; } else { hi = 1; lo = 0; }
+        return {xl:xl, xr:xr, xm:xm, hi:hi, lo:lo, mid:F.f(xm), rt:F.f(xr)};
+      }
+      function sums(F, n){
+        var dx = (F.b - F.a) / n, L = 0, U = 0, M = 0, R = 0;
+        for (var k = 1; k <= n; k++){ var q = piece(F, n, k); L += q.lo * dx; U += q.hi * dx; M += q.mid * dx; R += q.rt * dx; }
+        return {L:L, U:U, M:M, R:R, D:U - L};
+      }
+      return {
+        sceneHeight: 450,
+        idle: '함수와 n을 고른 뒤 <b>직사각형 쌓기</b>를 누르세요.',
+        shortHint: 'x²를 n = 4, 10, 100으로 기록하고, 계단 함수와 디리클레 함수도 한 번씩 기록해 보세요.',
+        params: [
+          {key:'fn', type:'seg', label:'함수와 구간', cols:2, value:0, options:FS.map(function(x){ return x.name; }),
+            note:'예측 게임: x², [0, 1]을 10등분했을 때 U₁₀ − L₁₀은? ① 0.01 ② 0.1 ③ 0.385 ④ 0.285'},
+          {key:'n', type:'range', label:'등분 수 n', min:1, max:100, step:1, value:10, fmt:function(v){ return 'n = ' + v; }}
+        ],
+        compute: function(p){ var F = FS[p.fn], S = sums(F, p.n); S.F = F; S.n = p.n; S.merr = F.ex == null ? null : F.ex - S.M; return S; },
+        draw: function(c, W, H, p, r, tau){
+          var F = FS[p.fn], n = p.n, x0 = 64, y0 = 18, pw = W - x0 - 20, ph = H - y0 - 110;
+          var ax = plotBox(c, x0, y0, pw, ph, [F.a, F.b, (F.b - F.a) / 4], F.yr, 'x', 'f(x)');
+          var show = r ? Math.round(Math.min(tau / 0.75, 1) * n) : 0, k;
+          for (k = 1; k <= show; k++){
+            var q = piece(F, n, k), xa = ax.X(q.xl), xb = ax.X(q.xr);
+            c.fillStyle = 'rgba(43,95,163,.22)'; c.fillRect(xa, Math.min(ax.Y(0), ax.Y(q.hi)), xb - xa, Math.abs(ax.Y(q.hi) - ax.Y(0)));
+            c.fillStyle = 'rgba(46,158,120,.55)'; c.fillRect(xa, Math.min(ax.Y(0), ax.Y(q.lo)), xb - xa, Math.abs(ax.Y(q.lo) - ax.Y(0)));
+            if (n <= 40){ c.strokeStyle = 'rgba(43,95,163,.6)'; c.lineWidth = 1; c.strokeRect(xa, Math.min(ax.Y(0), ax.Y(q.hi)), xb - xa, Math.abs(ax.Y(q.hi) - ax.Y(0))); }
+            if (n <= 40 && !F.dir){ c.fillStyle = PAL[6]; c.beginPath(); c.arc(ax.X(q.xm), ax.Y(q.mid), 3.5, 0, Math.PI * 2); c.fill(); }
+          }
+          if (F.dir){
+            for (k = 0; k <= 120; k++){ var xx = F.a + (F.b - F.a) * k / 120; c.fillStyle = PAL[0]; c.fillRect(ax.X(xx) - 1.5, ax.Y(1) - 1.5, 3, 3); c.fillStyle = PAL[4]; c.fillRect(ax.X(xx + 0.004) - 1.5, ax.Y(0) - 1.5, 3, 3); }
+            sm(c, '유리수 점 → 1', x0 + 8, ax.Y(1) - 8, {color:PAL[0], bold:true}); sm(c, '무리수 점 → 0', x0 + 8, ax.Y(0) - 8, {color:PAL[4], bold:true});
+          } else {
+            c.strokeStyle = '#1E2833'; c.lineWidth = 2.5; c.beginPath();
+            for (k = 0; k <= 400; k++){ var x = F.a + (F.b - F.a) * k / 400, y = F.step ? (x >= 0.5 ? 1 : 0) : F.f(x); if (k && !(F.step && Math.abs(x - 0.5) < 0.003)) c.lineTo(ax.X(x), ax.Y(y)); else c.moveTo(ax.X(x), ax.Y(y)); }
+            c.stroke();
+          }
+          if (r && tau >= 1){
+            txt(c, 'Lₙ = ' + tr(r.L, 6) + ' · Uₙ = ' + tr(r.U, 6), 20, H - 44, {bold:true});
+            txt(c, 'Uₙ − Lₙ = ' + tr(r.D, 6) + (F.dir ? ' — n과 무관하게 1' : ''), 20, H - 16, {bold:true, color:F.dir ? PAL[4] : PAL[1]});
+          } else txt(c, F.name.replace('&lt;', '<') + ', n = ' + n, 20, H - 16, {bold:true});
+        },
+        stats: function(p, r){
+          var s = [['함수', r.F.name], ['하합 Lₙ', tr(r.L, 7), PAL[1]], ['상합 Uₙ', tr(r.U, 7), PAL[0]], ['Uₙ − Lₙ', tr(r.D, 7) + (r.F.inc ? ' = (f(b) − f(a))·(b − a)/n' : ''), PAL[4]]];
+          if (r.F.ex != null) s.push(['중점 합 Mₙ (오차)', tr(r.M, 7) + ' (참값과 차이 ' + (r.merr === 0 ? '0' : sci(r.merr, 2)) + ')', PAL[6]]);
+          else s.push(['중점 합 Mₙ', tr(r.M, 7) + ' — 중점이 유리수라 1. 높이를 고르는 법에 따라 값이 달라짐', PAL[6]]);
+          s.push(['참값', r.F.ext]);
+          if (p.fn === 0) s.push(['1/(12n²) (중점 오차 공식)', sci(1 / (12 * r.n * r.n), 2)]);
+          if (p.fn === 1) s.push(['우측 끝점 합 Rₙ = 2(n + 1)/n', tr(r.R, 7)]);
+          if (p.fn === 4) s.push(['그래프와 x축 사이 넓이 ∫|x³|dx', '1/2 (부호 있는 넓이 0과 다름)']);
+          s.push(['판정', r.F.dir ? 'Uₙ − Lₙ = 1 고정 → 리만 적분 불가' : 'Uₙ − Lₙ → 0 → 적분 가능', r.F.dir ? PAL[4] : PAL[1]]);
+          return s;
+        },
+        columns: ['함수', 'n', 'Lₙ', 'Uₙ', 'Uₙ − Lₙ', '중점 합'],
+        record: function(p, r){ return {fn:p.fn, n:r.n, L:r.L, U:r.U, D:r.D, M:r.M, me:r.merr}; },
+        row: function(d){ return [FS[d.fn].sh, d.n, tr(d.L, 6), tr(d.U, 6), tr(d.D, 6), tr(d.M, 6)]; },
+        verify: function(rec, box){
+          box.innerHTML = '<div class="vgrid">' +
+            card('x²: n을 늘릴 때 오차가 줄어드는 속도 (로그 눈금)', '<canvas class="chart" id="rs1"></canvas><div id="rs1t"></div><p class="ask">Uₙ − Lₙ과 중점 합 오차의 기울기는 각각 얼마인가요? n을 10배 늘리면 각각 몇 분의 1로 줄어드나요?</p>') +
+            card('x² 상합·하합 표 (대본)', '<div id="rs2"></div><p class="ask">4등분 중점 합이 100등분 하합만큼 정확한 까닭을 오차 기울기로 설명해 보세요.</p>') +
+            card('함수별 Uₙ − Lₙ', '<div id="rs3"></div><p class="ask">확인 문제: f(x) = x, [0, 2]를 n등분한 우측 끝점 리만 합 Rₙ을 n의 식으로 구하고 극한을 구하세요.</p>') + '</div>';
+          var sq = rec.filter(function(d){ return d.fn === 0; });
+          var p1 = sq.map(function(d){ return {x:Math.log10(d.n), y:Math.log10(d.D)}; }), p2 = sq.filter(function(d){ return d.me > 0; }).map(function(d){ return {x:Math.log10(d.n), y:Math.log10(d.me)}; });
+          var ok = distinct(sq.map(function(d){ return d.n; })) >= 2, l1 = ok ? linfit(p1) : null, l2 = ok && p2.length >= 2 ? linfit(p2) : null, lines = [];
+          if (l1) lines.push({k:l1.k, b:l1.b, color:PAL[0], dash:true}); if (l2) lines.push({k:l2.k, b:l2.b, color:PAL[6], dash:true});
+          drawScatter($('rs1'), {series:[{color:PAL[0], pts:p1}, {color:PAL[6], pts:p2}], lines:lines, xLabel:'log₁₀ n', yLabel:'log₁₀ (오차)'});
+          $('rs1t').innerHTML = legend([{color:PAL[0], label:'Uₙ − Lₙ'}, {color:PAL[6], label:'1/3 − Mₙ'}]) + (l1 ? '<p class="msg">기울기: Uₙ − Lₙ ' + f(l1.k, 2) + ' (이론 −1)' + (l2 ? ', 중점 오차 ' + f(l2.k, 2) + ' (이론 −2)' : '') + '</p>' : '<p class="msg">x²를 서로 다른 n으로 두 번 이상 기록하면 기울기가 나옵니다.</p>');
+          $('rs2').innerHTML = tableHTML(['n', 'Lₙ', 'Uₙ', 'Uₙ − Lₙ', '중점 합 Mₙ', '1/3 − Mₙ'], [4, 10, 100].map(function(n){ var S = sums(FS[0], n); return [n, tr(S.L, 6), tr(S.U, 6), tr(S.D, 4), tr(S.M, 6), f(1 / 3 - S.M, 7)]; }));
+          var g = groupBy(rec, function(d){ return d.fn; }), rows = [];
+          Object.keys(g).forEach(function(k){ g[k].slice().sort(function(a, b){ return a.n - b.n; }).forEach(function(d){ rows.push([FS[k].sh, d.n, tr(d.D, 6), FS[k].dir ? '불가' : '가능']); }); });
+          $('rs3').innerHTML = tableHTML(['함수', 'n', 'Uₙ − Lₙ', '적분'], rows);
+        }
+      };
+    })();
+
+/* ================= 엔진 ================= */
+var p = {}, running = false, result = null, records = [];
+var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
+
+function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
+
+function buildControls(){
+  var box = $('controls');
+  LAB.params.forEach(function(q){
+    p[q.key] = q.value;
+    var wrap = document.createElement('div'); wrap.className = 'ctrl';
+    if (q.type === 'range'){
+      wrap.innerHTML = '<div class="row"><label for="r_' + q.key + '">' + q.label + '</label><span class="val" id="v_' + q.key + '"></span></div>' +
+        '<input type="range" id="r_' + q.key + '" min="' + q.min + '" max="' + q.max + '" step="' + q.step + '" value="' + q.value + '">';
+      box.appendChild(wrap);
+      var el = $('r_' + q.key);
+      el.addEventListener('input', function(){ p[q.key] = parseFloat(el.value); onParamChange(); });
+    } else {
+      wrap.innerHTML = '<div class="row"><span>' + q.label + '</span></div><div class="seg' + (q.cols ? ' c' + q.cols : '') + '" id="seg_' + q.key + '"></div>' +
+        (q.note ? '<p class="note">' + q.note + '</p>' : '');
+      box.appendChild(wrap);
+      var sb = $('seg_' + q.key);
+      q.options.forEach(function(html, i){
+        var b = document.createElement('button'); b.type = 'button'; b.innerHTML = html;
+        b.setAttribute('aria-pressed', i === q.value ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          if (running) return;
+          p[q.key] = i;
+          Array.prototype.forEach.call(sb.children, function(x, j){ x.setAttribute('aria-pressed', j === i ? 'true' : 'false'); });
+          onParamChange();
+        });
+        sb.appendChild(b);
+      });
+    }
+  });
+}
+function syncLabels(){
+  LAB.params.forEach(function(q){ if (q.type === 'range'){ $('v_' + q.key).textContent = q.fmt(p[q.key]); paintSlider($('r_' + q.key)); } });
+}
+function lockControls(on){
+  Array.prototype.forEach.call($('controls').querySelectorAll('input,button'), function(el){ el.disabled = on; });
+  runBtn.disabled = on;
+  clearBtn.disabled = on || records.length === 0;
+}
+function showIdle(){ $('result').innerHTML = '<p class="msg">' + LAB.idle + '</p>'; }
+function onParamChange(){ result = null; recBtn.disabled = true; syncLabels(); draw(null, 0); showIdle(); }
+function showStats(r){
+  $('result').innerHTML = '<dl class="stats">' + LAB.stats(p, r).map(function(s){
+    return '<div' + (s[2] ? ' style="border-color:' + s[2] + '"' : '') + '><dt>' + s[0] + '</dt><dd>' + s[1] + '</dd></div>';
+  }).join('') + '</dl>';
+}
+
+runBtn.addEventListener('click', function(){
+  scene.scrollIntoView({behavior:'smooth', block:'center'});
+  if (running) return;
+  var r = LAB.compute(p);
+  result = null; recBtn.disabled = true;
+  if (r.fail){ draw(null, 0); $('result').innerHTML = '<p class="msg stop">' + r.fail + '</p>'; return; }
+  running = true; lockControls(true);
+  $('result').innerHTML = '<p class="msg">계산 중…</p>';
+  setTimeout(function(){
+    var t0 = performance.now();
+    function step(now){
+      var tau = Math.min((now - t0) / ANIM_MS, 1);
+      draw(r, tau);
+      if (tau < 1) requestAnimationFrame(step); else finish(r);
+    }
+    requestAnimationFrame(step);
+  }, 300);
+});
+function finish(r){ running = false; result = r; lockControls(false); showStats(r); autoRecord(); }
+function autoRecord(){ /* 측정이 끝나면 바로 기록 (기록 버튼 제거) */
+  if (!result) return;
+  var d = LAB.record(p, result);
+  (Array.isArray(d) ? d : [d]).forEach(function(x){ x._no = records.length + 1; records.push(x); });
+  renderTable();
+}
+
+clearBtn.addEventListener('click', function(){
+  if (!records.length || !confirm('기록한 데이터를 모두 지울까요?')) return;
+  records = []; renderTable();
+});
+function renderTable(){
+  var body = $('recBody');
+  $('recCount').textContent = records.length ? '(' + records.length + '개)' : '';
+  clearBtn.disabled = running || records.length === 0;
+  if (!records.length){
+    body.innerHTML = '<tr class="empty"><td colspan="' + (LAB.columns.length + 1) + '">아직 기록이 없어요. 실행하면 여기에 자동으로 쌓입니다.</td></tr>';
+    return;
+  }
+  body.innerHTML = records.map(function(d){
+    return '<tr><td>' + d._no + '</td>' + LAB.row(d).map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>';
+  }).join('');
+  var wrap = body.closest('.tablewrap'); wrap.scrollTop = wrap.scrollHeight;
+}
+function renderVerify(){
+  var box = $('verifyBody'), need = LAB.minRec || 4;
+  if (records.length < need){
+    box.innerHTML = '<div class="card shortage"><strong>데이터 부족</strong>분석하려면 기록이 ' + need + '개 이상 필요해요. 지금 ' + records.length + '개입니다. ' + LAB.shortHint + '</div>';
+    return;
+  }
+  LAB.verify(records, box);
+}
+function redrawExplore(){ if (running) return; sizeScene(); draw(result, result ? 1 : 0); }
+
+var tabs = [$('tab-explore'), $('tab-verify')], panels = [$('panel-explore'), $('panel-verify')];
+tabs.forEach(function(t, i){
+  t.addEventListener('click', function(){
+    tabs.forEach(function(x, j){ x.setAttribute('aria-selected', i === j ? 'true' : 'false'); });
+    panels.forEach(function(pn, j){ pn.hidden = i !== j; });
+    if (i === 1) renderVerify(); else redrawExplore();
+  });
+});
+var rt;
+window.addEventListener('resize', function(){
+  clearTimeout(rt);
+  rt = setTimeout(function(){ if (!panels[1].hidden) renderVerify(); else redrawExplore(); }, 120);
+});
+
+$('recHead').innerHTML = '<th>번호</th>' + LAB.columns.map(function(h){ return '<th>' + h + '</th>'; }).join('');
+buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null, 0);
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+<!-- fxSound:start --><script src="../fxsound.js?v=9c0884aa7b77" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
+<script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+</body>
+</html>
