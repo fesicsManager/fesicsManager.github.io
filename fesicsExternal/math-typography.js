@@ -9,6 +9,8 @@
   function element(name, text) {
     var e = document.createElementNS(NS, name);
     if (text !== undefined) e.textContent = text;
+    // Match the upright letters of the surrounding plain text instead of MathML's default italic.
+    if (name === 'mi') e.setAttribute('mathvariant', 'normal');
     return e;
   }
   function eligible(node) {
