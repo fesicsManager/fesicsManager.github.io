@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<!-- labgen:highSWLife -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>계산대마다 줄을 따로 서면 더 빨리 끝나는가 | 고등 소프트웨어와 생활</title>
+<style>
+:root{
+  --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
+  --pri:#2B5FA3; --pri-d:#1F4B85; --pri-soft:rgba(43,95,163,.16);
+  --ep:#3867B0; --ek:#E08A2E; --heat:#C8463D;
+}
+html{font-size:21px}
+@media (max-width:760px){html{font-size:20px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); font-size:1rem; line-height:1.55; word-break:keep-all; overflow-wrap:anywhere;
+  font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  background-color:var(--bg);
+  background-image:radial-gradient(var(--dot) 1.2px, transparent 1.4px);
+  background-size:22px 22px;
+}
+.container{width:97%; max-width:1840px; margin:0 auto; padding:1.2rem 0 2.5rem}
+header h1{font-size:1.6rem; margin:0 0 .35rem; letter-spacing:-.01em; line-height:1.3}
+header p{margin:0; color:var(--sub); max-width:62ch}
+
+/* 탭 */
+.tabs{display:flex; gap:.5rem; margin:1.1rem 0 1rem; flex-wrap:wrap}
+.tab{
+  font:inherit; font-weight:700; padding:.55rem 1.1rem; border-radius:999px; cursor:pointer;
+  border:2px solid var(--line); background:var(--paper); color:var(--sub);
+  transition:background .18s, color .18s, border-color .18s, transform .12s, filter .18s;
+}
+.tab:hover{border-color:var(--pri); color:var(--pri); transform:translateY(-1px)}
+.tab:active{transform:translateY(1px) scale(.98)}
+.tab[aria-selected="true"]{background:var(--pri); border-color:var(--pri); color:#fff}
+.tab[aria-selected="true"]:hover{filter:brightness(1.08); color:#fff}
+.panel[hidden]{display:none}
+
+/* 레이아웃 */
+.lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
+.card + .card{margin-top:1rem}
+.card h2{font-size:1.15rem; margin:0 0 .6rem; line-height:1.35}
+.note{color:var(--sub); font-size:.95rem; margin:.6rem 0 0}
+
+#scene{width:100%; height:320px; display:block; border-radius:10px; background:#F7F9FC}
+
+/* 에너지 막대 */
+.ebar{display:flex; height:30px; border-radius:8px; overflow:hidden; background:#E6EBF1; margin-top:.8rem}
+.ebar div{height:100%; transition:none}
+.ebar .ep{background:var(--ep)} .ebar .ek{background:var(--ek)} .ebar .ht{background:var(--heat)}
+.elegend{display:grid; grid-template-columns:repeat(3,1fr); gap:.3rem; margin-top:.45rem; font-size:.95rem}
+.elegend > span{display:flex; align-items:flex-start; gap:.35rem; line-height:1.3}
+.elegend > span > span{display:block}
+.elegend i{width:14px; height:14px; border-radius:3px; flex:none; margin-top:.2rem}
+.elegend b{display:block; font-variant-numeric:tabular-nums}
+
+/* 조작부 */
+.ctrl{margin-bottom:.75rem}
+.ctrl .row{display:flex; justify-content:space-between; align-items:baseline}
+.ctrl .val{font-weight:700; color:var(--pri); font-variant-numeric:tabular-nums}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:30px; margin:0;
+  background:transparent; cursor:pointer; touch-action:manipulation; --p:50%;
+}
+input[type=range]:focus{outline:none}
+input[type=range]:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px; border-radius:6px}
+input[type=range]::-webkit-slider-runnable-track{
+  height:8px; border-radius:4px;
+  background:linear-gradient(to right, var(--pri) var(--p), #D5DDE6 var(--p));
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:24px; height:24px; border-radius:50%; margin-top:-8px;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]::-moz-range-track{height:8px; border-radius:4px; background:#D5DDE6}
+input[type=range]::-moz-range-progress{height:8px; border-radius:4px; background:var(--pri)}
+input[type=range]::-moz-range-thumb{
+  box-sizing:border-box; width:24px; height:24px; border-radius:50%;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-moz-range-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]:disabled{cursor:not-allowed; opacity:.45}
+input[type=range]:disabled::-webkit-slider-thumb{transform:none; box-shadow:none}
+
+.seg{display:grid; grid-template-columns:1fr 1fr; gap:.45rem}
+.seg button{
+  font:inherit; font-size:.95rem; text-align:left; line-height:1.3; padding:.5rem .6rem; cursor:pointer;
+  border:2px solid var(--line); border-radius:10px; background:#fff; color:var(--ink);
+  transition:border-color .18s, background .18s, transform .12s;
+}
+.seg button small{display:block; color:var(--sub); font-size:.95rem; font-variant-numeric:tabular-nums}
+.seg button:hover:not(:disabled){border-color:var(--pri); transform:translateY(-1px)}
+.seg button:active:not(:disabled){transform:translateY(1px) scale(.98)}
+.seg button[aria-pressed="true"]{border-color:var(--pri); background:#EAF1FA}
+.seg button:disabled{cursor:not-allowed; opacity:.5}
+
+.actions{display:flex; gap:.6rem; margin-top:1rem; flex-wrap:wrap}
+.btn{
+  font:inherit; font-weight:700; padding:.65rem 1.2rem; border-radius:12px; cursor:pointer;
+  border:2px solid var(--pri); background:var(--pri); color:#fff;
+  transition:filter .18s, transform .12s, background .18s, color .18s, opacity .18s;
+}
+.btn:hover:not(:disabled){filter:brightness(1.1); transform:translateY(-2px)}
+.btn:active:not(:disabled){transform:translateY(1px) scale(.97)}
+.btn.ghost{background:#fff; color:var(--pri)}
+.btn.ghost:hover:not(:disabled){background:#EAF1FA; filter:none}
+.btn.warn{background:#fff; color:#A33A32; border-color:#E0B4AF}
+.btn.warn:hover:not(:disabled){background:#FBEDEB; filter:none}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px}
+
+/* 측정 결과 */
+.stats{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:.5rem .9rem; margin:0}
+.stats div{border-left:4px solid var(--line); padding:.15rem 0 .15rem .6rem}
+.stats dt{color:var(--sub); font-size:.95rem}
+.stats dd{margin:0; font-weight:700; font-size:1.15rem; font-variant-numeric:tabular-nums}
+.stats .c-ep{border-color:var(--ep)} .stats .c-ek{border-color:var(--ek)} .stats .c-ht{border-color:var(--heat)}
+.msg{padding:.7rem .9rem; border-radius:10px; background:#F3F6FA; color:var(--sub); margin:0}
+.msg.stop{background:#FBEFE3; color:#8A4B12}
+
+/* 기록 표 */
+.tablewrap{max-height:430px; overflow:auto; border:1px solid var(--line); border-radius:10px}
+table{border-collapse:collapse; width:100%; font-size:.95rem; font-variant-numeric:tabular-nums}
+th,td{padding:.4rem .6rem; text-align:right; white-space:nowrap; border-bottom:1px solid #E8EDF2}
+th{position:sticky; top:0; background:#E9EFF6; z-index:1; font-weight:700}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+tbody tr:hover{background:#F5F8FB}
+.empty td{text-align:center; color:var(--sub); padding:1.2rem}
+.dotc{display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:.35rem; vertical-align:-1px}
+
+/* 데이터 검증 */
+.vgrid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem}
+@media (max-width:640px){.vgrid{grid-template-columns:minmax(0,1fr)}}
+.vgrid .card + .card{margin-top:0}
+.chart{width:100%; height:300px; display:block}
+.legend{display:flex; flex-wrap:wrap; gap:.4rem 1rem; font-size:.95rem; margin:0 0 1rem}
+.legend span{display:flex; align-items:center}
+.readout{margin:.6rem 0 0; padding:0; list-style:none}
+.readout li{padding:.2rem 0; font-variant-numeric:tabular-nums}
+.ask{margin:.6rem 0 0; color:var(--sub); font-size:.95rem}
+.shortage{text-align:center; padding:2.2rem 1rem}
+.shortage strong{display:block; font-size:1.3rem; margin-bottom:.4rem}
+.mtable{margin-top:.6rem}
+.mtable table{font-size:.95rem}
+.mtable h3{font-size:1rem; margin:.8rem 0 .3rem}
+
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+.seg.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.seg.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.seg.c4 button{text-align:center; padding:.5rem .3rem}
+.center td,.center th{text-align:center !important}
+.inlegend{display:flex; flex-wrap:wrap; gap:.3rem 1rem; font-size:.95rem; margin:0 0 .4rem}
+.inlegend span{display:flex; align-items:center}
+.gap-top{margin-top:.6rem}
+.wrap td{white-space:normal; text-align:left !important}
+.hbars{display:grid; gap:.5rem; margin:.4rem 0}
+.hb{display:grid; grid-template-columns:minmax(0,9rem) minmax(0,1fr) auto; gap:.6rem; align-items:center}
+.hb .ht{height:18px; background:#E6EBF1; border-radius:6px; overflow:hidden}
+.hb .ht i{display:block; height:100%}
+.hb b{font-variant-numeric:tabular-nums}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}.fx-p-card .fx-formula{white-space:normal;max-width:100%}.fx-p-card table{display:block;max-width:100%;overflow-x:auto}}
+</style>
+<script src="../math-typography.js?v=f6dbf909a314"></script>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>계산대마다 줄을 따로 서면 더 빨리 끝나는가</h1>
+    <p>매점 계산대 두 개, 학생 10명이 1분 간격(0~9분)으로 도착합니다. 계산 시간은 모두 2분인데 <b>컵라면 학생</b> 한 명만 오래 걸려요. <b>줄 서는 방식</b>을 고르면 한 명씩 시뮬레이션해 평균 대기와 최대 대기를 계산합니다. 컵라면 학생의 번호와 시간을 바꿔 결론이 유지되는지도 확인하세요.<br><span style="font-size:.9em;color:#a86825">※ 도착 시각·계산 시간은 수업용 가상 자료입니다. 계산대까지 이동 시간은 0으로 가정했어요.</span></p>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-explore" aria-selected="true" aria-controls="panel-explore">🔬 자유 탐구</button>
+    <button class="tab" role="tab" id="tab-verify" aria-selected="false" aria-controls="panel-verify">✅ 결과 비교</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="소프트웨어 원리">
+<div class="fx-p-card">
+<h2>📖 소프트웨어 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 규칙을 의사코드로 쓰면 시뮬레이션할 수 있다</h3>
+<p>실제 매점에서 줄 방식을 바꿔 가며 실험하기는 어렵습니다. 대신 도착 시각·계산 시간·줄 규칙으로 <b>모델</b>을 세워 화면 안에서 먼저 바꿔 봐요.</p>
+<p><span class="fx-formula">시작 = max(도착, 계산대가 비는 시각)　|　대기 = 시작 − 도착　|　비는 시각 = 시작 + 계산 시간</span></p>
+<ul>
+<li><b>두 줄</b>: 도착 순서대로 A, B, A, B… 번갈아 배정 → 대기 합 4 × 4 = 16분, 평균 <b>1.6분</b>, 최대 <b>4분</b>, 마지막 끝 15분</li>
+<li><b>한 줄</b>: 맨 앞 사람이 먼저 비는 계산대로 → 대기 합 1 + 2 × 6 = 13분, 평균 <b>1.3분</b>, 최대 <b>2분</b>, 마지막 끝 13분</li>
+</ul>
+<p>두 줄 방식에서는 컵라면 학생 뒤의 B줄(4·6·8·10번)이 4분씩 기다리는 동안 A계산대는 10분 이후 비어 있습니다. 한 줄이면 빈 계산대를 바로 쓰니 평균도 최대도 줄어요.</p>
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 모델에 넣은 것: 도착 시각, 계산 시간, 줄 규칙. 넣지 않은 것: 계산대까지 이동 시간, 줄 바꾸기, 포기, 무작위 도착.<br>
+· 계산대가 동시에 비면 A로 간다고 정했습니다.<br>
+· 실제 시뮬레이션은 도착 간격과 계산 시간을 무작위로 바꿔 수백 번 반복한 평균을 봅니다. 한 번의 결과로 결론 내리지 않아요.</div>
+</div>
+</section>
+
+
+
+
+
+
+  <section class="panel" id="panel-explore" role="tabpanel">
+    <div class="lab">
+      <div>
+        <div class="card">
+          <canvas id="scene" aria-label="계산대마다 줄을 따로 서면 더 빨리 끝나는가 실험 장면"></canvas>
+          <p class="note">한 줄이 학생 한 명입니다. 주황 막대는 기다린 시간, 파랑(A)·초록(B) 막대는 계산한 시간이에요. 위의 세로선이 시계입니다.</p>
+        </div>
+        <div class="card">
+          <div id="controls"></div>
+          <div class="actions">
+            <button class="btn" id="runBtn">한 명씩 시뮬레이션</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>결과</h2>
+          <div id="result"></div>
+        </div>
+        <div class="card">
+          <h2>기록한 데이터 <span id="recCount" style="color:var(--sub);font-weight:400"></span></h2>
+          <div class="tablewrap">
+            <table><thead><tr id="recHead"></tr></thead><tbody id="recBody"></tbody></table>
+          </div>
+          <div class="actions"><button class="btn warn" id="clearBtn" disabled>기록 모두 지우기</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-verify" role="tabpanel" hidden>
+    <div id="verifyBody"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ================= 공통 도구 ================= */
+var FONT = 'Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+var ANIM_MS = 1400;
+var PAL = ['#2B5FA3', '#2E9E78', '#A8702F', '#7657B3', '#C8463D', '#3A8FB7', '#D98E04', '#5C6B7A'];
+var $ = function(id){ return document.getElementById(id); };
+function f(x, d){ var s = x.toFixed(d); if (/^-0\.?0*$/.test(s)) s = s.slice(1); return s.replace('-', '−'); }
+function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : '') + s; }
+function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
+function fitCanvas(cv){
+  var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return {c:c, W:W, H:H};
+}
+function niceStep(raw){
+  var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
+  return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
+}
+function axisFrom(lo, hi){
+  if (hi - lo <= 0) hi = lo + 1;
+  var step = niceStep((hi - lo) / 4);
+  return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+function txt(c, s, x, y, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
+function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
+function meter(c, x, y, w, s){
+  c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
+  txt(c, s, x + w - 10, y + 18, {bold:true, color:'#7CF0B0', align:'right', base:'middle'});
+}
+function arrow(c, x1, y1, x2, y2, color, lw){
+  var a = Math.atan2(y2 - y1, x2 - x1), h = 9;
+  c.strokeStyle = color; c.fillStyle = color; c.lineWidth = lw || 2;
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - h * Math.cos(a - 0.4), y2 - h * Math.sin(a - 0.4)); c.lineTo(x2 - h * Math.cos(a + 0.4), y2 - h * Math.sin(a + 0.4)); c.closePath(); c.fill();
+}
+function nmColor(nm){
+  var r = 0, g = 0, b = 0;
+  if (nm < 440){ r = -(nm - 440) / 60; b = 1; } else if (nm < 490){ g = (nm - 440) / 50; b = 1; }
+  else if (nm < 510){ g = 1; b = -(nm - 510) / 20; } else if (nm < 580){ r = (nm - 510) / 70; g = 1; }
+  else if (nm < 645){ r = 1; g = -(nm - 645) / 65; } else { r = 1; }
+  var fct = nm < 420 ? 0.4 + 0.6 * (nm - 380) / 40 : nm > 700 ? 0.4 + 0.6 * (780 - nm) / 80 : 1;
+  return [r, g, b].map(function(v){ return Math.round(255 * Math.pow(Math.max(0, v) * fct, 0.8)); });
+}
+function mean(a){ return a.reduce(function(s, x){ return s + x; }, 0) / a.length; }
+function dot(color){ return '<span class="dotc" style="background:' + color + '"></span>'; }
+function legend(items){ return '<div class="inlegend">' + items.map(function(it){ return '<span>' + dot(it.color) + it.label + '</span>'; }).join('') + '</div>'; }
+function distinct(arr){ var o = {}; arr.forEach(function(v){ o[v] = 1; }); return Object.keys(o).length; }
+function fit0(pts){ var n = 0, d = 0; pts.forEach(function(p){ n += p.x * p.y; d += p.x * p.x; }); return n / d; }
+function linfit(pts){
+  var n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  pts.forEach(function(p){ sx += p.x; sy += p.y; sxx += p.x * p.x; sxy += p.x * p.y; });
+  var k = (n * sxy - sx * sy) / (n * sxx - sx * sx); return {k:k, b:(sy - k * sx) / n};
+}
+function groupBy(arr, keyFn){ var g = {}; arr.forEach(function(d){ var k = keyFn(d); (g[k] = g[k] || []).push(d); }); return g; }
+function card(title, inner){ return '<div class="card"><h2>' + title + '</h2>' + inner + '</div>'; }
+function tableHTML(head, rows, cls){
+  return '<div class="tablewrap' + (cls ? ' ' + cls : '') + '"><table><thead><tr>' + head.map(function(h){ return '<th>' + h + '</th>'; }).join('') +
+    '</tr></thead><tbody>' + rows.map(function(r){ return '<tr>' + r.map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+}
+/* 산점도: series [{color, pts:[{x,y}], hollow}], lines [{k,b,from,to,color,dash} | {h,color,dash}] */
+function drawScatter(cv, opt){
+  var o = fitCanvas(cv), c = o.c, W = o.W, H = o.H;
+  if (!W) return;
+  var padL = 78, padR = 18, padT = 14, padB = 62, xs = [], ys = [];
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){ xs.push(p.x); ys.push(p.y); }); });
+  (opt.lines || []).forEach(function(l){ if (l.h != null) ys.push(l.h); });
+  if (!xs.length){ xs = [1]; ys = [1]; }
+  var head = opt.yHead || 1.08;
+  var xl = Math.min(0, Math.min.apply(null, xs)), xh = Math.max(0, Math.max.apply(null, xs));
+  var yl = Math.min(0, Math.min.apply(null, ys)), yh = Math.max(0, Math.max.apply(null, ys));
+  if (opt.square){ xl = yl = Math.min(xl, yl); xh = yh = Math.max(xh, yh); }
+  var ax = axisFrom(xl * 1.08, xh * 1.08), ay = opt.square ? ax : axisFrom(yl * head, yh * head);
+  if (opt.xHi != null){ ax = {lo:0, hi:opt.xHi, step:opt.xStep || niceStep(opt.xHi / 4)}; }
+  if (opt.tightX){ var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), px = (x1 - x0) * 0.1 || 1; ax = axisFrom(x0 - px, x1 + px); }
+  if (opt.tightY){ var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys), py = (y1 - y0) * 0.15 || 0.5; ay = axisFrom(y0 - py, y1 + py); }
+  var pw = W - padL - padR, ph = H - padT - padB;
+  var X = function(x){ return padL + (x - ax.lo) / (ax.hi - ax.lo) * pw; };
+  var Y = function(y){ return padT + ph - (y - ay.lo) / (ay.hi - ay.lo) * ph; };
+  c.clearRect(0, 0, W, H); c.font = '18px ' + FONT;
+  c.strokeStyle = '#E3E8EE'; c.lineWidth = 1; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((ax.hi - ax.lo) / ax.step), ny = Math.round((ay.hi - ay.lo) / ay.step);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = ax.lo + i * ax.step; c.beginPath(); c.moveTo(X(v), padT); c.lineTo(X(v), padT + ph); c.stroke(); c.fillText(f(v, decOf(ax.step)), X(v), padT + ph + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = ay.lo + i * ay.step; c.beginPath(); c.moveTo(padL, Y(v)); c.lineTo(padL + pw, Y(v)); c.stroke(); c.fillText(f(v, decOf(ay.step)), padL - 8, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(padL, padT); c.lineTo(padL, padT + ph); c.lineTo(padL + pw, padT + ph); c.stroke();
+  if (ay.lo < 0){ c.beginPath(); c.moveTo(padL, Y(0)); c.lineTo(padL + pw, Y(0)); c.stroke(); }
+  if (ax.lo < 0){ c.beginPath(); c.moveTo(X(0), padT); c.lineTo(X(0), padT + ph); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+  c.fillText(opt.xLabel, padL + pw / 2, H - 4);
+  c.save(); c.translate(18, padT + ph / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(opt.yLabel, 0, 0); c.restore();
+  c.save(); c.beginPath(); c.rect(padL, padT, pw, ph); c.clip();
+  (opt.lines || []).forEach(function(l){
+    c.strokeStyle = l.color; c.lineWidth = 2; c.setLineDash(l.dash ? [7, 5] : []); c.beginPath();
+    if (l.h != null){ c.moveTo(padL, Y(l.h)); c.lineTo(padL + pw, Y(l.h)); }
+    else {
+      var b = l.b || 0, x1 = Math.max(l.from != null ? l.from : ax.lo, ax.lo), x2 = Math.min(l.to != null ? l.to : ax.hi, ax.hi);
+      c.moveTo(X(x1), Y(l.k * x1 + b)); c.lineTo(X(x2), Y(l.k * x2 + b));
+    }
+    c.stroke();
+  });
+  c.setLineDash([]);
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){
+    c.lineWidth = 2.5;
+    if (s.hollow){ c.fillStyle = '#fff'; c.strokeStyle = s.color; }
+    else { c.fillStyle = s.color; c.strokeStyle = '#fff'; }
+    c.beginPath(); c.arc(X(p.x), Y(p.y), 6.5, 0, Math.PI * 2); c.fill(); c.stroke();
+  }); });
+  c.restore();
+}
+
+/* 탐구 화면용 좌표축: xr, yr = [lo, hi, step] */
+function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
+  var X = function(v){ return x + (v - xr[0]) / (xr[1] - xr[0]) * w; }, Y = function(v){ return y + h - (v - yr[0]) / (yr[1] - yr[0]) * h; };
+  c.fillStyle = '#F7F9FC'; c.fillRect(x, y, w, h);
+  c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
+  if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
+  if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
+  c.textBaseline = 'alphabetic';
+  return {X:X, Y:Y};
+}
+function glow(c, x, y, r, color, alpha){
+  if (alpha <= 0) return;
+  var g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.globalAlpha = Math.min(alpha, 1); c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.globalAlpha = 1;
+}
+function hbars(items, max){
+  return '<div class="hbars">' + items.map(function(it){
+    return '<div class="hb"><span class="hl">' + it.label + '</span><span class="ht"><i style="width:' + Math.max(0, Math.min(100, it.v / max * 100)) + '%;background:' + it.color + '"></i></span><b>' + it.text + '</b></div>';
+  }).join('') + '</div>';
+}
+
+/* ================= 실험별 설정 ================= */
+var LAB = (function anonymous(
+) {
+
+  function T(c, s, x, y, o){
+    o = o || {}; var sz = o.size || 18, fw = o.bold ? '700 ' : '';
+    c.font = fw + sz + 'px ' + FONT;
+    if (o.max){ while (sz > 10 && c.measureText(s).width > o.max){ sz -= 1; c.font = fw + sz + 'px ' + FONT; } }
+    c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  }
+  function wrap(c, s, x, y, maxW, lh, o){
+    o = o || {}; var sz = o.size || 16; c.font = (o.bold ? '700 ' : '') + sz + 'px ' + FONT;
+    c.fillStyle = o.color || '#1E2833'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+    var lines = [], line = '';
+    for (var i = 0; i < s.length; i++){
+      var t = line + s[i];
+      if (c.measureText(t).width > maxW && line){
+        var sp = line.lastIndexOf(' ');
+        if (sp > 0 && s[i] !== ' '){ lines.push(line.slice(0, sp)); line = line.slice(sp + 1) + s[i]; }
+        else { lines.push(line); line = s[i] === ' ' ? '' : s[i]; }
+      } else line = t;
+    }
+    if (line) lines.push(line);
+    lines.forEach(function(l, k){ c.fillText(l, x, y + k * lh); });
+    return lines.length;
+  }
+  function rbox(c, x, y, w, h, fill, stroke, lw){
+    var r = Math.max(0, Math.min(8, h / 2, w / 2)); c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h); c.lineTo(x + r, y + h); c.quadraticCurveTo(x, y + h, x, y + h - r);
+    c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
+    if (fill){ c.fillStyle = fill; c.fill(); } if (stroke){ c.strokeStyle = stroke; c.lineWidth = lw || 2; c.stroke(); }
+  }
+  function ease(t){ return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); }
+  function pct(x, d){ return f(x * 100, d == null ? 1 : d) + '%'; }
+  function lcg(seed){ var s = seed >>> 0; return function(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+
+      var MN = ['두 줄 (A, B 번갈아 배정)', '한 줄 (먼저 비는 계산대로)'], MS = ['두 줄', '한 줄'];
+      function sim(mode, cup, dur){
+        var free = [0, 0], out = [];
+        for (var i = 0; i < 10; i++){
+          var arr = i, sv = (i + 1 === cup) ? dur : 2, ct;
+          if (mode === 0) ct = i % 2; else ct = free[1] < free[0] ? 1 : 0;
+          var st = Math.max(arr, free[ct]); free[ct] = st + sv;
+          out.push({arr:arr, ct:ct, st:st, wait:st - arr, end:st + sv, sv:sv});
+        }
+        var sum = 0, mx = 0, end = 0; out.forEach(function(s){ sum += s.wait; mx = Math.max(mx, s.wait); end = Math.max(end, s.end); });
+        return {s:out, sum:sum, avg:sum / 10, max:mx, end:end, freeA:free[0], freeB:free[1]};
+      }
+      return {
+        sceneHeight:function(w){ return w < 560 ? 500 : 460; },
+        idle:'줄 방식을 고른 뒤 <b>한 명씩 시뮬레이션</b>을 누르세요.',
+        shortHint:'기본값(2번 학생, 6분)에서 두 방식을 비교한 뒤, 컵라면 학생을 9번으로 바꿔서도 비교해 보세요.',
+        params:[
+          {key:'mode', type:'seg', label:'줄 서는 방식', cols:2, value:0, options:MN},
+          {key:'cup', type:'range', label:'컵라면 학생 번호', min:1, max:10, step:1, value:2, fmt:function(v){ return v + '번 학생 (' + (v - 1) + '분 도착)'; }},
+          {key:'dur', type:'range', label:'컵라면 학생의 계산 시간', min:2, max:10, step:1, value:6, fmt:function(v){ return v + '분'; }}
+        ],
+        compute:function(p){ var a = sim(p.mode, p.cup, p.dur), b = sim(1 - p.mode, p.cup, p.dur); return {a:a, other:b}; },
+        draw:function(c, W, H, p, r, tau){
+          var a = r ? r.a : sim(p.mode, p.cup, p.dur), TM = 20, narrow = W < 560;
+          var lx = narrow ? 60 : 96, x0 = lx + 8, pw = W - x0 - 20, top = 44, rh = (H - top - 60) / 10;
+          function X(t){ return x0 + t / TM * pw; }
+          c.font = '14px ' + FONT;
+          for (var t = 0; t <= TM; t += narrow ? 4 : 2){ seg(c, X(t), top - 6, X(t), top + rh * 10, '#E6EBF1', 1); T(c, String(t), X(t), top - 12, {size:13, align:'center', color:'#6B7887'}); }
+          T(c, '분', W - 16, top - 12, {size:13, color:'#6B7887', align:'right'});
+          var now = r ? ease(tau / 0.92) * TM : -1;
+          a.s.forEach(function(s, i){
+            var y = top + i * rh, cupR = i + 1 === p.cup;
+            T(c, (i + 1) + '번' + (cupR ? ' 🍜' : ''), 8, y + rh * 0.68, {size:14, bold:cupR, color:cupR ? PAL[2] : '#1E2833', max:lx - 10});
+            T(c, s.ct ? 'B' : 'A', lx - 4, y + rh * 0.68, {size:14, bold:true, color:s.ct ? PAL[1] : PAL[0], align:'right'});
+            c.fillStyle = '#26313D'; c.fillRect(X(s.arr) - 1, y + 3, 2, rh - 6);
+            if (!r) return;
+            var w1 = Math.min(now, s.st);
+            if (w1 > s.arr) rbox(c, X(s.arr), y + rh * 0.3, X(w1) - X(s.arr), rh * 0.4, PAL[6], null);
+            var e1 = Math.min(now, s.end);
+            if (e1 > s.st) rbox(c, X(s.st), y + rh * 0.15, X(e1) - X(s.st), rh * 0.7, s.ct ? PAL[1] : PAL[0], null);
+            if (now >= s.end && s.wait > 0) T(c, '대기 ' + s.wait, X(s.end) + 4, y + rh * 0.68, {size:13, bold:true, color:PAL[4]});
+          });
+          if (r && now < TM) seg(c, X(now), top - 6, X(now), top + rh * 10, PAL[4], 2);
+          T(c, r ? (now >= a.end ? MS[p.mode] + ' — 평균 대기 ' + f(a.avg, 1) + '분 · 최대 ' + a.max + '분 · 끝 ' + a.end + '분' : '시계 ' + f(now, 0) + '분') : '아직 시뮬레이션하지 않았어요', 16, H - 16, {bold:true, size:16, color:r ? PAL[0] : '#8C99A8', max:W - 32});
+        },
+        stats:function(p, r){
+          var a = r.a, o = r.other, waits = a.s.map(function(s){ return s.wait; });
+          return [['방식', MN[p.mode] + ' · 컵라면 ' + p.cup + '번 학생 ' + p.dur + '분'],
+            ['학생별 대기 (분)', waits.join(', ')],
+            ['대기 합 → 평균', a.sum + '분 ÷ 10 = ' + f(a.avg, 1) + '분', PAL[0]],
+            ['최대 대기', a.max + '분', PAL[4]],
+            ['마지막 계산 끝', a.end + '분 (A는 ' + a.freeA + '분, B는 ' + a.freeB + '분에 비움)'],
+            ['다른 방식(' + MS[1 - p.mode] + ')이었다면', '평균 ' + f(o.avg, 1) + '분 · 최대 ' + o.max + '분 · 끝 ' + o.end + '분', PAL[3]]];
+        },
+        columns:['방식', '컵라면', '대기 합', '평균', '최대', '끝'],
+        record:function(p, r){ return {mode:p.mode, cup:p.cup, dur:p.dur, sum:r.a.sum, avg:r.a.avg, max:r.a.max, end:r.a.end}; },
+        row:function(d){ return [MS[d.mode], d.cup + '번 ' + d.dur + '분', d.sum + '분', f(d.avg, 1) + '분', d.max + '분', d.end + '분']; },
+        verify:function(rec, box){
+          box.innerHTML = '<div class="vgrid">' +
+            card('같은 조건, 다른 줄 방식', '<div id="sw4a"></div><p class="ask">계산대 수가 같은데 왜 평균과 최대 대기가 달라졌나요? 두 줄일 때 A계산대가 놀고 있는 시간을 찾아보세요.</p>') +
+            card('조건을 바꿔도 결론이 유지되나', '<div id="sw4b"></div><p class="ask">과제: 급식실·매점·도서관 대출대 중 한 곳의 도착 시각과 처리 시간을 10명분 기록하고, 줄 방식 두 가지를 표로 시뮬레이션해 평균·최대 대기를 비교하세요. 모델에 넣지 않은 요소도 적으세요.</p>') + '</div>';
+          var g = groupBy(rec, function(d){ return d.cup + '/' + d.dur; }), items = [], rows = [];
+          Object.keys(g).forEach(function(key){
+            var cu = +key.split('/')[0], du = +key.split('/')[1], t2 = sim(0, cu, du), t1 = sim(1, cu, du), tried = distinct(g[key].map(function(d){ return d.mode; }));
+            if (items.length < 8){ items.push({label:cu + '번 ' + du + '분 · 두 줄', v:t2.avg, color:PAL[2], text:'평균 ' + f(t2.avg, 1) + ' · 최대 ' + t2.max}); items.push({label:cu + '번 ' + du + '분 · 한 줄', v:t1.avg, color:PAL[0], text:'평균 ' + f(t1.avg, 1) + ' · 최대 ' + t1.max}); }
+            rows.push([cu + '번 학생 ' + du + '분', f(t2.avg, 1) + ' / ' + t2.max, f(t1.avg, 1) + ' / ' + t1.max, t1.avg < t2.avg ? '한 줄' : t1.avg > t2.avg ? '두 줄' : '같음', tried > 1 ? '둘 다 해 봄' : '한 방식만']);
+          });
+          $('sw4a').innerHTML = hbars(items, Math.max.apply(null, items.map(function(x){ return x.v; }).concat([1])));
+          $('sw4b').innerHTML = tableHTML(['컵라면 조건', '두 줄 평균/최대', '한 줄 평균/최대', '평균이 짧은 쪽', '기록'], rows);
+        }
+      };
+    
+})();
+
+/* ================= 엔진 ================= */
+var p = {}, running = false, result = null, records = [];
+var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
+
+function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
+
+function buildControls(){
+  var box = $('controls');
+  LAB.params.forEach(function(q){
+    p[q.key] = q.value;
+    var wrap = document.createElement('div'); wrap.className = 'ctrl';
+    if (q.type === 'range'){
+      wrap.innerHTML = '<div class="row"><label for="r_' + q.key + '">' + q.label + '</label><span class="val" id="v_' + q.key + '"></span></div>' +
+        '<input type="range" id="r_' + q.key + '" min="' + q.min + '" max="' + q.max + '" step="' + q.step + '" value="' + q.value + '">';
+      box.appendChild(wrap);
+      var el = $('r_' + q.key);
+      el.addEventListener('input', function(){ p[q.key] = parseFloat(el.value); onParamChange(); });
+    } else {
+      wrap.innerHTML = '<div class="row"><span>' + q.label + '</span></div><div class="seg' + (q.cols ? ' c' + q.cols : '') + '" id="seg_' + q.key + '"></div>' +
+        (q.note ? '<p class="note">' + q.note + '</p>' : '');
+      box.appendChild(wrap);
+      var sb = $('seg_' + q.key);
+      q.options.forEach(function(html, i){
+        var b = document.createElement('button'); b.type = 'button'; b.innerHTML = html;
+        b.setAttribute('aria-pressed', i === q.value ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          if (running) return;
+          p[q.key] = i;
+          Array.prototype.forEach.call(sb.children, function(x, j){ x.setAttribute('aria-pressed', j === i ? 'true' : 'false'); });
+          onParamChange();
+        });
+        sb.appendChild(b);
+      });
+    }
+  });
+}
+function syncLabels(){
+  LAB.params.forEach(function(q){ if (q.type === 'range'){ $('v_' + q.key).textContent = q.fmt(p[q.key]); paintSlider($('r_' + q.key)); } });
+}
+function lockControls(on){
+  Array.prototype.forEach.call($('controls').querySelectorAll('input,button'), function(el){ el.disabled = on; });
+  runBtn.disabled = on;
+  clearBtn.disabled = on || records.length === 0;
+}
+function showIdle(){ $('result').innerHTML = '<p class="msg">' + LAB.idle + '</p>'; }
+function onParamChange(){ result = null; recBtn.disabled = true; syncLabels(); draw(null, 0); showIdle(); }
+function showStats(r){
+  $('result').innerHTML = '<dl class="stats">' + LAB.stats(p, r).map(function(s){
+    return '<div' + (s[2] ? ' style="border-color:' + s[2] + '"' : '') + '><dt>' + s[0] + '</dt><dd>' + s[1] + '</dd></div>';
+  }).join('') + '</dl>';
+}
+
+runBtn.addEventListener('click', function(){
+  scene.scrollIntoView({behavior:'smooth', block:'center'});
+  if (running) return;
+  var r = LAB.compute(p);
+  result = null; recBtn.disabled = true;
+  if (r.fail){ draw(null, 0); $('result').innerHTML = '<p class="msg stop">' + r.fail + '</p>'; return; }
+  running = true; lockControls(true);
+  $('result').innerHTML = '<p class="msg">진행 중…</p>';
+  setTimeout(function(){
+    var t0 = performance.now();
+    function step(now){
+      var tau = Math.min((now - t0) / ANIM_MS, 1);
+      draw(r, tau);
+      if (tau < 1) requestAnimationFrame(step); else finish(r);
+    }
+    requestAnimationFrame(step);
+  }, 300);
+});
+function finish(r){ running = false; result = r; lockControls(false); showStats(r); autoRecord(); }
+function autoRecord(){ /* 측정이 끝나면 바로 기록 (기록 버튼 제거) */
+  if (!result) return;
+  var d = LAB.record(p, result);
+  (Array.isArray(d) ? d : [d]).forEach(function(x){ x._no = records.length + 1; records.push(x); });
+  renderTable();
+}
+
+clearBtn.addEventListener('click', function(){
+  if (!records.length || !confirm('기록한 데이터를 모두 지울까요?')) return;
+  records = []; renderTable();
+});
+function renderTable(){
+  var body = $('recBody');
+  $('recCount').textContent = records.length ? '(' + records.length + '개)' : '';
+  clearBtn.disabled = running || records.length === 0;
+  if (!records.length){
+    body.innerHTML = '<tr class="empty"><td colspan="' + (LAB.columns.length + 1) + '">아직 기록이 없어요. 실행하면 여기에 자동으로 쌓입니다.</td></tr>';
+    return;
+  }
+  body.innerHTML = records.map(function(d){
+    return '<tr><td>' + d._no + '</td>' + LAB.row(d).map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>';
+  }).join('');
+  var wrap = body.closest('.tablewrap'); wrap.scrollTop = wrap.scrollHeight;
+}
+function renderVerify(){
+  var box = $('verifyBody'), need = LAB.minRec || 4;
+  if (records.length < need){
+    box.innerHTML = '<div class="card shortage"><strong>데이터 부족</strong>분석하려면 기록이 ' + need + '개 이상 필요해요. 지금 ' + records.length + '개입니다. ' + LAB.shortHint + '</div>';
+    return;
+  }
+  LAB.verify(records, box);
+}
+function redrawExplore(){ if (running) return; sizeScene(); draw(result, result ? 1 : 0); }
+
+var tabs = [$('tab-explore'), $('tab-verify')], panels = [$('panel-explore'), $('panel-verify')];
+tabs.forEach(function(t, i){
+  t.addEventListener('click', function(){
+    tabs.forEach(function(x, j){ x.setAttribute('aria-selected', i === j ? 'true' : 'false'); });
+    panels.forEach(function(pn, j){ pn.hidden = i !== j; });
+    if (i === 1) renderVerify(); else redrawExplore();
+  });
+});
+var rt;
+window.addEventListener('resize', function(){
+  clearTimeout(rt);
+  rt = setTimeout(function(){ if (!panels[1].hidden) renderVerify(); else redrawExplore(); }, 120);
+});
+
+$('recHead').innerHTML = '<th>번호</th>' + LAB.columns.map(function(h){ return '<th>' + h + '</th>'; }).join('');
+buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null, 0);
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 소프트웨어 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+<!-- fxSound:start --><script src="../fxsound.js?v=9c0884aa7b77" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
+<script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+</body>
+</html>
