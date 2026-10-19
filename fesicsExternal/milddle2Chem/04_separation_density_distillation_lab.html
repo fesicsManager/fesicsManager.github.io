@@ -536,12 +536,14 @@ function total(){ return layerRecords.length + distRecords.length; }
 
 /* ================= ① 밀도차 분리 ================= */
 var LIQS=[
-  {n:'등유',    d:0.80, c:'rgba(230,215,150,0.85)'},
-  {n:'식용유',  d:0.92, c:'rgba(242,207,90,0.85)'},
-  {n:'물',      d:1.00, c:'rgba(110,190,220,0.85)'},
-  {n:'글리세린',d:1.26, c:'rgba(180,160,215,0.85)'},
-  {n:'꿀',      d:1.42, c:'rgba(205,150,45,0.9)'}
+  {n:'등유',    d:0.80, c:'rgba(230,215,150,0.85)', g:'oil'},
+  {n:'식용유',  d:0.92, c:'rgba(242,207,90,0.85)', g:'oil'},
+  {n:'물',      d:1.00, c:'rgba(110,190,220,0.85)', g:'aq'},
+  {n:'글리세린',d:1.26, c:'rgba(180,160,215,0.85)', g:'aq'},
+  {n:'꿀',      d:1.42, c:'rgba(205,150,45,0.9)', g:'aq'}
 ];
+/* 같은 무리(기름끼리, 물에 녹는 것끼리)는 서로 섞여 층이 생기지 않음 */
+function mixes(A,B){ return A.g===B.g; }
 var pick=[1,2], layerRecords=[], lBusy=false, lRevealed=false, pour=0;
 var lCanvas=document.getElementById('layerCanvas'), lctx=lCanvas.getContext('2d');
 var LB={l:150,r:290,t:60,b:280};
@@ -574,16 +576,29 @@ LIQS.forEach(function(q,i){
 
 function drawLayer(){
   var A=LIQS[pick[0]], B=LIQS[pick[1]];
+  if(!B){   /* 하나만 골랐을 때 */
+    lctx.clearRect(0,0,440,400); lctx.fillStyle='#f7fbfa'; lctx.fillRect(0,0,440,400);
+    lctx.fillStyle='#4a636a'; lctx.font="600 20px 'Noto Sans KR',sans-serif"; lctx.textAlign='center';
+    lctx.fillText('액체를 하나 더 골라 주세요', 220, 200); lctx.textAlign='left';
+    return;
+  }
   var top = A.d<B.d ? A : B, bot = A.d<B.d ? B : A;
   lctx.clearRect(0,0,440,400);
   lctx.fillStyle='#f7fbfa'; lctx.fillRect(0,0,440,316);
 
   var H=LB.b-LB.t-30, y0=LB.t+30;
   /* 섞여 있다가(pour 낮을 때) 층으로 갈라진다 */
-  var sep=pour;
+  var sep=pour, mixed=mixes(A,B);
+  if(mixed && sep>0){
+    /* 섞이는 액체: 층 없이 고르게 섞인 한 가지 색 */
+    lctx.fillStyle=top.c; lctx.fillRect(LB.l, y0, LB.r-LB.l, H);
+    lctx.globalAlpha=0.5; lctx.fillStyle=bot.c; lctx.fillRect(LB.l, y0, LB.r-LB.l, H); lctx.globalAlpha=1;
+  }else{
   lctx.fillStyle=bot.c; lctx.fillRect(LB.l, y0+H/2, LB.r-LB.l, H/2);
   lctx.fillStyle=top.c; lctx.fillRect(LB.l, y0, LB.r-LB.l, H/2);
-  if(sep<0.98){
+  }
+  if(mixed && sep>0){ /* 섞이는 액체는 경계선 없음 */ }
+  else if(sep<0.98){
     lctx.globalAlpha=(1-sep)*0.9;
     for(var i=0;i<70;i++){
       var dx=LB.l+8+((i*37)%(LB.r-LB.l-16));
@@ -611,7 +626,7 @@ function drawLayer(){
   lctx.lineTo(LB.r,LB.b); lctx.lineTo(LB.r,LB.t+10); lctx.lineTo(LB.r+10,LB.t);
   lctx.stroke();
 
-  if(sep>0.6){
+  if(sep>0.6 && !mixed){
     lctx.globalAlpha=(sep-0.6)/0.4;
     lctx.fillStyle='#173238'; lctx.font="700 20px 'Noto Sans KR',sans-serif"; lctx.textAlign='left';
     lctx.fillText(top.n+' ('+top.d.toFixed(2)+')', LB.r+18, y0+H/4+6);
@@ -625,7 +640,12 @@ function drawLayer(){
   lctx.fillText(A.n+' + '+B.n, 220, 306);
 
   lctx.fillStyle='#e9f1f0'; lctx.fillRect(0,316,440,84);
-  if(lRevealed){
+  if(lRevealed && mixed){
+    lctx.fillStyle='#173238'; lctx.font="700 23px 'Noto Sans KR',sans-serif";
+    lctx.fillText('서로 섞여 층이 생기지 않아요', 220, 344);
+    lctx.fillStyle='#4a636a'; lctx.font="600 19px 'Noto Sans KR',sans-serif";
+    lctx.fillText('밀도 차로는 나눌 수 없음', 220, 372);
+  }else if(lRevealed){
     lctx.fillStyle='#173238'; lctx.font="700 23px 'Noto Sans KR',sans-serif";
     lctx.fillText('위층: '+top.n+' (밀도 '+top.d.toFixed(2)+')', 220, 344);
     lctx.fillStyle='#4a636a'; lctx.font="600 19px 'Noto Sans KR',sans-serif";
@@ -643,6 +663,7 @@ document.getElementById('layerBtn').addEventListener('click', function(){
   focusCanvas(lCanvas);
   if(lBusy) return;
   var A=LIQS[pick[0]], B=LIQS[pick[1]];
+  if(!B){ notify('두 액체를 골라야 해요.'); return; }
   var key=[A.n,B.n].sort().join('+');
   if(layerRecords.some(function(r){ return r.key===key; })){
     notify('이미 기록한 조합이에요. 다른 조합을 골라보세요.');
@@ -660,6 +681,12 @@ document.getElementById('layerBtn').addEventListener('click', function(){
       pour=1; lRevealed=true; drawLayer();
       btn.disabled=false; lBusy=false;
       var top = A.d<B.d ? A : B, bot = A.d<B.d ? B : A;
+      if(mixes(A,B)){
+        var mbox=document.getElementById('layerResult');
+        mbox.className='result-box';
+        mbox.innerHTML='<b>'+A.n+' + '+B.n+'</b>: 서로 섞여 층이 생기지 않았어요. 섞이는 액체는 밀도 차로 나눌 수 없어요(기록하지 않음). 물과 기름처럼 <b>섞이지 않는</b> 짝을 골라 보세요.';
+        return;
+      }
       layerRecords.push({key:key, a:A, b:B, top:top.n, topD:top.d, botD:bot.d});
       renderLayerTable();
       var box=document.getElementById('layerResult');
