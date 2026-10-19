@@ -619,10 +619,11 @@ function drawEarth(frontKm, blockedAt){
   ex.fillText(`깊이 ${depth} km`, 14, 416);
   ex.textAlign='right';
   ex.fillText(`${layerOf(depth)}`, 426, 416);
-  ex.textAlign='center';
-  ex.font="600 20px 'Noto Sans KR', sans-serif";
+  /* '진원에서 아래로' 안내는 깊이 글자와 겹치지 않게 왼쪽 위 빈 곳에 */
+  ex.textAlign='left';
+  ex.font="600 16px 'Noto Sans KR', sans-serif";
   ex.fillStyle='#4a636a';
-  ex.fillText('진원(지표)에서 아래로', 220, 416);
+  ex.fillText('진원(지표)에서 아래로 →', 8, 22);
 }
 
 /* ---------- 종파/횡파 확대창 ---------- */
@@ -717,9 +718,12 @@ document.getElementById('sendBtn').addEventListener('click',()=>{
   focusCanvas(ec);
   if(busy) return; busy=true;
   const btn=document.getElementById('sendBtn'); btn.disabled=true; dSlider.disabled=true;
-  const v = wave==='P'? vpAt(depth) : vsAt(depth);
+  /* 지표에서 보낸 S파는 액체인 외핵을 못 지나므로 내핵까지 가지 못한다 */
+  const unreached = (wave==='S' && depth>=D_ICB);
+  const v = wave==='P'? vpAt(depth) : (unreached? 0 : vsAt(depth));
   const blocked = (v===0);
   const dur = 1100 + (14-Math.max(v,0))/14*1600;   /* 느릴수록 길게 */
+  if(window.fxSound&&fxSound.quake) fxSound.quake(wave, dur/1000, 0, blocked?0.5:0);   /* 땅 울림: P파 짧게 덜덜, S파 낮게 출렁, 외핵에서 끊김 */
   animate(dur, p=>{
     const t=p*dur/1000;
     if(blocked){
@@ -734,10 +738,12 @@ document.getElementById('sendBtn').addEventListener('click',()=>{
     btn.disabled=false; dSlider.disabled=false; busy=false;
     const rec={depth:depth, layer:layerOf(depth), wave:wave,
                dir: blocked?'—':(wave==='P'?'나란함(종파)':'수직(횡파)'),
-               v: blocked?0:Math.round(v*100)/100};
+               v: blocked?0:Math.round(v*100)/100, reach: !unreached};
     records.push(rec); renderTable();
     const ro=document.getElementById('readout');
-    if(blocked){
+    if(unreached){
+      ro.innerHTML=`<b style="color:var(--coral)">S파가 깊이 2891 km에서 멈춰 내핵까지 가지 못했습니다.</b><br>내핵은 고체지만, 지표에서 보낸 S파는 그 위의 액체 외핵을 지나지 못해요. 그래서 내핵의 S파 속도는 이 방법으로 잴 수 없습니다.`;
+    }else if(blocked){
       ro.innerHTML=`<b style="color:var(--coral)">S파가 깊이 2891 km에서 멈췄습니다.</b><br>속도 <span class="big">0</span> km/s — 알갱이를 옆으로 밀어도 액체는 다시 끌어당기지 못해 횡파가 전달되지 않습니다.`;
     }else{
       ro.innerHTML=`${layerOf(depth)} · ${wave}파 속도 <span class="big">${rec.v}</span> km/s<br>알갱이 흔들림: <b>${rec.dir}</b>`;
@@ -750,7 +756,7 @@ function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   const tb=document.getElementById('tbody');
   if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록이 없습니다.</td></tr>'; return; }
-  tb.innerHTML=records.map((r,i)=>`<tr><td>${i+1}</td><td>${r.depth}</td><td>${r.layer}</td><td>${r.wave}파</td><td style="font-family:'Noto Sans KR'">${r.dir}</td><td${r.v===0?' style="color:#c1443c;font-weight:700"':''}>${r.v.toFixed(2)}</td></tr>`).join('');
+  tb.innerHTML=records.map((r,i)=>`<tr><td>${i+1}</td><td>${r.depth}</td><td>${r.layer}</td><td>${r.wave}파</td><td style="font-family:'Noto Sans KR'">${r.dir}</td><td${r.v===0?' style="color:#c1443c;font-weight:700"':''}>${r.reach===false?'<span style="font-family:\'Noto Sans KR\'">도달 못 함</span>':r.v.toFixed(2)}</td></tr>`).join('');
 }
 
 /* ---------- 데이터 확인 ---------- */
@@ -763,7 +769,7 @@ function renderValidation(){
   drawGraph();
 
   const P=records.filter(r=>r.wave==='P'), S=records.filter(r=>r.wave==='S');
-  const fmt=a=>a.map(r=>`<div class="mini-row"><span>${r.depth} km · ${r.layer}</span><span class="mono">${r.v.toFixed(2)} km/s</span></div>`).join('');
+  const fmt=a=>a.map(r=>`<div class="mini-row"><span>${r.depth} km · ${r.layer}</span><span class="mono">${r.reach===false?'도달 못 함':r.v.toFixed(2)+' km/s'}</span></div>`).join('');
   document.getElementById('pAnalysis').innerHTML = P.length? fmt(P)+
     `<div class="insight-box">가장 느림 ${Math.min(...P.map(r=>r.v)).toFixed(2)} / 가장 빠름 ${Math.max(...P.map(r=>r.v)).toFixed(2)} km/s — P파는 모든 층에서 측정되었습니다.</div>`
     : '<div class="insight-box wait">P파 기록이 아직 없습니다.</div>';
@@ -793,7 +799,7 @@ function drawGraph(){
   [['맨틀',(D_MOHO+D_CMB)/2],['외핵',(D_CMB+D_ICB)/2],['내핵',(D_ICB+R_EARTH)/2]]
     .forEach(t=>g.fillText(t[0],ax.X(t[1]),ax.T+22));
   pts(g,P.map(r=>({x:r.depth,y:r.v})),ax.X,ax.Y,'#d98e3b');
-  pts(g,S.map(r=>({x:r.depth,y:r.v})),ax.X,ax.Y,'#2f8f9d');
+  pts(g,S.filter(r=>r.reach!==false).map(r=>({x:r.depth,y:r.v})),ax.X,ax.Y,'#2f8f9d');   /* 내핵까지 못 간 S파는 점을 찍지 않음 */
 }
 
 document.querySelectorAll('#q1 .btn-choice').forEach(b=>b.addEventListener('click',()=>{
@@ -887,7 +893,7 @@ drawEarth(0,null); drawParticles(0,6,0); renderTable();
 })();
 </script>
 <!-- fxNoteLink:end -->
-<!-- fxSound:start --><script src="../fxsound.js?v=9c0884aa7b77" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
+<!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 </body>
 </html>
