@@ -612,7 +612,7 @@ function label(ctx,x,y,text,color,size,align){
 function growthRate(T){
 const base = 3*Math.pow(2,(T-20)/10);
 const hot  = T>30 ? Math.max(0, 1-(T-30)/12) : 1;   /* 최적 온도를 넘으면 둔화 */
-const cold = T<4  ? Math.max(0.05, T/4) : 1;        /* 냉장 온도에서는 거의 멈춤 */
+const cold = T<=4 ? Math.max(0.03, 0.05*T/4) : 1;   /* 냉장 온도(0~4°C)에서는 거의 멈춤 */
 return base*hot*cold;
 }
 function moldSize(T){ return 3*growthRate(T); }
@@ -725,7 +725,7 @@ document.getElementById('moldBtn').addEventListener('click',()=>{
     const box=document.getElementById('moldResult');
     box.className='result-box ok';
     box.innerHTML='3일 후 곰팡이 지름: <span class="big-val">'+measured.toFixed(1)+' mm</span><br>'+
-      '<span style="font-size:.94rem;color:var(--ink-soft);">하루 '+growthRate(moldTemp).toFixed(2)+'mm씩 자랐습니다'+(moldTemp<4?' (냉장 온도라 거의 자라지 못했어요)':(moldTemp>30?' (너무 뜨거워 성장이 둔해졌어요)':''))+' · 자동으로 기록했습니다. (교육용 모형값)</span>';
+      '<span style="font-size:.94rem;color:var(--ink-soft);">하루 '+growthRate(moldTemp).toFixed(2)+'mm씩 자랐습니다'+(moldTemp<=4?' (냉장 온도라 거의 자라지 못했어요)':(moldTemp>30?' (너무 뜨거워 성장이 둔해졌어요)':''))+' · 자동으로 기록했습니다. (교육용 모형값)</span>';
     afterRecord();
   });
 });
@@ -746,7 +746,7 @@ const FERM = {
                before:'#fbfaf4', after:'#f2e6c4', main:'우유', shape:'rod' },
   '김치'    :{ pH0:6.0, pHe:4.2, k:0.05, microbe:'유산균 (김치유산균)',
                before:'#d8e8ac', after:'#c9452c', main:'배추', shape:'rod' },
-  '된장'    :{ pH0:6.8, pHe:5.5, k:0.02, microbe:'곰팡이 균사 + 세균',
+  '된장'    :{ pH0:6.8, pHe:5.5, k:0.02, microbe:'누룩곰팡이 균사 + 고초균',
                before:'#ecd89a', after:'#7d5527', main:'삶은 콩', shape:'hypha' }
 };
 function phOf(f,t){ const F=FERM[f]; return F.pH0 - (F.pH0-F.pHe)*(1-Math.exp(-F.k*t)); }
@@ -915,15 +915,15 @@ function drawFerment(p){
   c.lineWidth=7; c.lineCap='round';
   c.beginPath(); c.moveTo(gx+gr*0.72, gy+gr*0.72); c.lineTo(gx+gr*0.72+22, gy+gr*0.72+22); c.stroke();
   c.lineCap='butt';
-  label(c, gx, gy+gr+18, '현미경으로 본 미생물', '#173238', 20);
-  label(c, gx, gy+gr+38, n+'배 늘어남', '#2f8f9d', 20);
+  label(c, gx, gy+gr+14, '현미경: '+(prog<0.02?'아직 처음 그대로':(prog<0.5?'미생물이 늘어나는 중':'미생물이 아주 많아짐')), '#173238', 17);
+  /* 점 개수는 그림일 뿐 실제 배수가 아니므로 '몇 배' 숫자는 보여 주지 않음 */
 
   /* pH 시험지 + 눈금 */
   const px=252, pTop=210, pw=124;
   c.fillStyle='#efe9d8'; c.fillRect(px, pTop, 34, 44);
   c.fillStyle=phColor(ph); c.fillRect(px+4, pTop+4, 26, 36);
   c.strokeStyle='#8fa2a8'; c.lineWidth=2; c.strokeRect(px, pTop, 34, 44);
-  label(c, px+17, pTop+58, 'pH 시험지', '#4a636a', 19);
+  label(c, px, pTop-8, 'pH 시험지', '#4a636a', 15, 'left');
 
   const bx=px+46, byy=pTop+10, bw=pw-46+16;
   for(let i=0;i<=6;i++){
@@ -935,8 +935,8 @@ function drawFerment(p){
   const pos = clamp((ph-4)/3.5,0,1);
   c.fillStyle='#173238';
   c.beginPath(); c.moveTo(bx+pos*bw, byy+20); c.lineTo(bx+pos*bw-6, byy+30); c.lineTo(bx+pos*bw+6, byy+30); c.closePath(); c.fill();
-  label(c, bx, byy+42, '산성 4', '#4a636a', 18, 'left');
-  label(c, bx+bw, byy+42, '7.5 중성', '#4a636a', 18, 'right');
+  label(c, bx, byy+40, '4 산성', '#4a636a', 14, 'left');
+  label(c, bx+bw, byy+40, '중성 7.5', '#4a636a', 14, 'right');
 
   capsule(c, 200, 20, p>0 ? (Math.round(t)+'시간째') : (fermTime+'시간 발효 예정'), 'rgba(47,143,157,0.95)', '#fff', 21);
   capsule(c, 300, 284, 'pH '+ph.toFixed(2), 'rgba(255,255,255,0.95)', '#c1443c', 22);
@@ -948,13 +948,13 @@ document.getElementById('fermentBtn').addEventListener('click',()=>{
   const dur = 700 + fermTime*27;   /* 오래 발효할수록 애니메이션도 길게 */
   runAnim(btn, feCanvas, dur, drawFerment, ()=>{
     const F=FERM[fermFood];
-    const ph = Math.max(3.5, phOf(fermFood,fermTime) + rnd(0.06));
+    const ph = fermTime===0 ? F.pH0 : Math.max(3.5, Math.min(F.pH0, phOf(fermFood,fermTime) + rnd(0.06)));   /* 0시간은 처음 그대로, 오차로 처음보다 높아지지 않게 */
     fermRecords.push({ food:fermFood, t:fermTime, ph:ph, drop:F.pH0-ph, microbe:F.microbe });
     renderFermentTable();
     const box=document.getElementById('fermentResult');
     box.className='result-box ok';
     box.innerHTML='측정한 pH: <span class="big-val">'+ph.toFixed(2)+'</span> (처음 '+F.pH0.toFixed(1)+')<br>'+
-      '<span style="font-size:.94rem;color:var(--ink-soft);">'+F.microbe+'이(가) 젖산을 만들어 산성이 되었습니다 · 자동으로 기록했습니다.</span>';
+      '<span style="font-size:.94rem;color:var(--ink-soft);">'+(fermTime===0?'아직 발효 전이라 pH가 처음 그대로입니다':(fermFood==='된장'?F.microbe+'이(가) 콩을 분해하며 만든 물질로 조금 산성이 되었습니다':F.microbe+'이(가) 젖산을 만들어 산성이 되었습니다'))+' · 자동으로 기록했습니다.</span>';
     afterRecord();
   });
 });
@@ -1016,7 +1016,7 @@ function renderVerify(){
     const colors={'요구르트':'#5aa9d6','김치':'#c9452c','된장':'#8a6134'};
     barChart(fb, order.filter(k=>grp[k]).map(k=>{
       const avg=grp[k].reduce((a,b)=>a+b.drop,0)/grp[k].length;
-      return { label:k+' ('+grp[k].length+'회)', value:avg, text:'−'+avg.toFixed(2), color:colors[k] };
+      return { label:k+' ('+grp[k].length+'회)', value:avg, text:(avg>=0?'−':'+')+Math.abs(avg).toFixed(2), color:colors[k] };
     }), '', '#2f8f9d');
     fbi.innerHTML='<div class="insight-box">막대가 길수록 pH가 많이 내려간, 즉 <b>더 많이 발효된</b> 식품입니다. '+
       '같은 시간이라도 유산균이 활발한 요구르트가 가장 빨리 시어집니다.<br>'+

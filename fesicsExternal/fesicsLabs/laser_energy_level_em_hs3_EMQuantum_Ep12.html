@@ -367,7 +367,7 @@ var LAB = (function(){
 var H = 6.62607015e-34, CL = 299792458, QE = 1.602176634e-19, KB = 1.380649e-23;
 // 실제 레이저 매질의 대표 전이
 var MAT = [
-  {name:'헬륨-네온', lam:632.8e-9, col:'#FF3B2F', lvl:3},
+  {name:'헬륨-네온', lam:632.8e-9, col:'#FF3B2F', lvl:4},
   {name:'네오디뮴 야그 (Nd:YAG)', lam:1064e-9, col:'#8A6B4F', lvl:4},
   {name:'루비', lam:694.3e-9, col:'#E23B5A', lvl:3},
   {name:'질화 갈륨 (청색 반도체 레이저)', lam:405e-9, col:'#7657B3', lvl:'band'}   /* 반도체: 원자 준위가 아니라 전도띠–원자가띠 전이, 전류 주입으로 반전 */
@@ -378,7 +378,9 @@ function calc(mi, pump, T){
   var M = MAT[mi], E = H * CL / M.lam / QE;              // 전이 에너지 (eV)
   var thermal = boltz(E, T);                              // 열평형에서 위 준위 비율
   var n2 = pump / 100 * 0.9 + thermal * (1 - pump / 100); // 펌핑으로 위 준위에 올라간 비율
-  var n1 = 1 - n2, inv = n2 > n1;
+  /* 4준위: 아래 레이저 준위 E₁ 은 바닥 E₀ 보다 위에 있고 곧바로 비워져 거의 비어 있음 → 약한 펌핑에도 반전.
+     2·3준위·반도체: 아래 준위 = 바닥 상태라 위 준위가 절반을 넘어야 반전 */
+  var n1 = M.lvl === 4 ? 0.02 + 0.05 * n2 : 1 - n2, inv = n2 > n1;
   var gain = inv ? (n2 - n1) : 0;
   return {E:E, f:CL / M.lam, thermal:thermal, n2:n2, n1:n1, inv:inv, gain:gain, out:inv ? gain * 100 : 0};
 }
@@ -401,7 +403,11 @@ return {
     c.strokeStyle = '#1E2833'; c.lineWidth = 3;
     c.beginPath(); c.moveTo(lx, yBot); c.lineTo(lx + lw, yBot); c.stroke();
     c.beginPath(); c.moveTo(lx, yTop); c.lineTo(lx + lw, yTop); c.stroke();
-    txt(c, 'E₁ (바닥 상태)', lx, yBot + 22, {color:'#4A5868'});
+    if (M.lvl === 4){   /* 4준위: 바닥 E₀ 위에 아래 레이저 준위 E₁(점선, 곧 비워짐) */
+      txt(c, 'E₀ (바닥 상태)', lx, yBot + 22, {color:'#4A5868'});
+      c.strokeStyle = '#A9B4C0'; c.lineWidth = 2; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(lx, yBot - 34); c.lineTo(lx + lw * 0.45, yBot - 34); c.stroke(); c.setLineDash([]);
+      txt(c, 'E₁ 아래 준위(곧 비워짐)', lx + lw * 0.47, yBot - 30, {color:'#8C99A8'});
+    } else txt(c, 'E₁ (바닥 상태)', lx, yBot + 22, {color:'#4A5868'});
     txt(c, 'E₂ (들뜬 상태)', lx, yTop + 20, {color:'#4A5868'});   /* 위 준위 전자 점(yTop-10)과 겹치지 않게 선 아래에 */
     txt(c, 'ΔE = ' + f(C.E, 3) + ' eV', lx + lw + 10, (yTop + yBot) / 2, {base:'middle', bold:true});
     if (M.lvl === 'band'){ txt(c, '반도체: 전도띠–원자가띠 전이 (전류 주입)', lx, yTop - 36, {color:'#8C99A8'}); }
@@ -413,7 +419,7 @@ return {
       if (!onTop) x = lx + 14 + ((i - up) % 10) * (lw - 28) / 9;
       c.fillStyle = onTop ? '#C8463D' : '#2B5FA3'; c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.fill();
     }
-    txt(c, '위 ' + f(C.n2 * 100 * k, 1) + ' % / 아래 ' + f((1 - C.n2 * k) * 100, 1) + ' %', lx, yBot + 48, {bold:true});
+    txt(c, M.lvl === 4 ? '위 ' + f(C.n2 * 100 * k, 1) + ' % / 아래 준위 E₁ ' + f(C.n1 * 100 * k, 1) + ' %' : '위 ' + f(C.n2 * 100 * k, 1) + ' % / 아래 ' + f((1 - C.n2 * k) * 100, 1) + ' %', lx, yBot + 48, {bold:true});
     txt(c, C.inv && k > 0.9 ? '반전 분포 생김 → 유도 방출' : '반전 분포 없음', lx, yBot + 76, {color:C.inv ? '#2E9E78' : '#C8463D', bold:true});
     // 공진기와 출력
     var rx = Math.max(lx + lw + 120, W * 0.56), rw = Math.min(W - rx - 20, 220);
@@ -441,8 +447,9 @@ return {
     c.fillStyle = C.inv ? '#2E9E78' : '#D98E04'; c.fillRect(bx, by + 18, bw2 * C.n2 * k, 22);
     txt(c, '펌핑 뒤 ' + f(C.n2 * 100 * k, 1) + ' %', bx + 6, by + 29, {base:'middle', color:'#fff', bold:true});
     c.strokeStyle = '#C8463D'; c.setLineDash([5, 4]); c.lineWidth = 2;
-    c.beginPath(); c.moveTo(bx + bw2 * 0.5, by + 12); c.lineTo(bx + bw2 * 0.5, by + 46); c.stroke(); c.setLineDash([]);
-    txt(c, '50 % (반전 분포 기준)', bx + bw2 * 0.5 + 6, by + 64, {color:'#C8463D'});
+    var thr = M.lvl === 4 ? C.n1 : 0.5;   /* 반전 기준: 4준위는 아래 준위 E₁ 비율, 나머지는 50 % */
+    c.beginPath(); c.moveTo(bx + bw2 * thr, by + 12); c.lineTo(bx + bw2 * thr, by + 46); c.stroke(); c.setLineDash([]);
+    txt(c, M.lvl === 4 ? '반전 기준: E₁ ' + f(C.n1 * 100, 1) + ' %' : '50 % (반전 기준)', bx + bw2 * thr + 6, by + 64, {color:'#C8463D'});
     txt(c, '빛의 파장 ' + f(M.lam * 1e9, 1) + ' nm, 진동수 ' + (C.f / 1e12).toFixed(1) + ' THz', 12, H2 - 14, {color:'#4A5868'});
   },
   stats: function(p, r){
@@ -458,7 +465,7 @@ return {
   row: function(d){ return [d.name, f(d.lam * 1e9, 1), f(d.E, 3), d.T, d.pump, d.th.toExponential(2), f(d.n2 * 100, 1), d.inv ? 'O' : 'X', f(d.out, 1)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
-      card('펌핑 세기와 레이저 출력', '<canvas class="chart" id="ch1"></canvas><ul class="readout" id="ro1"></ul><p class="ask">펌핑이 어느 정도를 넘어야 레이저가 나오나요? 그 문턱이 위 준위 비율 50 %와 어떤 관계인가요?</p>') +
+      card('펌핑 세기와 레이저 출력', '<canvas class="chart" id="ch1"></canvas><ul class="readout" id="ro1"></ul><p class="ask">펌핑이 어느 정도를 넘어야 레이저가 나오나요? 루비(3준위)는 위 준위 비율이 50 %를 넘어야 하는데, 4준위 매질(헬륨-네온·Nd:YAG)은 왜 약한 펌핑에도 반전이 생길까요?</p>') +
       card('열만으로는 반전 분포가 될까', '<div id="ro2"></div><p class="ask">온도를 아무리 높여도 열평형에서는 위 준위 비율이 50 %를 넘지 못합니다. 볼츠만 분포 exp(−E ÷ kT)로 그 까닭을 설명해 보세요.</p>') +
       card('매질과 빛의 색', '<canvas class="chart" id="ch2"></canvas><ul class="readout" id="ro3"></ul><p class="ask">준위 차이가 클수록 빛의 파장이 어떻게 되나요? 레이저 빛이 한 가지 색이고 방향이 고른 까닭을 유도 방출로 설명해 보세요.</p>') + '</div>';
     var bm = groupBy(rec, function(d){ return d.m + '|' + d.T; }), s1 = [], r1 = [];

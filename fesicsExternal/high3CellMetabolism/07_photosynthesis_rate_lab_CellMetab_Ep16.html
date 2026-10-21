@@ -445,7 +445,7 @@ function photo(L, C, T){
   var lf = L / (L + 25);                       // 빛 포화 곡선
   var cf = C / (C + 0.05);                     // CO₂ 포화 곡선
   var tf = T > 35 ? Math.max(0, Math.exp(-Math.pow((T - 35) / 5, 2))) : Math.exp(-Math.pow((T - 32) / 16, 2));
-  var gross = 40 * lf * cf * tf;
+  var gross = 40 * Math.min(lf, cf, tf);       // 한정 요인: 가장 부족한 요인이 속도를 정함
   var resp = 4 * Math.exp((T - 20) / 25);      // 호흡은 온도에 따라 늘어남
   return {gross:gross, resp:resp, net:gross - resp, lf:lf, cf:cf, tf:tf};
 }
@@ -491,7 +491,7 @@ return {
     c.fillStyle = 'rgba(255,220,120,' + (0.15 + LIGHT[p.l] / 130) + ')';
     c.beginPath(); c.arc(lx, by + bh / 2, 18, 0, Math.PI * 2); c.fill();
     txt(c, '빛 ' + LIGHT[p.l], lx, by + bh / 2 + 44, {align:'center', color:'#4A5868'});
-    txt(c, CO2[p.c] + ' % CO₂ · ' + TEMPS[p.t] + ' ℃', bx, by + 4, {bold:true});
+    txt(c, 'CO₂ 공급 ' + f(CO2[p.c], 2) + ' · ' + TEMPS[p.t] + ' ℃', bx, by + 4, {bold:true});
     // 계기
     var mx = Math.max(bx + bw + 60, W * 0.42);
     meter(c, mx, 76, Math.min(190, W - mx - 12), (r ? Math.round(r.bub * k) : 0) + ' 개/분');
@@ -507,11 +507,11 @@ return {
     txt(c, '기포는 광합성으로 나온 산소입니다. 호흡으로 쓰고 남은 만큼만 보입니다', 12, by2 + 30, {color:'#4A5868'});
   },
   stats: function(p, r){
-    return [['조건', '빛 ' + r.L + ' · CO₂ ' + f(r.C, 2) + ' % · ' + r.T + ' ℃'],
+    return [['조건', '빛 ' + r.L + ' · CO₂ 공급 ' + f(r.C, 2) + ' · ' + r.T + ' ℃'],
       ['1분간 기포 수', r.bub + ' 개', PAL[0]], ['광합성량 (총)', f(r.gross, 1), PAL[1]], ['호흡량', f(r.resp, 1), PAL[4]],
       ['순광합성량', f(r.net, 1)], ['한정 요인', r.lim, PAL[3]]];
   },
-  columns: ['빛 세기', 'CO₂ (%)', 'T (℃)', '기포 (개/분)', '광합성량', '호흡량', '순광합성량', '한정 요인'],
+  columns: ['빛 세기', 'CO₂ 공급 (상대)', 'T (℃)', '기포 (개/분)', '광합성량', '호흡량', '순광합성량', '한정 요인'],
   record: function(p, r){ return {L:r.L, C:r.C, T:r.T, bub:r.bub, gross:r.gross, resp:r.resp, net:r.net, lim:r.lim}; },
   row: function(d){ return [d.L, f(d.C, 2), d.T, d.bub, f(d.gross, 1), f(d.resp, 1), f(d.net, 1), d.lim]; },
   verify: function(rec, box){
@@ -523,18 +523,18 @@ return {
     Object.keys(g1).forEach(function(k, i){ var g = g1[k]; if (distinct(g.map(function(d){ return d.L; })) >= 2){
       s1.push({color:PAL[i % 8], pts:g.map(function(d){ return {x:d.L, y:d.bub}; })});
       var zero = g.slice().sort(function(a, b){ return a.L - b.L; }).filter(function(d){ return d.bub === 0; });
-      r1.push('<li>' + dot(PAL[i % 8]) + 'CO₂ ' + f(g[0].C, 2) + ' %, ' + g[0].T + ' ℃: ' + (zero.length ? '빛 ' + zero[zero.length - 1].L + ' 이하에서 기포 없음' : '모두 기포 나옴') + '</li>'); } });
+      r1.push('<li>' + dot(PAL[i % 8]) + 'CO₂ 공급 ' + f(g[0].C, 2) + ', ' + g[0].T + ' ℃: ' + (zero.length ? '빛 ' + zero[zero.length - 1].L + ' 이하에서 기포 없음' : '모두 기포 나옴') + '</li>'); } });
     drawScatter($('ch1'), {xLabel:'빛 세기', yLabel:'기포 수 (개/분)', tightX:true, series:s1});
     $('ro1').innerHTML = r1.length ? r1.join('') : '<li>빛 세기를 바꿔 2번 이상 기록하세요.</li>';
     var g2 = groupBy(rec, function(d){ return d.L + '|' + d.T; }), s2 = [], r2 = [];
     Object.keys(g2).forEach(function(k, i){ var g = g2[k]; if (distinct(g.map(function(d){ return d.C; })) >= 2){
       s2.push({color:PAL[i % 8], pts:g.map(function(d){ return {x:d.C, y:d.bub}; })});
-      r2.push('<li>' + dot(PAL[i % 8]) + '빛 ' + g[0].L + ', ' + g[0].T + ' ℃: CO₂ ' + g.map(function(d){ return f(d.C, 2); }).join(', ') + ' % → 기포 ' + g.map(function(d){ return d.bub; }).join(', ') + '</li>'); } });
-    drawScatter($('ch2'), {xLabel:'CO₂ 농도 (%)', yLabel:'기포 수 (개/분)', tightX:true, series:s2});
+      r2.push('<li>' + dot(PAL[i % 8]) + '빛 ' + g[0].L + ', ' + g[0].T + ' ℃: CO₂ 공급 ' + g.map(function(d){ return f(d.C, 2); }).join(', ') + ' → 기포 ' + g.map(function(d){ return d.bub; }).join(', ') + '</li>'); } });
+    drawScatter($('ch2'), {xLabel:'CO₂ 공급 (상대 농도)', yLabel:'기포 수 (개/분)', tightX:true, series:s2});
     $('ro2').innerHTML = r2.length ? r2.join('') : '<li>같은 빛과 온도에서 CO₂만 바꿔 2번 이상 기록하세요.</li>';
     var g3 = groupBy(rec, function(d){ return d.L + '|' + d.C; }), ks = Object.keys(g3).filter(function(k){ return distinct(g3[k].map(function(d){ return d.T; })) >= 2; });
     $('ro3').innerHTML = ks.length ? tableHTML(['조건', 'T (℃)', '광합성량', '호흡량', '순광합성량'], [].concat.apply([], ks.map(function(k){
-      return g3[k].slice().sort(function(a, b){ return a.T - b.T; }).map(function(d){ return ['빛 ' + d.L + ', CO₂ ' + f(d.C, 2) + ' %', d.T, f(d.gross, 1), f(d.resp, 1), f(d.net, 1)]; }); })))
+      return g3[k].slice().sort(function(a, b){ return a.T - b.T; }).map(function(d){ return ['빛 ' + d.L + ', CO₂ 공급 ' + f(d.C, 2), d.T, f(d.gross, 1), f(d.resp, 1), f(d.net, 1)]; }); })))
       : '<p class="msg">같은 빛과 CO₂에서 온도만 바꿔 2번 이상 기록하세요.</p>';
   }
 };

@@ -453,6 +453,7 @@ var TEMPS = [200, 298, 500, 800, 1200];
 function calc(R, T){
   var dG = R.dH - T * R.dS / 1000;
   var Teq = R.dS !== 0 ? R.dH / (R.dS / 1000) : null;
+  if (Teq != null && Math.abs(Teq) > 10000) Teq = null;   // 수만 K 이상은 물질이 먼저 분해되는 무의미한 외삽이라 표시하지 않음
   return {dG:dG, Teq:Teq, spon:dG < 0};
 }
 return {
@@ -467,14 +468,14 @@ return {
   compute: function(p){
     var R = RXN[p.r], T = TEMPS[p.t], C = calc(R, T);
     var kind = R.dH < 0 && R.dS > 0 ? '온도와 상관없이 자발적' : R.dH > 0 && R.dS < 0 ? '온도와 상관없이 비자발적' :
-      R.dH > 0 && R.dS > 0 ? '높은 온도에서 자발적' : '낮은 온도에서 자발적';
+      R.dH > 0 && R.dS > 0 ? '높은 온도에서 자발적' : C.Teq == null ? '낮은 온도에서 자발적 (|ΔH|가 아주 커서 실제로는 늘 자발적)' : '낮은 온도에서 자발적';
     return {R:R, T:T, dG:Math.round(C.dG * 10) / 10, Teq:C.Teq != null ? Math.round(C.Teq) : null, spon:C.spon, kind:kind};
   },
   draw: function(c, W, H, p, r, tau){
     var R = RXN[p.r], k = r ? Math.min(tau / 0.85, 1) : 0;
     txt(c, R.name + ' · ' + R.eq, 12, 32, {bold:true});
     // ΔH, TΔS, ΔG 막대
-    var by = 70, bx = 150, bw = W - bx - 30, mx = Math.max(200, Math.abs(R.dH) * 1.2, Math.abs(TEMPS[p.t] * R.dS / 1000) * 1.2);
+    var by = 70, bx = 170, bw = W - bx - 30, mx = Math.max(200, Math.abs(R.dH) * 1.6, Math.abs(TEMPS[p.t] * R.dS / 1000) * 1.6, Math.abs(R.dH - TEMPS[p.t] * R.dS / 1000) * 1.6);
     var zero = bx + bw / 2, sc = bw / 2 / mx;
     c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(zero, by - 6); c.lineTo(zero, by + 110); c.stroke();
     var items = [['ΔH', R.dH, '#C8463D'], ['−TΔS', -TEMPS[p.t] * R.dS / 1000, '#2B5FA3'], ['ΔG = ΔH − TΔS', r ? r.dG : R.dH - TEMPS[p.t] * R.dS / 1000, '#2E9E78']];
@@ -486,13 +487,13 @@ return {
     });
     txt(c, '단위 kJ/mol · 왼쪽이 음수', 12, by + 132, {color:'#4A5868'});
     // ΔG-T 그래프
-    var P = plotBox(c, 84, 250, W - 114, H - 330, [0, 1300, 200], [-900, 300, 300], '온도 (K)', 'ΔG (kJ/mol)');
+    var P = plotBox(c, 84, 250, W - 114, H - 330, [0, 1400, 200], [-900, 300, 300], '온도 (K)', 'ΔG (kJ/mol)');
     c.strokeStyle = '#2E9E78'; c.lineWidth = 3; c.beginPath();
-    for (var T = 0; T <= 1300; T += 10){ var g = R.dH - T * R.dS / 1000; if (T === 0) c.moveTo(P.X(0), P.Y(Math.max(-900, Math.min(300, g)))); else c.lineTo(P.X(T), P.Y(Math.max(-900, Math.min(300, g)))); }
+    for (var T = 0; T <= 1400; T += 10){ var g = R.dH - T * R.dS / 1000; if (T === 0) c.moveTo(P.X(0), P.Y(Math.max(-900, Math.min(300, g)))); else c.lineTo(P.X(T), P.Y(Math.max(-900, Math.min(300, g)))); }
     c.stroke();
-    c.strokeStyle = 'rgba(140,153,168,.7)'; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(P.X(0), P.Y(0)); c.lineTo(P.X(1300), P.Y(0)); c.stroke(); c.setLineDash([]);
+    c.strokeStyle = 'rgba(140,153,168,.7)'; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(P.X(0), P.Y(0)); c.lineTo(P.X(1400), P.Y(0)); c.stroke(); c.setLineDash([]);
     if (r){
-      if (r.Teq != null && r.Teq > 0 && r.Teq < 1300){ c.fillStyle = '#D98E04'; c.beginPath(); c.arc(P.X(r.Teq), P.Y(0), 6, 0, Math.PI * 2); c.fill();
+      if (r.Teq != null && r.Teq > 0 && r.Teq < 1400){ c.fillStyle = '#D98E04'; c.beginPath(); c.arc(P.X(r.Teq), P.Y(0), 6, 0, Math.PI * 2); c.fill();
         txt(c, r.Teq + ' K에서 뒤집힘', P.X(r.Teq) + 8, P.Y(0) - 10, {color:'#D98E04', bold:true}); }
       c.fillStyle = r.spon ? '#2E9E78' : '#C8463D'; c.beginPath(); c.arc(P.X(r.T), P.Y(Math.max(-900, Math.min(300, r.dG))), 8, 0, Math.PI * 2); c.fill();
       txt(c, r.T + ' K에서 ΔG = ' + sgn(r.dG, 1) + ' kJ/mol → ' + (r.spon ? '자발적' : '비자발적'), 12, H - 14,

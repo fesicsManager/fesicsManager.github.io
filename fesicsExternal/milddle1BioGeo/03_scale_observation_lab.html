@@ -412,18 +412,22 @@ function drawBarChart(cv, labels, values, unit, colors){
   var c=cv.getContext('2d'), W=cv.width, H=cv.height;
   c.clearRect(0,0,W,H); c.fillStyle='#f6f8f7'; c.fillRect(0,0,W,H);
   var pad={l:56,r:18,t:24,b:52};
-  var max=Math.max.apply(null, values.concat([0.0001]))*1.18;
+  /* 음수 값(1 mm보다 작은 세포의 log 크기 등)은 0 선 아래로 그린다 */
+  var hasNeg=values.some(function(v){ return v<0; });
+  var max=Math.max.apply(null, values.concat([0.0001]))*1.18, min=hasNeg ? Math.min.apply(null, values)*1.4 : 0;
+  var ph=H-pad.t-pad.b, zy=pad.t+ph*max/(max-min);
   c.strokeStyle='#c9d6d2'; c.lineWidth=2;
-  c.beginPath(); c.moveTo(pad.l,pad.t); c.lineTo(pad.l,H-pad.b); c.lineTo(W-pad.r,H-pad.b); c.stroke();
+  c.beginPath(); c.moveTo(pad.l,pad.t); c.lineTo(pad.l,H-pad.b); c.moveTo(pad.l,zy); c.lineTo(W-pad.r,zy); c.stroke();
   var bw=(W-pad.l-pad.r)/labels.length;
   c.textAlign='center';
   for(var i=0;i<labels.length;i++){
-    var h=(values[i]/max)*(H-pad.t-pad.b);
+    var h=(values[i]/(max-min))*ph;
     var x=pad.l+bw*i+bw*0.22, w=bw*0.56;
     c.fillStyle=colors[i%colors.length];
-    c.fillRect(x, H-pad.b-h, w, h);
+    c.fillRect(x, zy-h, w, h);
     c.fillStyle='#173238'; c.font="600 20px 'IBM Plex Mono',monospace";
-    c.fillText(values[i].toFixed(values[i]>=10?0:1), x+w/2, H-pad.b-h-9);
+    var vs=Math.abs(values[i]).toFixed(Math.abs(values[i])>=10?0:1);
+    c.fillText((values[i]<0 && vs!=='0.0' ? '−' : '')+vs, x+w/2, values[i]<0 ? zy-h+24 : zy-h-9);
     c.font="700 20px 'Noto Sans KR',sans-serif";
     c.fillText(labels[i], x+w/2, H-pad.b+27);
   }
@@ -676,18 +680,19 @@ function renderValidation(){
     uniq.map(function(r){
       return '<div class="mini-row"><span>'+r.n+' ('+r.ex+')</span><span class="mono">'+r.mm+' mm · log '+r.log.toFixed(2)+'</span></div>';
     }).join('')
-    + '<div class="insight-box">자동 분석: 막대 하나가 올라갈 때마다 실제 크기는 <b>10배</b>씩 커집니다. '
+    + '<div class="insight-box">자동 분석: 로그 눈금이라 막대 높이가 <b>1 높아질 때마다</b> 실제 크기는 <b>10배</b>씩 커집니다(0보다 낮은 막대는 1 mm보다 작다는 뜻). '
     + '가장 작은 '+uniq[0].n+'과 가장 큰 '+uniq[uniq.length-1].n+'은 크기가 <b>'
     + Math.round(uniq[uniq.length-1].mm/uniq[0].mm).toLocaleString()+'배</b> 차이 납니다.</div>';
 
-  var rows='';
+  var rows='', rs=[];
   for(var i=1;i<uniq.length;i++){
+    rs.push(Math.round(uniq[i].mm/uniq[i-1].mm));
     rows+='<div class="mini-row"><span>'+uniq[i-1].n+' → '+uniq[i].n+'</span><span class="mono">×'
-      +Math.round(uniq[i].mm/uniq[i-1].mm).toLocaleString()+'</span></div>';
+      +rs[rs.length-1].toLocaleString()+'</span></div>';
   }
   document.getElementById('ratioAnalysis').innerHTML = rows
-    + '<div class="insight-box">자동 분석: 단계가 하나 올라갈 때마다 크기가 수십~수백 배씩 뛰어오릅니다. '
-    + '그래서 위 그림 ①에서 세포와 조직은 개체와 같은 배율로는 <b>점으로도 보이지 않았던</b> 것입니다.</div>';
+    + '<div class="insight-box">자동 분석: 단계가 하나 올라갈 때 커지는 정도는 <b>×'+Math.min.apply(null,rs).toLocaleString()+' ~ ×'+Math.max.apply(null,rs).toLocaleString()+'</b>로 단계마다 다릅니다. '
+    + '하지만 차이가 쌓이면 세포·조직은 개체보다 <b>수천~수만 배</b> 작아서, 위 그림 ①에서 개체와 같은 배율로는 <b>점으로도 보이지 않았던</b> 것입니다.</div>';
 }
 
 document.querySelectorAll('[data-q="rel"]').forEach(function(btn){

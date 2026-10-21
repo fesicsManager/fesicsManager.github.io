@@ -452,7 +452,8 @@ var CIN = [1, 5, 10, 20, 40];
 function cell(pct){
   var iso = 0.9;
   if (Math.abs(pct - iso) < 0.01) return {state:'그대로 (등장액)', vol:100, kind:'iso'};
-  if (pct < iso){ var v = 100 + (iso - pct) / iso * 70; return {state:pct < 0.35 ? '터짐 (용혈)' : '부풀어 오름', vol:Math.min(v, 175), kind:'hypo'}; }
+  /* 처음 부피의 약 1.6배(160)가 되면 막이 버티지 못하고 터짐 */
+  if (pct < iso){ var v = 100 + (iso - pct) / iso * 90; return {state:v >= 159.9 ? '터짐 (용혈)' : '부풀어 오름', vol:Math.min(v, 160), kind:'hypo'}; }
   var v2 = 100 - Math.min(55, (pct - iso) / iso * 45); return {state:'쭈그러듦', vol:v2, kind:'hyper'};
 }
 function flux(S, cin){
@@ -512,12 +513,12 @@ return {
       var ix = Math.max(bx + bw + 40, W * 0.5);
       if (r){ txt(c, '세포 부피 (처음 = 100)', ix, 70, {color:'#4A5868'});
         meter(c, ix, 80, Math.min(190, W - ix - 12), f(100 + (C.vol - 100) * k, 0));
-        txt(c, '물은 용질 농도가 높은 쪽으로 이동합니다', ix, 170, {color:'#4A5868'}); }
+        txt(c, '물은 용질 농도가', ix, 170, {color:'#4A5868'}); txt(c, '높은 쪽으로 이동합니다', ix, 194, {color:'#4A5868'}); }
       return;
     }
     // 물질별 수송
     var S = SUB[p.b];
-    var mx0 = 26, my = 90, mw = W - 52;
+    var mx0 = 26, my = 100, mw = W - 52;   /* 위 설명 글과 '세포 밖' 글자가 붙지 않게 10px 내림 */
     c.fillStyle = 'rgba(240,220,150,.5)'; c.fillRect(mx0, my, mw, 40);
     for (var h = 0; h < Math.floor(mw / 14); h++){ var hx = mx0 + 7 + h * 14;
       c.fillStyle = '#E0B94A'; c.beginPath(); c.arc(hx, my + 8, 5, 0, Math.PI * 2); c.arc(hx, my + 32, 5, 0, Math.PI * 2); c.fill();
@@ -542,19 +543,20 @@ return {
     txt(c, '이동 방향: ' + S.dir, 12, by2, {});
     meter(c, 12, by2 + 16, Math.min(240, W - 24), f(r.v * k, 2) + ' (상대 속도)');
     if (S.atp) txt(c, 'ATP 소비 ' + f(r.atp * k, 2), 12, by2 + 100, {color:'#C8463D', bold:true});
-    txt(c, S.sat ? '운반 단백질이 있어 농도가 높아지면 속도가 더 이상 크게 늘지 않습니다' : '농도에 비례해 계속 빨라집니다', 12, H - 14, {color:'#4A5868'});
+    txt(c, S.sat ? '운반 단백질이 포화되면 속도가 더 늘지 않습니다' : p.b === 1 ? '안팎 용질 농도 차가 클수록 물이 빨리 이동합니다' : '농도에 비례해 계속 빨라집니다', 12, H - 14, {color:'#4A5868'});
   },
   stats: function(p, r){
     if (r.md === 0) return [['소금물 농도', f(r.pct, 1) + ' % (' + r.tonic + ')'], ['적혈구 상태', r.C.state, r.C.kind === 'iso' ? PAL[1] : PAL[4]],
       ['세포 부피 (처음 100)', f(r.C.vol, 0)], ['물의 이동', r.C.kind === 'hypo' ? '세포 안으로' : r.C.kind === 'hyper' ? '세포 밖으로' : '들어오고 나가는 양이 같음']];
     return [['물질', r.S.name], ['수송 방식', r.S.way, PAL[0]], ['이동 방향', r.S.dir], ['ATP 사용', r.S.atp ? '예' : '아니요'],
-      ['세포 밖 농도', r.cin + ' mM'], ['수송 속도 (상대값)', f(r.v, 2), PAL[1]], ['운반 단백질', r.S.sat ? '있음 (포화됨)' : '없음']];
+      [p.b === 1 ? '세포 안팎 용질 농도 차' : '세포 밖 농도', r.cin + ' mM'], ['수송 속도 (상대값)', f(r.v, 2), PAL[1]],
+      ['수송 단백질', r.S.sat ? '운반체 있음 (포화됨)' : p.b === 1 ? '통로 단백질 (아쿠아포린)' : '없음']];
   },
   columns: ['실험', '조건', '결과', '부피/속도', 'ATP'],
   record: function(p, r){ return r.md === 0 ? {md:0, pct:r.pct, tonic:r.tonic, state:r.C.state, vol:r.C.vol}
     : {md:1, b:p.b, name:r.S.name, way:r.S.way, cin:r.cin, v:r.v, atp:r.atp, sat:r.S.sat}; },
   row: function(d){ return d.md === 0 ? ['삼투', f(d.pct, 1) + ' % (' + d.tonic + ')', d.state, f(d.vol, 0), '−']
-    : ['수송', d.name + ' ' + d.cin + ' mM', d.way, f(d.v, 2), d.atp ? f(d.atp, 2) : '없음']; },
+    : ['수송', d.name + (d.b === 1 ? ' (용질 농도 차 ' + d.cin + ' mM)' : ' ' + d.cin + ' mM'), d.way, f(d.v, 2), d.atp ? f(d.atp, 2) : '없음']; },
   verify: function(rec, box){
     var os = rec.filter(function(d){ return d.md === 0; }), tr = rec.filter(function(d){ return d.md === 1; });
     box.innerHTML = '<div class="vgrid">' +

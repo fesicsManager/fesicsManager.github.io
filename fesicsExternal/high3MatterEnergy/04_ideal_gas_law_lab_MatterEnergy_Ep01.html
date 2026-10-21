@@ -260,7 +260,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="이상 기체 상태 방정식 실험 장면"></canvas>
-          <p class="note">압력계는 100 Pa 단위로 읽습니다. 실제 기체의 압력은 반데르발스 상수(실측값)로 계산했습니다.</p>
+          <p class="note">압력계는 1 Pa 단위로 읽습니다. 실제 기체의 압력은 반데르발스 상수(실측값)로 계산했습니다.</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -464,8 +464,10 @@ return {
   compute: function(p){
     var G = GAS[p.g], n = MOLS[p.n], T = TEMPS[p.t], V = VOLS[p.v];
     var Pi = ideal(n, T, V), Pr = vdw(G, n, T, V);
-    var meas = Math.round(Pr / 100) * 100;
-    return {G:G, n:n, T:T, V:V, Pi:Pi, Pr:Pr, meas:meas, dev:(meas - Pi) / Pi * 100, rho:n * G.M / V, Vm:V / n};
+    // CO₂ 는 삼중점(216.6 K) 아래에서 승화 압력보다 높아지면 남는 만큼이 고체(드라이아이스)로 됨 (승화열 25.2 kJ/mol, 194.65 K 에서 1 atm)
+    var Psub = G.M > 40 && T < 216.6 ? 101325 * Math.exp(-25200 / R * (1 / T - 1 / 194.65)) : Infinity, solid = Pr > Psub;
+    var meas = Math.round(solid ? Psub : Pr);   // 압력계는 1 Pa 단위
+    return {G:G, n:n, T:T, V:V, Pi:Pi, Pr:Pr, meas:meas, solid:solid, dev:(meas - Pi) / Pi * 100, rho:n * G.M / V, Vm:V / n};
   },
   draw: function(c, W, H, p, r, tau){
     var G = GAS[p.g], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -488,22 +490,25 @@ return {
     meter(c, mx, 70, Math.min(200, W - mx - 12), r ? Math.round(r.meas * k).toLocaleString() + ' Pa' : '0 Pa');
     if (r){
       txt(c, '= ' + f(r.meas * k / 101325, 3) + ' atm', mx, 152, {});
-      txt(c, 'PV = nRT로 계산: ' + Math.round(r.Pi).toLocaleString() + ' Pa', mx, 182, {color:'#4A5868'});
+      txt(c, 'nRT ÷ V = ' + Math.round(r.Pi).toLocaleString() + ' Pa', mx, 182, {color:'#4A5868'});
       txt(c, '차이 ' + sgn(r.dev, 2) + ' %', mx, 212, {bold:true, color:Math.abs(r.dev) > 1 ? '#C8463D' : '#2E9E78'});
     }
     var by = 300;
     if (!r) return;
     txt(c, '몰부피 V/n = ' + f(r.Vm, 2) + ' L/mol, 밀도 ' + f(r.rho, 3) + ' g/L', 12, by, {});
-    txt(c, '분자가 차지하는 부피와 분자 사이 인력 때문에 실제 기체는 이상 기체와 조금 다릅니다', 12, by + 30, {color:'#4A5868'});
+    if (r.solid){
+      txt(c, '승화 압력(' + f(r.meas / 1000, 1) + ' kPa)을 넘어 CO₂ 일부가', 12, by + 30, {bold:true, color:'#C8463D'});
+      txt(c, '드라이아이스(고체)로 됩니다 — 남은 기체의 압력만 잽니다', 12, by + 54, {bold:true, color:'#C8463D'});
+    } else { txt(c, '분자가 차지하는 부피와 분자 사이 인력 때문에', 12, by + 30, {color:'#4A5868'}); txt(c, '실제 기체는 이상 기체와 조금 다릅니다', 12, by + 52, {color:'#4A5868'}); }
   },
   stats: function(p, r){
     return [['기체', r.G.name], ['조건', f(r.n, 2) + ' mol, ' + r.T + ' K, ' + f(r.V, 1) + ' L'],
       ['잰 압력', Math.round(r.meas).toLocaleString() + ' Pa (' + f(r.meas / 101325, 3) + ' atm)', PAL[4]],
       ['PV = nRT로 계산', Math.round(r.Pi).toLocaleString() + ' Pa', PAL[0]],
-      ['차이', sgn(r.dev, 2) + ' %'], ['몰부피 V ÷ n', f(r.Vm, 2) + ' L/mol'], ['밀도', f(r.rho, 3) + ' g/L']];
+      ['차이', sgn(r.dev, 2) + ' %' + (r.solid ? ' (승화 압력을 넘어 CO₂ 일부가 고체로 됨)' : '')], ['몰부피 V ÷ n', f(r.Vm, 2) + ' L/mol'], ['밀도', f(r.rho, 3) + ' g/L']];
   },
   columns: ['기체', 'n (mol)', 'T (K)', 'V (L)', '잰 P (Pa)', 'PV/nRT', '차이 (%)', '밀도 (g/L)'],
-  record: function(p, r){ return {g:p.g, name:r.G.name, n:r.n, T:r.T, V:r.V, P:r.meas, Pi:r.Pi, z:r.meas * (r.V / 1000) / (r.n * 8.314 * r.T), dev:r.dev, rho:r.rho}; },
+  record: function(p, r){ return {g:p.g, name:r.G.name + (r.solid ? ' (일부 고체)' : ''), n:r.n, T:r.T, V:r.V, P:r.meas, Pi:r.Pi, z:r.meas * (r.V / 1000) / (r.n * 8.314 * r.T), dev:r.dev, rho:r.rho}; },
   row: function(d){ return [d.name, f(d.n, 2), d.T, f(d.V, 1), Math.round(d.P).toLocaleString(), f(d.z, 4), sgn(d.dev, 2), f(d.rho, 3)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +

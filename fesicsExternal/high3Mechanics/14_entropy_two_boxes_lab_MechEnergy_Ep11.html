@@ -452,12 +452,15 @@ var LAB = (function(){
             if (side[j] === 0){ side[j] = 1; nL--; } else { side[j] = 0; nL++; }
             hist.push(nL); if (nL === N) ret++;
           }
-          var half = hist.slice(Math.floor(hist.length / 2)).map(function(v){ return v / N; }), m = mean(half);
+          /* 평형에 이른 뒤만 평균·σ 계산: 처음 쏠림은 (1 − 2/N)^t 로 줄어 약 (N/2)·ln(4N)번 뒤면 흔들림보다 작아짐 */
+          var teq = Math.ceil(N / 2 * Math.log(4 * N)), st0 = Math.max(Math.floor(hist.length / 2), teq);
+          var eq = hist.length - st0 >= Math.max(100, N); if (!eq) st0 = Math.floor(hist.length / 2);   /* 평형 전이면 뒤쪽 절반으로 계산(표시는 '평형 전'), 검증 그래프에서는 뺌 */
+          var half = hist.slice(st0).map(function(v){ return v / N; }), m = mean(half);
           var sd = Math.sqrt(mean(half.map(function(v){ return (v - m) * (v - m); })));
           var Smax = lnC(N, Math.floor(N / 2)), Sfin = lnC(N, nL);
           var pr = [], er = 0, a; for (a = 0; a <= N; a++) pr.push(a === N ? 1 : 0); /* 모두 왼쪽에서 출발한 실제 모형의 기대 복귀 횟수 */
           for (var s2 = 0; s2 < steps; s2++){ var nx = []; for (a = 0; a <= N; a++) nx.push((a < N ? pr[a + 1] * (a + 1) / N : 0) + (a > 0 ? pr[a - 1] * (N - a + 1) / N : 0)); pr = nx; er += pr[N]; }
-          return {N:N, steps:steps, moves:moves, hist:hist, ret:ret, sd:sd, m:m, Smax:Smax, Sfin:Sfin, fin:nL / N, pAll:Math.pow(0.5, N), expRet:er};
+          return {N:N, steps:steps, moves:moves, hist:hist, ret:ret, sd:sd, m:m, Smax:Smax, Sfin:Sfin, fin:nL / N, pAll:Math.pow(0.5, N), expRet:er, eq:eq, teq:teq};
         },
         draw: function(c, W, H, p, r, tau){
           var N = NS[p.n], bx = 20, by = 20, bw = W - 40, bh = 170, k = r ? Math.floor(Math.min(1, tau) * r.steps) : 0;
@@ -484,24 +487,25 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['입자 수 N', r.N + '개'], ['마지막 왼쪽 비율', f(r.fin, 3)], ['뒤쪽 절반 평균 비율', f(r.m, 3), PAL[0]],
+          return [['입자 수 N', r.N + '개'], ['마지막 왼쪽 비율', f(r.fin, 3)], ['평형 뒤 평균 비율', f(r.m, 3) + (r.eq ? '' : ' (아직 평형 전: ' + (r.teq + Math.max(100, r.N)) + '번 이상 관찰)'), r.eq ? PAL[0] : PAL[4]],
             ['흔들림 σ (측정)', f(r.sd, 3) + ' (이론 0.5/√N = ' + f(0.5 / Math.sqrt(r.N), 3) + ')', PAL[3]],
             ['엔트로피 S/k = ln W', '처음 0 → 마지막 ' + f(r.Sfin, 2) + ' (최대 ' + f(r.Smax, 2) + ')', PAL[6]],
             ['모두 왼쪽으로 돌아온 횟수', r.ret + '번 (기대값 약 ' + (r.expRet >= 0.01 ? f(r.expRet, 2) : r.expRet >= 0.0001 ? f(r.expRet, 4) : '거의 0') + '번)', r.ret ? PAL[4] : PAL[1]],
             ['평형에서 모두 왼쪽일 확률', r.N <= 20 ? '1/' + f(1 / r.pAll, 0) : '약 10^' + f(Math.log10(r.pAll), 0)]];
         },
         columns: ['N', '이동 횟수', '평균 비율', 'σ', '되돌아옴', 'S/S최대'],
-        record: function(p, r){ return {N:r.N, steps:r.steps, m:r.m, sd:r.sd, ret:r.ret, sr:r.Smax > 0 ? r.Sfin / r.Smax : 0, exp:r.expRet}; },
+        record: function(p, r){ return {N:r.N, steps:r.steps, m:r.m, sd:r.sd, ret:r.ret, sr:r.Smax > 0 ? r.Sfin / r.Smax : 0, exp:r.expRet, eq:r.eq}; },
         row: function(d){ return [d.N, d.steps, f(d.m, 3), f(d.sd, 3), d.ret + '번', f(d.sr, 2)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('흔들림 σ와 1/√N', '<canvas class="chart" id="en1"></canvas><p class="ask">점들이 기울기 0.5인 직선(점선) 근처에 있나요? N이 10²³이면 σ가 얼마쯤일지 계산해 보세요.</p>') +
             card('처음 상태로 되돌아온 횟수', '<div id="en2"></div><p class="ask">과제: "되돌릴 수 없다"는 말은 "불가능하다"와 어떻게 다른가요? 잉크 한 방울이 물에 퍼지는 현상을 이 모형으로 설명해 보세요.</p>') + '</div>';
-          drawScatter($('en1'), {series:[{color:PAL[0], pts:rec.map(function(d){ return {x:1 / Math.sqrt(d.N), y:d.sd}; })}],
+          /* 평형 전에 끝난 기록(eq === false)은 σ 가 처음 쏠림까지 담아 커지므로 그래프에서 뺌 */
+          drawScatter($('en1'), {series:[{color:PAL[0], pts:rec.filter(function(d){ return d.eq !== false; }).map(function(d){ return {x:1 / Math.sqrt(d.N), y:d.sd}; })}],
             lines:[{k:0.5, b:0, color:PAL[4], dash:true}], xLabel:'1/√N', yLabel:'σ'});
           var by = groupBy(rec, function(d){ return d.N; }), rows = [];
           Object.keys(by).sort(function(a, b){ return a - b; }).forEach(function(k){ var g = by[k], st = g.reduce(function(s, d){ return s + d.steps; }, 0);
-            rows.push([k + '개', st + '번', g.reduce(function(s, d){ return s + d.ret; }, 0) + '번', f(g.reduce(function(s, d){ return s + d.exp; }, 0), 3), f(mean(g.map(function(d){ return d.sd; })), 3)]); });
+            rows.push([k + '개', st + '번', g.reduce(function(s, d){ return s + d.ret; }, 0) + '번', f(g.reduce(function(s, d){ return s + d.exp; }, 0), 3), (function(){ var ge = g.filter(function(d){ return d.eq !== false; }); return ge.length ? f(mean(ge.map(function(d){ return d.sd; })), 3) : '평형 전'; })()]); });
           $('en2').innerHTML = tableHTML(['N', '총 이동', '되돌아옴 (측정)', '기대값', '평균 σ'], rows);
         }
       };

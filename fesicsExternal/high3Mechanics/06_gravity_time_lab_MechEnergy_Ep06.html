@@ -466,10 +466,11 @@ return {
   ],
   compute: function(p){
     var P = PLACE[p.p], R = rates(P), L = LIFT[p.l];
-    var felt = L.a === 0 ? 9.8 : L.a > 0 ? 9.8 + 0 : 0;
-    var liftMsg = L.a === 0 ? '바닥이 발을 9.8 m/s²만큼 밀어 올림 → 무게를 느낌' :
+    var gLoc = GC * ME / (R.r * R.r);   /* 시계를 놓은 높이의 중력 가속도 */
+    var felt = L.a === 0 ? gLoc : L.a > 0 ? 9.8 : 0;
+    var liftMsg = L.a === 0 ? (P.orbit ? '이 높이에 멈춰 있으면 바닥이 ' + f(gLoc, 1) + ' m/s²로 밀어 올림 (궤도를 돌면 자유 낙하라 무게 0)' : '바닥이 발을 ' + f(gLoc, 1) + ' m/s²만큼 밀어 올림 → 무게를 느낌') :
       L.a > 0 ? '중력이 없는 우주에서도 9.8 m/s²로 가속하면 똑같이 무게를 느낌' : '중력과 함께 떨어지면 무게를 느끼지 못함 (무중력과 구별 못 함)';
-    return {P:P, R:R, L:L, felt:L.a === 0 ? 9.8 : L.a > 0 ? 9.8 : 0, msg:liftMsg, day:Math.round(R.day * 100) / 100};
+    return {P:P, R:R, L:L, felt:felt, msg:liftMsg, day:Math.round(R.day * 100) / 100};
   },
   draw: function(c, W, H, p, r, tau){
     // 왼쪽: 높이 그림
@@ -480,7 +481,7 @@ return {
     var frac = Math.min(1, Math.pow(PLACE[p.p].h / 35786e3, 0.32));
     var cyq = gy1 - 26 - frac * (gy1 - gy0 - 40);
     c.fillStyle = '#C8463D'; c.beginPath(); c.arc(gx, cyq, 9, 0, Math.PI * 2); c.fill();
-    txt(c, PLACE[p.p].name.split(' ')[0], gx + 14, cyq + 4, {bold:true});
+    txt(c, PLACE[p.p].name.split(' ')[0], 24, cyq - 14, {bold:true});   /* 점 위에 써서 오른쪽 승강기와 안 겹치게 */
     // 오른쪽: 승강기
     var lx = 162, lw = 96, ly = gy0 + 10, lh = 140;
     c.strokeStyle = '#5B6776'; c.lineWidth = 2; c.strokeRect(lx, ly, lw, lh);
@@ -496,10 +497,12 @@ return {
     txt(c, '지표면 시계와 비교 (하루 = 86,400초)', 12, by, {bold:true});
     if (!r){ txt(c, '재면 나타납니다', 12, by + 30, {color:'#4A5868'}); return; }
     var k = Math.min(tau / 0.9, 1);
-    var items = [['중력 효과 (높을수록 빨라짐)', r.R.grav * 86400 * 1e6 - (-GC * ME / (RE * CL * CL)) * 86400 * 1e6, '#2B5FA3'],
-                 ['속도 효과 (빠를수록 느려짐)', r.R.spec * 86400 * 1e6, '#C8463D'],
+    var items = [['중력 효과', r.R.grav * 86400 * 1e6 - (-GC * ME / (RE * CL * CL)) * 86400 * 1e6, '#2B5FA3'],
+                 ['속도 효과', r.R.spec * 86400 * 1e6, '#C8463D'],
                  ['합계', r.day, '#1E2833']];
-    var bx = 200, bw = W - bx - 30, sc = bw / 2 / Math.max(60, Math.abs(r.day) * 1.4), zero = bx + bw / 2;
+    /* 막대 오른쪽·왼쪽에 숫자(약 90 px)가 들어갈 자리를 남기고 가장 큰 값에 맞춰 줄임 */
+    var bx = 120, bw = W - bx - 20, zero = bx + bw / 2;
+    var sc = Math.max(10, bw / 2 - 96) / Math.max(1, Math.abs(items[0][1]), Math.abs(items[1][1]), Math.abs(items[2][1]));
     c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(zero, by + 14); c.lineTo(zero, by + 14 + items.length * 34); c.stroke();
     items.forEach(function(it, i){
       var y = by + 18 + i * 34, w = it[1] * sc * k;
@@ -507,7 +510,11 @@ return {
       c.fillStyle = it[2]; c.fillRect(Math.min(zero, zero + w), y, Math.abs(w), 22);
       txt(c, sgn(it[1] * k, 2) + ' µs', w >= 0 ? zero + w + 6 : zero + w - 6, y + 12, {base:'middle', align:w >= 0 ? 'left' : 'right'});
     });
-    txt(c, r.msg, 12, H - 14, {color:'#4A5868'});
+    /* 긴 안내 글은 그림판 너비에 맞춰 두 줄로 나눔 */
+    c.font = '15px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+    var ml = [''];
+    r.msg.split(' ').forEach(function(wd){ var t = ml[ml.length - 1] ? ml[ml.length - 1] + ' ' + wd : wd; if (ml[ml.length - 1] && c.measureText(t).width > W - 24) ml.push(wd); else ml[ml.length - 1] = t; });
+    ml.slice(0, 2).forEach(function(s, i){ c.fillText(s, 12, H - (ml.length > 1 ? 27 : 12) + i * 19); });
   },
   stats: function(p, r){
     var base = -GC * ME / (RE * CL * CL);

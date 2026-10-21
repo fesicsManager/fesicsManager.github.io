@@ -368,7 +368,7 @@ function rng(a){ return function(){ a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math
 // 초파리 세 유전자 (실제 교과서형 예시): 재조합 빈도로 지도 거리를 구함
 var PAIR = [
   {name:'A와 B', link:true, rf:0.12, g1:'A(회색몸)', g2:'B(긴날개)'},
-  {name:'A와 C', link:true, rf:0.28, g1:'A(회색몸)', g2:'C(붉은눈)'},
+  {name:'A와 C', link:true, rf:0.24, g1:'A(회색몸)', g2:'C(붉은눈)'},   // 지도 거리 28 cM(12+16)이지만 이중 교차로 0.12+0.16−2×0.12×0.16 ≈ 24 % 만 보임
   {name:'B와 C', link:true, rf:0.16, g1:'B(긴날개)', g2:'C(붉은눈)'},
   {name:'A와 D (다른 염색체)', link:false, rf:0.50, g1:'A(회색몸)', g2:'D(정상더듬이)'}
 ];
@@ -390,7 +390,7 @@ return {
   ],
   compute: function(p){
     run++; var P = PAIR[p.p], n = N[p.n], C = cross(P, n, run * 7919 + p.p * 37 + p.n);
-    return {run:run, P:P, n:n, par:C.par, rec:C.rec, rf:Math.round(C.rf * 10000) / 100, cM:Math.round(C.rf * 10000) / 100,
+    return {run:run, P:P, n:n, par:C.par, rec:C.rec, rf:Math.round(C.rf * 10000) / 100, cM:P.link ? Math.round(C.rf * 10000) / 100 : null,   /* 다른 염색체 짝에는 지도 거리가 없음 */
       judge:C.rf > 0.42 ? '독립 (다른 염색체이거나 아주 멀리 떨어짐)' : '연관 (같은 염색체에 있음)'};
   },
   draw: function(c, W, H, p, r, tau){
@@ -398,15 +398,19 @@ return {
     // 염색체와 교차 그림
     var cx = 40, cy = 70, len = Math.min(280, W - 90);
     txt(c, P.name + ' 검정 교배', 12, 30, {bold:true});
+    /* 연관된 짝은 한 쌍의 염색체 위에, 다른 염색체 짝(D)은 서로 다른 두 쌍의 염색체에 그림 */
+    var u1 = P.link ? 0.2 : 0.21, u2 = P.link ? 0.2 + Math.min(0.6, P.rf * 2) : 0.79;
+    var chs = P.link ? [[0, 1]] : [[0, 0.42], [0.58, 1]];
     [0, 1].forEach(function(j){
       var y = cy + j * 34;
       c.strokeStyle = j ? '#2B5FA3' : '#C8463D'; c.lineWidth = 9; c.lineCap = 'round';
-      c.beginPath(); c.moveTo(cx, y); c.lineTo(cx + len, y); c.stroke(); c.lineCap = 'butt';
-      c.fillStyle = '#fff'; c.beginPath(); c.arc(cx + len * 0.2, y, 5, 0, Math.PI * 2); c.fill();
-      c.beginPath(); c.arc(cx + len * (0.2 + Math.min(0.6, P.rf * 2)), y, 5, 0, Math.PI * 2); c.fill();
+      chs.forEach(function(s){ c.beginPath(); c.moveTo(cx + len * s[0], y); c.lineTo(cx + len * s[1], y); c.stroke(); });
+      c.lineCap = 'butt';
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(cx + len * u1, y, 5, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(cx + len * u2, y, 5, 0, Math.PI * 2); c.fill();
     });
-    txt(c, P.g1, cx + len * 0.2, cy - 18, {align:'center', color:'#4A5868'});
-    txt(c, P.g2, cx + len * (0.2 + Math.min(0.6, P.rf * 2)), cy - 18, {align:'center', color:'#4A5868'});
+    txt(c, P.g1, cx + len * u1 + 6, cy - 18, {align:'right', color:'#4A5868'});   /* 두 이름이 가까워도 겹치지 않게 바깥쪽으로 */
+    txt(c, P.g2, cx + len * u2 - 6, cy - 18, {color:'#4A5868'});
     if (P.link && k > 0.3){
       var xx = cx + len * (0.2 + Math.min(0.6, P.rf * 2) / 2);
       c.strokeStyle = '#2E9E78'; c.lineWidth = 2.5;
@@ -418,7 +422,7 @@ return {
     if (!r){ txt(c, '교배하면 자손의 표현형이 나옵니다', 12, by, {color:'#4A5868'}); }
     else {
       txt(c, r.n.toLocaleString() + '개체 (' + r.run + '번째 교배)', 12, by, {bold:true});
-      var bx = 140, bw = W - bx - 24, mx = Math.max(r.par, r.rec);
+      var bx = 140, bw = W - bx - 100, mx = Math.max(r.par, r.rec);   /* 막대 끝 '3,521개체' 글자 자리 */
       [['부모형', r.par, '#2B5FA3'], ['재조합형', r.rec, '#C8463D']].forEach(function(q, i){
         var y = by + 22 + i * 40;
         txt(c, q[0], 12, y + 12, {base:'middle'});
@@ -426,11 +430,11 @@ return {
         txt(c, Math.round(q[1] * k).toLocaleString() + '개체', bx + bw * q[1] / mx * k + 8, y + 12, {base:'middle'});
       });
       txt(c, '재조합 빈도 = ' + r.rec.toLocaleString() + ' ÷ ' + r.n.toLocaleString() + ' = ' + f(r.rf, 2) + ' %', 12, by + 118, {bold:true});
-      txt(c, '지도 거리 ' + f(r.cM, 2) + ' cM · ' + r.judge, 12, by + 148, {bold:true, color:r.rf > 42 ? '#8A4B12' : '#2E9E78'});
+      txt(c, r.cM == null ? '독립 (다른 염색체) — 지도 거리 없음' : '지도 거리 ' + f(r.cM, 2) + ' cM · ' + r.judge, 12, by + 148, {bold:true, color:r.rf > 42 ? '#8A4B12' : '#2E9E78'});
     }
     // 유전자 지도
     var my = H - 60;
-    txt(c, '유전자 지도 (기록으로 그림)', 12, my - 26, {color:'#4A5868'});
+    txt(c, '유전자 지도 (가까운 A–B, B–C 구간을 더함)', 12, my - 36, {color:'#4A5868'});
     c.strokeStyle = '#8C99A8'; c.lineWidth = 3; c.beginPath(); c.moveTo(30, my); c.lineTo(W - 30, my); c.stroke();
     var pos = {A:0, B:12, C:28};
     Object.keys(pos).forEach(function(g){
@@ -443,16 +447,16 @@ return {
   stats: function(p, r){
     return [['유전자 짝', r.P.name], ['자손 수', r.n.toLocaleString() + '개체'],
       ['부모형', r.par.toLocaleString() + '개체', PAL[0]], ['재조합형', r.rec.toLocaleString() + '개체', PAL[4]],
-      ['재조합 빈도', f(r.rf, 2) + ' %', PAL[1]], ['지도 거리', f(r.cM, 2) + ' cM'], ['판정', r.judge]];
+      ['재조합 빈도', f(r.rf, 2) + ' %', PAL[1]], ['지도 거리', r.cM == null ? '없음 (다른 염색체)' : f(r.cM, 2) + ' cM'], ['판정', r.judge]];
   },
   columns: ['유전자 짝', '자손 수', '부모형', '재조합형', '재조합 빈도 (%)', '지도 거리 (cM)', '판정'],
   record: function(p, r){ return {p:p.p, name:r.P.name, n:r.n, par:r.par, rec:r.rec, rf:r.rf, judge:r.judge, run:r.run}; },
-  row: function(d){ return [d.name, d.n.toLocaleString(), d.par.toLocaleString(), d.rec.toLocaleString(), f(d.rf, 2), f(d.rf, 2), d.judge]; },
+  row: function(d){ return [d.name, d.n.toLocaleString(), d.par.toLocaleString(), d.rec.toLocaleString(), f(d.rf, 2), d.p === 3 ? '−' : f(d.rf, 2), d.judge]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('자손 수와 재조합 빈도', '<canvas class="chart" id="ch1"></canvas>' + legend(PAIR.map(function(x, i){ return {color:PAL[i], label:x.name}; })) +
         '<ul class="readout" id="ro1"></ul><p class="ask">자손 수가 많을수록 빈도가 안정되나요? 독립인 짝은 몇 %에 가까워지나요?</p>') +
-      card('유전자 지도 만들기', '<div id="ro2"></div><p class="ask">A–B 12 cM, B–C 16 cM, A–C 28 cM이라면 세 유전자의 순서는 어떻게 될까요? 세 거리를 더해 확인해 보세요.</p>') +
+      card('유전자 지도 만들기', '<div id="ro2"></div><p class="ask">A–B 12 cM, B–C 16 cM일 때 세 유전자의 순서는 어떻게 될까요? A–C를 직접 재면 두 구간의 합(28)보다 조금 작게 나옵니다. 그 까닭을 이중 교차로 설명해 보세요.</p>') +
       card('연관과 독립', '<div id="ro3"></div><p class="ask">재조합 빈도가 50 %에 가까우면 같은 염색체에 있어도 독립처럼 보입니다. 그 까닭을 교차 횟수로 설명해 보세요.</p>') + '</div>';
     drawScatter($('ch1'), {xLabel:'자손 수', yLabel:'재조합 빈도 (%)', xHi:4500, xStep:1000, yHi:60, yStep:10,
       series:[0, 1, 2, 3].map(function(i){ return {color:PAL[i], pts:rec.filter(function(d){ return d.p === i; }).map(function(d){ return {x:d.n, y:d.rf}; })}; }).filter(function(s){ return s.pts.length; })});

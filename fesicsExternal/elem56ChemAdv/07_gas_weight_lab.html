@@ -275,7 +275,7 @@ button:active:not(:disabled){transform:translateY(1px) scale(.985);}
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>기체</th><th>부피(L)</th><th>질량(g)</th><th>공기와 비교<br>(5L=6.45g)</th><th>뜸 · 가라앉음</th></tr></thead>
+          <thead><tr><th>#</th><th>기체</th><th>부피(L)</th><th>질량(g)</th><th>공기와 비교<br>(같은 부피 공기의 몇 배)</th><th>뜸 · 가라앉음</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -403,6 +403,8 @@ var GAS=[{n:'수소',d:0.09},{n:'헬륨',d:0.18},{n:'질소',d:1.25},{n:'공기'
 var AIR=1.29;
 function massOf(d, liters){ return d*liters; }
 function floats(d){ return d < AIR; }
+/* 공기와 5 % 안쪽(질소 1.25)이면 풍선 껍질 무게만으로도 못 떠서 거의 제자리 */
+function nearAir(d){ return Math.abs(d-AIR)/AIR < 0.05; }
 
 var GAS_COLOR=['#7fb2c8','#d98e3b','#5bb07a','#9aa8ad','#4a7fd0','#c1443c'];
 var gi=1, curL=5;
@@ -529,7 +531,7 @@ function drawDevice(){
   var target = up ? (CEIL+r+10) : (FLOOR-r-10);
   var ease=prog<1 ? (1-Math.pow(1-prog,3)) : 1;
   var y1 = done ? target : (running ? mid+(target-mid)*ease : mid);
-  if(Math.abs(G.d-AIR)<0.001) y1=mid;   /* 공기는 그대로 */
+  if(nearAir(G.d)) y1=mid;   /* 공기·질소는 (거의) 그대로 */
   y1 += Math.sin(ph)*3;
 
   /* 왼쪽: 고른 기체 */
@@ -538,7 +540,7 @@ function drawDevice(){
   BALLOON(360, mid+Math.sin(ph+1.2)*3, r, GAS_COLOR[3], '공기', ph+1.2);
 
   /* 화살표 */
-  if((running||done) && Math.abs(G.d-AIR)>0.001){
+  if((running||done) && !nearAir(G.d)){
     ARROW(150-r-24, y1, up, up?'#2f8f9d':'#c1443c');
     g.fillStyle= up?'#20707c':'#a3322a';
     g.font="700 15px 'Noto Sans KR', sans-serif"; g.textAlign='center';
@@ -613,7 +615,7 @@ function finishRun(){
   var m=massOf(G.d, curL), a=massOf(AIR, curL);
   document.getElementById('mVal').textContent=m.toFixed(2)+' g';
   document.getElementById('aVal').textContent=a.toFixed(2)+' g';
-  points.push({gi:gi, n:G.n, d:G.d, L:curL, m:m, air:a, up:floats(G.d), same:Math.abs(G.d-AIR)<0.001});
+  points.push({gi:gi, n:G.n, d:G.d, L:curL, m:m, air:a, up:floats(G.d), same:nearAir(G.d)});
   renderTable(); drawExploreChart();
   document.getElementById('countNum').textContent=points.length;
   checkNudge();
@@ -631,7 +633,7 @@ function renderTable(){
   }
   points.forEach(function(p,i){
     var tr=document.createElement('tr');
-    var judge=p.same?'그대로':(p.up?'⬆ 뜸':'⬇ 가라앉음');
+    var judge=p.same?(p.n==='공기'?'그대로':'거의 제자리'):(p.up?'⬆ 뜸':'⬇ 가라앉음');
     tr.innerHTML='<td><span class="dot" style="background:'+GAS_COLOR[p.gi]+'"></span>'+(i+1)+'</td>'+
       '<td class="kr">'+p.n+'</td><td>'+p.L+'</td><td><b>'+p.m.toFixed(2)+'</b></td>'+
       '<td>'+(p.d/AIR).toFixed(2)+'배</td><td class="kr">'+judge+'</td>';
@@ -668,6 +670,7 @@ function drawAxes(c, cc, xMin,xMax,yMin,yMax,xLabel,yLabel,pad,yFix){
   };
 }
 function drawGasLines(cc, toPx){
+  var labs=[];
   GAS.forEach(function(G,i){
     var isAir=(i===3);
     cc.strokeStyle=GAS_COLOR[i];
@@ -676,9 +679,16 @@ function drawGasLines(cc, toPx){
     var a=toPx(0,0), b=toPx(10.5, massOf(G.d,10.5));
     cc.beginPath(); cc.moveTo(a[0],a[1]); cc.lineTo(b[0],b[1]); cc.stroke();
     cc.setLineDash([]);
-    cc.fillStyle=GAS_COLOR[i]; cc.font=(isAir?'700 16px':'15px')+' "Noto Sans KR", sans-serif';
-    cc.textAlign='right';
-    cc.fillText(G.n, b[0]-8, b[1]+(i<2?18:-8));
+    labs.push({i:i, x:b[0], y:b[1]+5});
+  });
+  /* 이름은 선 끝 오른쪽에, 서로 17px 이상 떨어지게 위아래로 벌림(이산화 탄소는 길어서 선 위에) */
+  var side=labs.filter(function(l){ return l.i!==5; }).sort(function(p,q){ return p.y-q.y; });
+  for(var k=1;k<side.length;k++) if(side[k].y-side[k-1].y<17) side[k].y=side[k-1].y+17;
+  labs.forEach(function(l){
+    var isAir=(l.i===3);
+    cc.fillStyle=GAS_COLOR[l.i]; cc.font=(isAir?'700 16px':'15px')+' "Noto Sans KR", sans-serif';
+    if(l.i===5){ cc.textAlign='right'; cc.fillText(GAS[l.i].n, l.x-8, l.y-13); }
+    else { cc.textAlign='left'; cc.fillText(GAS[l.i].n, l.x+6, l.y); }
   });
   cc.textAlign='left';
 }
@@ -716,10 +726,10 @@ function renderVerify(){
 
   var sorted=points.slice().sort(function(a,b){ return a.d-b.d || a.L-b.L; });
   document.getElementById('myRows').innerHTML=sorted.map(function(p){
-    return '<div class="sum-row"><span>'+p.n+' '+p.L+'L</span><span><b>'+p.m.toFixed(2)+'g</b> / 공기 '+p.air.toFixed(2)+'g · '+(p.same?'그대로':(p.up?'⬆ 뜸':'⬇ 가라앉음'))+'</span></div>';
+    return '<div class="sum-row"><span>'+p.n+' '+p.L+'L</span><span><b>'+p.m.toFixed(2)+'g</b> / 공기 '+p.air.toFixed(2)+'g · '+(p.same?(p.n==='공기'?'그대로':'거의 제자리'):(p.up?'⬆ 뜸':'⬇ 가라앉음'))+'</span></div>';
   }).join('');
   document.getElementById('gasRows').innerHTML=GAS.map(function(G,i){
-    var tag=(i===3)?' ← 기준':(floats(G.d)?' ⬆':' ⬇');
+    var tag=(i===3)?' ← 기준':(nearAir(G.d)?' ≈ 거의 제자리':(floats(G.d)?' ⬆':' ⬇'));
     return '<div class="sum-row"><span>'+G.n+'</span><span><b>'+G.d+'g</b>'+tag+'</span></div>';
   }).join('');
 

@@ -503,7 +503,9 @@ function reset(){
   draw();
 }
 function ratio(){ return dens/FLUIDS[fIdx].d; }
-function sinks(){ return ratio()>1; }
+function sinks(){ return ratio()>1+1e-9; }
+function neutral(){ return Math.abs(ratio()-1)<=1e-9; }   /* 밀도가 같으면 중성 부력: 완전히 잠긴 채 머문다 */
+function stateName(r){ return r.sink?'가라앉음':(Math.abs(r.ratio-1)<=1e-9?'머묾':'뜸'); }
 function frac(){ return Math.min(1, ratio()); }
 function restY(){
   /* 뜨면 잠긴 부피만큼만 잠기고, 가라앉으면 바닥에 닿는다 */
@@ -552,11 +554,13 @@ function draw(){
   if(revealed){
     var cxx=bx+BS/2;
     ctx.strokeStyle='#2f8f9d'; ctx.lineWidth=4;
-    ctx.beginPath(); ctx.moveTo(cxx-70, blockY+BS/2+26); ctx.lineTo(cxx-70, blockY+BS/2-18); ctx.stroke();
+    /* 화살표 길이 = 힘의 크기: 가라앉으면 부력(액체 밀도 몫)이 무게보다 작다 → 무게 ÷ 밀도비 */
+    var yb=blockY+BS/2+26, yt=yb-(sinks()? 54/ratio() : 54);
+    ctx.beginPath(); ctx.moveTo(cxx-70, yb); ctx.lineTo(cxx-70, yt+10); ctx.stroke();
     ctx.fillStyle='#2f8f9d';
-    ctx.beginPath(); ctx.moveTo(cxx-70,blockY+BS/2-28); ctx.lineTo(cxx-76,blockY+BS/2-14); ctx.lineTo(cxx-64,blockY+BS/2-14); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cxx-70,yt); ctx.lineTo(cxx-76,yt+14); ctx.lineTo(cxx-64,yt+14); ctx.closePath(); ctx.fill();
     ctx.font="700 19px 'Noto Sans KR',sans-serif"; ctx.textAlign='center';
-    ctx.fillText('부력', cxx-70, blockY+BS/2+46);
+    ctx.fillText('부력', cxx-70, yt-8);   /* 화살표 끝 위: 바닥에 닿았을 때 아래 액체 이름과 겹치지 않게 */
     ctx.strokeStyle='#a86825'; ctx.lineWidth=4;
     ctx.beginPath(); ctx.moveTo(cxx+70, blockY+BS/2-26); ctx.lineTo(cxx+70, blockY+BS/2+18); ctx.stroke();
     ctx.fillStyle='#a86825';
@@ -573,11 +577,11 @@ function draw(){
   if(revealed){
     ctx.fillStyle= sinks()? '#c1443c' : '#173238';
     ctx.font="700 23px 'Noto Sans KR',sans-serif";
-    ctx.fillText(sinks()? '가라앉음 — 바닥에 닿음' : '뜸 — '+(frac()*100).toFixed(0)+'%만 잠김', 220, 324);
+    ctx.fillText(sinks()? '가라앉음 — 바닥에 닿음' : neutral()? '머묾 — 100% 잠긴 채 멈춤' : '뜸 — '+(frac()*100).toFixed(0)+'%만 잠김', 220, 324);
     ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
     ctx.fillText('밀도비 = '+dens.toFixed(2)+' ÷ '+FLUIDS[fIdx].d.toFixed(2)+' = '+ratio().toFixed(2), 220, 350);
     ctx.font="600 18px 'Noto Sans KR',sans-serif";
-    ctx.fillText(sinks()? '밀도비가 1보다 크면 부력이 무게를 못 이깁니다' : '밀도비가 곧 잠긴 부피 비율입니다', 220, 372);
+    ctx.fillText(sinks()? '밀도비가 1보다 크면 부력이 무게를 못 이깁니다' : neutral()? '밀도비가 1이면 부력 = 무게 (중성 부력)' : '밀도비가 곧 잠긴 부피 비율입니다', 220, 372);
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
     ctx.fillText('"물체를 액체에 넣어보기"를 눌러보세요', 220, 328);
@@ -623,6 +627,7 @@ document.getElementById('runBtn').addEventListener('click', function(){
       var box=document.getElementById('result');
       box.className='result-box ok';
       box.innerHTML=(sinks()? '<b>가라앉았습니다.</b> 잠긴 비율 <span class="big-val">100%</span>'
+                            : neutral()? '<b>뜨지도 가라앉지도 않고 머뭅니다(중성 부력).</b> 잠긴 비율 <span class="big-val">100%</span>'
                             : '<b>떴습니다.</b> 잠긴 비율 <span class="big-val">'+(frac()*100).toFixed(0)+'%</span>')
         +' <span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
       maybeToast(records.length);
@@ -638,7 +643,7 @@ function renderTable(){
   tb.innerHTML=records.map(function(r,i){
     return '<tr><td>'+(i+1)+'</td><td class="kr">'+r.fluid+'</td><td>'+r.fd.toFixed(2)+'</td><td>'+r.od.toFixed(2)+'</td>'
       +'<td>'+r.ratio.toFixed(2)+'</td><td>'+(r.frac*100).toFixed(0)+'%</td>'
-      +'<td class="kr"><span class="badge '+(r.sink?'warm':'cold')+'">'+(r.sink?'가라앉음':'뜸')+'</span></td></tr>';
+      +'<td class="kr"><span class="badge '+(r.sink?'warm':'cold')+'">'+stateName(r)+'</span></td></tr>';
   }).join('');
 }
 
@@ -667,7 +672,7 @@ function renderValidation(){
   document.getElementById('listAnalysis').innerHTML =
     uniq.map(function(r){
       return '<div class="mini-row"><span>밀도비 '+r.ratio.toFixed(2)+' ('+r.fluid+')</span><span class="mono">'
-        +(r.frac*100).toFixed(0)+'% · '+(r.sink?'가라앉음':'뜸')+'</span></div>';
+        +(r.frac*100).toFixed(0)+'% · '+stateName(r)+'</span></div>';
     }).join('')
     + '<div class="insight-box">'
     + (below.length

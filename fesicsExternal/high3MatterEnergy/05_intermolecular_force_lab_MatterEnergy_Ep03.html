@@ -236,11 +236,11 @@ tbody tr:hover{background:#F5F8FB}
 </ul>
 
 <h3>🧮 이 실험의 계산 방법</h3>
-<p>상태: T &lt; mp 고체, mp &lt; T &lt; bp 액체, T &gt; bp 기체, |T − mp| 또는 |T − bp| &lt; 0.5 ℃면 두 상 공존; 증기압 <span class="fx-formula">ln(P/P₂₅) = −(ΔH_vap/R)(1/T − 1/298)</span></p>
+<p>상태: T &lt; mp 고체, mp &lt; T &lt; bp 액체, T &gt; bp 기체, |T − mp| 또는 |T − bp| &lt; 0.5 ℃면 두 상 공존; 증기압 <span class="fx-formula">ln(P/P₂₅) = −(ΔH/R)(1/T − 1/298)</span> (ΔH 는 25 ℃ 증기압과 끓는점 101.3 kPa 두 실측점을 지나도록 정한 평균 기화열, 얼음은 승화열 51.1 kJ/mol)</p>
 
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
 · 1기압 기준이에요. 기압이 낮으면 끓는점이 내려가요. 녹는점·끓는점 '바로 그 온도'에서는 열을 주어도 온도가 오르지 않고 상이 바뀌는 데 쓰여요(잠열).<br>
-· 기화열을 온도와 무관하게 두고 증기압을 추정했어요. 넓은 온도 범위에서는 오차가 커지고, 실제 입자 운동은 그림보다 훨씬 빠르고 무작위예요.</div>
+· 25 ℃ 와 끓는점 사이의 평균 기화열을 온도와 무관하게 두고 증기압을 추정했어요. 넓은 온도 범위에서는 오차가 커지고, 실제 입자 운동은 그림보다 훨씬 빠르고 무작위예요.</div>
 
 <h3>🌍 생활 속에서</h3>
 <ul>
@@ -444,7 +444,7 @@ var SUB = [
   {name:'메테인 CH₄', M:16.04, bp:-161.5, mp:-182.5, hv:8.19, vp:null, mu:0, kind:'분산력만', note:'무극성, 가장 가벼움'},
   {name:'다이에틸 에터', M:74.12, bp:34.6, mp:-116.3, hv:26.5, vp:71.7, mu:1.15, kind:'분산력 + 약한 쌍극자', note:'극성이지만 수소 결합 없음'},
   {name:'에탄올 C₂H₅OH', M:46.07, bp:78.4, mp:-114.1, hv:38.6, vp:7.87, mu:1.69, kind:'수소 결합', note:'−OH가 있어 수소 결합'},
-  {name:'물 H₂O', M:18.02, bp:100.0, mp:0.0, hv:40.7, vp:3.17, mu:1.85, kind:'강한 수소 결합', note:'분자당 수소 결합이 가장 많음'},
+  {name:'물 H₂O', M:18.02, bp:100.0, mp:0.0, hv:40.7, vp:3.17, hs:51.1, mu:1.85, kind:'강한 수소 결합', note:'분자당 수소 결합이 가장 많음'},
   {name:'헥세인 C₆H₁₄', M:86.18, bp:68.7, mp:-95.3, hv:31.6, vp:20.2, mu:0, kind:'분산력만', note:'무극성이지만 분자가 큼'},
   {name:'염화 나트륨 NaCl', M:58.44, bp:1465, mp:801, hv:171, vp:null, mu:null, kind:'이온 결합', note:'분자가 아니라 이온 결정'}
 ];
@@ -456,11 +456,17 @@ function state(S, T){
   return T < S.mp ? '고체' : T < S.bp ? '액체' : '기체';
 }
 function baseState(st){ return st.indexOf('고체') === 0 ? '고체' : st.indexOf('액체') === 0 ? '액체' : '기체'; }
-// 클라우지우스-클라페이롱으로 온도별 증기압 추정 (25 ℃ 값 기준)
+// 클라우지우스-클라페이롱으로 온도별 증기압 추정: 25 ℃ 증기압과 끓는점(101.3 kPa) 두 실측점을 잇는 곡선.
+// 녹는점 아래(고체)는 녹는점 값에서 승화열(얼음 실측 51.1 kJ/mol)로 이어 계산
 function vpAt(S, T){
   if (S.vp == null) return null;
-  var R = 8.314, T1 = 298.15, T2 = T + 273.15;
-  return S.vp * Math.exp(-S.hv * 1000 / R * (1 / T2 - 1 / T1));
+  var R = 8.314, T1 = 298.15, Tb = S.bp + 273.15, T2 = T + 273.15;
+  var h = R * Math.log(101.325 / S.vp) / (1 / T1 - 1 / Tb);
+  if (S.hs && T < S.mp) {
+    var Tm = S.mp + 273.15, pm = S.vp * Math.exp(-h / R * (1 / Tm - 1 / T1));
+    return pm * Math.exp(-S.hs * 1000 / R * (1 / T2 - 1 / Tm));
+  }
+  return S.vp * Math.exp(-h / R * (1 / T2 - 1 / T1));
 }
 return {
   sceneHeight: 460,
@@ -469,11 +475,11 @@ return {
   params: [
     {key:'s', type:'seg', label:'물질', cols:3, value:3, options:SUB.map(function(x){ return x.name; })},
     {key:'t', type:'seg', label:'온도', cols:5, value:2, options:TEMPS.map(function(v){ return v + ' ℃'; }),
-      note:'끓는점, 녹는점, 기화열, 증기압은 실측값입니다. 다른 온도의 증기압은 클라우지우스-클라페이롱 식으로 계산했습니다.'}
+      note:'끓는점, 녹는점, 기화열, 증기압은 실측값입니다. 다른 온도의 증기압은 25 ℃ 증기압과 끓는점(101.3 kPa)을 잇는 클라우지우스-클라페이롱 식으로 계산했습니다.'}
   ],
   compute: function(p){
     var S = SUB[p.s], T = TEMPS[p.t], st = state(S, T), vp = vpAt(S, T);
-    return {S:S, T:T, st:st, vp:vp && vp < 500 ? Math.round(vp * 100) / 100 : vp ? Math.round(vp) : null};
+    return {S:S, T:T, st:st, vp:vp && vp < 0.1 ? Math.round(vp * 1e4) / 1e4 : vp && vp < 500 ? Math.round(vp * 100) / 100 : vp ? Math.round(vp) : null};
   },
   draw: function(c, W, H, p, r, tau){
     var S = SUB[p.s], T = TEMPS[p.t], stFull = r ? r.st : state(S, T), st = baseState(stFull), k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -514,18 +520,18 @@ return {
     var yb = 300;
     if (!r) return;
     txt(c, '기화열 ' + f(S.hv, 1) + ' kJ/mol', 12, yb, {});
-    txt(c, r.vp != null ? (r.T > r.S.bp ? '포화 증기압(끓는점 위 외삽, 1 atm에서는 기체) ' : '이 온도에서 증기압 ') + (r.vp < 500 ? f(r.vp, 2) : Math.round(r.vp).toLocaleString()) + ' kPa' : '증기압 자료 없음 (이 조건에서는 다루지 않음)', 12, yb + 30, {bold:true});
+    txt(c, r.vp != null ? (r.T > r.S.bp ? '포화 증기압(끓는점 위 외삽, 1 atm에서는 기체) ' : '이 온도에서 증기압 ') + (r.vp < 500 ? f(r.vp, r.vp < 0.1 ? 4 : 2) : Math.round(r.vp).toLocaleString()) + ' kPa' : '증기압 자료 없음 (이 조건에서는 다루지 않음)', 12, yb + 30, {bold:true});
     if (r.vp != null) txt(c, '증기압이 대기압(101.3 kPa)과 같아지는 온도가 끓는점입니다', 12, yb + 60, {color:'#4A5868'});
   },
   stats: function(p, r){
     var S = r.S;
     return [['물질', S.name + ' (몰질량 ' + f(S.M, 2) + ' g/mol)'], ['분자 사이 힘', S.kind], ['녹는점 · 끓는점', f(S.mp, 1) + ' ℃ · ' + f(S.bp, 1) + ' ℃'],
       ['이 온도에서의 상태', r.T + ' ℃ → ' + r.st, PAL[0]], ['기화열', f(S.hv, 1) + ' kJ/mol', PAL[4]],
-      [r.T > S.bp ? '포화 증기압 (끓는점 위 외삽)' : '이 온도의 증기압', r.vp != null ? (r.vp < 500 ? f(r.vp, 2) : Math.round(r.vp).toLocaleString()) + ' kPa' : '−']];
+      [r.T > S.bp ? '포화 증기압 (끓는점 위 외삽)' : '이 온도의 증기압', r.vp != null ? (r.vp < 500 ? f(r.vp, r.vp < 0.1 ? 4 : 2) : Math.round(r.vp).toLocaleString()) + ' kPa' : '−']];
   },
   columns: ['물질', '몰질량 (g/mol)', '분자 사이 힘', '녹는점 (℃)', '끓는점 (℃)', '기화열 (kJ/mol)', '온도 (℃)', '상태', '증기압 (kPa)'],
   record: function(p, r){ return {s:p.s, name:r.S.name, M:r.S.M, kind:r.S.kind, mp:r.S.mp, bp:r.S.bp, hv:r.S.hv, T:r.T, st:r.st, vp:r.vp}; },
-  row: function(d){ return [d.name, f(d.M, 2), d.kind, f(d.mp, 1), f(d.bp, 1), f(d.hv, 1), d.T, d.st, d.vp != null ? (d.vp < 500 ? f(d.vp, 2) : Math.round(d.vp).toLocaleString()) : '−']; },
+  row: function(d){ return [d.name, f(d.M, 2), d.kind, f(d.mp, 1), f(d.bp, 1), f(d.hv, 1), d.T, d.st, d.vp != null ? (d.vp < 500 ? f(d.vp, d.vp < 0.1 ? 4 : 2) : Math.round(d.vp).toLocaleString()) : '−']; },
   verify: function(rec, box){
     var seen = {}, list = [];
     rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; list.push(d); });

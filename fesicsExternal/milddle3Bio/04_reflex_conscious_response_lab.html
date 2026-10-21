@@ -264,7 +264,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
               <div class="control-label">자극의 종류</div>
               <div class="btn-row" id="modeRow">
                 <button class="btn-choice active" data-m="see">눈으로 보고 반응</button>
-                <button class="btn-choice" data-m="hear">색이 바뀌면 반응(더 빠름 확인용)</button>
+                <button class="btn-choice" data-m="hear">소리를 듣고 반응(삐 소리)</button>
               </div>
               <button class="btn-main" id="conBtn">시작 — 화면이 초록으로 바뀌면 누르세요 ▶</button>
               <div class="result-box" id="conResult">시작을 누르고, 초록색이 되는 순간 다시 누르세요. 실제 걸린 시간을 잽니다.</div>
@@ -553,13 +553,14 @@ document.querySelectorAll('#modeRow .btn-choice').forEach(function(b){
 
 function drawCon(){
   cctx.clearRect(0,0,440,360);
-  var bg = state==='go' ? '#3fb36a' : (state==='waiting' ? '#c1443c' : '#dfe7e5');
+  var hearGo = (mode==='hear' && state==='go');      /* 소리 자극일 때는 화면을 바꾸지 않는다 */
+  var bg = (state==='go' && !hearGo) ? '#3fb36a' : ((state==='waiting'||hearGo) ? '#c1443c' : '#dfe7e5');
   cctx.fillStyle=bg; cctx.fillRect(0,0,440,286);
   cctx.textAlign='center';
   cctx.fillStyle = state==='idle' ? '#4a636a' : '#ffffff';
   cctx.font="700 26px 'Noto Sans KR',sans-serif";
   if(state==='idle')      cctx.fillText('"시작"을 누르고 기다리세요', 220, 150);
-  else if(state==='waiting') cctx.fillText('아직… 초록이 될 때까지 기다리세요', 220, 150);
+  else if(state==='waiting'||hearGo) cctx.fillText(mode==='hear' ? '삐 소리가 나면 바로 누르세요' : '아직… 초록이 될 때까지 기다리세요', 220, 150);
   else if(state==='go')   cctx.fillText('지금! 버튼을 누르세요', 220, 150);
   else if(state==='early'){ cctx.fillStyle='#c1443c'; cctx.fillText('너무 일찍 눌렀어요', 220, 150); }
   else if(state==='done'){ cctx.fillStyle='#173238'; cctx.fillText('측정 완료', 220, 150); }
@@ -567,13 +568,26 @@ function drawCon(){
   cctx.fillStyle='#e9f1f0'; cctx.fillRect(0,286,440,74);
   cctx.fillStyle='#4a636a'; cctx.font="600 19px 'Noto Sans KR',sans-serif";
   var last=conRecords.length?conRecords[conRecords.length-1]:null;
-  cctx.fillText(last? ('지난 기록: '+last.ms+' ms') : '초록으로 바뀌는 순간을 노리세요', 220, 316);
+  cctx.fillText(last? ('지난 기록: '+last.ms+' ms') : (mode==='hear' ? '삐 소리가 나는 순간을 노리세요' : '초록으로 바뀌는 순간을 노리세요'), 220, 316);
   cctx.font="600 17px 'Noto Sans KR',sans-serif";
   cctx.fillText('사람의 평균 시각 반응 시간은 약 250ms', 220, 342);
   cctx.textAlign='left';
 }
 drawCon();
 
+var beepCtx=null;
+function beepPrep(){
+  try{ if(!beepCtx) beepCtx=new (window.AudioContext||window.webkitAudioContext)(); if(beepCtx.state==='suspended') beepCtx.resume(); }catch(e){}
+}
+function beep(){
+  if(!beepCtx) return;
+  try{
+    var o=beepCtx.createOscillator(), g=beepCtx.createGain(), t=beepCtx.currentTime;
+    o.type='sine'; o.frequency.value=880;
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.35,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
+    o.connect(g); g.connect(beepCtx.destination); o.start(t); o.stop(t+0.27);
+  }catch(e){}
+}
 var conBtn=document.getElementById('conBtn');
 conBtn.addEventListener('click', function(){
   focusCanvas(cCanvas);
@@ -581,8 +595,9 @@ conBtn.addEventListener('click', function(){
     state='waiting'; drawCon();
     conBtn.textContent='초록이 되면 누르세요!';
     if(timer) clearTimeout(timer);
+    if(mode==='hear') beepPrep();
     timer=setTimeout(function(){
-      state='go'; goTs=performance.now(); drawCon();
+      state='go'; goTs=performance.now(); if(mode==='hear') beep(); drawCon();
     }, 1200+Math.random()*2200);
     return;
   }
@@ -595,6 +610,12 @@ conBtn.addEventListener('click', function(){
   }
   if(state==='go'){
     var ms=Math.round(performance.now()-goTs);
+    if(ms<100){                                /* 사람이 100 ms 안에 반응할 수는 없다 — 미리 누른 것 */
+      state='early'; drawCon();
+      conBtn.textContent='시작 — 화면이 초록으로 바뀌면 누르세요 ▶';
+      notify('신호를 보기 전에 미리 누른 것 같아요(100 ms 미만). 다시 해보세요.');
+      return;
+    }
     state='done'; drawCon();
     conBtn.textContent='시작 — 화면이 초록으로 바뀌면 누르세요 ▶';
     conRecords.push({mode:mode, ms:ms});
@@ -611,7 +632,7 @@ function renderConTable(){
   var tb=document.getElementById('conBody');
   if(!conRecords.length){ tb.innerHTML='<tr><td colspan="3" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=conRecords.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td class="kr">'+(r.mode==='see'?'시각':'색 변화')+'</td><td>'+r.ms+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td class="kr">'+(r.mode==='see'?'시각':'소리')+'</td><td>'+r.ms+'</td></tr>';
   }).join('');
 }
 
