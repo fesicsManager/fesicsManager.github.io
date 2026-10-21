@@ -123,7 +123,7 @@ select{width:100%;font:inherit;font-size:14px;padding:6px;border:1px solid var(-
 </ul>
 
 <h3>🧮 이 실험의 계산 방법</h3>
-<p>2D 격자에서 <span class="fx-formula">V_ij ← ¼(V_i+1,j + V_i−1,j + V_i,j+1 + V_i,j−1)</span> 반복(도체 격자는 V 고정, 전하 격자는 포아송 항 추가); 유도 전하 = 표면 법선 미분 σ = −ε₀∂V/∂n 합산</p>
+<p>2D 격자에서 <span class="fx-formula">V_ij ← ¼(V_i+1,j + V_i−1,j + V_i,j+1 + V_i,j−1)</span> 반복(도체 격자는 V 고정, 전하 격자는 포아송 항 추가); 유도 전하 = 표면 법선 미분 σ = −ε₀∂V/∂n 합산(ε₀ = 1, q = 1 단위). 접지 도체 장면에서는 계산 상자 바깥 경계를 ∂V/∂n = 0 으로 두어 전기력선이 화면 밖으로 새지 않게 했어요 — 그래서 모든 전기력선이 도체에서 끝나 총합이 −q 가 됩니다.</p>
 
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
 · 2D 단면(무한히 긴 도체·선전하)이고 격자 해상도가 유한해요. 뾰족한 모서리의 전하 밀도는 이론상 발산하지만 격자에서는 유한값으로 나와요.<br>
@@ -229,7 +229,7 @@ function makeSolver(NX,NY,XMIN,XMAX,YMIN,YMAX){
   const iOf=x=>Math.round((x-XMIN)/hx), jOf=y=>Math.round((y-YMIN)/hy);
 
   function clearScene(){ fixed.fill(0); rho.fill(0); cond.fill(0); }
-  function sweep(n,condV){
+  function sweep(n,condV,neu){
     let maxd=0;
     for(let k=0;k<n;k++){
       for(let j=1;j<NY-1;j++)for(let i=1;i<NX-1;i++){
@@ -240,9 +240,15 @@ function makeSolver(NX,NY,XMIN,XMAX,YMIN,YMAX){
         if(d>maxd) maxd=d;
         V[p]=V[p]+1.85*(nv-V[p]);   // SOR
       }
+      if(neu){
+        // 바깥 경계로 전기력선이 빠져나가지 않게(∂V/∂n = 0) — 모든 전기력선이 도체에서 끝남
+        for(let i=0;i<NX;i++){V[idx(i,0)]=V[idx(i,1)];V[idx(i,NY-1)]=V[idx(i,NY-2)];}
+        for(let j=0;j<NY;j++){V[idx(0,j)]=V[idx(1,j)];V[idx(NX-1,j)]=V[idx(NX-2,j)];}
+      }else{
       // 바깥 경계는 0 (먼 곳에서 V→0)
       for(let i=0;i<NX;i++){V[idx(i,0)]=0;V[idx(i,NY-1)]=0;}
       for(let j=0;j<NY;j++){V[idx(0,j)]=0;V[idx(NX-1,j)]=0;}
+      }
     }
     return maxd;
   }
@@ -258,7 +264,7 @@ function makeSolver(NX,NY,XMIN,XMAX,YMIN,YMAX){
 const cv=document.getElementById('cv1'), ctx=cv.getContext('2d');
 const S=makeSolver(151,111,-4,4,-3,3);
 const sel=document.getElementById('scene1');
-let qx=0.0, qy=1.2, drag=false, condV=0, sweeps=0;
+let qx=0.0, qy=1.2, drag=false, condV=0, sweeps=0, qPrev=null, qStable=0;
 
 function build(){
   S.clearScene(); S.V.fill(0); sweeps=0; condV=0;
@@ -287,7 +293,7 @@ function step(){
     const q=inducedCharge();
     condV += -0.05*q;
   } else condV=0;
-  S.sweep(24,condV); sweeps+=24;
+  S.sweep(24,condV,sc!=='cylN'); sweeps+=24;
   render();
   requestAnimationFrame(step);
 }
@@ -404,12 +410,13 @@ function render(){
     const E=S.Eat(i,j); ein+=Math.hypot(E[0],E[1]); n++;
   }
   ein = n?ein/n:0;
-  const qi=inducedCharge()/(2*Math.PI);   // 2πε₀ 규격화
+  const qi=inducedCharge();                // ε₀ = 1, q = 1 단위라 합이 곧 유도전하
   document.getElementById('qpos').textContent=`(${qx.toFixed(2)}, ${qy.toFixed(2)})`;
   document.getElementById('ein').textContent=ein.toExponential(2);
   document.getElementById('qind').textContent=qi.toFixed(3);
   document.getElementById('smax').textContent = smaxPos?`(${smaxPos[0].toFixed(2)}, ${smaxPos[1].toFixed(2)})`:'—';
-  document.getElementById('conv1').textContent = sweeps<400?'계산 중…':'수렴';
+  if(qPrev!==null && Math.abs(qi-qPrev)<2e-4) qStable++; else qStable=0; qPrev=qi;   // 총합이 한동안 그대로면 수렴
+  document.getElementById('conv1').textContent = (sweeps<400||qStable<20)?'계산 중…':'수렴';
   const v=document.getElementById('v1');
   if(sel.value==='cylN'){
     v.className='verdict yes';
