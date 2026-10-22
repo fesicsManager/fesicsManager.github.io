@@ -78,6 +78,11 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,6 +157,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="a">a <b><span id="a_v">1</span></b></label><input type="range" id="a" min="-3" max="4" step="1" value="1"></div><div class="ctl"><label for="b">b <b><span id="b_v">2</span></b></label><input type="range" id="b" min="-6" max="6" step="1" value="2"></div><div class="ctl"><label for="c">c <b><span id="c_v">4</span></b></label><input type="range" id="c" min="-4" max="10" step="1" value="4"></div><div class="row"><button class="btn go" id="goBtn">🔁 모든 x에서 확인하기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
@@ -237,11 +243,15 @@ if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();})
 function st(){var a=v('a'),b=v('b'),c=v('c');
 var D=b*b-4*a*c,mn=1e9,mx=-1e9,at=0;
 for(var x=-6;x<=6;x+=0.01){var y=a*x*x+b*x+c;if(y<mn){mn=y;at=x;}if(y>mx)mx=y;}
-var always=(a>0&&D<0);
+var kind=a!==0?'quad':(b!==0?'lin':'const');
+/* a=0 이면 이차식이 아니므로 따로 판정: 상수식 y=c 는 c>0 이면 늘 양수, 일차식은 언젠가 0 이하 */
+var always=kind==='quad'?(a>0&&D<0):(kind==='const'&&c>0);
 var hasMin=(a>0);
 var vx=hasMin?(-b/(2*a)):at, vy=hasMin?(c-b*b/(4*a)):mn;
-return{a:a,b:b,c:c,D:D,mn:mn,mx:mx,at:at,always:always,degenerate:(a===0),
-hasMin:hasMin,vx:vx,vy:vy};}
+/* y ≤ 0 이 되는 정수 x (0에 가까운 것부터) — 이유 설명용 */
+var negX=null;if(!always){for(var k=0;k<=40&&negX===null;k++){if(a*k*k+b*k+c<=0)negX=k;else if(a*k*k-b*k+c<=0)negX=-k;}}
+return{a:a,b:b,c:c,D:D,mn:mn,mx:mx,at:at,always:always,degenerate:(a===0),kind:kind,
+hasMin:hasMin,vx:vx,vy:vy,negX:negX,negY:negX===null?null:a*negX*negX+b*negX+c};}
 function draw(){clr();var o=st();
 var pl=plot(-6,6,-8,16,44);axes(pl,'x','y');
 ctx.fillStyle='rgba(94,224,200,.10)';ctx.fillRect(pl.X(-6),pl.Y(16),pl.X(6)-pl.X(-6),pl.Y(0)-pl.Y(16));
@@ -252,30 +262,85 @@ if(py<-60||py>H+60){f1=true;continue;}
 if(f1){ctx.moveTo(pl.X(x),py);f1=false;}else ctx.lineTo(pl.X(x),py);}ctx.stroke();
 if(o.hasMin){dot(pl.X(o.vx),pl.Y(o.vy),7,o.vy>0?'#5ee0c8':'#ff7a8a');
 label('최솟값 '+nf(o.vy,2),pl.X(o.vx),pl.Y(o.vy)+22,o.vy>0?'#5ee0c8':'#ff7a8a',13);}
-else if(!o.degenerate){label('a < 0 — 위로 볼록이라 최솟값이 없습니다',W/2,H-118,'#ff7a8a',13);}
-label('y = '+o.a+'x² + '+o.b+'x + '+o.c+'  를 모든 x에서 확인',W/2,26,'#e9eefb',16);
+else if(o.kind==='quad'){label('a < 0 — 위로 볼록이라 최솟값이 없습니다',W/2,H-118,'#ff7a8a',13);}
+else if(o.kind==='lin'){label('a = 0 — 기울어진 직선이라 한쪽으로 끝없이 내려갑니다',W/2,H-118,'#ff7a8a',13);}
+else{label('a = b = 0 — y = '+o.c+' 인 평평한 직선(상수)',W/2,H-118,o.always?'#5ee0c8':'#ff7a8a',13);}
+label('y = '+polyStr([o.a,o.b,o.c])+'  를 모든 x에서 확인',W/2,26,'#e9eefb',16);
 label('초록 영역 = y > 0',W-30,H-104,'#5ee0c8',12,'right');
 panel(24,H-88,W-48,72);
-label('D = '+o.D+(o.D<0?'  (< 0)':'  (≥ 0)')+'     a = '+o.a+(o.a>0?'  (> 0)':'  (≤ 0)'),W/2,H-60,'#c8d5ef',15);
-label(o.degenerate?'a = 0 — 이차식이 아닙니다':(o.always?'✅ 모든 실수 x에서 y > 0':'❌ y ≤ 0 이 되는 x가 있습니다'),
+label(o.kind==='quad'?('D = '+o.D+(o.D<0?'  (< 0)':'  (≥ 0)')+'     a = '+o.a+(o.a>0?'  (> 0)':'  (< 0)'))
+:'a = 0 — 이차식이 아니라 D로는 판단할 수 없어요',W/2,H-60,'#c8d5ef',15);
+label(o.always?('✅ 모든 실수 x에서 y > 0'+(o.kind==='const'?' (상수식)':'')):'❌ y ≤ 0 이 되는 x가 있습니다',
 W/2,H-28,o.always?'#5ee0c8':'#ff7a8a',17);
-ro(kv('판별식 D',o.D)+' &nbsp;'+kv('최솟값',o.degenerate?'이차식 아님':(o.hasMin?nf(o.vy,3):'없음 (아래로 무한)'))+'<br>'+kv('모든 x에서 양수',o.always?'예':'아니오'));}
-function record(){var o=st();
-return{cells:[o.a,o.b,o.c,o.D,o.hasMin?nf(o.vy,2):'없음',o.always?'✅':'❌'],
-D:o.D,a:o.a,mn:o.hasMin?o.vy:null,always:o.always,
-match:(o.always===(o.hasMin&&o.vy>1e-9))};}
+ro(kv('판별식 D',o.kind==='quad'?o.D:'— (이차식 아님)')+' &nbsp;'+kv('최솟값',o.hasMin?nf(o.vy,3):(o.kind==='const'?o.c+' (상수)':'없음 (아래로 무한)'))+'<br>'+kv('모든 x에서 양수',o.always?'예':'아니오'));
+whyBox(o);}
+/* 왜 ✅/❌ 인지 지금 숫자로 풀어 주는 상자 */
+function jo(n,a,b){var s=String(n),d=s.charAt(s.length-1);return s+('013678'.indexOf(d)>=0?a:b);}
+function pn(n){return n<0?'('+n+')':String(n);}
+function whyBox(o){var el=$('why');if(!el)return;var h,
+negLine=o.negX===null?'':'· 예를 들어 x에 '+jo(o.negX,'을','를')+' 넣으면 y = <b>'+nf(o.negY,3)+'</b>, 0보다 크지 않아요.<br>';
+if(o.kind==='quad'&&o.a>0){
+var Dl='D = b² − 4ac = '+(o.b*o.b)+' − '+pn(4*o.a*o.c)+' = <b>'+o.D+'</b>';
+var ml='가장 낮은 값(최솟값) = −D ÷ 4a = '+nf(-o.D,3)+' ÷ '+(4*o.a)+' = <b>'+nf(o.vy,3)+'</b>';
+if(o.always){el.className='why same';
+h='✅ <b>모든 x에서 양수예요. 왜 그럴까요?</b><br>'
++'· a = '+o.a+' &gt; 0 이라 그래프가 <b>아래로 볼록</b>해서 가장 낮은 점(꼭짓점)이 있어요.<br>'
++'· '+Dl+' &lt; 0 이라 그래프가 x축과 <b>만나지 않아요</b>.<br>'
++'· '+ml+' &gt; 0 (x = '+nf(o.vx,3)+' 일 때)<br>'
++'가장 낮은 곳조차 0보다 위에 떠 있으니 어떤 x를 넣어도 양수예요. c를 줄여서 D가 0 이상이 되게 하면 ❌로 바뀌어요.';}
+else{el.className='why diff';
+h='🤔 <b>왜 모든 x에서 양수가 아닐까요?</b><br>'
++'· a = '+o.a+' &gt; 0 이라 아래로 볼록해서 가장 낮은 점이 있어요.<br>'
++'· '+Dl+(o.D===0?' 이라 그래프가 x축에 <b>딱 닿아요</b>.':' &gt; 0 이라 그래프가 x축 <b>아래로 내려가요</b>.')+'<br>'
++'· '+ml+(o.D===0?'':' &lt; 0')+' (x = '+nf(o.vx,3)+' 일 때)<br>'
++(o.D===0?'0은 양수가 아니라서, “&gt; 0”은 x = '+nf(o.vx,3)+' 에서 깨져요.':'가장 낮은 곳이 0보다 아래라서 그 근처 x에서는 y가 음수예요.')
++' c를 키워서 D를 음수로 만들면 ✅가 돼요.';}}
+else if(o.kind==='quad'){el.className='why diff';
+h='🤔 <b>왜 모든 x에서 양수가 아닐까요?</b><br>'
++'· a = '+o.a+' &lt; 0 이라 그래프가 <b>위로 볼록</b>해요. x를 크게(또는 작게) 할수록 ax² 항 때문에 y가 끝없이 내려가요.<br>'
++negLine
++(o.D<0?'· D = '+o.D+' &lt; 0 이지만, 이건 x축과 만나지 않는다는 뜻일 뿐이에요. 위로 볼록한 그래프가 x축 <b>아래에</b> 통째로 있어서 오히려 모든 x에서 음수예요.<br>':'')
++'a가 0보다 작으면 D가 얼마든 항상 양수가 될 수 없어요. a를 1 이상으로 올려 보세요.';}
+else if(o.kind==='lin'){el.className='why diff';
+h='🤔 <b>왜 모든 x에서 양수가 아닐까요?</b><br>'
++'· a = 0 이라 x² 항이 사라져 <b>y = '+polyStr([o.b,o.c])+'</b> 인 직선(일차식)이에요. 이차식이 아니라서 D로는 판단할 수 없어요.<br>'
++'· 기울기 b가 0이 아니라서 (b = '+o.b+') x를 '+(o.b>0?'왼쪽(음수 쪽)':'오른쪽')+'으로 보내면 y가 끝없이 내려가요.<br>'
++negLine
++'기울어진 직선은 언젠가 반드시 x축 아래로 내려가서 모든 x에서 양수일 수 없어요.';}
+else if(o.always){el.className='why same';
+h='✅ <b>모든 x에서 양수예요. 왜 그럴까요?</b><br>'
++'· a = 0, b = 0 이라 x가 들어간 항이 모두 사라지고 <b>y = '+o.c+'</b> (상수)만 남아요.<br>'
++'· 어떤 x를 넣어도 y는 늘 '+jo(o.c,'이에요','예요')+'. 0보다 커요.<br>'
++'이차식이 아니라서 “a &gt; 0, D &lt; 0” 조건으로는 따질 수 없지만, 그래프가 x축 위에 평평하게 떠 있어서 항상 양수예요. a를 0이 아닌 값으로 바꾸면 다시 이차식이 돼요.';}
+else{el.className='why diff';
+h='🤔 <b>왜 모든 x에서 양수가 아닐까요?</b><br>'
++'· a = 0, b = 0 이라 x가 들어간 항이 모두 사라지고 <b>y = '+o.c+'</b> (상수)만 남아요.<br>'
++'· 어떤 x를 넣어도 y는 늘 '+jo(o.c,'이라','라')+' 0보다 크지 않아요.<br>'
++'c를 1 이상으로 올리면 모든 x에서 양수가 돼요.';}
+el.innerHTML=h;}
+function record(){var o=st(),why;
+if(o.kind==='quad'&&o.a>0)why=o.always?'최솟값 '+nf(o.vy,2)+' &gt; 0':(o.D===0?'D=0 → 최솟값 0':'최솟값 '+nf(o.vy,2)+' &lt; 0');
+else if(o.kind==='quad')why='a&lt;0: 아래로 끝없이';
+else if(o.kind==='lin')why='일차식: x='+o.negX+'에서 y='+nf(o.negY,2);
+else why='y='+o.c+' 상수';
+return{cells:[o.a,o.b,o.c,o.kind==='quad'?o.D:'—',o.hasMin?nf(o.vy,2):(o.kind==='const'?o.c+' (상수)':'없음'),(o.always?'✅ 성립':'❌ 아님')+'<small>'+why+'</small>'],
+D:o.kind==='quad'?o.D:null,a:o.a,kind:o.kind,mn:o.hasMin?o.vy:(o.kind==='const'?o.c:null),always:o.always,
+match:(o.always===(o.hasMin?o.vy>1e-9:(o.kind==='const'&&o.c>0)))};}
 function analyze(){var m=rows.every(function(r){return r.match;});
 var al=rows.filter(function(r){return r.always;});
+var cs=rows.filter(function(r){return r.kind==='const';}),ln=rows.filter(function(r){return r.kind==='lin';});
 var t='<table><thead><tr><th>a</th><th>D</th><th>최솟값</th><th>항상 양수</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>'+r.a+'</td><td>'+r.D+'</td><td>'+(r.mn===null?'없음':nf(r.mn,2))+'</td><td class="'+(r.always?'ok':'no')+'">'+(r.always?'○':'×')+'</td></tr>';});
+rows.forEach(function(r){t+='<tr><td>'+r.a+'</td><td>'+(r.D===null?'—':r.D)+'</td><td>'+(r.mn===null?'없음':nf(r.mn,2))+'</td><td class="'+(r.always?'ok':'no')+'">'+(r.always?'○':'×')+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 예측과 실제</h4>'+t+'<p class="note">'+
 (m?'<span class="ok">판별식으로 한 예측이 실제 최솟값과 모두 일치</span>했습니다.':'')+
-' a &gt; 0 이고 D &lt; 0 일 때만 최솟값이 0보다 컸습니다.</p></div>'+
+' 이차식(a ≠ 0)에서는 a &gt; 0 이고 D &lt; 0 일 때만 최솟값이 0보다 컸습니다.'+
+(cs.length?' a = b = 0 이면 y = c 인 상수라서, c &gt; 0 일 때는 이차식이 아니어도 항상 양수였어요.':'')+
+(ln.length?' a = 0, b ≠ 0 인 일차식은 언젠가 0 아래로 내려가서 항상 ×였어요.':'')+'</p></div>'+
 '<div class="card"><h4>2. 같은 D &lt; 0, 다른 결론</h4>'+
 '<p class="big">항상 양수였던 기록 <span class="ok">'+al.length+'개</span></p>'+
-'<p class="note">ax²+bx+c &gt; 0 이 <b>항상 성립</b> ⟺ a &gt; 0, D &lt; 0<br>ax²+bx+c &lt; 0 이 <b>해가 없다</b> ⟺ 같은 조건</p>'+
+'<p class="note">이차식(a ≠ 0)일 때<br>ax²+bx+c &gt; 0 이 <b>항상 성립</b> ⟺ a &gt; 0, D &lt; 0<br>ax²+bx+c &lt; 0 이 <b>해가 없다</b> ⟺ a &gt; 0, D ≤ 0</p>'+
 '<p class="note">D &lt; 0을 “해가 없다”로만 외우면 절반만 아는 것입니다. 그래프가 x축 <b>어느 쪽에</b> 떠 있는지를 a가 정합니다.</p></div></div>';}
 
 

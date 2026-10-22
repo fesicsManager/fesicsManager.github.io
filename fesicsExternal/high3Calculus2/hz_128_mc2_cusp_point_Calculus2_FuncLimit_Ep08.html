@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .mul{color:var(--ac);font-weight:700;letter-spacing:.02em}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,10 +158,11 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="h">0 에서 떨어진 거리 (×0.005) <b><span id="h_v">20.000</span></b></label><input type="range" id="h" min="1" max="60" step="1" value="20" data-fmt="3"></div><div class="pick"><span>함수</span><br><label><input type="radio" name="fn" value="abs" checked>|x| (꺾임)</label><label><input type="radio" name="fn" value="cbrt">x^(2/3) (첨점)</label><label><input type="radio" name="fn" value="sq">x² (매끄러움)</label></div><div class="row"><button class="btn go" id="goBtn">🔎 좌우 기울기 재기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>함수</th><th>좌미분계수</th><th>우미분계수</th><th>연속</th><th>미분가능</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>함수</th><th>h</th><th>h 에서 왼쪽 기울기</th><th>h 에서 오른쪽 기울기</th><th>연속</th><th>미분가능</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -238,16 +245,25 @@ function st(){var h=v('h')*0.005,k=rv('fn');
 var f=(k==='abs')?function(x){return Math.abs(x);}:
 (k==='cbrt')?function(x){return Math.pow(Math.abs(x),2/3);}:
 function(x){return x*x;};
+/* 화면에 보이는 값: 0 에서 h 만큼 떨어진 점과 원점을 이은 직선의 기울기 */
 var lslope=(f(0)-f(-h))/h;
 var rslope=(f(h)-f(0))/h;
 var ce=1e-9,f0=f(0),lV=f(-ce),rV=f(ce);
 var cont=(isFinite(f0)&&Math.abs(lV-f0)<1e-4&&Math.abs(rV-f0)<1e-4);
-var eh=1e-6;
-var lLim=(f(0)-f(-eh))/eh, rLim=(f(eh)-f(0))/eh;
-var diff=(Math.abs(lLim-rLim)<1e-3);
-return{h:h,k:k,f:f,l:lslope,r:rslope,cont:cont,diff:diff};}
+/* 판정: h→0 일 때 다가가는 값(진짜 좌·우미분계수)
+   |x| : 왼쪽은 늘 −1, 오른쪽은 늘 +1
+   x^(2/3) : 왼쪽 −1/∛h → −∞, 오른쪽 1/∛h → +∞ (미분계수 없음)
+   x² : 왼쪽 −h → 0, 오른쪽 h → 0 */
+var dl=(k==='abs')?-1:((k==='cbrt')?-Infinity:0);
+var dr=(k==='abs')?1:((k==='cbrt')?Infinity:0);
+var diff=(isFinite(dl)&&isFinite(dr)&&dl===dr);
+return{h:h,k:k,f:f,l:lslope,r:rslope,dl:dl,dr:dr,cont:cont,diff:diff};}
+function jos(t,a,b){t=String(t);var d=t.replace(/[^0-9]+$/,'');var c=d.charAt(d.length-1);return t+('013678'.indexOf(c)>=0?a:b);}
+function fname(k){return k==='abs'?'|x|':(k==='cbrt'?'x^(2/3)':'x²');}
+function dstr(d){return d===Infinity?'+∞':(d===-Infinity?'−∞':(d<0?'−'+nf(-d,4):nf(d,4)));}
+function sstr(n){return n<0?'−'+nf(-n,4):nf(n,4);}
 function draw(){clr();var o=st();
-var pl=plot(-1.2,1.2,-0.3,1.4,46);axes(pl,'x','y');
+var pl=plot(-1.2,1.2,-1.5,1.4,46);axes(pl,'x','y');
 ctx.strokeStyle='#7aa2ff';ctx.lineWidth=3.2;ctx.beginPath();
 for(var x=-1.2;x<=1.2;x+=0.005){var py=pl.Y(o.f(x));if(py<-30||py>H+30)continue;
 if(x===-1.2)ctx.moveTo(pl.X(x),py);else ctx.lineTo(pl.X(x),py);}
@@ -258,36 +274,64 @@ var x=e[0],m=Math.max(-40,Math.min(40,e[1]));
 seg([pl.X(x-0.3),pl.Y(o.f(x)-m*0.3)],[pl.X(x+0.3),pl.Y(o.f(x)+m*0.3)],e[2],2.4);
 dot(pl.X(x),pl.Y(o.f(x)),6,e[2]);});
 dot(pl.X(0),pl.Y(o.f(0)),7,'#ff7a8a');
-label('y = '+(o.k==='abs'?'|x|':(o.k==='cbrt'?'x^(2/3)':'x²')),W/2,26,'#e9eefb',17);
-panel(24,H-118,W-48,102);
-label('왼쪽 기울기 '+nf(o.l,4)+'      오른쪽 기울기 '+nf(o.r,4),W/2,H-90,'#c8d5ef',15);
-label('연속 : '+(o.cont?'✅ 이어져 있습니다':'❌'),W/2,H-58,o.cont?'#5ee0c8':'#ff7a8a',16);
-label('미분가능 : '+(o.diff?'✅ 두 기울기가 같습니다':'❌ 두 기울기가 다릅니다'),
-W/2,H-26,o.diff?'#5ee0c8':'#ff7a8a',16);
-ro(kv('좌미분계수',nf(o.l,4))+' &nbsp;'+kv('우미분계수',nf(o.r,4))+'<br>'+
-kv('연속',o.cont?'○':'×')+' &nbsp;'+kv('미분가능',o.diff?'○':'×'));}
+label('y = '+fname(o.k),W/2,26,'#e9eefb',17);
+panel(24,H-150,W-48,134);
+label('h = '+nf(o.h,3)+' 만큼 떨어진 곳의 기울기',W/2,H-130,'#9db0d4',13);
+label('왼쪽 '+sstr(o.l)+'      오른쪽 '+sstr(o.r),W/2,H-106,'#c8d5ef',15);
+label('h → 0 이면 :  좌미분계수 '+dstr(o.dl)+'   우미분계수 '+dstr(o.dr),W/2,H-80,'#ffb86b',14);
+label('연속 : '+(o.cont?'✅ 이어져 있습니다':'❌'),W/2,H-54,o.cont?'#5ee0c8':'#ff7a8a',16);
+label('미분가능 : '+(o.diff?'✅ 좌·우미분계수가 같습니다':(isFinite(o.dl)?'❌ 좌·우미분계수가 다릅니다':'❌ 미분계수가 무한대로 커집니다')),
+W/2,H-28,o.diff?'#5ee0c8':'#ff7a8a',16);
+ro(kv('h 만큼 떨어진 곳의 기울기','왼쪽 '+sstr(o.l)+' / 오른쪽 '+sstr(o.r))+'<br>'+
+kv('h→0 일 때 (좌·우미분계수)',dstr(o.dl)+' / '+dstr(o.dr))+'<br>'+
+kv('연속',o.cont?'○':'×')+' &nbsp;'+kv('미분가능',o.diff?'○':'×'));
+whyBox(o);}
+/* 왜 미분가능한지·아닌지 지금 숫자로 풀어 주는 상자 */
+function whyBox(o){var el=$('why');if(!el)return;var h=nf(o.h,3),t;
+if(o.k==='abs'){el.className='why diff';
+t='🤔 <b>이어져 있는데 왜 미분할 수 없을까요?</b><br>'
++'· 왼쪽 점 (−'+h+', '+jos(h+')','과','와')+' 원점을 이으면 기울기는 (0 − '+h+') ÷ '+h+' = <b>−1</b>이에요.<br>'
++'· 오른쪽 점 ('+h+', '+jos(h+')','과','와')+' 이으면 ('+h+' − 0) ÷ '+h+' = <b>+1</b>이에요.<br>'
++'· h를 아무리 줄여도 왼쪽은 −1, 오른쪽은 +1에서 꿈쩍하지 않아요. 좌미분계수와 우미분계수가 끝까지 달라요.<br>'
++'그래서 x = 0에서 그래프가 <b>뾰족하게 꺾여</b> 접선 하나를 정할 수 없어요. 끊어진 곳은 없으니 연속이긴 해요.';}
+else if(o.k==='cbrt'){el.className='why diff';
+var a=Math.pow(o.h,2/3),s=Math.pow(o.h,-1/3),s1=Math.pow(0.005,-1/3);
+t='🤔 <b>이어져 있는데 왜 미분할 수 없을까요?</b><br>'
++'· 오른쪽 점에서 기울기는 h^(2/3) ÷ h = 1 ÷ ∛h 라서, 지금 h = '+h+'일 때 '+nf(a,4)+' ÷ '+h+' ≈ <b>'+jos(nf(s,3),'</b>이에요','</b>예요')+'. 왼쪽은 부호만 바뀐 <b>−'+jos(nf(s,3),'</b>이에요','</b>예요')+'.<br>'
++'· h를 가장 작게(0.005) 줄이면 '+nf(s1,3)+'까지 커지고, h가 0에 가까워질수록 <b>끝없이</b> 커져요.<br>'
++'· 다가가는 값이 없으니 좌·우미분계수가 존재하지 않아요(−∞, +∞).<br>'
++'그래서 x = 0은 양쪽이 세로로 치솟는 <b>첨점</b>이고, 연속이지만 미분할 수 없어요. h 슬라이더를 줄여 기울기가 커지는 걸 확인해 보세요.';}
+else{el.className='why same';
+t='✅ <b>미분가능해요. 그런데 왜 화면의 두 기울기는 다를까요?</b><br>'
++'· 왼쪽은 (0 − '+h+'²) ÷ '+h+' = −h = <b>−'+h+'</b>, 오른쪽은 ('+h+'² − 0) ÷ '+h+' = h = <b>+'+jos(h,'</b>이에요','</b>예요')+'. 화면의 숫자는 h만큼 <b>떨어진 곳</b>에서 잰 값이라 아직 달라요.<br>'
++'· h를 0에 가깝게 줄이면 −h와 +h가 둘 다 <b>0</b>으로 다가가요. 이 다가가는 값이 진짜 좌·우미분계수예요.<br>'
++'그래서 좌미분계수 = 우미분계수 = 0이라 미분가능해요. h 슬라이더를 1로 줄여 두 기울기가 0에 붙는 걸 보세요.';}
+el.innerHTML=t;}
 function record(){var o=st();
-return{cells:[o.k==='abs'?'|x|':(o.k==='cbrt'?'x^(2/3)':'x²'),nf(o.l,4),nf(o.r,4),
-o.cont?'✅':'❌',o.diff?'✅':'❌'],
-k:o.k,l:o.l,r:o.r,cont:o.cont,diff:o.diff,
+var why=(o.k==='abs')?'−1 ≠ +1':((o.k==='cbrt')?'−∞, +∞ 로 커짐':'둘 다 0 으로');
+return{cells:[fname(o.k),nf(o.h,3),sstr(o.l),sstr(o.r),
+'✅ 이어짐<small>f(0) = 0</small>',(o.diff?'✅ 가능':'❌ 불가능')+'<small>h→0: '+why+'</small>'],
+k:o.k,h:o.h,l:o.l,r:o.r,dl:o.dl,dr:o.dr,cont:o.cont,diff:o.diff,
 gap:(o.cont&&!o.diff)};}
 function analyze(){var seen={};rows.forEach(function(r){seen[r.k]=r;});
 var gap=rows.filter(function(r){return r.gap;}).length;
-var t='<table><thead><tr><th>함수</th><th>좌</th><th>우</th><th>연속</th><th>미분가능</th></tr></thead><tbody>';
+var t='<table><thead><tr><th>함수</th><th>h 에서 왼쪽</th><th>h 에서 오른쪽</th><th>h→0 (좌 / 우)</th><th>연속</th><th>미분가능</th></tr></thead><tbody>';
 [['abs','|x|'],['cbrt','x^(2/3)'],['sq','x²']].forEach(function(e){
 var r=seen[e[0]];
-if(r)t+='<tr><td>'+e[1]+'</td><td>'+nf(r.l,3)+'</td><td>'+nf(r.r,3)+'</td>'+
+if(r)t+='<tr><td>'+e[1]+'</td><td>'+sstr(r.l)+'</td><td>'+sstr(r.r)+'</td><td>'+dstr(r.dl)+' / '+dstr(r.dr)+'</td>'+
 '<td class="'+(r.cont?'ok':'no')+'">'+(r.cont?'○':'×')+'</td>'+
 '<td class="'+(r.diff?'ok':'no')+'">'+(r.diff?'○':'×')+'</td></tr>';
-else t+='<tr><td class="no">'+e[1]+'</td><td colspan="4">아직 기록 없음</td></tr>';});
+else t+='<tr><td class="no">'+e[1]+'</td><td colspan="5">아직 기록 없음</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 이어져 있는데 안 되는 경우</h4>'+t+
-'<p class="big">연속인데 미분 불가능이던 기록 <span class="no">'+gap+'개</span></p></div>'+
+'<p class="big">연속인데 미분 불가능이던 기록 <span class="no">'+gap+'개</span></p>'+
+'<p class="note">h 에서 잰 기울기는 h 를 바꾸면 달라질 수 있어요(x², x^(2/3)). 판정은 h → 0 일 때 다가가는 값(좌·우미분계수)으로 합니다.</p></div>'+
 '<div class="card"><h4>2. 세 가지 실패 유형</h4>'+
 '<p class="note"><b>꺾임(모서리)</b> — |x| : 좌우 기울기가 −1 과 +1 로 다름<br>'+
 '<b>첨점</b> — x^(2/3) : 양쪽 기울기가 무한대로 치솟음<br>'+
 '<b>수직접선</b> — 기울기가 정의되지 않음</p>'+
+'<p class="note">x² 는 h 에서 잰 두 기울기가 −h, +h 로 달라 보여도 h → 0 이면 둘 다 0 이 되어 미분가능합니다.</p>'+
 '<p class="note">세 경우 모두 <b>이어져는 있습니다</b>. 연속은 “끊기지 않음”, 미분가능은 “매끄러움” — 요구 조건이 더 강합니다.</p>'+
 '<p class="note">미분가능하면 반드시 연속이지만, 그 역은 성립하지 않습니다. 이 방향을 헷갈리지 마세요.</p></div></div>';}
 

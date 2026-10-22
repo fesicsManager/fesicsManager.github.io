@@ -78,6 +78,11 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,10 +157,11 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="n">(a+b)ⁿ 의 n <b><span id="n_v">4</span></b></label><input type="range" id="n" min="1" max="6" step="1" value="4"></div><div class="ctl"><label for="k">살펴볼 항 aᵏ <b><span id="k_v">2</span></b></label><input type="range" id="k" min="0" max="6" step="1" value="2"></div><div class="row"><button class="btn go" id="goBtn">🔨 괄호를 하나씩 펼치기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n</th><th>전개한 항의 수</th><th>aᵏbⁿ⁻ᵏ 의 개수</th><th>C(n, k)</th><th>계수가 1인가</th><th>같나</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n</th><th>k</th><th>전개한 항의 수 2ⁿ</th><th>aᵏbⁿ⁻ᵏ 의 개수 C(n, k)</th><th>계수가 1인가</th><th>계수의 합</th><th>계수 합 = 2ⁿ?</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -234,11 +240,13 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function st(){var n=v('n'),k=Math.min(v('k'),n);
+function st(){var n=v('n'),kr=v('k'),k=Math.min(kr,n);
 var total=Math.pow(2,n),c=nCr(n,k);
 var sum=0;for(var i=0;i<=n;i++)sum+=nCr(n,i);
-return{n:n,k:k,total:total,c:c,sum:sum,ok:(sum===total)};}
+return{n:n,k:k,clamped:(kr>n),total:total,c:c,sum:sum,ok:(sum===total)};}
 function draw(){clr();var o=st();
+/* k 는 n 보다 클 수 없으니 슬라이더 범위와 값도 n 에 맞춰 보이게 바꿈 */
+var ks=$('k');if(ks){ks.max=String(o.n);if(+ks.value!==o.k)ks.value=String(o.k);}if($('k_v'))$('k_v').textContent=o.k;
 label('(a + b)'+sup(o.n)+'  을 전개하면?',W/2,32,'#e9eefb',19);
 var Y0=62;
 var bw=Math.min(50,(W-80)/o.n);
@@ -268,9 +276,24 @@ label('a 를 '+o.k+'번 고르는 방법 = C('+o.n+', '+o.k+') = '+o.c,W/2,352,'
 label('→ a'+sup(o.k)+'b'+sup(o.n-o.k)+' 의 계수는 '+o.c+(o.c===1?'  (이 항만 1)':'  — 1 이 아닙니다'),
 W/2,386,o.c===1?'#9db0d4':'#5ee0c8',16);
 label('계수를 모두 더하면 '+o.sum+(o.ok?' = 2'+sup(o.n)+'  ✅':''),W/2,412,'#9db0d4',13);
-ro(kv('전체 선택',o.total)+' &nbsp;'+kv('C(n,k)',o.c)+'<br>'+kv('계수의 합',o.sum)+' &nbsp;'+kv('2ⁿ',o.total));}
+ro(kv('전체 선택',o.total)+' &nbsp;'+kv('C(n,k)',o.c)+'<br>'+kv('계수의 합',o.sum)+' &nbsp;'+kv('2ⁿ',o.total));
+whyBox(o);}
+/* 왜 늘 ✅ 인지 지금 숫자로 풀어 주는 상자 */
+function jo(n,a,b){var s=String(n),d=s.charAt(s.length-1);return s+('013678'.indexOf(d)>=0?a:b);}
+function jro(n){var s=String(n),d=s.charAt(s.length-1);return s+('036'.indexOf(d)>=0?'으로':'로');}
+function coefs(n){var a=[];for(var i=0;i<=n;i++)a.push(nCr(n,i));return a;}
+function whyBox(o){var el=$('why');if(!el)return;var cs=coefs(o.n),h='';
+el.className=o.ok?'why same':'why diff';
+if(o.clamped)h+='※ n = '+jo(o.n,'이라','라')+' a는 최대 '+o.n+'번까지만 고를 수 있어요. 그래서 k를 '+jro(o.n)+' 맞췄어요.<br>';
+h+='✅ <b>계수의 합이 2'+sup(o.n)+'과 같아요. 왜 그럴까요?</b><br>'
++'· 괄호 '+o.n+'개마다 a나 b 중 하나를 고르니, 전개한 항은 '+(o.n>1?Array(o.n+1).join('2×').slice(0,-1)+' = ':'')+'2'+sup(o.n)+' = <b>'+o.total+'개</b>예요.<br>'
++'· 이 항들을 a를 몇 번 골랐는지(0번~'+o.n+'번)로 묶으면 '+cs.join(' + ')+' = <b>'+o.sum+'</b>. 같은 항끼리 묶었을 뿐이라 합은 처음 개수 '+jo(o.total,'과','와')+' 같아요.<br>'
++'· 지금 고른 항 a'+sup(o.k)+'b'+sup(o.n-o.k)+': 괄호 '+o.n+'개 중 a를 고를 '+o.k+'개를 정하는 방법이 C('+o.n+', '+o.k+') = '+o.c+'가지라서 계수가 <b>'+jo(o.c,'</b>이에요','</b>예요')+'.'
++(o.c===1?' k가 0이나 n이면 고르는 방법이 하나뿐이라 계수가 1이에요. '+(o.n<2?'n을 2 이상으로 올리고 ':'')+'k를 가운데로 옮기면 1보다 커져요.':' 계수가 1이 아닌 건 같은 항이 여러 번 나와 합쳐졌기 때문이에요.')+'<br>'
++'“계수 합 = 2ⁿ?” 칸은 n, k를 어떻게 바꿔도 <b>언제나 ✅</b>예요. a = b = 1을 넣으면 (1+1)ⁿ = 2ⁿ이 되는 것과 같은 이유예요.';
+el.innerHTML=h;}
 function record(){var o=st();
-return{cells:[o.n,o.total,o.c,o.c,o.c===1?'○':'×',o.ok?'✅':'❌'],
+return{cells:[o.n,o.k,o.total,o.c,o.c===1?'○':'×',o.sum,(o.ok?'✅ 같음':'❌ 다름')+'<small>'+coefs(o.n).join('+')+'='+o.sum+'</small>'],
 n:o.n,k:o.k,total:o.total,c:o.c,sum:o.sum,ok:o.ok,one:(o.c===1)};}
 function analyze(){var allok=rows.every(function(r){return r.ok;});
 var notOne=rows.filter(function(r){return !r.one;}).length;

@@ -78,6 +78,13 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why.end{border-color:rgba(255,184,107,.55);background:rgba(255,184,107,.08)}
+.why b{color:#fff}
+.why .hl{color:var(--ac);font-weight:700}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -153,6 +160,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="c">f(x) = x³ − 3x + c 의 c <b><span id="c_v">1</span></b></label><input type="range" id="c" min="-4" max="4" step="1" value="1"></div><div class="ctl"><label for="p">구간 왼쪽 p <b><span id="p_v">0</span></b></label><input type="range" id="p" min="-3" max="2" step="1" value="0"></div><div class="ctl"><label for="q">구간 오른쪽 q <b><span id="q_v">2</span></b></label><input type="range" id="q" min="-2" max="3" step="1" value="2"></div><div class="row"><button class="btn go" id="goBtn">✂️ 구간을 반으로 좁혀가기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
@@ -226,49 +234,103 @@ if(f(lo)*f(hi)>0)return null;
 for(let i=0;i<n;i++){const m=(lo+hi)/2;
 if(f(lo)*f(m)<=0)hi=m;else lo=m;}
 return(lo+hi)/2;}
+/* 숫자 뒤 조사: 마지막 숫자로 고름 (0 영, 1 일, 3 삼, 6 육, 7 칠, 8 팔 → 받침 있음) */
+function jo(n,a,b){const s=String(n),d=+s.charAt(s.length-1);return s+([0,1,3,6,7,8].indexOf(d)>=0?a:b);}
+function num(x){return String(x).replace('-','−');}
+/* f(x)=x³−3x+c 의 실근 전부 (꼭짓점 x=±1 로 나눈 세 조각에서 찾기, x=±1 에서 0 이면 중근) */
+function roots(){const P=[[-4,-1],[-1,1],[1,4]],out=[];
+function add(x,dbl){for(let i=0;i<out.length;i++)if(Math.abs(out[i].x-x)<1e-9)return;out.push({x:x,dbl:dbl});}
+P.forEach(function(g){let lo=g[0],hi=g[1];
+if(f(lo)===0){add(lo,Math.abs(lo)===1);return;}
+if(f(hi)===0){add(hi,Math.abs(hi)===1);return;}
+if(f(lo)*f(hi)>0)return;
+for(let i=0;i<60;i++){const m=(lo+hi)/2;if(f(lo)*f(m)<=0)hi=m;else lo=m;}
+add((lo+hi)/2,false);});
+return out.sort(function(a,b){return a.x-b.x;});}
+/* 지금 설정을 한눈에: 부호 다름(opp) / 끝점이 근(end) / 부호 같음(same) */
+function info(){const p0=v('p'),q0=v('q'),s=seg(),fp=f(s[0]),fq=f(s[1]),pr=fp*fq;
+const kind=pr<0?'opp':(pr===0?'end':'same');
+const R=roots().filter(function(r){return r.x>=s[0]-1e-9&&r.x<=s[1]+1e-9;});
+let r=null;if(kind==='opp')r=bisect(40);else if(kind==='end')r=(fp===0?s[0]:s[1]);
+return{c:v('c'),p0:p0,q0:q0,eq:p0===q0,swap:p0>q0,s:s,fp:fp,fq:fq,pr:pr,kind:kind,R:R,r:r};}
+function rootList(R){return R.map(function(r){return 'x '+(Number.isInteger(r.x)?'= '+num(r.x):'≈ '+num(nf(r.x,3)))+(r.dbl?'(중근)':'');}).join(', ');}
+function whyBox(o){const el=$('why');if(!el)return;
+const a=o.s[0],b=o.s[1],FA='f('+num(a)+') = '+num(o.fp),FB='f('+num(b)+') = '+num(o.fq);
+let h='';
+if(o.eq)h+='<span class="hl">※ p와 q가 둘 다 '+jo(num(o.p0),'이라','라')+' 구간이 점 하나뿐이에요. 그래서 오른쪽 끝을 1 늘려 ['+num(a)+', '+num(b)+'] 구간으로 봤어요.</span><br>';
+else if(o.swap)h+='<span class="hl">※ p가 q보다 커서, 둘을 바꿔 ['+num(a)+', '+num(b)+'] 구간으로 봤어요.</span><br>';
+const inner=o.R.filter(function(r){return r.x>a+1e-9&&r.x<b-1e-9;});
+if(o.kind==='opp'){el.className='why same';
+h+='✅ <b>양 끝의 부호가 달라요. 그래서 근이 반드시 있어요.</b><br>'
++'· '+FA+', '+FB+' → 곱 = '+num(o.pr)+' &lt; 0 이에요. 한쪽은 x축 위, 한쪽은 아래예요.<br>'
++'· 이 곡선은 끊긴 곳 없이 이어져 있어서, 아래에서 위로 (또는 위에서 아래로) 가려면 <b>x축을 꼭 한 번은 지나야</b> 해요.<br>'
++'· 구간을 반씩 좁혀 찾은 근은 <b>x ≈ '+num(nf(o.r,4))+'</b>, 이 구간 안의 근은 모두 '+o.R.length+'개('+rootList(o.R)+')예요.'
++(o.R.length>1?' 정리는 “적어도 하나”만 약속해요.':'');}
+else if(o.kind==='end'){el.className='why end';
+const ex=[];if(o.fp===0)ex.push(num(a));if(o.fq===0)ex.push(num(b));
+h+='📍 <b>끝점이 바로 근이에요.</b><br>'
++'· '+FA+', '+FB+' → 곱 = 0 이에요. 0은 양수도 음수도 아니라서 “부호가 다르다/같다”를 따질 수 없어요.<br>'
++'· 대신 f 값이 0인 끝점 <b>x = '+ex.join(', x = ')+'</b> 자체가 근이에요. 그래서 사잇값 정리 없이도 근이 있다고 바로 말할 수 있고, ‘찾은 근’ 칸에도 이 끝점이 나와요.<br>'
++(inner.length?'· 구간 안쪽에도 근이 더 있어요: '+rootList(inner)+'.':'· 구간 안쪽에는 다른 근이 없어요.');}
+else{el.className='why diff';
+h+='🤔 <b>왜 근을 찾지 못했을까요?</b><br>'
++'· '+FA+', '+FB+' → 곱 = '+num(o.pr)+' &gt; 0 이라 양 끝이 x축의 <b>같은 쪽</b>에 있어요.<br>'
++'· 그러면 반으로 나눌 때 어느 쪽에 근이 있는지 정할 수 없어서, 구간 좁히기를 못 해요(‘찾은 근’ 칸이 —).<br>'
++(o.R.length?'· 그렇다고 근이 없는 건 아니에요. 실제로 이 구간 안에는 '+(o.R.length===1&&o.R[0].dbl?'<b>근 '+rootList(o.R)+'</b>이 있어요. 곡선이 x축에 닿기만 하고 돌아가서 양 끝이 같은 쪽에 남아요.':'<b>근이 '+o.R.length+'개('+rootList(o.R)+')</b> 있어요. x축을 지나 내려갔다가 다시 올라오면(또는 그 반대) 양 끝 부호가 같아져요.')+'<br>'
+:'· 이번에는 정말로 이 구간에 근이 없어요. 하지만 부호가 같다고 늘 근이 없는 건 아니에요.<br>')
++'· 부호가 같을 때 이 정리가 해 줄 수 있는 말은 <b>“알 수 없다”</b>뿐이에요. p나 q를 움직여 양 끝의 f 값 부호가 반대가 되게 해 보세요.';}
+el.innerHTML=h;}
 function draw(){clr();
-const s=seg(),pl=plot(-3.4,3.4,-8,8,44);axes(pl,'x','y');
+const o=info(),s=o.s,pl=plot(-3.4,3.4,-8,8,44);axes(pl,'x','y');
 ctx.fillStyle='rgba(122,162,255,.10)';
 ctx.fillRect(pl.X(s[0]),0,pl.X(s[1])-pl.X(s[0]),H);
 ctx.strokeStyle='#7aa2ff';ctx.lineWidth=3;ctx.beginPath();let st=true;
 for(let x=-3.4;x<=3.4;x+=0.01){const py=pl.Y(f(x));if(py<-40||py>H+40){st=true;continue;}
 if(st){ctx.moveTo(pl.X(x),py);st=false;}else ctx.lineTo(pl.X(x),py);}ctx.stroke();
-[[s[0],'p'],[s[1],'q']].forEach(function(e){const y=f(e[0]);
-dot(pl.X(e[0]),pl.Y(y),8,y>0?'#5ee0c8':'#ff7a8a');
-label(e[1]+' : '+nf(y,2),pl.X(e[0]),pl.Y(y)+(y>0?-20:22),y>0?'#5ee0c8':'#ff7a8a',14);});
-const opp=f(s[0])*f(s[1])<0;
+[[s[0],'p'],[s[1],'q']].forEach(function(e){const y=f(e[0]),col=y>0?'#5ee0c8':(y<0?'#ff7a8a':'#ffb86b');
+dot(pl.X(e[0]),pl.Y(y),8,col);
+label(e[1]+' : '+nf(y,2),pl.X(e[0]),pl.Y(y)+(y<0?22:-20),col,14);});
+const opp=o.kind==='opp';
 if(opp){let lo=s[0],hi=s[1];
 for(let i=0;i<steps;i++){const m=(lo+hi)/2;if(f(lo)*f(m)<=0)hi=m;else lo=m;}
 ctx.strokeStyle='#ffb86b';ctx.lineWidth=6;
 ctx.beginPath();ctx.moveTo(pl.X(lo),pl.Y(0));ctx.lineTo(pl.X(hi),pl.Y(0));ctx.stroke();
 const r=(lo+hi)/2;dot(pl.X(r),pl.Y(0),8,'#ffb86b');
 label('근 ≈ '+nf(r,4),pl.X(r),pl.Y(0)+24,'#ffb86b',14);}
+else if(o.kind==='end'){ctx.strokeStyle='#ffb86b';ctx.lineWidth=3;ctx.beginPath();ctx.arc(pl.X(o.r),pl.Y(0),13,0,7);ctx.stroke();
+label('끝점이 근',pl.X(o.r),pl.Y(0)+28,'#ffb86b',14);}
 label('f(x) = x³ − 3x '+(v('c')<0?'− '+(-v('c')):'+ '+v('c')),18,20,'#e9eefb',16,'left');
-label(opp?'양 끝의 부호가 다름 → 그 사이에 근이 반드시 있다':'양 끝의 부호가 같음 → 이 정리로는 알 수 없다',
+if(o.eq)label('p = q 라서 구간을 ['+o.s[0]+', '+o.s[1]+'] 로 봄',18,44,'#ffb86b',13,'left');
+else if(o.swap)label('p > q 라서 둘을 바꿔 ['+o.s[0]+', '+o.s[1]+'] 로 봄',18,44,'#ffb86b',13,'left');
+label(opp?'양 끝의 부호가 다름 → 그 사이에 근이 반드시 있다':(o.kind==='end'?'끝점의 값이 0 → 그 끝점이 바로 근이다':'양 끝의 부호가 같음 → 이 정리로는 알 수 없다'),
 W/2,H-16,opp?'#5ee0c8':'#ffb86b',15);
-const rr=bisect(30);
-$('readout').innerHTML='<span class="k">f(p)</span> <span class="v">'+nf(f(s[0]),3)+'</span> &nbsp;'+
-'<span class="k">f(q)</span> <span class="v">'+nf(f(s[1]),3)+'</span> &nbsp;'+
-'<span class="k">부호</span> <span class="v">'+(opp?'다름':'같음')+'</span><br>'+
-'<span class="k">찾은 근</span> <span class="v">'+(rr===null?'—':nf(rr,6))+'</span> &nbsp;'+
-'<span class="k">f(근)</span> <span class="v">'+(rr===null?'—':nf(f(rr),6))+'</span>';}
+const rr=o.kind==='opp'?bisect(30):o.r;
+$('readout').innerHTML='<span class="k">f(p)</span> <span class="v">'+nf(o.fp,3)+'</span> &nbsp;'+
+'<span class="k">f(q)</span> <span class="v">'+nf(o.fq,3)+'</span> &nbsp;'+
+'<span class="k">부호</span> <span class="v">'+(opp?'다름':(o.kind==='end'?'끝점이 0':'같음'))+'</span><br>'+
+'<span class="k">찾은 근</span> <span class="v">'+(rr===null?'—':nf(rr,6)+(o.kind==='end'?' (끝점)':''))+'</span> &nbsp;'+
+'<span class="k">f(근)</span> <span class="v">'+(rr===null?'—':nf(f(rr),6))+'</span>';
+whyBox(o);}
 $('goBtn').addEventListener('click',async function(){
 cv.scrollIntoView({behavior:'smooth',block:'center'});
 if(busy)return;lock(true);steps=0;draw();
 await anim(2300,function(t){const k=Math.round(t*14);if(k!==steps){steps=k;draw();}});
 steps=14;draw();lock(false);autoRec();});
-function record(){const s=seg(),opp=f(s[0])*f(s[1])<0,r=bisect(40);
-const anyRoot=(function(){for(let x=s[0];x<=s[1];x+=0.001){if(f(x)*f(x+0.001)<=0)return true;}return false;})();
-return{cells:[v('c'),'['+s[0]+', '+s[1]+']',nf(f(s[0]),3),nf(f(s[1]),3),opp?'✅':'❌',
-r===null?'—':nf(r,5),r===null?'—':nf(f(r),8)],
-opp:opp,r:r,fr:r===null?null:f(r),anyRoot:anyRoot};}
+function record(){const o=info(),s=o.s,opp=o.kind==='opp',r=o.r;
+const segCell='['+s[0]+', '+s[1]+']'+(o.eq?'<small>p = q라 1 늘림</small>':(o.swap?'<small>p·q 바꿔 봄</small>':''));
+const signCell=opp?'✅ 다름<small>곱 '+num(o.pr)+' &lt; 0</small>':
+(o.kind==='end'?'📍 끝점이 근<small>f('+num(o.fp===0?s[0]:s[1])+') = 0</small>':'❌ 같음<small>곱 '+num(o.pr)+' &gt; 0</small>');
+return{cells:[v('c'),segCell,nf(o.fp,3),nf(o.fq,3),signCell,
+r===null?'—':nf(r,5)+(o.kind==='end'?'<small>끝점</small>':''),r===null?'—':nf(f(r),8)],
+opp:opp,end:o.kind==='end',r:r,fr:r===null?null:f(r),anyRoot:o.R.length>0,nroot:o.R.length};}
 function analyze(){
 const op=rows.filter(function(r){return r.opp;});
 const bad=op.filter(function(r){return Math.abs(r.fr)>1e-6;}).length;
-const same=rows.filter(function(r){return !r.opp;});
+const ends=rows.filter(function(r){return r.end;});
+const same=rows.filter(function(r){return !r.opp&&!r.end;});
 const hidden=same.filter(function(r){return r.anyRoot;});
 let t='<table><thead><tr><th>구간 양 끝 부호</th><th>근을 찾았나</th><th>f(근)</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td class="'+(r.opp?'ok':'no')+'">'+(r.opp?'다름':'같음')+'</td>'+
+rows.forEach(function(r){t+='<tr><td class="'+(r.opp?'ok':(r.end?'':'no'))+'">'+(r.opp?'다름':(r.end?'끝점이 0':'같음'))+'</td>'+
 '<td>'+(r.r===null?'—':nf(r.r,4))+'</td><td class="'+(r.fr!==null&&Math.abs(r.fr)<1e-6?'ok':'')+'">'+
 (r.fr===null?'—':nf(r.fr,8))+'</td></tr>';});
 t+='</tbody></table>';
@@ -277,12 +339,13 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 (bad===0?'<span class="ok">부호가 달랐던 기록 '+op.length+'개에서 모두 근을 찾았습니다</span>(f(근)이 0에 가깝습니다). 다항함수는 끊긴 곳 없이 이어지므로, 음수에서 양수로 가려면 반드시 0을 지나야 합니다.':
 '<span class="no">'+bad+'개 예외</span>'):
 '양 끝 부호가 다른 구간을 기록해 보세요.')+'</p>'+
+(ends.length?'<p class="note">끝점의 f 값이 0이었던 기록 '+ends.length+'개는 부호를 따질 필요 없이 <b>그 끝점이 바로 근</b>이었습니다.</p>':'')+
 '<p class="note">구간을 절반씩 좁히는 방법(이분법)은 이 정리를 그대로 알고리즘으로 만든 것입니다. 반씩 줄이니 열 번이면 범위가 1000분의 1로 줄어듭니다.</p></div>'+
 '<div class="card"><h4>2. 거꾸로는 성립하지 않는다</h4>'+
 '<p class="'+(hidden.length?'big':'note')+'">'+(hidden.length?
 '부호가 같은데도 구간 안에 근이 있던 기록 '+hidden.length+'개':
 '부호가 같은 구간도 기록해 보세요 — 근이 없을 수도, 짝수 개 있을 수도 있습니다.')+'</p>'+
-'<p class="note">사잇값 정리는 “부호가 다르면 근이 있다”만 보장합니다. 부호가 같을 때는 근이 없을 수도, <b>짝수 개 있을 수도</b> 있습니다. 정리를 거꾸로 뒤집어 “부호가 같으면 근이 없다”고 쓰면 틀립니다.</p>'+
+'<p class="note">사잇값 정리는 “부호가 다르면 근이 있다”만 보장합니다. 부호가 같을 때는 근이 없을 수도, <b>짝수 개 있을 수도</b>(중근은 두 번으로 셉니다) 있습니다. 정리를 거꾸로 뒤집어 “부호가 같으면 근이 없다”고 쓰면 틀립니다.</p>'+
 '<p class="note">또 하나의 전제는 <b>연속</b>입니다. 중간에 끊긴 함수라면 부호가 달라도 0을 건너뛸 수 있습니다.</p></div></div>';}
 
 draw();sync();

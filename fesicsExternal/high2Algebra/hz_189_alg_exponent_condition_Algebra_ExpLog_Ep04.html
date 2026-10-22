@@ -78,6 +78,11 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -153,6 +158,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="a">밑 a <b><span id="a_v">2</span></b></label><input type="range" id="a" min="-8" max="8" step="1" value="4" data-fmt="1"></div><div class="ctl"><label for="m">지수 m <b><span id="m_v">2</span></b></label><input type="range" id="m" min="-4" max="8" step="1" value="4" data-fmt="1"></div><div class="ctl"><label for="n">지수 n <b><span id="n_v">1</span></b></label><input type="range" id="n" min="-4" max="8" step="1" value="2" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">⚠️ 밑을 바꿔 확인하기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
@@ -240,14 +246,18 @@ function pw(a,e){
  if(a===0)return (e>0)?0:NaN;
  if(Math.abs(e-Math.round(e))<1e-9)return Math.pow(a,Math.round(e));
  return NaN;}
+function isInt(x){return Math.abs(x-Math.round(x))<1e-9;}
 function st(){var a=v('a')/2,m=v('m')/2,n=v('n')/2;
 var inner=pw(a,m);
 var left=isNaN(inner)?NaN:pw(inner,n);
 var right=pw(a,m*n);
 var okL=!isNaN(left),okR=!isNaN(right);
-var same=(okL&&okR&&Math.abs(left-right)<1e-9);
-var cond=(a>0)?'a > 0 — 안전':((a===0)?'a = 0 — 음수 지수 불가':'a < 0 — 분수 지수에서 깨짐');
-return{a:a,m:m,n:n,inner:inner,left:left,right:right,okL:okL,okR:okR,same:same,cond:cond,
+/* 상대 오차로 비교: 값이 수백만이 넘어도 부동소수 끝자리 차이로 ❌ 가 나지 않게 */
+var same=(okL&&okR&&Math.abs(left-right)<=1e-9*Math.max(1,Math.abs(left),Math.abs(right)));
+var intMN=isInt(m)&&isInt(n);
+var cond=(a>0)?'a > 0 — 안전':((a===0)?(same?'a = 0 — 이번엔 같지만 안전하지 않음':'a = 0 — 0⁰·음수 지수 불가')
+:(same?(intMN?'a < 0 — 정수 지수라 괜찮음':'a < 0 — 이번엔 우연히 같음'):'a < 0 — 분수 지수에서 깨짐'));
+return{a:a,m:m,n:n,inner:inner,left:left,right:right,okL:okL,okR:okR,same:same,cond:cond,intMN:intMN,
 safe:(a>0)};}
 function draw(){clr();var o=st();
 $('a_v').textContent=nf(o.a,1);$('m_v').textContent=nf(o.m,1);$('n_v').textContent=nf(o.n,1);
@@ -264,14 +274,50 @@ label('오른쪽 — 지수를 먼저 곱한다',44,260,'#ffb86b',15,'left');
 label('a^('+nf(o.m,1)+'×'+nf(o.n,1)+') = a^'+nf(o.m*o.n,2)+' = '+(o.okR?nf(o.right,6):'정의되지 않음'),
 W/2,300,o.okR?'#ffb86b':'#ff7a8a',17);
 panel(24,340,W-48,80);
-label(o.same?'두 값이 같습니다 — 법칙이 성립':'두 값이 갈리거나 정의되지 않습니다 — 법칙이 깨짐',
+label(o.same?'두 값이 같습니다 — 법칙이 성립':((o.okL&&o.okR)?'두 값이 갈립니다 — 법칙이 깨짐':'값이 정의되지 않습니다 — 법칙을 쓸 수 없음'),
 W/2,370,o.same?'#5ee0c8':'#ff7a8a',17);
-label('밑의 조건 :  '+o.cond,W/2,402,o.safe?'#5ee0c8':'#ff7a8a',15);
+label('밑의 조건 :  '+o.cond,W/2,402,o.safe?'#5ee0c8':(o.same?'#ffb86b':'#ff7a8a'),15);
 ro(kv('(a^m)^n',o.okL?nf(o.left,5):'정의 안 됨')+' &nbsp;'+kv('a^(mn)',o.okR?nf(o.right,5):'정의 안 됨')+'<br>'+
-kv('같나',o.same?'○':'×')+' &nbsp;'+kv('밑',o.safe?'양수':'양수 아님'));}
-function record(){var o=st();
+kv('같나',o.same?'○':'×')+' &nbsp;'+kv('밑',o.safe?'양수':'양수 아님'));
+whyBox(o);}
+/* 왜 같은지·다른지 지금 숫자로 풀어 주는 상자 */
+function jo(n,a,b){var s=String(n),d=s.charAt(s.length-1);return s+('013678'.indexOf(d)>=0?a:b);}
+function jro(n){var s=String(n),d=s.charAt(s.length-1);return s+('036'.indexOf(d)>=0?'으로':'로');}
+function pz(n){return n<0?'('+n+')':String(n);}
+function whyBox(o){var el=$('why');if(!el)return;var h,A=nf(o.a,1),M=nf(o.m,1),N=nf(o.n,1),MN=nf(o.m*o.n,2),
+L=nf(o.left,6),R=nf(o.right,6),I=nf(o.inner,5);
+function lLine(){if(isNaN(o.inner))return '· 왼쪽: a^m = '+pz(A)+'^'+M+' 부터 '+(o.a<0?'<b>음수의 분수 제곱</b>(제곱근 꼴)이라 실수 값이 없어요.':'0의 '+(o.m<0?'음수':'0')+' 제곱이라 <b>정의되지 않아요</b>'+(o.m<0?'(1을 0으로 나누게 돼요)':'(0⁰)')+'.');
+if(!o.okL)return '· 왼쪽: a^m = '+I+' 까지는 되지만, '+(o.inner<0?'음수 '+I+'의 '+N+' 제곱은 분수 제곱이라 실수 값이 없어요.':'0의 '+(o.n<0?'음수':'0')+' 제곱이라 정의되지 않아요.');
+return '· 왼쪽: a^m = '+I+' → (a^m)^n = '+pz(I)+'^'+N+' = <b>'+L+'</b>';}
+function rLine(){if(!o.okR)return '· 오른쪽: a^(mn) = '+pz(A)+'^'+jo(MN,'은','는')+' '+(o.a<0?'음수 밑에 분수 지수라 실수 값이 없어요.':'0의 '+(o.m*o.n<0?'음수':'0')+' 제곱이라 정의되지 않아요.');
+return '· 오른쪽: 지수를 먼저 곱하면 '+M+' × '+N+' = '+MN+', a^'+MN+' = <b>'+R+'</b>';}
+if(o.a>0){el.className='why same';
+h='✅ <b>같네요. 왜 그럴까요?</b><br>'
++'· 밑 a = '+A+' &gt; 0 이라 지수가 분수든 음수든 a^m 이 언제나 <b>양수 하나</b>로 정해져요.<br>'
++'· (a^m)^n 은 지수 m을 n번 쌓는 셈이라, 지수가 m × n = '+M+' × '+N+' = <b>'+jo(MN,'</b>이','</b>가')+' 돼요.<br>'
++'· 그래서 두 값 모두 <b>'+R+'</b> — 같아요.<br>'
++'밑이 양수면 m, n을 어떻게 바꿔도 늘 ✅예요. 법칙이 깨지는 걸 보려면 a를 음수로, n을 0.5처럼 분수로 바꿔 보세요.';}
+else if(o.same&&o.a<0){el.className='why same';
+h='✅ <b>이번엔 같네요. 왜 그럴까요?</b><br>'+lLine()+'<br>'+rLine()+'<br>'
++(o.intMN?'· 지수 m, n이 모두 <b>정수</b>라서, 음수 밑이어도 a를 정해진 횟수만큼 곱하는 계산이에요. 곱하는 횟수가 m × n = '+jro(MN)+' 같으니 값도 같아요.<br>정수 지수는 음수 밑에서도 괜찮아요. n을 0.5처럼 분수로 바꾸면 깨지는 걸 볼 수 있어요.'
+:'· 먼저 m = '+M+' 제곱해서 '+jo(I,'이','가')+' 된 덕분에 분수 제곱도 계산됐고, 지수 m × n = '+MN+' 도 짝수라 오른쪽도 양수가 되어 <b>우연히</b> 같아요.<br>밑이 음수일 땐 이렇게 운 좋게 맞을 때만 같아요. m을 2, n을 0.5로 두면 바로 깨져요.');}
+else if(o.same){el.className='why same';
+h='✅ <b>이번엔 같네요. 왜 그럴까요?</b><br>'
++'· m, n이 모두 양수라 0을 양수 번 제곱하는 계산뿐이에요. 두 값 모두 0이에요.<br>'
++'하지만 m이나 n을 0 이하로 바꾸면 0⁰이나 1/0이 나와 정의되지 않아요. 그래서 밑 0은 안전하지 않아요.';}
+else{el.className='why diff';
+h='🤔 <b>왜 같지 않을까요?</b><br>'+lLine()+'<br>'+rLine()+'<br>';
+if(o.okL&&o.okR)h+='왼쪽은 먼저 짝수 번('+M+') 제곱하면서 <b>음수 부호가 사라져</b> 양수가 됐는데, 오른쪽은 지수 '+jo(MN,'이','가')+' 홀수라 음수가 그대로 남았어요. 그래서 값이 갈려요. 지수법칙은 <b>밑이 양수</b>일 때만 믿을 수 있어요.';
+else if(o.a<0)h+='음수 밑에 분수 지수가 끼면 실수 범위에서 계산이 막혀 '+(!o.okL&&!o.okR?'양쪽 모두':(o.okL?'오른쪽':'왼쪽'))+' 값이 없어요. 값이 없으면 같다고 할 수 없어서 ❌예요. a를 양수로 바꾸면 언제나 ✅가 돼요.';
+else h+='밑이 0이면 0⁰이나 0의 음수 제곱(1/0)처럼 정의되지 않는 계산이 생겨요. 그래서 밑에 a &gt; 0 조건이 붙어요. m, n을 둘 다 양수로 두면 0 = 0으로 같아져요.';}
+el.innerHTML=h;}
+function record(){var o=st(),why;
+if(o.a>0)why='지수 '+nf(o.m,1)+'×'+nf(o.n,1)+'='+nf(o.m*o.n,2);
+else if(o.same)why=o.a===0?'0을 양수 번 제곱':(o.intMN?'정수 지수':'mn='+nf(o.m*o.n,2)+' 짝수');
+else if(o.okL&&o.okR)why='부호 갈림: '+nf(o.left,2)+' vs '+nf(o.right,2);
+else why=(!o.okL&&!o.okR)?'둘 다 정의 안 됨':(o.okL?'오른쪽 정의 안 됨':'왼쪽 정의 안 됨');
 return{cells:[nf(o.a,1),nf(o.m,1)+' , '+nf(o.n,1),o.okL?nf(o.left,4):'정의 안 됨',
-o.okR?nf(o.right,4):'정의 안 됨',o.same?'✅':'❌',o.cond],
+o.okR?nf(o.right,4):'정의 안 됨',(o.same?'✅ 같음':((o.okL&&o.okR)?'❌ 다름':'❌ 못 비교'))+'<small>'+why+'</small>',o.cond],
 a:o.a,same:o.same,safe:o.safe,okL:o.okL,okR:o.okR,
 broken:(!o.same)};}
 function analyze(){var br=rows.filter(function(r){return r.broken;}).length;
@@ -285,7 +331,7 @@ t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 법칙이 깨지는 경우</h4>'+t+
 '<p class="big">두 값이 갈린 기록 <span class="no">'+br+'개</span></p>'+
-'<p class="note">'+(safeOk?'<span class="ok">밑이 양수인 기록은 모두 성립</span>했습니다.':'')+'</p></div>'+
+'<p class="note">'+(safeOk?'<span class="ok">밑이 양수인 기록은 모두 성립</span>했습니다. ':'')+(rows.some(function(r){return !r.safe&&r.same;})?'밑이 양수가 아닌데 ✅였던 기록은 지수가 정수였거나 운 좋게 맞은 경우예요.':'')+'</p></div>'+
 '<div class="card"><h4>2. 그래서 a &gt; 0</h4>'+
 '<p class="note"><b>밑이 음수</b>면 분수 지수에서 실수 범위를 벗어나거나 계산 순서에 따라 값이 달라집니다. ((−8)^(1/3))² 과 (−8)^(2/3) 이 대표적입니다.</p>'+
 '<p class="note"><b>밑이 0</b>이면 음수 지수(0⁻¹ = 1/0)와 0⁰ 이 정의되지 않습니다.</p>'+

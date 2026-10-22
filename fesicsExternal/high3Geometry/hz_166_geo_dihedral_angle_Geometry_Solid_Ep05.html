@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .hl{color:var(--ac);font-weight:700}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -151,6 +157,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="tilt">실제 이면각 (°) <b><span id="tilt_v">60</span></b></label><input type="range" id="tilt" min="20" max="150" step="5" value="60"></div><div class="ctl"><label for="skew">교선과 이루는 각 (°) <b><span id="skew_v">90</span></b></label><input type="range" id="skew" min="30" max="90" step="5" value="90"></div><div class="row"><button class="btn go" id="goBtn">📐 각을 재어 보기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
@@ -242,7 +249,8 @@ var lb=Math.sqrt(b[0]*b[0]+b[1]*b[1]+b[2]*b[2]);
 var meas=Math.acos(Math.max(-1,Math.min(1,d/(la*lb))))*180/Math.PI;
 var perp=(Math.abs(v('skew')-90)<1e-9);
 return{tilt:v('tilt'),sk:v('skew'),meas:meas,perp:perp,
-ok:(Math.abs(meas-v('tilt'))<0.5)};}
+/* 교선과 수직으로 잴 때만 참값과 같음. 예전 허용 오차 0.5°는 비스듬한 측정(85°·이면각 60° → 59.75°)도 ✅로 봤음 */
+diff:Math.abs(meas-v('tilt')),ok:(Math.abs(meas-v('tilt'))<1e-6)};}
 function proj(q){var s=90;
 return [W/2+q[0]*s+q[1]*s*0.5, 240-q[2]*s-q[1]*s*0.35];}
 function draw(){clr();var o=st();
@@ -277,23 +285,41 @@ W/2,H-58,'#c8d5ef',16);
 label(o.ok?'✅ 일치합니다':'❌ '+nf(Math.abs(o.meas-o.tilt),2)+'° 어긋납니다',
 W/2,H-26,o.ok?'#5ee0c8':'#ff7a8a',17);
 ro(kv('교선과의 각',o.sk+'°')+' &nbsp;'+kv('측정',nf(o.meas,2)+'°')+'<br>'+
-kv('참값',o.tilt+'°')+' &nbsp;'+kv('일치',o.ok?'○':'×'));}
+kv('참값',o.tilt+'°')+' &nbsp;'+kv('일치',o.ok?'○':'×'));
+whyBox(o);}
+/* 측정값이 왜 참값과 같은지·다른지 지금 숫자로 풀어 주는 상자 */
+function whyBox(o){var el=$('why');if(!el)return;
+var s=o.sk*Math.PI/180,t=o.tilt*Math.PI/180,cs=Math.cos(s),sn=Math.sin(s),cm=sn*sn*Math.cos(t)+cs*cs,h;
+if(o.ok){el.className='why same';
+h='✅ <b>이번엔 같네요. 왜 그럴까요?</b><br>'
++'· 두 반직선이 모두 교선과 <b>수직(90°)</b>이에요. 그래서 교선 쪽으로 누운 부분이 cos 90° = 0, 하나도 없어요.<br>'
++'· 두 반직선이 교선에 수직인 단면 위에 놓이니, 그 사이 각이 곧 두 평면이 벌어진 각이에요: cos(측정) = cos '+o.tilt+'° → 측정 = <b>'+nf(o.meas,2)+'°</b><br>'
++'· 교선과 이루는 각을 90°보다 줄여 보세요. 측정값이 참값보다 작아져요.';}
+else{el.className='why diff';
+h='🤔 <b>왜 참값과 같지 않을까요?</b><br>'
++'· 두 반직선이 교선과 <b>'+o.sk+'°</b>로 비스듬해요. 그러면 반직선마다 교선 쪽으로 누운 부분(cos '+o.sk+'° = '+nf(cs,3)+')이 생겨요.<br>'
++'· 이 부분은 두 반직선에 <b>똑같이</b> 들어 있어서, 두 반직선 사이를 더 좁게 만들어요.<br>'
++'&nbsp;&nbsp;cos(측정) = sin²'+o.sk+'°·cos '+o.tilt+'° + cos²'+o.sk+'° = '+nf(sn*sn,3)+' × '+(Math.cos(t)<0?'(−'+nf(-Math.cos(t),3)+')':nf(Math.cos(t),3))+' + '+nf(cs*cs,3)+' = <span class="hl">'+nf(cm,3).replace('-','−')+'</span><br>'
++'· 그래서 측정한 각 '+nf(o.meas,2)+'°는 참값 '+o.tilt+'°보다 <b>'+nf(o.diff,2)+'° 작아요</b>. '+(o.diff<1?'차이가 작아 보여도, ':'')+'비스듬히 재면 언제나 참값보다 작게 나와요.<br>'
++'교선과 이루는 각을 <b>90°</b>로 올려 보세요. cos²90° = 0 이 되어 참값과 딱 같아져요.';}
+el.innerHTML=h;}
 function record(){var o=st();
-return{cells:[o.perp?'교선과 수직':'비스듬히',o.sk+'°',nf(o.meas,2)+'°',o.tilt+'°',o.ok?'✅':'❌'],
+return{cells:[o.perp?'교선과 수직':'비스듬히',o.sk+'°',nf(o.meas,2)+'°',o.tilt+'°',o.ok?'✅ 같음<small>수직이라 그대로</small>':'❌ 다름<small>'+nf(o.diff,2)+'° 작게 잼</small>'],
 sk:o.sk,meas:o.meas,tilt:o.tilt,ok:o.ok,perp:o.perp};}
 function analyze(){var perp=rows.filter(function(r){return r.perp;});
 var perpOk=perp.length&&perp.every(function(r){return r.ok;});
-var bad=rows.filter(function(r){return !r.ok;}).length;
-var mx=Math.max.apply(null,rows.map(function(r){return Math.abs(r.meas-r.tilt);}));
+var sl=rows.filter(function(r){return !r.perp;});
+var bad=sl.filter(function(r){return !r.ok;}).length;
+var mx=sl.length?Math.max.apply(null,sl.map(function(r){return Math.abs(r.meas-r.tilt);})):0;
 var t='<table><thead><tr><th>교선과의 각</th><th>측정</th><th>참값</th><th>일치</th></tr></thead><tbody>';
 rows.forEach(function(r){t+='<tr><td class="'+(r.perp?'ok':'no')+'">'+r.sk+'°</td>'+
-'<td>'+nf(r.meas,1)+'°</td><td>'+r.tilt+'°</td>'+
+'<td>'+nf(r.meas,2)+'°</td><td>'+r.tilt+'°</td>'+
 '<td class="'+(r.ok?'ok':'no')+'">'+(r.ok?'○':'×')+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 수직일 때만 맞는다</h4>'+t+'<p class="note">'+
 (perpOk?'<span class="ok">교선과 수직으로 잰 기록은 모두 참값과 일치</span>했습니다. ':'')+
-'비스듬히 잰 기록은 <span class="no">'+bad+'개</span>가 어긋났고, 최대 '+nf(mx,1)+'° 차이가 났습니다.</p></div>'+
+(sl.length?'비스듬히 잰 기록은 <span class="no">'+sl.length+'개 중 '+bad+'개</span>가 어긋났고, 최대 '+nf(mx,2)+'° 차이가 났습니다. 비스듬히 재면 교선 쪽으로 누운 부분이 두 반직선에 똑같이 끼어서, 언제나 참값보다 <b>작게</b> 나옵니다.':'비스듬히 잰 기록이 아직 없어요. 교선과 이루는 각을 90°보다 작게 해서도 재어 보세요.')+'</p></div>'+
 '<div class="card"><h4>2. 약속이 필요한 이유</h4>'+
 '<p class="note">비스듬히 재면 <b>어느 방향으로 재느냐에 따라 값이 달라집니다</b>. 그러면 “두 평면이 이루는 각”이 하나로 정해지지 않습니다.</p>'+
 '<p class="note">교선과 수직으로 재면 교선 위 <b>어느 점에서 재도</b> 같은 값이 나옵니다. 그래서 그렇게 정의합니다.</p>'+

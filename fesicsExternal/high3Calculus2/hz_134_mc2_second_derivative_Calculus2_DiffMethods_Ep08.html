@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .mul{color:var(--ac);font-weight:700;letter-spacing:.02em}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,10 +158,11 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="x">x (×0.25) <b><span id="x_v">4.00</span></b></label><input type="range" id="x" min="-8" max="12" step="1" value="4" data-fmt="2"></div><div class="row"><button class="btn go" id="goBtn">📈 두 번 미분해 보기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>x</th><th>f(x)</th><th>f′(x)</th><th>f″(x)</th><th>(f′)²</th><th>같나</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>x</th><th>f(x)</th><th>f′(x)</th><th>f″(x)</th><th>(f′)²</th><th>f″ = (f′)² ?</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -237,10 +244,20 @@ if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();})
 function f(x){return x*x*x/3-x*x;}
 function f1(x){return x*x-2*x;}
 function f2(x){return 2*x-2;}
-function st(){var x=v('x')/4;
-return{x:x,f:f(x),d1:f1(x),d2:f2(x),sq:f1(x)*f1(x),
-same:(Math.abs(f2(x)-f1(x)*f1(x))<1e-6),
-neg:(f2(x)<0)};}
+function st(){var x=v('x')/4,d2=f2(x);
+/* f″ 의 부호: 양수 → 아래로 볼록, 음수 → 위로 볼록, 0 → 변곡점(이 함수는 x = 1 에서 f″ 부호가 바뀜) */
+var zero=Math.abs(d2)<1e-9;
+return{x:x,f:f(x),d1:f1(x),d2:d2,sq:f1(x)*f1(x),
+same:(Math.abs(d2-f1(x)*f1(x))<1e-6),
+neg:(!zero&&d2<0),zero:zero};}
+/* f″ = (f′)² 가 되는 x (2x − 2 = (x² − 2x)²) — 그래프에서 주황 선과 빨간 점선이 만나는 곳 */
+var MEET=(function(){var g=function(x){return f2(x)-f1(x)*f1(x);},out=[],a=-2,s=0.01;
+for(var x=a;x<3;x+=s){var y0=g(x),y1=g(x+s);if(y0*y1<0){var lo=x,hi=x+s;
+for(var i=0;i<60;i++){var m=(lo+hi)/2;if(g(lo)*g(m)<=0)hi=m;else lo=m;}out.push((lo+hi)/2);}}
+return out;})();
+function sgn(n){return n<0?'−'+nf(-n,4):nf(n,4);}
+function jos(t,a,b){t=String(t);var d=t.replace(/[^0-9]+$/,'');var c=d.charAt(d.length-1);return t+('013678'.indexOf(c)>=0?a:b);}
+function shape(o){return o.zero?'변곡점 (볼록 방향이 바뀜)':(o.neg?'위로 볼록':'아래로 볼록');}
 function draw(){clr();var o=st();
 var pl=plot(-2,4,-4,4,46);axes(pl,'x','y');
 function cv(g,col,wd,dash){ctx.strokeStyle=col;ctx.lineWidth=wd;if(dash)ctx.setLineDash(dash);
@@ -262,31 +279,49 @@ label("f″",76,26,'#ffb86b',13,'left');
 label("(f′)² 점선",112,26,'#ff7a8a',13,'left');
 panel(24,H-118,W-48,102);
 label('x = '+nf(o.x,2),W/2,H-94,'#9db0d4',13);
-label("f′(x) = "+nf(o.d1,4)+"      f″(x) = "+nf(o.d2,4),W/2,H-66,'#c8d5ef',16);
-label("(f′)² = "+nf(o.sq,4)+(o.same?'   (우연히 같음)':'   ← 전혀 다른 값'),
+label("f′(x) = "+sgn(o.d1)+"      f″(x) = "+sgn(o.d2),W/2,H-66,'#c8d5ef',16);
+label("(f′)² = "+sgn(o.sq)+(o.same?'   (우연히 같음)':'   ← 전혀 다른 값'),
 W/2,H-38,o.same?'#ffb86b':'#ff7a8a',16);
-label(o.neg?"f″ < 0  →  위로 볼록 (제곱은 음수가 될 수 없습니다)":"f″ > 0  →  아래로 볼록",
-W/2,H-10,o.neg?'#ff7a8a':'#5ee0c8',14);
-ro(kv("f′",nf(o.d1,4))+' &nbsp;'+kv("f″",nf(o.d2,4))+'<br>'+
-kv("(f′)²",nf(o.sq,4))+' &nbsp;'+kv('오목볼록',o.neg?'위로 볼록':'아래로 볼록'));}
+label(o.zero?"f″ = 0  →  변곡점 (여기서 볼록 방향이 바뀝니다)":(o.neg?"f″ < 0  →  위로 볼록 (제곱은 음수가 될 수 없습니다)":"f″ > 0  →  아래로 볼록"),
+W/2,H-10,o.zero?'#ffb86b':(o.neg?'#ff7a8a':'#5ee0c8'),14);
+ro(kv("f′",sgn(o.d1))+' &nbsp;'+kv("f″",sgn(o.d2))+'<br>'+
+kv("(f′)²",sgn(o.sq))+' &nbsp;'+kv('오목볼록',shape(o)));
+whyBox(o);}
+/* f″ 와 (f′)² 가 왜 다른지 지금 x 의 숫자로 풀어 주는 상자 */
+function whyBox(o){var el=$('why');if(!el)return;var x=nf(o.x,2),xs=o.x<0?'('+sgn(o.x)+')':x,t;
+var meet=MEET.map(function(m){return nf(m,2);}).join(', ');
+if(o.same){el.className='why same';
+t='✅ <b>이번엔 같네요. 왜 그럴까요?</b><br>· 숫자가 <b>우연히</b> 겹쳤어요(f″ = '+sgn(o.d2)+', (f′)² = '+sgn(o.sq)+'). 두 식은 계산 방법이 달라서 x를 조금만 옮겨도 다시 달라져요.';}
+else{el.className='why diff';
+t='🤔 <b>왜 f″ 과 (f′)² 은 같지 않을까요?</b><br>'
++'· 먼저 지금 x에서 f′(x) = x² − 2x = '+xs+'² − 2·'+xs+' = <b>'+sgn(o.d1)+'</b><br>'
++'· f″ 은 f′ 을 <b>한 번 더 미분</b>한 것이에요: f″(x) = 2x − 2 = 2·'+xs+' − 2 = <b>'+sgn(o.d2)+'</b><br>'
++'· (f′)² 은 f′ 을 <b>자기 자신과 곱한</b> 것이에요: ('+sgn(o.d1)+')² = <b>'+sgn(o.sq)+'</b><br>'
++(o.neg?'· 게다가 지금 f″ 은 음수인데, 제곱인 (f′)² 은 <b>절대 음수가 될 수 없어서</b> 같아질 수가 없어요.<br>'
+:(o.zero?'· 지금 x = 1 에서는 f″ = 0 이 돼요. 그래프가 아래로 볼록도 위로 볼록도 아닌, 볼록 방향이 바뀌는 <b>변곡점</b>이에요.<br>':''))
++'“미분”과 “제곱”은 전혀 다른 계산이라 값이 달라요. 이 실험의 x 눈금(0.25 간격)에서는 <b>언제나 ❌</b>가 나와요.'
++(meet?' 두 식이 같아지는 곳은 x ≈ '+meet+' 근처뿐인데, 주황 선과 빨간 점선이 <b>우연히 만나는</b> 점일 뿐이고 눈금에는 걸리지 않아요.':'');}
+el.innerHTML=t;}
 function record(){var o=st();
-return{cells:[nf(o.x,2),nf(o.f,3),nf(o.d1,4),nf(o.d2,4),nf(o.sq,4),o.same?'✅':'❌'],
-x:o.x,d1:o.d1,d2:o.d2,sq:o.sq,same:o.same,neg:o.neg};}
+return{cells:[nf(o.x,2),nf(o.f,3),nf(o.d1,4),nf(o.d2,4),nf(o.sq,4),
+(o.same?'✅ 같음':'❌ 다름')+'<small>f″ '+sgn(o.d2)+(o.same?' = ':' ≠ ')+'(f′)² '+nf(o.sq,2)+'</small>'],
+x:o.x,d1:o.d1,d2:o.d2,sq:o.sq,same:o.same,neg:o.neg,zero:o.zero};}
 function analyze(){var dif=rows.filter(function(r){return !r.same;}).length;
 var neg=rows.filter(function(r){return r.neg;}).length;
 var t='<table><thead><tr><th>x</th><th>f′</th><th>f″</th><th>(f′)²</th><th>f″ 의 부호</th></tr></thead><tbody>';
 rows.forEach(function(r){t+='<tr><td>'+nf(r.x,2)+'</td><td>'+nf(r.d1,3)+'</td>'+
 '<td class="ok">'+nf(r.d2,3)+'</td><td class="no">'+nf(r.sq,3)+'</td>'+
-'<td class="'+(r.neg?'no':'ok')+'">'+(r.neg?'−':'+')+'</td></tr>';});
+'<td class="'+(r.zero?'':(r.neg?'no':'ok'))+'">'+(r.zero?'0 (변곡점)':(r.neg?'−':'+'))+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 두 값은 다르다</h4>'+t+
-'<p class="big">달랐던 기록 <span class="no">'+dif+'개</span></p></div>'+
+'<p class="big">달랐던 기록 <span class="no">'+dif+'개</span></p>'+
+'<p class="note">이 실험의 x 눈금에서는 언제나 다르게 나옵니다. f″ 은 f′ 을 한 번 더 <b>미분</b>한 것(2x − 2)이고, (f′)² 은 f′ 을 <b>제곱</b>한 것((x² − 2x)²)이라 계산 자체가 다르기 때문입니다.</p></div>'+
 '<div class="card"><h4>2. 부호가 결정적</h4>'+
 '<p class="big">f″ 가 음수였던 기록 <span class="ok">'+neg+'개</span></p>'+
 "<p class=note>(f′)² 는 제곱이라 <b>절대 음수가 될 수 없습니다</b>. f″ 가 음수인 기록이 하나라도 있으면 두 값은 같을 수 없습니다.</p>"+
 "<p class=note>f′ 은 <b>기울기</b>, f″ 은 <b>기울기의 변화율</b>입니다. f″ &gt; 0 이면 기울기가 커지는 중이라 아래로 볼록, f″ &lt; 0 이면 위로 볼록입니다.</p>"+
-'<p class=note>그래서 f″ 는 그래프의 <b>휘어진 방향</b>을 알려 주고, 부호가 바뀌는 곳이 변곡점입니다.</p></div></div>';}
+'<p class=note>그래서 f″ 는 그래프의 <b>휘어진 방향</b>을 알려 주고, 부호가 바뀌는 곳이 변곡점입니다. 이 함수는 x = 1 에서 f″ = 0 이고 부호가 바뀌어 변곡점입니다.</p></div></div>';}
 
 
 draw();sync();
