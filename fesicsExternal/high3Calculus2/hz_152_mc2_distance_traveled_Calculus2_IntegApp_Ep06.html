@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .mul{color:var(--ac);font-weight:700;letter-spacing:.02em}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,6 +158,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="T">끝 시각 T (×0.5) <b><span id="T_v">10.0</span></b></label><input type="range" id="T" min="1" max="14" step="1" value="10" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">🚗 시간만큼 움직이기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
@@ -238,7 +245,8 @@ function v2(t){return 2*Math.cos(t*Math.PI/3);}
 function st(){var T=v('T')/2;
 var disp=nint(v2,0,T,4000);
 var dist=nint(function(t){return Math.abs(v2(t));},0,T,4000);
-return{T:T,disp:disp,dist:dist,back:(T>1.5),
+var bk=nint(function(t){return Math.max(0,-v2(t));},0,T,4000);
+return{T:T,disp:disp,dist:dist,bk:bk,fw:dist-bk,back:(T>1.5),
 same:(Math.abs(disp-dist)<1e-3),zero:(Math.abs(disp)<0.05&&dist>0.5)};}
 function draw(){clr();var o=st();
 var pl=plot(0,7,-2.6,2.6,46);axes(pl,'t','v');
@@ -263,10 +271,31 @@ label('변위  ∫v dt = '+nf(o.disp,5),W/2,H-64,'#5ee0c8',17);
 label('이동 거리  ∫|v| dt = '+nf(o.dist,5)+(o.same?'   같음':'   ← 더 큽니다'),
 W/2,H-30,'#ffb86b',17);
 ro(kv('변위',nf(o.disp,5))+' &nbsp;'+kv('이동 거리',nf(o.dist,5))+'<br>'+
-kv('차이',nf(o.dist-o.disp,5))+' &nbsp;'+kv('되돌아옴',o.back?'예':'아니오'));}
+kv('차이',nf(o.dist-o.disp,5))+' &nbsp;'+kv('되돌아옴',o.back?'예':'아니오'));
+whyBox(o);}
+/* 숫자 뒤 조사: 마지막 숫자로 고름 (은/는, 이/가, 이에요/예요) */
+function jo(s,a,b){s=String(s);return s+([0,1,3,6,7,8].indexOf(+s.charAt(s.length-1))>=0?a:b);}
+/* 변위와 이동 거리가 왜 같은지·다른지 지금 숫자로 풀어 주는 상자 */
+function mn(s){return String(s).replace(/^-/,'−');}
+function whyBox(o){var el=$('why');if(!el)return;var T=nf(o.T,1),h;
+/* 화면에 보이는 두 자리 값끼리 계산해 식이 딱 맞게 */
+var F=+nf(o.fw,2),X=+nf(o.bk,2),fs=nf(F,2),xs=nf(X,2);
+if(!o.same){el.className='why diff';
+h='🤔 <b>왜 같지 않을까요?</b><br>'
++'· t = 1.5에서 속도가 0이 되고, 그 뒤로는 v &lt; 0이라 차가 <b>뒤로</b> 가요'+(o.T>4.5?' (t = 4.5 뒤에는 다시 앞으로 가요)':'')+'.<br>'
++'· [0, '+T+'] 동안 앞으로 간 거리는 약 '+fs+', 뒤로 간 거리는 약 '+jo(xs,'이에요.','예요.')+'<br>'
++'· 변위는 뒤로 간 만큼 <b>빼요</b>: '+fs+' − '+xs+' = '+mn(nf(F-X,2))+'. 이동 거리는 뒤로 간 것도 <b>더해요</b>: '+fs+' + '+xs+' = '+nf(F+X,2)+'.<br>'
++(o.zero?'· 변위가 거의 0이라 <b>제자리로 돌아왔지만</b>, 실제로 움직인 거리는 약 '+jo(nf(F+X,2),'이에요.','예요.')+'<br>':'')
++'그래서 차이는 뒤로 간 거리의 <b>2배</b>, 2 × '+xs+' = '+jo(nf(2*X,2),'이에요.','예요.')+' 뺀 만큼과 더한 만큼이 함께 벌어지기 때문이에요.';}
+else{el.className='why same';
+h='✅ <b>이번엔 같네요. 왜 그럴까요?</b><br>'
++'· [0, '+T+'] 동안 속도 v = 2cos(πt/3)가 <b>0 이상</b>이라 차가 한 번도 뒤로 가지 않았어요.<br>'
++'· 그래서 |v| = v이고, 두 적분이 똑같이 약 '+jo(nf(o.dist,2),'이에요.','예요.')+'<br>'
++'· T를 1.5보다 크게(끝 시각 슬라이더 4.0 이상) 올려 보세요. 차가 뒤로 가기 시작하면 두 값이 갈라져요.';}
+el.innerHTML=h;}
 function record(){var o=st();
 return{cells:['[0, '+nf(o.T,1)+']',nf(o.disp,4),nf(o.dist,4),o.back?'있음':'없음',
-nf(o.dist-o.disp,4),o.same?'✅':'❌'],
+nf(o.dist-o.disp,4),o.same?'✅ 같음<small>뒤로 간 적 없음</small>':'❌ 다름<small>뒤로 '+nf(o.bk,2)+' × 2 = '+nf(2*(+nf(o.bk,2)),2)+'</small>'],
 T:o.T,disp:o.disp,dist:o.dist,same:o.same,zero:o.zero,gap:o.dist-o.disp};}
 function analyze(){var dif=rows.filter(function(r){return !r.same;}).length;
 var z=rows.filter(function(r){return r.zero;}).length;

@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .hl{color:var(--ac);font-weight:700}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,10 +158,11 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="a">구간 왼쪽 (×0.5) <b><span id="a_v">-4</span></b></label><input type="range" id="a" min="-8" max="0" step="1" value="-4"></div><div class="ctl"><label for="b">구간 오른쪽 (×0.5) <b><span id="b_v">6</span></b></label><input type="range" id="b" min="1" max="8" step="1" value="6"></div><div class="row"><button class="btn go" id="goBtn">✂️ 잘라서 적분하기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>구간</th><th>부호 바뀌는 점</th><th>그냥 적분</th><th>나눠 적분</th><th>실제 넓이</th><th>같나</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>구간</th><th>부호 바뀌는 점</th><th>그냥 적분 ∫f</th><th>조각별 ∫f</th><th>나눠 구한 넓이 ∫|f|</th><th>같나</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -260,31 +267,52 @@ ctx.stroke();
 o.zeros.forEach(function(z){
 ctx.strokeStyle='rgba(255,184,107,.8)';ctx.lineWidth=2;ctx.setLineDash([5,4]);
 ctx.beginPath();ctx.moveTo(pl.X(z),pl.Y(-6));ctx.lineTo(pl.X(z),pl.Y(10));ctx.stroke();ctx.setLineDash([]);
-label('x = '+z,pl.X(z),H-132,'#ffb86b',12);});
-label('f(x) = x² − 2x − 3    구간 ['+nf(o.a,1)+', '+nf(o.b,1)+']',W/2,26,'#e9eefb',15);
+label('x = '+mn(z),pl.X(z),H-132,'#ffb86b',12);});
+label('f(x) = x² − 2x − 3    구간 ['+mn(nf(o.a,1))+', '+mn(nf(o.b,1))+']',W/2,26,'#e9eefb',15);
 panel(24,H-116,W-48,100);
-label('부호가 바뀌는 점 : '+(o.zeros.length?o.zeros.join(', '):'없음')+'   →   구간 '+(o.zeros.length+1)+'개로 나눔',
+label('부호가 바뀌는 점 : '+(o.zeros.length?o.zeros.map(mn).join(', '):'없음')+'   →   구간 '+(o.zeros.length+1)+'개로 나눔',
 W/2,H-90,'#ffb86b',14);
-label('그냥 적분  ∫f = '+nf(o.plain,5),W/2,H-58,'#ff7a8a',16);
+label('그냥 적분  ∫f = '+mn(nf(o.plain,5)),W/2,H-58,'#ff7a8a',16);
 label('나눠 적분  '+o.parts.map(function(p){return (p.val<0?'−':'+')+nf(Math.abs(p.val),3);}).join(' ')+
 '  =  '+nf(o.abs,5)+(o.same?'   같음':'   차이 '+nf(o.abs-o.plain,4)),
 W/2,H-26,'#5ee0c8',16);
 ro(kv('∫f',nf(o.plain,5))+' &nbsp;'+kv('∫|f|',nf(o.abs,5))+'<br>'+
-kv('나눈 구간',(o.zeros.length+1)+'개')+' &nbsp;'+kv('차이',nf(o.abs-o.plain,4)));}
-function record(){var o=st();
-return{cells:['['+nf(o.a,1)+', '+nf(o.b,1)+']',o.zeros.join(', ')||'없음',
-nf(o.plain,4),nf(o.abs,4),nf(o.abs,4),o.same?'✅':'❌'],
+kv('나눈 구간',(o.zeros.length+1)+'개')+' &nbsp;'+kv('차이',nf(o.abs-o.plain,4)));
+whyBox(o);}
+/* 음수는 진짜 빼기 기호로 */
+function mn(x){return String(x).replace('-','−');}
+/* 숫자 글자 뒤 은/는 : 마지막 숫자의 받침으로 고름 */
+function jo(s,a,b){s=String(s);return mn(s)+([0,1,3,6,7,8].indexOf(+s.slice(-1))>=0?a:b);}
+function pm(x){return x<0?'(−'+(-x)+')':String(x);}
+/* x축 아래 조각들의 넓이 합 */
+function negArea(o){return o.parts.reduce(function(s,p){return s+(p.val<0?-p.val:0);},0);}
+/* 왜 다른지 지금 숫자로 풀어 주는 상자 — 이 실험의 구간은 늘 (−1, 3) 의 일부를 품어서 언제나 ❌ */
+function whyBox(o){var el=$('why');if(!el)return;var N=negArea(o),h;
+var lo=Math.max(o.a,-1),hi=Math.min(o.b,3);
+if(o.same){el.className='why same';h='✅ <b>이번엔 같네요.</b><br>구간 안에 f 가 음수인 부분이 없어서 빼고 더할 것이 없어요.';el.innerHTML=h;return;}
+el.className='why diff';
+h='🤔 <b>왜 같지 않을까요?</b><br>'
++'· f(x) = x² − 2x − 3 = (x + 1)(x − 3) 은 <b>−1 &lt; x &lt; 3 에서 음수</b>(x축 아래)예요. 지금 구간에서는 x = '+mn(nf(lo,1))+' ~ '+mn(nf(hi,1))+' 부분이 아래에 있어요.<br>'
++'· 조각별로 적분하면 '+o.parts.map(function(p){return '['+mn(nf(p.lo,1))+', '+mn(nf(p.hi,1))+'] → <span class="hl">'+mn(nf(p.val,3))+'</span>';}).join(', ')+'.<br>'
++'· <b>그냥 적분</b>은 아래 조각을 <b>빼서</b> '+mn(nf(o.plain,3))+', <b>넓이</b>는 아래 조각도 부호를 뒤집어 <b>더해서</b> '+mn(nf(o.abs,3))+'.<br>'
++'· 그래서 차이 '+nf(o.abs,3)+' − '+pm(nf(o.plain,3)).replace('-','−')+' = '+jo(nf(o.abs-o.plain,3),'은','는')+' 아래 넓이 '+nf(N,3)+' 의 <b>2배</b>예요(빼던 것을 더하니까 두 번 차이 나요).<br>'
++'· 이 실험의 구간(왼쪽 ≤ 0, 오른쪽 ≥ 0.5)은 <b>언제나 −1 &lt; x &lt; 3 의 일부를 품어서</b> 늘 ❌ 예요. 두 값이 같으려면 f ≥ 0 인 구간(예: x ≥ 3)만 잡아야 해요.';
+el.innerHTML=h;}
+function record(){var o=st(),N=negArea(o);
+var reason=o.same?'<small>음수 구간 없음</small>':'<small>차이 = 아래 '+nf(N,2)+' × 2</small>';
+return{cells:['['+mn(nf(o.a,1))+', '+mn(nf(o.b,1))+']',o.zeros.map(mn).join(', ')||'없음',
+mn(nf(o.plain,4)),o.parts.map(function(p){return mn(nf(p.val,3));}).join(', '),nf(o.abs,4),(o.same?'✅ 같음':'❌ 다름')+reason],
 plain:o.plain,abs:o.abs,same:o.same,nz:o.zeros.length,gap:o.abs-o.plain};}
 function analyze(){var dif=rows.filter(function(r){return !r.same;}).length;
 var mx=Math.max.apply(null,rows.map(function(r){return r.gap;}));
 var t='<table><thead><tr><th>구간</th><th>자른 점</th><th>∫f</th><th>∫|f|</th><th>차이</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>'+r.cells[0]+'</td><td>'+r.nz+'개</td><td>'+nf(r.plain,3)+'</td>'+
+rows.forEach(function(r){t+='<tr><td>'+r.cells[0]+'</td><td>'+r.nz+'개</td><td>'+mn(nf(r.plain,3))+'</td>'+
 '<td class="ok">'+nf(r.abs,3)+'</td><td class="'+(r.same?'':'no')+'">'+nf(r.gap,3)+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 음수 구간이 있으면 갈린다</h4>'+t+
 '<p class="big">두 값이 달랐던 기록 <span class="no">'+dif+'개</span> · 최대 차이 '+nf(mx,3)+'</p>'+
-'<p class="note">차이는 정확히 <b>음수 부분 넓이의 2배</b>입니다. 한쪽은 빼고 한쪽은 더하기 때문입니다.</p></div>'+
+'<p class="note">차이는 정확히 <b>음수 부분 넓이의 2배</b>입니다. 한쪽은 빼고 한쪽은 더하기 때문입니다. 이 실험의 구간은 언제나 f 가 음수인 −1 &lt; x &lt; 3 의 일부를 품고 있어서, 기록은 모두 ❌ 로 나옵니다.</p></div>'+
 '<div class="card"><h4>2. 절차</h4>'+
 '<p class="note">① f = 0 인 점을 모두 찾는다 ② 그 점들로 구간을 나눈다 ③ 각 구간에서 f 의 <b>부호</b>를 확인해 음수 구간은 −f 로 바꿔 적분한다 ④ 모두 더한다</p>'+
 '<p class="note">넓이를 구하는 문제는 사실상 전부 이 절차입니다. 교점을 빠뜨리면 그대로 틀립니다.</p></div></div>';}

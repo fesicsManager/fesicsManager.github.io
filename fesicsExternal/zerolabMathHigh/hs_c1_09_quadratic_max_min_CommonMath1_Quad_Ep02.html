@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .hl{color:var(--ac);font-weight:700}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -153,6 +159,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="ai">a <b><span id="ai_v">2</span></b></label><input type="range" id="ai" min="0" max="3" step="1" value="2"></div><div class="ctl"><label for="p">꼭짓점 x좌표 p <b><span id="p_v">0</span></b></label><input type="range" id="p" min="-4" max="4" step="1" value="0"></div><div class="ctl"><label for="q">꼭짓점 y좌표 q <b><span id="q_v">-3</span></b></label><input type="range" id="q" min="-6" max="6" step="1" value="-3"></div><div class="ctl"><label for="m">구간 왼쪽 끝 m <b><span id="m_v">1</span></b></label><input type="range" id="m" min="-5" max="4" step="1" value="1"></div><div class="ctl"><label for="n">구간 오른쪽 끝 n <b><span id="n_v">4</span></b></label><input type="range" id="n" min="-4" max="5" step="1" value="4"></div><div class="row"><button class="btn go" id="goBtn">🔎 구간을 훑어보기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
@@ -220,12 +227,46 @@ $('clrBtn').addEventListener('click',function(){if(busy)return;rows=[];document.
 const AV=[-2,-1,1,2];
 let sweep=1;
 function pa(){return AV[Math.round(v('ai'))];}
-function seg(){const m=Math.min(v('m'),v('n')),n=Math.max(v('m'),v('n'));return[m,n===m?m+1:n];}
+/* 슬라이더의 m, n 그대로 구간을 만듦. m > n 이면 [n, m] 으로 바꿔 보고(sw 표시), m = n 이면 한 점 [m, m] */
+function seg(){const m0=v('m'),n0=v('n'),r=[Math.min(m0,n0),Math.max(m0,n0)];r.sw=m0>n0;return r;}
 function f(x){const a=pa(),p=v('p'),q=v('q');return a*(x-p)*(x-p)+q;}
-function best(){const s=seg(),p=v('p'),xs=[s[0],s[1]];
-const inside=p>=s[0]&&p<=s[1];if(inside)xs.push(p);
+function best(){const s=seg(),p=v('p'),xs=[s[0]];if(s[1]!==s[0])xs.push(s[1]);
+const inside=p>=s[0]&&p<=s[1];if(inside&&xs.indexOf(p)<0)xs.push(p);
 let mx=xs[0],mn=xs[0];xs.forEach(function(x){if(f(x)>f(mx))mx=x;if(f(x)<f(mn))mn=x;});
-return{mx:mx,mn:mn,inside:inside,s:s};}
+/* 양 끝 값이 같으면 최대(최소)가 두 곳에서 나옴 */
+const mxs=xs.filter(function(x){return Math.abs(f(x)-f(mx))<1e-9;}),mns=xs.filter(function(x){return Math.abs(f(x)-f(mn))<1e-9;});
+return{mx:mx,mn:mn,mxs:mxs,mns:mns,inside:inside,s:s};}
+function ms(x){const t=String(x);return t.charAt(0)==='-'?'−'+t.slice(1):t;}   /* 음수는 진짜 빼기 기호로 */
+function jo(n,a,b){var t=String(n),d=+t.charAt(t.length-1);return t+([0,1,3,6,7,8].indexOf(d)>=0?a:b);}   /* 숫자 뒤 은/는 */
+function pj(n,a,b){var t=String(n),d=+t.charAt(t.length-1);return [0,1,3,6,7,8].indexOf(d)>=0?a:b;}   /* 숫자 뒤 받침 있으면 a */
+function segStr(s){return '['+ms(s[0])+', '+ms(s[1])+']';}
+/* 최대·최소가 나온 곳 이름 */
+function atName(list,s,p){if(list.length>1)return '양 끝';const x=list[0];
+if(Math.abs(x-p)<1e-9&&p>=s[0]&&p<=s[1])return '꼭짓점';if(s[0]===s[1])return '한 점';return Math.abs(x-s[0])<1e-9?'왼쪽 끝':'오른쪽 끝';}
+function fv(x){return ms(nf(f(x),2));}
+/* 꼭짓점이 구간 안·밖이라 최대·최소가 어디서 나왔는지 지금 숫자로 풀어 주는 상자 */
+function whyBox(b){var el=$('why');if(!el)return;var a=pa(),p=v('p'),q=v('q'),s=b.s,L=[],head,P=ms(p),A=ms(a),S=segStr(s),tail='';
+if(s.sw)L.push('m &gt; n이라서 구간을 '+S+([0,3,6].indexOf(+String(s[1]).slice(-1))>=0?'으로':'로')+' 뒤집어서 봤어요.');
+if(s[0]===s[1]){var X=ms(s[0]),V=fv(s[0]);el.className=b.inside?'why same':'why diff';
+head=b.inside?'✅ <b>꼭짓점이 구간 안에 있어요. 그런데 구간이 한 점뿐이에요.</b>':'🤔 <b>구간이 한 점뿐이라 꼭짓점이 들어가지 않아요.</b>';
+L.push('m과 n이 둘 다 '+X+pj(X,'이라서','라서')+' 구간은 x = '+X+' 한 점뿐이에요.');
+L.push('값도 f('+X+') = '+V+' 하나뿐이라 최댓값과 최솟값이 <b>같아요</b>.');
+tail='m이나 n을 움직여 구간을 넓혀 보세요.';}
+else if(b.inside){el.className='why same';var V=fv(p),dl=Math.abs(p-s[0]),dr=Math.abs(s[1]-p);
+head='✅ <b>꼭짓점 x = '+P+pj(P,'이','가')+' 구간 '+S+' 안에 있어요.</b>';
+L.push(a>0?'a = '+A+' &gt; 0이라 아래로 볼록한 그릇 모양이에요. 꼭짓점이 <b>가장 낮은 점</b>이라 최솟값은 꼭짓점의 <b>'+V+'</b>'+pj(V,'이에요','예요')+'.'
+:'a = '+A+' &lt; 0이라 위로 볼록(뒤집힌 그릇)이에요. 꼭짓점이 <b>가장 높은 점</b>이라 최댓값은 꼭짓점의 <b>'+V+'</b>'+pj(V,'이에요','예요')+'.');
+var W2=dl===dr?fv(s[0]):fv(dl>dr?s[0]:s[1]);
+L.push('반대쪽 '+(a>0?'최댓값':'최솟값')+'은 꼭짓점에서 <b>더 먼 끝</b>에서 나와요. 왼쪽 끝까지 '+dl+', 오른쪽 끝까지 '+dr
++(dl===dr?' → 거리가 같아서 <b>양 끝</b> 모두 <b>'+W2+'</b>'+pj(W2,'이에요','예요')+'.':' → 더 먼 '+(dl>dr?'왼쪽 끝 x = '+ms(s[0]):'오른쪽 끝 x = '+ms(s[1]))+'에서 <b>'+W2+'</b>'+pj(W2,'이에요','예요')+'.'));
+tail='꼭짓점을 구간 밖으로 보내면(p나 m, n을 움직여) 최대·최소가 모두 끝점에서 나와요.';}
+else{el.className='why diff';var left=p<s[0],up=(a>0)===left,Q=ms(nf(q,2));
+head='🤔 <b>꼭짓점이 구간에 안 들어가요. 그러면 어떻게 될까요?</b>';
+L.push('꼭짓점 x = '+P+pj(P,'은','는')+' 구간 '+S+'의 <b>'+(left?'왼쪽':'오른쪽')+' 바깥</b>에 있어요.');
+L.push('그래서 구간 안에서 그래프는 꺾이지 않고 <b>'+(up?'계속 올라가기만':'계속 내려가기만')+'</b> 해요.');
+L.push('그러니 최대·최소는 양 끝에서 나와요: f('+ms(s[0])+') = '+fv(s[0])+', f('+ms(s[1])+') = '+fv(s[1])+' → 최댓값 <b>'+fv(b.mx)+'</b>, 최솟값 <b>'+fv(b.mn)+'</b>');
+tail='꼭짓점의 값 '+Q+pj(Q,'은','는')+' 구간 밖이라 후보가 아니에요.';}
+el.innerHTML=head+'<br>'+L.map(function(t){return '· '+t;}).join('<br>')+'<br>'+tail;}
 function draw(){clr();
 const a=pa(),p=v('p'),q=v('q'),b=best(),s=b.s;$('ai_v').textContent=a;
 let lo=1e9,hi=-1e9;for(let x=-5.5;x<=5.5;x+=0.1){const y=f(x);lo=Math.min(lo,y);hi=Math.max(hi,y);}
@@ -245,21 +286,23 @@ ctx.beginPath();ctx.moveTo(pl.X(x),0);ctx.lineTo(pl.X(x),H);ctx.stroke();ctx.set
 dot(pl.X(x),pl.Y(f(x)),5,'#9db0d4');});
 dot(pl.X(p),pl.Y(q),5,b.inside?'#c8d5ef':'#66759b');
 label('꼭짓점 ('+nf(p,1)+', '+nf(q,1)+')'+(b.inside?'':' — 구간 밖'),pl.X(p),pl.Y(q)+(a>0?24:-22),b.inside?'#c8d5ef':'#ff7a8a',13);
-if(sweep>=1){dot(pl.X(b.mx),pl.Y(f(b.mx)),9,'#ffb86b');label('최대 '+nf(f(b.mx),2),pl.X(b.mx),pl.Y(f(b.mx))-22,'#ffb86b',15);
-dot(pl.X(b.mn),pl.Y(f(b.mn)),9,'#5ee0c8');label('최소 '+nf(f(b.mn),2),pl.X(b.mn),pl.Y(f(b.mn))+22,'#5ee0c8',15);}
+if(sweep>=1){b.mxs.forEach(function(x){dot(pl.X(x),pl.Y(f(x)),9,'#ffb86b');label('최대 '+nf(f(x),2),pl.X(x),pl.Y(f(x))-22,'#ffb86b',15);});
+b.mns.forEach(function(x){dot(pl.X(x),pl.Y(f(x)),9,'#5ee0c8');label('최소 '+nf(f(x),2),pl.X(x),pl.Y(f(x))+(s[0]===s[1]?40:22),'#5ee0c8',15);});}
 label('y = '+a+'(x '+(p<0?'+ '+(-p):'− '+p)+')² '+(q<0?'− '+(-q):'+ '+q),18,20,'#e9eefb',16,'left');
-label('['+s[0]+', '+s[1]+']',W-18,20,'#7aa2ff',16,'right');
+label('['+s[0]+', '+s[1]+']'+(s.sw?' (m > n → 뒤집음)':(s[0]===s[1]?' (한 점)':'')),W-18,20,'#7aa2ff',16,'right');
 $('readout').innerHTML='<span class="k">최댓값</span> <span class="v">'+nf(f(b.mx),2)+'</span> <span class="k">(x = '+nf(b.mx,1)+')</span><br>'+
 '<span class="k">최솟값</span> <span class="v">'+nf(f(b.mn),2)+'</span> <span class="k">(x = '+nf(b.mn,1)+')</span> &nbsp;'+
-'<span class="k">꼭짓점</span> <span class="v">'+(b.inside?'구간 안':'구간 밖')+'</span>';}
+'<span class="k">꼭짓점</span> <span class="v">'+(b.inside?'구간 안':'구간 밖')+'</span>';
+whyBox(b);}
 $('goBtn').addEventListener('click',async function(){
 cv.scrollIntoView({behavior:'smooth',block:'center'});
 if(busy)return;lock(true);sweep=0;draw();
 await anim(2300,function(t){sweep=t;draw();});sweep=1;draw();lock(false);autoRec();});
 function record(){const a=pa(),p=v('p'),b=best(),s=b.s;
-const at=function(x){return Math.abs(x-p)<1e-9?'꼭짓점':(Math.abs(x-s[0])<1e-9?'왼쪽 끝':'오른쪽 끝');};
-return{cells:[a,nf(p,1),'['+s[0]+', '+s[1]+']',b.inside?'✅':'❌',nf(f(b.mx),2)+' ('+at(b.mx)+')',nf(f(b.mn),2)+' ('+at(b.mn)+')'],
-a:a,inside:b.inside,mxAt:at(b.mx),mnAt:at(b.mn),mx:f(b.mx),mn:f(b.mn)};}
+const mxAt=atName(b.mxs,s,p),mnAt=atName(b.mns,s,p);
+const why=b.inside?'<small>'+ms(s[0])+' ≤ p='+ms(p)+' ≤ '+ms(s[1])+'</small>':'<small>p='+ms(p)+(p<s[0]?' &lt; '+ms(s[0]):' &gt; '+ms(s[1]))+'</small>';
+return{cells:[a,nf(p,1),'['+s[0]+', '+s[1]+']',(b.inside?'✅ 포함':'❌ 밖')+why,nf(f(b.mx),2)+' ('+mxAt+')',nf(f(b.mn),2)+' ('+mnAt+')'],
+a:a,inside:b.inside,mxAt:mxAt,mnAt:mnAt,mx:f(b.mx),mn:f(b.mn)};}
 function analyze(){
 const out=rows.filter(function(r){return !r.inside;}),ins=rows.filter(function(r){return r.inside;});
 const badOut=out.filter(function(r){return r.mxAt==='꼭짓점'||r.mnAt==='꼭짓점';}).length;

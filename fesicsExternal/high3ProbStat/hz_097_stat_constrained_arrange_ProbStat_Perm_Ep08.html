@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .mul{color:var(--ac);font-weight:700;letter-spacing:.02em}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,10 +158,11 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="n">전체 인원 n <b><span id="n_v">5</span></b></label><input type="range" id="n" min="4" max="7" step="1" value="5"></div><div class="ctl"><label for="k">맨 앞에 올 후보 수 k <b><span id="k_v">2</span></b></label><input type="range" id="k" min="1" max="3" step="1" value="2"></div><div class="row"><button class="btn go" id="goBtn">🧩 조건부터 배치하기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>전체</th><th>조건</th><th>조건 먼저 (단계 수)</th><th>나중에 (단계 수)</th><th>결과</th><th>같나</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>전체</th><th>조건</th><th>조건 먼저 k×(n−1)!</th><th>전부 배열 n!</th><th>골라내서 센 수</th><th>같나</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -234,11 +241,17 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
+var cfMemo={};
+function countFront(n,k){var key=n+'_'+k;if(cfMemo[key]!==undefined)return cfMemo[key];
+var cnt=0,used=[],p=[];
+function go(d){if(d===n){if(p[0]<k)cnt++;return;}
+for(var i=0;i<n;i++)if(!used[i]){used[i]=1;p[d]=i;go(d+1);used[i]=0;}}
+go(0);cfMemo[key]=cnt;return cnt;}
 function st(){var n=v('n'),k=Math.min(v('k'),n);
 var first=k*fact(n-1);
 var all=fact(n);
-var ratio=k/n;
-var late=Math.round(all*ratio);
+/* 방법 ②: n! 가지 줄을 실제로 모두 만들어 맨 앞이 후보(0~k−1번)인 줄을 센다 */
+var late=countFront(n,k);
 return{n:n,k:k,first:first,all:all,late:late,same:(first===late),
 steps1:2,steps2:3};}
 function draw(){clr();var o=st();
@@ -266,9 +279,28 @@ label('전체 '+o.n+'! = '+o.all+' 가지를 만들고',W/2,342,'#c8d5ef',15);
 label('맨 앞이 조건에 맞는 것만 세기  →  '+o.late,W/2,374,'#ffb86b',16);
 label(o.same?'결과는 같지만 단계가 더 많고 실수하기 쉽습니다':'',W/2,406,'#9db0d4',13);
 ro(kv('조건 먼저',o.first)+' &nbsp;'+kv('나중에 골라내기',o.late)+'<br>'+
-kv('전체 n!',o.all)+' &nbsp;'+kv('같나',o.same?'○':'×'));}
+kv('전체 n!',o.all)+' &nbsp;'+kv('같나',o.same?'○':'×'));
+whyBox(o);}
+/* 왜 같은지·다른지 풀어 주는 상자에 쓰는 도우미 */
+function jo(s,a,b){s=String(s);return s+('013678'.indexOf(s.charAt(s.length-1))>=0?a:b);}   /* 숫자 뒤 은/는·이/가 */
+function pt(s,a,b){return jo(s,a,b).slice(String(s).length);}   /* 조사만 */
+function mn(x,d){return nf(x,d===undefined?3:d).replace(/^-/,'−');}
+function par(x,d){var s=mn(x,d);return x<0?'('+s+')':s;}
+function eqv(x,d){if(d===undefined)d=3;var p=Math.pow(10,d);return (Math.abs(x*p-Math.round(x*p))>1e-7?' ≈ ':' = ')+mn(x,d);}
+/* 두 방법은 같은 줄들을 다르게 센 것 — 이 실험은 늘 ✅ */
+function whyBox(o){var el=$('why');if(!el)return;var n=o.n,k=o.k,f1=fact(n-1),h;
+if(o.same){el.className='why same';
+h='✅ <b>두 방법의 답이 같아요. 왜 그럴까요?</b><br>'
++'· 방법 ②는 '+n+'! = '+o.all+'가지 줄을 실제로 모두 만들어서, 맨 앞이 후보 '+k+'명 중 하나인 줄을 셌어요 → '+o.late+'가지<br>'
++'· 맨 앞 자리에는 '+n+'명이 똑같이 공평하게 와요. 누가 맨 앞이든 그 뒤 줄은 '+(n-1)+'! = '+f1+'가지씩이에요 ('+o.all+' ÷ '+n+' = '+f1+').<br>'
++'· 후보는 '+k+'명이니 '+k+' × '+f1+' = '+o.first+' — 방법 ①과 똑같은 계산이에요.<br>'
++'두 방법은 <b>같은 줄들을 다른 순서로 센 것</b>이라 이 실험은 언제나 ✅예요. 차이는 답이 아니라 <b>계산의 길이</b>예요 — 방법 ②는 '+o.all+'가지를 모두 만들어야 하지만, 방법 ①은 곱셈 두 번이면 끝나요.';}
+else{el.className='why diff';
+h='🤔 <b>두 값이 달라요.</b><br>방법 ① '+o.first+', 방법 ② '+o.late+' — 세는 과정에 실수가 있어요.';}
+el.innerHTML=h;}
 function record(){var o=st();
-return{cells:[o.n+'명','맨 앞 '+o.k+'명 중','2단계','3단계 이상',o.first,o.same?'✅':'❌'],
+return{cells:[o.n+'명','맨 앞 '+o.k+'명 중',o.k+'×'+(o.n-1)+'! = '+o.first,o.all,o.late,
+(o.same?'✅ 같음':'❌ 다름')+'<small>'+o.all+'÷'+o.n+'×'+o.k+' = '+(o.all/o.n*o.k)+'</small>'],
 n:o.n,k:o.k,first:o.first,late:o.late,same:o.same,all:o.all};}
 function analyze(){var allsame=rows.every(function(r){return r.same;});
 var t='<table><thead><tr><th>n</th><th>조건</th><th>조건 먼저</th><th>골라내기</th><th>전체 n!</th></tr></thead><tbody>';

@@ -78,6 +78,12 @@ cursor:pointer;transition:filter .15s,transform .09s,background .15s}
 .readout{background:#0f1727;border:1px dashed var(--line);border-radius:12px;padding:.7rem .85rem;font-size:.98rem;min-height:3.2rem}
 .readout .k{color:var(--mut)}
 .readout .v{color:var(--ac);font-weight:700;font-variant-numeric:tabular-nums}
+.why{border-radius:12px;padding:.75rem .9rem;font-size:.97rem;line-height:1.7;border:1px solid var(--line);background:#1a2134}
+.why.diff{border-color:rgba(255,122,138,.55);background:rgba(255,122,138,.08)}
+.why.same{border-color:rgba(94,224,200,.5);background:rgba(94,224,200,.07)}
+.why b{color:#fff}
+.why .hl{color:var(--ac);font-weight:700}
+#tbl td small{display:block;color:var(--mut);font-size:.8rem;white-space:nowrap}
 .tablebox{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:12px}
 table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
 th,td{padding:.45rem .5rem;text-align:center;border-bottom:1px solid #232c44;white-space:nowrap}
@@ -152,10 +158,11 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
     <div class="side">
       <div class="ctl"><label for="m">(×0.1) 가수 (1.0 ~ 9.9) <b><span id="m_v">35</span></b></label><input type="range" id="m" min="10" max="99" step="1" value="35"></div><div class="ctl"><label for="k">10의 거듭제곱 자리 <b><span id="k_v">3</span></b></label><input type="range" id="k" min="0" max="6" step="1" value="3"></div><div class="row"><button class="btn go" id="goBtn">🔢 자릿수와 맞춰 보기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>수 N</th><th>log N</th><th>정수 부분</th><th>소수 부분</th><th>자릿수</th><th>정수부+1 = 자릿수</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>수 N</th><th>log N</th><th>정수 부분</th><th>소수 부분</th><th>자릿수 (세어 봄)</th><th>정수부+1 = 자릿수</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -237,9 +244,10 @@ if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();})
 function st(){var m=v('m')/10,k=v('k');
 var N=m*Math.pow(10,k);
 var lg=Math.log10(N);
-var ip=Math.floor(lg),fp=lg-ip;
-var digits=Math.floor(Math.log10(N))+1;
-return{m:m,k:k,N:N,lg:lg,ip:ip,fp:fp,digits:digits,ok:(ip+1===digits),first:Math.floor(m)};}
+var ip=Math.floor(lg+1e-12),fp=Math.max(0,lg-ip);
+/* 자릿수는 log 로 구하지 않고 N 의 정수 부분을 글자로 써서 직접 센다 (가수 슬라이더 값이 정수라 오차 없음) */
+var nint=Math.floor(v('m')*Math.pow(10,k)/10),digits=String(nint).length;
+return{m:m,k:k,N:N,lg:lg,ip:ip,fp:fp,digits:digits,nint:nint,ok:(ip+1===digits),first:Math.floor(m)};}
 function draw(){clr();var o=st();
 label('N = '+nf(o.m,1)+' × 10'+sup(o.k)+' = '+nf(o.N,1),W/2,34,'#e9eefb',19);
 panel(24,62,W-48,110);
@@ -253,14 +261,31 @@ label('소수 부분  '+nf(o.fp,4),bx+bw*0.725,132,'#ffb86b',15);
 panel(24,184,W-48,110);
 label('정수 부분 '+o.ip+'  →  10'+sup(o.ip)+' 자리의 수',W/2,214,'#7aa2ff',16);
 label('자릿수 = '+o.ip+' + 1 = '+(o.ip+1),W/2,248,o.ok?'#5ee0c8':'#ff7a8a',18);
-label('실제 자릿수 '+o.digits+(o.ok?'  ✅':'  ❌'),W/2,280,o.ok?'#5ee0c8':'#ff7a8a',15);
+label('숫자를 직접 세면 '+o.digits+'자리'+(o.ok?'  ✅':'  ❌'),W/2,280,o.ok?'#5ee0c8':'#ff7a8a',15);
 panel(24,306,W-48,114);
 label('소수 부분 '+nf(o.fp,4)+'  ←  가수 '+nf(o.m,1)+' 에서 옴',W/2,336,'#ffb86b',16);
 label('log '+nf(o.m,1)+' = '+nf(Math.log10(o.m),4),W/2,368,'#c8d5ef',15);
 label('같은 숫자 배열이면 자릿수가 달라도 소수 부분이 같습니다',W/2,400,'#9db0d4',13);
-ro(kv('log N',nf(o.lg,6))+'<br>'+kv('정수 부분',o.ip)+' &nbsp;'+kv('소수 부분',nf(o.fp,4))+' &nbsp;'+kv('자릿수',o.digits));}
+ro(kv('log N',nf(o.lg,6))+'<br>'+kv('정수 부분',o.ip)+' &nbsp;'+kv('소수 부분',nf(o.fp,4))+' &nbsp;'+kv('자릿수',o.digits));
+whyBox(o);}
+/* 숫자 뒤 조사: 마지막 숫자로 받침을 봄 (0·1·3·6·7·8 받침 있음, (으)로 는 1·7·8 이 ㄹ 받침이라 '로') */
+function mn(x){return String(x).replace(/^-/,'−');}
+function sg(x){var t=String(x);return t.charAt(0)==='-'?'(−'+t.slice(1)+')':t;}
+function ld(x){var t=String(x).replace(/[^0-9]+$/,'');return +t.charAt(t.length-1);}
+function jo(x,a,b){return mn(x)+([0,1,3,6,7,8].indexOf(ld(x))>=0?a:b);}
+function ro2(x){return mn(x)+([0,3,6].indexOf(ld(x))>=0?'으로':'로');}
+function sp(n){return String(n).replace(/[0-9]/g,function(z){return'⁰¹²³⁴⁵⁶⁷⁸⁹'[+z];});}
+/* N 의 숫자를 직접 센 자릿수와 정수 부분+1 을 비교. 가수가 1.0~9.9 라 N 은 늘 10^k 이상 10^(k+1) 미만 → 늘 ✅ */
+function whyBox(o){var el=$('why');if(!el)return;var p=o.ip,lo=Math.pow(10,p),hi=Math.pow(10,p+1),ds=String(o.nint).split('').join('·'),h;
+el.className=o.ok?'why same':'why diff';
+h=(o.ok?'✅ <b>이번에도 맞네요. 왜 그럴까요?</b><br>':'🤔 <b>어긋났어요.</b><br>')
++'· N = '+nf(o.N,1)+' → 10'+sp(p)+' = '+lo+' 이상, 10'+sp(p+1)+' = '+hi+' 미만이에요. 그래서 log N = '+jo(nf(o.lg,6),'은','는')+' '+p+' 이상 '+(p+1)+' 미만이고, 정수 부분은 '+jo(p,'이에요','예요')+'.<br>'
++'· 10'+sp(p)+' 이상 10'+sp(p+1)+' 미만인 수는 '+lo+'부터 '+(hi-1)+'까지, 모두 <b>'+(p+1)+'자리</b>예요.'
++' 실제로 '+(o.k===0&&Math.abs(o.N-o.nint)>1e-9?'N = '+nf(o.N,1)+'의 정수 부분 '+o.nint+'의':'N의')+' 숫자를 세어 보면 <span class="hl">'+ds+'</span>, '+o.digits+'자리예요.<br>'
++'· 가수가 1.0 이상 10 미만이라 N은 늘 10<sup>k</sup> 이상 10<sup>k+1</sup> 미만이에요. 그래서 이 실험에서는 슬라이더를 어떻게 움직여도 <b>늘 ✅</b>예요.';
+el.innerHTML=h;}
 function record(){var o=st();
-return{cells:[nf(o.N,1),nf(o.lg,4),o.ip,nf(o.fp,4),o.digits,o.ok?'✅':'❌'],
+return{cells:[nf(o.N,1),nf(o.lg,4),o.ip,nf(o.fp,4),o.digits,(o.ok?'✅ 맞음':'❌ 다름')+'<small>10'+sp(o.ip)+'≤N&lt;10'+sp(o.ip+1)+' → '+(o.ip+1)+'자리</small>'],
 ip:o.ip,fp:o.fp,digits:o.digits,ok:o.ok,m:o.m,first:o.first};}
 function analyze(){var allok=rows.every(function(r){return r.ok;});
 var groups={};rows.forEach(function(r){var k=nf(r.m,1);(groups[k]=groups[k]||[]).push(r);});
