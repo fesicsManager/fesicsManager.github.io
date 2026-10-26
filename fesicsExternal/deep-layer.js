@@ -8,6 +8,17 @@
    페이지 쪽 전역 rows·autoRec 를 그대로 쓴다. */
 (function(){
   var C = window.FX_DEEP; if(!C) return;
+  /* 수식 표기: {{분자||분모}} → 위아래로 쌓은 분수, lim<sub>x→a</sub> → lim 아래에 x→a */
+  function fmt(t){
+    if(typeof t !== 'string') return t;
+    var prev;
+    /* 안쪽 분수부터 바꾸도록 중괄호가 없는 것만 고르고, 더 바뀌지 않을 때까지 되풀이 */
+    do{ prev = t; t = t.replace(/\{\{([^{}]*?)\|\|([^{}]*?)\}\}/g,
+      '<span class="dp-frac"><span class="dp-num">$1</span><span class="dp-den">$2</span></span>'); }while(t !== prev);
+    return t.replace(/lim<sub>(.*?)<\/sub>/g, '<span class="dp-lim"><span>lim</span><span class="dp-lim-to">$1</span></span>');
+  }
+  (function walk(o){ for(var k in o){ if(!o.hasOwnProperty(k)) continue; var v=o[k];
+    if(typeof v === 'string') o[k] = fmt(v); else if(v && typeof v === 'object') walk(v); } })(C);
   function $(s){ return document.querySelector(s); }
   function el(tag, cls, html){ var e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; }
   /* 페이지는 let rows 로 선언 → window 에 없고 전역 이름으로만 보인다 */
@@ -48,6 +59,13 @@
     '.dp-sm{padding:.35rem .7rem;border-radius:8px;border:1px solid var(--line,#2b3550);background:transparent;color:var(--mut,#9db0d4);font:inherit;font-size:.88rem;cursor:pointer}'+
     '.dp-go{padding:.55rem 1rem;border-radius:10px;border:0;background:var(--warn,#ffb86b);color:#1a1205;font:inherit;font-weight:700;cursor:pointer}'+
     '.dp-tag{display:inline-block;font-size:.78rem;padding:.05rem .45rem;border-radius:6px;background:rgba(122,162,255,.18);color:var(--ac2,#7aa2ff);margin-left:.3rem;vertical-align:middle}');
+  css.textContent +=
+    '.dp-frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 .15em;line-height:1.25;font-size:.95em}'+
+    '.dp-num{padding:0 .2em .08em;border-bottom:1.5px solid currentColor}'+
+    '.dp-den{padding:.08em .2em 0}'+
+    '.dp-lim{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin-right:.2em;line-height:1.1}'+
+    '.dp-lim-to{font-size:.7em;white-space:nowrap}'+
+    '.dp-ch .dp-frac,.dp-opt .dp-frac{font-size:.9em}';
   document.head.appendChild(css);
 
   /* ---------- 탭 ---------- */
