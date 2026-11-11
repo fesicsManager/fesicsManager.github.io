@@ -493,7 +493,7 @@ function toolResult(mix, k){
 
 var mystery=[];                                  /* 숨겨진 혼합물 */
 var facts={sieve:null, magnet:null, water:null};  /* 도구로 알아낸 결과 */
-var log=[], round=0, uses=0, busy=false, revealAll=false, anim=null;
+var log=[], round=0, uses=0, busy=false, revealAll=false, anim=null, endScene=null;
 var guess=[false,false,false,false,false];
 
 /* 지금까지의 결과와 맞는 혼합물만 남긴다 */
@@ -527,7 +527,7 @@ function newMystery(){
   for(var i=idx.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=idx[i]; idx[i]=idx[j]; idx[j]=t; }
   mystery=idx.slice(0,MIX_SIZE).sort(function(a,b){ return a-b; });
   facts={sieve:null, magnet:null, water:null};
-  revealAll=false; anim=null; uses=0;   /* 새 회차: 도구 사용 수도 0부터 (생각 정리 해금은 이번 회차 기준) */
+  revealAll=false; anim=null; endScene=null; uses=0;  /* 새 회차: 도구 사용 수도 0부터 (생각 정리 해금은 이번 회차 기준) */
   guess=[false,false,false,false,false];
   round++;
   ['btnSieve','btnMagnet','btnWater'].forEach(function(id){ document.getElementById(id).disabled=false; });
@@ -619,9 +619,15 @@ function drawMagnet(y,caught){
   }
   cx.restore();
 }
-function drawWater(p){
-  /* 물병에서 물줄기 */
+function drawWater(p,still){
   cx.save();
+  if(still){   /* 끝난 뒤: 접시에 고인 물만 남긴다 */
+    cx.fillStyle='rgba(120,200,220,.45)';
+    cx.beginPath(); cx.ellipse(220,264,130,40,0,0,Math.PI*2); cx.fill();
+    cx.strokeStyle='rgba(80,170,195,.7)'; cx.lineWidth=2; cx.stroke();
+    cx.restore(); return;
+  }
+  /* 물병에서 물줄기 */
   cx.fillStyle='#9fd3e0';
   cx.beginPath(); cx.roundRect ? cx.roundRect(292,18,54,52,8) : cx.rect(292,18,54,52);
   cx.fill(); cx.strokeStyle='#5aa6bb'; cx.lineWidth=3; cx.stroke();
@@ -654,6 +660,9 @@ function draw(){
     var fade=1;
     if(anim && anim.tool==='water' && waterDissolves(STUFF[idx])) fade=Math.max(0,1-anim.p*1.2);
     if(anim && anim.tool==='magnet' && magnetCatches(STUFF[idx]) && anim.p>0.75) fade=0;
+    /* 끝난 장면 유지: 녹은 것·끌려간 것은 접시에 다시 나타나지 않는다 */
+    if(!anim && endScene && endScene.tool==='water' && waterDissolves(STUFF[idx])) fade=0;
+    if(!anim && endScene && endScene.tool==='magnet' && magnetCatches(STUFF[idx])) fade=0;
     if(fade<=0.02) return;
     cx.globalAlpha=fade;
     spotsFor(k).forEach(function(pt){ drawGrain(pt[0],pt[1],idx,shown); });
@@ -672,6 +681,12 @@ function draw(){
       drawMagnet(my, p>0.7 && anim.hit);
     }else if(anim.tool==='water'){
       drawWater(p);
+    }
+  }else if(endScene){
+    if(endScene.tool==='water') drawWater(1, true);
+    else if(endScene.tool==='magnet' && endScene.hit){
+      cx.save(); cx.beginPath(); cx.rect(0,68,440,332); cx.clip();   /* 손잡이가 위 안내 글을 가리지 않게 */
+      drawMagnet(150, true); cx.restore();
     }
   }
 
@@ -733,7 +748,9 @@ function useTool(k){
   ['btnSieve','btnMagnet','btnWater','againBtn'].forEach(function(id){ document.getElementById(id).disabled=true; });   /* 실험 중에는 다른 도구·새 가루 버튼도 잠근다 */
   var caught=mystery.filter(function(i){ return k==='sieve' && sieveCatches(STUFF[i]); });
   anim={tool:k, p:0, caught:caught, hit:res};
+  endScene=null;
   animate(1100, function(p){ anim.p=p; draw(); }, function(){
+    endScene={tool:k, hit:res};
     anim=null;
     facts[k]=res;
     uses++;
