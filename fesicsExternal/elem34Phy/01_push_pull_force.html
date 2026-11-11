@@ -571,7 +571,7 @@ function speedOf(F){ return F*DT/M; }
 function distOf(F){ var v=speedOf(F); return v*v/(2*MU*G); }
 
 var dir='push', force=6, records=[], busy=false, revealed=false;
-var phase='ready', pos=0, handOff=0;
+var phase='ready', pos=0, handOff=0, relPos=0;
 var canvas=document.getElementById('pCanvas'), ctx=canvas.getContext('2d');
 var GY=232, X0=86, X1=396, DMAX=6.5;
 function xOf(d){ return X0+(X1-X0)*(Math.min(DMAX,d)/DMAX); }
@@ -614,21 +614,25 @@ function draw(){
   /* 거리 눈금 */
   ctx.font="600 15px 'IBM Plex Mono',monospace"; ctx.textAlign='center';
   for(var m=0;m<=6;m+=1){
-    var x=xOf(m);
+    var x=(dir==='pull') ? (X0+X1)-xOf(m) : xOf(m);   /* 당길 때는 오른쪽 출발선에서 왼쪽으로 잰다 */
     ctx.strokeStyle='rgba(23,50,56,0.3)'; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.moveTo(x,GY+16); ctx.lineTo(x,GY+26); ctx.stroke();
     ctx.fillStyle='#4a636a'; ctx.fillText(m+'m', x, GY+50);
   }
   /* 출발선 */
   ctx.strokeStyle='#c1443c'; ctx.lineWidth=2.5; ctx.setLineDash([5,4]);
-  ctx.beginPath(); ctx.moveTo(X0,GY-70); ctx.lineTo(X0,GY+24); ctx.stroke(); ctx.setLineDash([]);
+  var SX=(dir==='pull') ? X1 : X0;
+  ctx.beginPath(); ctx.moveTo(SX,GY-70); ctx.lineTo(SX,GY+24); ctx.stroke(); ctx.setLineDash([]);
 
   var sgn = (dir==='push') ? 1 : -1;
   var cx = (dir==='push') ? xOf(pos) : (X0+X1) - xOf(pos);
 
   /* 당기는 힘이면 줄을 그린다 */
-  if(dir==='pull'){
-    var hx = cx - 46 - (pos>0? 0 : 0);
+  /* 손 — 미는(당기는) 동안만 수레에 붙어 있고, 손을 뗀 뒤에는 뗀 자리에 남는다 */
+  var handPos = (phase==='ready' || phase==='push') ? pos : relPos;
+  var hcx = (dir==='push') ? xOf(handPos) : (X0+X1) - xOf(handPos);
+  if(dir==='pull' && (phase==='ready' || phase==='push')){
+    var hx = cx - 100;
     ctx.strokeStyle='#a86825'; ctx.lineWidth=3;
     ctx.beginPath(); ctx.moveTo(cx-38,GY-16); ctx.lineTo(hx+14,GY-16); ctx.stroke();
     for(var k=cx-34;k>hx+18;k-=16){
@@ -638,11 +642,8 @@ function draw(){
 
   drawCart(ctx, cx, GY, 1);
 
-  /* 손 — 미는 동안만 수레에 붙어 있다 */
-  if(phase!=='coast'){
-    var hx2 = (dir==='push') ? cx-52 : cx-64;
-    drawHand(ctx, hx2, GY-16, (dir==='push')?1:1, dir==='pull');
-  }
+  var hx2 = (dir==='push') ? hcx-52 : hcx-100;
+  if(dir==='push' || phase==='ready' || phase==='push') drawHand(ctx, hx2, GY-16, 1, dir==='pull');   /* 당긴 손은 놓은 뒤 비켜 남(수레가 지나감) */
 
   /* 힘 화살표 */
   if(phase==='ready' || phase==='push'){
@@ -707,6 +708,7 @@ document.getElementById('runBtn').addEventListener('click', function(){
   lockInputs('#fSlider', true);
   var v=speedOf(force), d=distOf(force);
   var pushDist=Math.min(0.45, d*0.12);
+  relPos=pushDist;
   var PUSH_MS=700;
   var coastMs=Math.min(2600, 400+ v/(MU*G)*900);
   var t0=performance.now();

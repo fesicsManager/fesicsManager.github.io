@@ -536,8 +536,8 @@ function update(){
   baseVal.textContent=curBase+' mL';
   document.getElementById('resultVal').textContent=curResult;
 }
-acidSlider.addEventListener('input',update);
-baseSlider.addEventListener('input',update);
+acidSlider.addEventListener('input',()=>{ if(mixProgress===1) mixProgress=null; update(); });   /* 양을 바꾸면 다시 두 컵으로 */
+baseSlider.addEventListener('input',()=>{ if(mixProgress===1) mixProgress=null; update(); });
 update();
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b','#c1447f','#4a637a','#a86825'];
@@ -560,7 +560,7 @@ document.getElementById('addPoint').addEventListener('click',()=>{
       points.push({acid:curAcid, base:curBase, result:curResult, color:colors[points.length%colors.length]});
       renderTable();
       maybeShowDataPopup(points.length);
-      mixProgress=null;
+      mixProgress=1;   /* 섞인 결과를 그대로 보여 준다(예전엔 곧바로 섞기 전 두 컵으로 되돌아감) */
     }
   }
   requestAnimationFrame(frame);
@@ -582,6 +582,9 @@ function resultColor(result){
   if(result==='염기성') return [47,143,157];
   return [150,150,150];
 }
+/* 액면 높이: 컵 하나는 70 mL, 섞은 비커는 130 mL 가 가득 찬 높이 */
+function cupSurf(v,top,bottom){ return bottom-6-(bottom-top-26)*Math.min(1,v/70); }
+function mixSurf(v,top,bottom){ return bottom-6-(bottom-top-22)*Math.min(1,v/130); }
 function lerpColor(a,b,t){ return [Math.round(a[0]+(b[0]-a[0])*t), Math.round(a[1]+(b[1]-a[1])*t), Math.round(a[2]+(b[2]-a[2])*t)]; }
 function draw(){
   const CW=canvas.width, CH=canvas.height;
@@ -594,8 +597,9 @@ function draw(){
     const leftL=CW/2-140, leftR=CW/2-20, rightL=CW/2+20, rightR=CW/2+140;
     const GA=GLbeaker((leftL+leftR)/2, top, bottom, 60);
     const GB=GLbeaker((rightL+rightR)/2, top, bottom, 60);
-    GLdrawBeaker(ctx,GA,top+20,'rgba(214,110,102,0.62)','rgba(178,52,44,0.82)',GLphase,{ticks:4});
-    GLdrawBeaker(ctx,GB,top+20,'rgba(110,196,208,0.62)','rgba(38,124,138,0.82)',GLphase,{ticks:4});
+    /* 넣은 양(mL)만큼만 채운다 — 예전엔 0 mL 이어도 두 컵이 가득 차 보였음 */
+    GLdrawBeaker(ctx,GA,cupSurf(curAcid,top,bottom),'rgba(214,110,102,0.62)','rgba(178,52,44,0.82)',GLphase,{ticks:4});
+    GLdrawBeaker(ctx,GB,cupSurf(curBase,top,bottom),'rgba(110,196,208,0.62)','rgba(38,124,138,0.82)',GLphase,{ticks:4});
     ctx.fillStyle='#4a636a'; ctx.font='13px "IBM Plex Mono", monospace'; ctx.textAlign='center';
     ctx.fillText('산성 '+curAcid+'mL', (leftL+leftR)/2, bottom+20);
     ctx.fillText('염기성 '+curBase+'mL', (rightL+rightR)/2, bottom+20);
@@ -608,7 +612,8 @@ function draw(){
     const pourT=Math.max(0,Math.min(1,(p-0.35)/0.5));
     const target=resultColor(curResult);
     const recvCol=lerpColor([193,68,60],target,pourT);
-    GLdrawBeaker(ctx,GA,top+30-pourT*14,
+    const aS=cupSurf(curAcid,top,bottom), mS=mixSurf(curAcid+curBase,top,bottom);
+    GLdrawBeaker(ctx,GA,aS+(mS-aS)*pourT,
       'rgba('+recvCol.join(',')+',0.62)',
       'rgba('+lerpColor(recvCol,[0,0,0],0.25).join(',')+',0.82)',GLphase,{ticks:4});
 
@@ -619,14 +624,14 @@ function draw(){
     ctx.save();
     ctx.translate(px,py); ctx.rotate(-tilt); ctx.translate(-px,-py);
     const GB=GLbeaker(px, py, py+ (bottom-top)*0.62, 46);
-    GLdrawBeaker(ctx,GB, py+18+pourT*46,
+    GLdrawBeaker(ctx,GB, py+18+Math.min(1,1-curBase/70+(curBase/70)*pourT)*64,
       'rgba(110,196,208,0.62)','rgba(38,124,138,0.82)',GLphase,{ticks:3});
     ctx.restore();
 
     /* 부리에서 떨어지는 물줄기 */
     if(pourT>0 && pourT<1){
       const sx=px-46*Math.cos(tilt)-10, sy=py+8;
-      const ex=recvCx+6, ey=top+30-pourT*14;
+      const ex=recvCx+6, ey=aS+(mS-aS)*pourT;
       const grad=ctx.createLinearGradient(sx,sy,ex,ey);
       grad.addColorStop(0,'rgba(110,196,208,0.95)');
       grad.addColorStop(1,'rgba(80,170,190,0.75)');
@@ -657,7 +662,7 @@ function draw(){
     GLback(ctx,GM);
     /* 두 색이 소용돌이치며 하나로 섞인다 */
     ctx.save(); GLpath(ctx,GM); ctx.clip();
-    GLliquid(ctx,GM,top+16,'rgba('+leftColor.join(',')+',0.62)','rgba('+rightColor.join(',')+',0.82)',GLphase);
+    GLliquid(ctx,GM,mixSurf(curAcid+curBase,top,bottom),'rgba('+leftColor.join(',')+',0.62)','rgba('+rightColor.join(',')+',0.82)',GLphase);
     if(p<1){
       ctx.globalAlpha=(1-p)*0.55;
       for(let sw=0;sw<7;sw++){

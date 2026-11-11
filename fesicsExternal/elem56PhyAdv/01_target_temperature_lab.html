@@ -442,7 +442,7 @@ function waterColor(T){
   const r=Math.round(90+150*t), g2=Math.round(170-70*t), b=Math.round(215-120*t);
   return '#'+[r,g2,b].map(v=>v.toString(16).padStart(2,'0')).join('');
 }
-function beaker(g,cx,top,bot,half,fillFrac,color,labelTxt){
+function beaker(g,cx,top,bot,half,fillFrac,color,labelTxt,tilt){
   const lip=half+7;
   if(fillFrac>0){
     const wy=bot-(bot-top)*fillFrac;
@@ -451,11 +451,18 @@ function beaker(g,cx,top,bot,half,fillFrac,color,labelTxt){
     g.quadraticCurveTo(cx-half+3,bot,cx-half+11,bot);
     g.lineTo(cx+half-11,bot); g.quadraticCurveTo(cx+half-3,bot,cx+half-3,bot-6);
     g.lineTo(cx+half-3,top); g.closePath(); g.clip();
+    if(tilt){
+      /* 기울여도 수면은 수평 */
+      g.translate(cx,wy); g.rotate(-tilt);
+      g.fillStyle=color; g.fillRect(-300,0,600,400);
+      g.fillStyle=shade(color,14); g.fillRect(-300,-2,600,4);
+    }else{
     const wg=g.createLinearGradient(0,wy,0,bot);
     wg.addColorStop(0,color); wg.addColorStop(1,shade(color,-18));
     g.fillStyle=wg; g.fillRect(cx-half,wy,half*2,bot-wy);
     g.fillStyle=shade(color,14);
     g.beginPath(); g.ellipse(cx,wy,half-3,5,0,0,7); g.fill();
+    }
     g.restore();
   }
   g.beginPath();
@@ -520,8 +527,15 @@ function drawMix(p){
   const nowT=mixTemp(TH,poured);
 
   /* 왼쪽: 뜨거운 물 주전자(비커) — 부을수록 줄어든다 */
-  const hFrac=Math.max(0.05, 0.8*(1-p));
-  beaker(cx, 84, 60, 210, 40, hFrac, waterColor(TH), '뜨거운 물 '+TH+'℃');
+  const hFrac=Math.max(0, 0.8*(1-p));   /* '0 mL 남음'일 때 비커에 물이 남아 보이지 않게 */
+  /* 붓는 동안 비커를 들어 기울인다(오른쪽 아래 모서리 축) — 물이 비커 벽을 넘어 위로 솟지 않고 입구에서 흘러나오게 */
+  const tw=Math.max(0,Math.min(1,p*6,(1-p)*12)), ang=0.55*tw, lift=62*tw;
+  cx.save(); cx.translate(124,210-lift); cx.rotate(ang); cx.translate(-124,-210);
+  beaker(cx, 84, 60, 210, 40, hFrac, waterColor(TH), null, ang);
+  cx.restore();
+  cx.fillStyle='#173238'; cx.font="600 18px 'Noto Sans KR', sans-serif"; cx.textAlign='center';
+  cx.fillText('뜨거운 물 '+TH+'℃', 84, 236);
+  const lipX=124+7*Math.cos(ang)+156*Math.sin(ang), lipY=210-lift+7*Math.sin(ang)-156*Math.cos(ang);
   cx.fillStyle='#a86825'; cx.font="600 17px 'IBM Plex Mono', monospace"; cx.textAlign='center';
   cx.fillText(Math.round(need-poured)+' mL 남음', 84, 258);
 
@@ -534,12 +548,12 @@ function drawMix(p){
   cx.fillText(Math.round(total)+' mL', 280, 293);
 
   /* 붓는 물줄기 */
-  if(p>0.02 && p<0.99){
-    cx.strokeStyle='rgba(150,190,215,.85)'; cx.lineWidth=7; cx.lineCap='round';
+  if(p>0.1 && p<0.95){
+    cx.strokeStyle=waterColor(TH); cx.globalAlpha=.85; cx.lineWidth=7; cx.lineCap='round';
     cx.beginPath();
-    cx.moveTo(120, 92);
-    cx.quadraticCurveTo(200, 70, 262, 244-(244-46)*cFrac+6);
-    cx.stroke(); cx.lineCap='butt';
+    cx.moveTo(lipX, lipY);
+    cx.quadraticCurveTo(lipX+16, lipY+4, lipX+20, 244-(244-46)*cFrac+6);
+    cx.stroke(); cx.lineCap='butt'; cx.globalAlpha=1;
   }
   /* 온도계 */
   thermometer(cx, 386, 70, 150, nowT, 0, 100);

@@ -648,7 +648,7 @@ function drawSheet(g,name,x,y,w,h){ (MATDRAW2[name]||matPaper)(g,x,y,w,h); }
 
 
 /* ---------- 비커 (눈금 + 주둥이 + 유리 반사) ---------- */
-function beaker(g,cx,top,bot,half,fillFrac,color,label){
+function beaker(g,cx,top,bot,half,fillFrac,color,label,tilt){
   const lip=half+7;
   /* 물 */
   if(fillFrac>0){
@@ -658,12 +658,19 @@ function beaker(g,cx,top,bot,half,fillFrac,color,label){
     g.quadraticCurveTo(cx-half+3,bot,cx-half+11,bot);
     g.lineTo(cx+half-11,bot); g.quadraticCurveTo(cx+half-3,bot,cx+half-3,bot-6);
     g.lineTo(cx+half-3,top); g.closePath(); g.clip();
+    if(tilt){
+      /* 비커를 기울여도 수면은 바닥과 나란히(수평) 유지 */
+      g.translate(cx,wy); g.rotate(-tilt);
+      g.fillStyle=color; g.fillRect(-300,0,600,400);
+      g.fillStyle=shade(color,14); g.fillRect(-300,-2,600,4);
+    }else{
     const wg=g.createLinearGradient(0,wy,0,bot);
     wg.addColorStop(0,color); wg.addColorStop(1,shade(color,-18));
     g.fillStyle=wg; g.fillRect(cx-half,wy,half*2,bot-wy);
     /* 수면 타원 */
     g.fillStyle=shade(color,14);
     g.beginPath(); g.ellipse(cx,wy,half-3,5,0,0,7); g.fill();
+    }
     g.restore();
   }
   /* 유리 몸통 */
@@ -856,21 +863,27 @@ function drawMix(p){
   if(p<0.45){                       /* 1단계: 두 비커를 기울여 붓는다 */
     const q=p/0.45;
     const hotFrac=Math.max(0,(hotV/400)*(1-q)), coldFrac=Math.max(0,(COLD_V/400)*(1-q));
-    cx.save(); cx.translate(78,318); cx.rotate(q*0.55); cx.translate(-78,-318);
-    beaker(cx,78,206,318,40,hotFrac,waterColor(hotT),null);
-    cx.restore();
-    cx.save(); cx.translate(362,318); cx.rotate(-q*0.55); cx.translate(-362,-318);
-    beaker(cx,362,206,318,40,coldFrac,waterColor(COLD_T),null);
-    cx.restore();
-    /* 쏟아지는 물줄기 */
-    if(q>0.15){
-      cx.strokeStyle=waterColor(hotT); cx.lineWidth=7; cx.lineCap='round';
-      cx.beginPath(); cx.moveTo(104,254); cx.quadraticCurveTo(150,270,186,286); cx.stroke();
-      cx.strokeStyle=waterColor(COLD_T);
-      cx.beginPath(); cx.moveTo(336,254); cx.quadraticCurveTo(290,270,254,286); cx.stroke();
-    }
-    /* 큰 비커 */
+    /* 작은 비커를 들어 올려 바깥 모서리를 축으로 기울인다 — 물줄기는 비커 입구에서 큰 비커 입구 안으로 떨어진다
+       (예전: 바닥 가운데를 축으로 기울여 물줄기가 큰 비커의 유리 옆면을 뚫고 들어가 보였음) */
+    const ang=Math.min(1,q*1.6)*0.7, lift=Math.min(1,q*1.6)*100;
     const got=(hotV+COLD_V)/700*q;
+    const wyBig=318-(318-196)*got;
+    [[78,118,1,hotFrac,waterColor(hotT)],[362,322,-1,coldFrac,waterColor(COLD_T)]].forEach(function(b){
+      const bx=b[0], px=b[1], s=b[2];
+      cx.save(); cx.translate(px,318-lift); cx.rotate(s*ang); cx.translate(-px,-318);
+      beaker(cx,bx,206,318,40,b[3],b[4],null,s*ang);
+      cx.restore();
+      /* 입구(안쪽 모서리)의 화면 좌표 */
+      const rx=(bx+s*47)-px, ry=200-318;
+      const lx=px+rx*Math.cos(s*ang)-ry*Math.sin(s*ang);
+      const ly=318-lift+rx*Math.sin(s*ang)+ry*Math.cos(s*ang);
+      if(q>0.15 && q<0.97 && b[3]>0.005){
+        cx.strokeStyle=b[4]; cx.lineWidth=7; cx.lineCap='round';
+        cx.beginPath(); cx.moveTo(lx,ly); cx.quadraticCurveTo(lx+s*10,ly+10,lx+s*12,wyBig); cx.stroke();
+        cx.lineCap='butt';
+      }
+    });
+    /* 큰 비커 */
     beaker(cx,220,196,318,62,got,waterColor(hotT*0.5+COLD_T*0.5),null);
   }else{                            /* 2단계: 색이 실제로 섞여 균일해진다 */
     const q=(p-0.45)/0.55;
