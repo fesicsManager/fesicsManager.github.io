@@ -408,7 +408,11 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var lw = 0, gap = w / Math.max(1, nx); for (i = 0; i <= nx; i++) lw = Math.max(lw, c.measureText(f(xr[0] + i * xr[2], decOf(xr[2]))).width);
+  if (lw + 6 > gap){ c.font = '14px ' + FONT; lw *= 14 / 18; }
+  var every = Math.max(1, Math.ceil((lw + 4) / gap));
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); if (Math.round(v / xr[2]) % every === 0) c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  c.font = '18px ' + FONT;
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
@@ -455,7 +459,7 @@ var LAB = (function(){
       }
       function A(lo, hi){ var a = axisFrom(lo, hi); return [a.lo, a.hi, a.step]; }
       return {
-        sceneHeight: 440,
+        sceneHeight: function(w){ return w < 480 ? 640 : 440; },
         idle: '과정과 온도 변화 ΔT를 고른 뒤 <b>과정 진행하기</b>를 누르세요.',
         shortHint: '네 과정을 같은 ΔT로 한 번씩, 그리고 ΔT를 바꿔 두세 번 더 기록하면 데이터 검증 탭에서 Q/(nΔT)가 C_V인지 C_P인지 확인할 수 있어요.',
         params: [
@@ -465,7 +469,7 @@ var LAB = (function(){
         ],
         compute: function(p){ return solve(p); },
         draw: function(c, W, H, p, r, tau){
-          var s = solve(p), pw = Math.max(130, W * 0.56 - 80), px = 74, py = 30, ph = H - py - 100;
+          var s = solve(p), nar = W < 480, px = 74, pw = nar ? W - px - 20 : Math.max(130, W * 0.56 - 80), py = 30, ph = nar ? 260 : H - py - 100;
           var ax = plotBox(c, px, py, pw, ph, A(0, s.V0 * 1700), [0, 400, 100], 'V (L)', 'P (kPa)');
           var k = r ? Math.min(tau / 0.85, 1) : 0;
           c.fillStyle = PAL[7]; c.beginPath(); var a0 = path(p, s, 0); c.arc(ax.X(a0.V), ax.Y(a0.P), 6, 0, Math.PI * 2); c.fill();
@@ -475,14 +479,14 @@ var LAB = (function(){
             c.stroke();
             var e = path(p, s, k); c.fillStyle = s.pr.col; c.beginPath(); c.arc(ax.X(e.V), ax.Y(e.P), 7, 0, Math.PI * 2); c.fill();
           }
-          var bx = px + pw + 40, bw = (W - bx - 14) / 3, y0 = py + ph * 0.55, sc = ph * 0.5 / (2.5 * 3 * R * 200 / 1.0) * 1.0;
-          sc = ph * 0.5 / (2.5 * p.n * R * 200);
+          var bx = nar ? 30 : px + pw + 40, bw = (W - bx - 14) / 3, gy = nar ? 370 : py, gh = nar ? 200 : ph, y0 = gy + gh * 0.55, sc = ph * 0.5 / (2.5 * 3 * R * 200 / 1.0) * 1.0;
+          sc = gh * 0.5 / (2.5 * p.n * R * 200);
           seg(c, bx - 6, y0, W - 8, y0, '#8C99A8', 1.5);
           var vals = r ? [['ΔU', s.dU, PAL[0]], ['W', s.W, PAL[3]], ['Q', s.Q, PAL[4]]] : [['ΔU', 0, PAL[0]], ['W', 0, PAL[3]], ['Q', 0, PAL[4]]];
           vals.forEach(function(v, j){
             var h = v[1] * sc * k, x = bx + j * bw;
             c.fillStyle = v[2]; c.fillRect(x + 4, h >= 0 ? y0 - h : y0, bw - 8, Math.abs(h));
-            txt(c, v[0], x + bw / 2, py + ph + 24, {align:'center', bold:true});
+            txt(c, v[0], x + bw / 2, gy + gh + 24, {align:'center', bold:true});
             if (r && k >= 1) txt(c, f(v[1], 0), x + bw / 2, h >= 0 ? y0 - h - 6 : y0 - h + 20, {align:'center', color:v[2], bold:true});
           });
           txt(c, r ? s.pr.name + ' · ' + f(T0, 0) + ' K → ' + f(s.T1, 0) + ' K' : '처음 상태 300 K, 1 atm', 20, H - 12, {bold:true});

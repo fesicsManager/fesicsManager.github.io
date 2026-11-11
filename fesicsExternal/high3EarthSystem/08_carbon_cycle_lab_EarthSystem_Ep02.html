@@ -316,8 +316,9 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+function fitPx(c, s, bold, maxW){ c.font = (bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(s).width; return w > maxW ? Math.max(11, Math.floor(18 * maxW / w)) : 18; }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -483,30 +484,37 @@ return {
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.85, 1) : 0;
     // 저장소 상자
-    var boxes = [[20, 60, '대기', 0], [20, 190, '육상 생물·토양', 1], [W - 190, 60, '표층 해수', 2], [W - 190, 190, '심층 해수', 3], [(W - 150) / 2, 300, '화석 연료', 4]];
+    var nar = W < 380, BW = nar ? Math.floor((W - 36) / 2) : 160;
+    var boxes = nar ? [[12, 60, '대기', 0], [12, 190, '육상 생물·토양', 1], [W - 12 - BW, 60, '표층 해수', 2], [W - 12 - BW, 190, '심층 해수', 3], [(W - BW) / 2, 300, '화석 연료', 4]] : [[20, 60, '대기', 0], [20, 190, '육상 생물·토양', 1], [W - 190, 60, '표층 해수', 2], [W - 190, 190, '심층 해수', 3], [(W - 150) / 2, 300, '화석 연료', 4]];
     boxes.forEach(function(b){
-      var R = RES[b[3]], w = 160, h = 56;
+      var R = RES[b[3]], w = BW, h = 56;
       if (b[0] + w > W - 12) b[0] = W - w - 12;
       c.fillStyle = R.sphere.indexOf('수권') >= 0 ? '#CFE6F7' : R.sphere.indexOf('생물') >= 0 ? '#D7EED9' : R.sphere.indexOf('기권') >= 0 ? '#E7EEF6' : '#EDE3D2';
       c.fillRect(b[0], b[1], w, h);
       c.strokeStyle = FLOW[p.f].from === b[3] || FLOW[p.f].to === b[3] ? '#C8463D' : '#8C99A8';
       c.lineWidth = FLOW[p.f].from === b[3] || FLOW[p.f].to === b[3] ? 3 : 1.5; c.strokeRect(b[0], b[1], w, h);
-      txt(c, b[2], b[0] + 8, b[1] + 22, {bold:true});
-      txt(c, R.C.toLocaleString() + ' GtC', b[0] + 8, b[1] + 44, {color:'#4A5868'});
+      txt(c, b[2], b[0] + 8, b[1] + 22, {bold:true, size:fitPx(c, b[2], true, w - 14)});
+      txt(c, R.C.toLocaleString() + ' GtC', b[0] + 8, b[1] + 44, {color:'#4A5868', size:fitPx(c, R.C.toLocaleString() + ' GtC', false, w - 14)});
     });
     // 선택한 흐름 화살표
     var F = FLOW[p.f], from = boxes.filter(function(b){ return b[3] === F.from; })[0], to = boxes.filter(function(b){ return b[3] === F.to; })[0];
     if (from && to){
-      var x1 = from[0] + 80, y1 = from[1] + 28, x2 = to[0] + 80, y2 = to[1] + 28;
+      var x1 = from[0] + BW / 2, y1 = from[1] + 28, x2 = to[0] + BW / 2, y2 = to[1] + 28;
       arrow(c, x1, y1, x1 + (x2 - x1) * (0.2 + 0.75 * k), y1 + (y2 - y1) * (0.2 + 0.75 * k), '#C8463D', Math.max(2, Math.min(10, Math.log10(1 + F.v) * 4)));
-      txt(c, F.name.split(' (')[0] + ' ' + f(r ? r.F0 : F.v, 1) + ' GtC/년', (x1 + x2) / 2, (y1 + y2) / 2 - 14, {align:'center', color:'#C8463D', bold:true});
+      var flS = F.name.split(' (')[0] + ' ' + f(r ? r.F0 : F.v, 1) + ' GtC/년'; var flZ = fitPx(c, flS, true, W - 24), flX = (x1 + x2) / 2; if (nar){ c.font = '700 ' + flZ + 'px ' + FONT; var flH = c.measureText(flS).width / 2; flX = Math.max(flH + 4, Math.min(W - flH - 4, flX)); } txt(c, flS, flX, (y1 + y2) / 2 - 14, {align:'center', color:'#C8463D', bold:true, size:flZ});
     }
     var by = 380;
     if (!r) return;
-    txt(c, '대기로 들어오는 탄소 ' + f(r.B.into, 1) + ' − 나가는 탄소 ' + f(r.B.outof, 1) + ' = ' + sgn(r.B.net, 1) + ' GtC/년', 12, by, {bold:true});
-    txt(c, r.y + '년 동안 대기 탄소 ' + sgn(r.add * k, 1) + ' GtC (' + sgn(r.ppm * k, 1) + ' ppm) 변화', 12, by + 30,
-      {bold:true, color:r.B.net > 0 ? '#C8463D' : '#2E9E78'});
-    txt(c, r.human ? '사람 활동(화석 연료 연소, 토지 이용)이 균형을 깨뜨립니다' : '사람 활동이 없으면 들어오고 나가는 양이 거의 같습니다', 12, H - 14, {color:'#4A5868'});
+    var s1 = '대기로 들어오는 탄소 ' + f(r.B.into, 1) + ' − 나가는 탄소 ' + f(r.B.outof, 1) + ' = ' + sgn(r.B.net, 1) + ' GtC/년';
+    var s2 = r.y + '년 동안 대기 탄소 ' + sgn(r.add * k, 1) + ' GtC (' + sgn(r.ppm * k, 1) + ' ppm) 변화';
+    var s3 = r.human ? '사람 활동(화석 연료 연소, 토지 이용)이 균형을 깨뜨립니다' : '사람 활동이 없으면 들어오고 나가는 양이 거의 같습니다';
+    if (fitPx(c, s1, true, W - 20) < 14 && s1.indexOf(' = ') > 0){ var p1 = s1.split(' = '), a1 = p1[0], b1 = '= ' + p1[1], z1 = Math.min(14, fitPx(c, a1, true, W - 20), fitPx(c, b1, true, W - 20)); txt(c, a1, 12, by - 10, {bold:true, size:z1}); txt(c, b1, 12, by + 8, {bold:true, size:z1}); }
+    else txt(c, s1, 12, by, {bold:true, size:fitPx(c, s1, true, W - 20)});
+    txt(c, s2, 12, by + 30,
+      {bold:true, size:fitPx(c, s2, true, W - 20), color:r.B.net > 0 ? '#C8463D' : '#2E9E78'});
+    if (fitPx(c, s3, false, W - 20) < 14){ var w3 = s3.split(' '), h3 = Math.ceil(w3.length / 2), l1 = w3.slice(0, h3).join(' '), l2 = w3.slice(h3).join(' '), z3 = Math.min(fitPx(c, l1, false, W - 20), fitPx(c, l2, false, W - 20));
+      txt(c, l1, 12, H - 30, {color:'#4A5868', size:z3}); txt(c, l2, 12, H - 10, {color:'#4A5868', size:z3}); }
+    else txt(c, s3, 12, H - 14, {color:'#4A5868', size:fitPx(c, s3, false, W - 20)});
   },
   stats: function(p, r){
     return [['조건', r.human ? '사람 활동 있음' : '사람 활동 없음'], ['대기로 들어오는 탄소', f(r.B.into, 1) + ' GtC/년', PAL[4]],

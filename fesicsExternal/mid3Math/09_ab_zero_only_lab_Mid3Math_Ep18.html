@@ -301,7 +301,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -399,7 +399,12 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  /* 좁은 화면: 눈금 숫자가 서로 닿으면 글자를 줄이고 몇 개 걸러 하나만 쓴다 (눈금선은 그대로) */
+  var xw = 0; for (i = 0; i <= nx; i++) xw = Math.max(xw, c.measureText(f(xr[0] + i * xr[2], decOf(xr[2]))).width);
+  var tight = xw + 8 > w / nx, xev = 1, xfs = 18;
+  if (tight){ xfs = 15; c.font = xfs + 'px ' + FONT; xw *= 15 / 18; var evs = [1, 2, 3, 4, 5, 6, 10, 12, 20]; for (var ei = 0; ei < evs.length; ei++){ xev = evs[ei]; if (xev * w / nx >= xw + 8) break; } }
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); if (i % xev === 0) c.fillText(f(v, decOf(xr[2])), X(v), y + h + (tight ? 10 : 6)); }
+  c.font = '18px ' + FONT;
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
@@ -426,7 +431,7 @@ var LAB = (function(){
       var K = [0, 2, 6, 12, 20], MT = ['A = k 또는 B = k 로 풀기', '전개해서 한쪽을 0으로'];
       var fx = function(x){ return (x - 2) * (x - 3); }, F0 = function(x){ return f(x, 0); };
       return {
-        sceneHeight: 450,
+        sceneHeight: function(w){ return w < 420 ? 486 : 450; },
         idle: 'k와 방법을 고른 뒤 <b>풀고 대입하기</b>를 누르세요.',
         shortHint: 'k = 0 에서 두 방법의 답을 비교하고, k = 6, 12 에서도 해 보세요. 대입 결과가 k와 같은 것은 어느 쪽인가요?',
         params: [
@@ -440,8 +445,9 @@ var LAB = (function(){
           return {k:k, tr:tr, xs:xs, chk:chk, pass:chk.filter(function(q){ return q.ok; }).length, eq:'x² − 5x' + (6 - k > 0 ? ' + ' + (6 - k) : 6 - k < 0 ? ' − ' + (k - 6) : '') + ' = 0'};
         },
         draw: function(c, W, H, p, r, tau){
-          var k = K[p.k], bx = W >= 620 ? 80 : 62, bw = W - bx - 24, P = plotBox(c, bx, 20, bw, H - 90, [-3, 8, 1], [-5, 35, 5], 'x', 'y');
-          c.save(); c.beginPath(); c.rect(bx, 20, bw, H - 90); c.clip();
+          var nar = W < 420, ph = nar ? H - 126 : H - 90; /* 휴대폰 폭: 그림 밖 값 글은 그래프 아래 줄로 */
+          var k = K[p.k], bx = W >= 620 ? 80 : 62, bw = W - bx - 24, P = plotBox(c, bx, 20, bw, ph, [-3, 8, 1], [-5, 35, 5], 'x', 'y');
+          c.save(); c.beginPath(); c.rect(bx, 20, bw, ph); c.clip();
           c.strokeStyle = PAL[0]; c.lineWidth = 3; c.beginPath(); for (var i = 0; i <= 110; i++){ var x = -3 + i / 10; if (i) c.lineTo(P.X(x), P.Y(fx(x))); else c.moveTo(P.X(x), P.Y(fx(x))); } c.stroke();
           seg(c, bx, P.Y(k), bx + bw, P.Y(k), PAL[6], 2.5, [8, 5]);
           c.restore();
@@ -450,11 +456,11 @@ var LAB = (function(){
           var a = Math.min(tau / 0.7, 1);
           r.chk.forEach(function(q, j){
             var col = q.ok ? PAL[1] : PAL[4];
-            if (q.x > 8){ txt(c, 'x = ' + F0(q.x) + ' → (그림 밖)  값 ' + F0(q.v), bx + bw - 6, 44 + j * 24, {align:'right', bold:true, color:col}); return; }
+            if (q.x > 8){ if (nar) txt(c, 'x = ' + F0(q.x) + ' → (그림 밖)  값 ' + F0(q.v), 16, H - 24 + j * 18, {bold:true, color:col, size:14}); else txt(c, 'x = ' + F0(q.x) + ' → (그림 밖)  값 ' + F0(q.v), bx + bw - 6, 44 + j * 24, {align:'right', bold:true, color:col}); return; }
             var yv = Math.min(q.v, 35) * a;
             seg(c, P.X(q.x), P.Y(0), P.X(q.x), P.Y(yv), col, 4);
             c.fillStyle = col; c.beginPath(); c.arc(P.X(q.x), P.Y(yv), 7, 0, Math.PI * 2); c.fill();
-            if (tau > 0.7) txt(c, 'x=' + F0(q.x) + ': ' + F0(q.v), P.X(q.x) + 8, P.Y(Math.min(q.v, 33)) - 10 - j * 20, {bold:true, color:col});
+            if (tau > 0.7){ var ql = 'x=' + F0(q.x) + ': ' + F0(q.v); c.font = '700 18px ' + FONT; var qr = nar && P.X(q.x) + 8 + c.measureText(ql).width > W - 4; txt(c, ql, qr ? P.X(q.x) - 10 : P.X(q.x) + 8, P.Y(Math.min(q.v, 33)) - 10 - j * 20, {bold:true, color:col, align:qr ? 'right' : 'left'}); }
           });
           r.tr.forEach(function(x){ c.strokeStyle = PAL[1]; c.lineWidth = 2; c.beginPath(); c.arc(P.X(x), P.Y(k), 11, 0, Math.PI * 2); c.stroke(); });
         },
