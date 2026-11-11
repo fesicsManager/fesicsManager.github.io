@@ -309,6 +309,12 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다(o.dry 면 세기만)
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(/ (?!\d{3}\b|[%°℃‰]|(?:MW|kW|W|K|m|km|kg|g|mL|L|s|eV|nm|cm|mm|Hz|kJ|J|ppm|kbar|bar|atm|hPa|kPa|Pa|mol|M|명|개|번|회|원|년|초|분)(?![A-Za-z]))/), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
+  if (!o.dry) txt(c, line, x, y + n * lh, o); return n + 1;
+}
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
@@ -456,7 +462,7 @@ var LAB = (function(){
         R.trendSeen = ci === 2; return R;
       }
       return {
-        sceneHeight: 430,
+        sceneHeight: function(w){ return w < 480 ? 500 : 430; },
         idle: '그래프 종류와 세로축 시작점을 고른 뒤 <b>그래프 그리기</b>를 누르세요.',
         shortHint: '네 가지 그래프를 모두 그려 보고, 선 그래프는 세로축 "넓게"와 "자르기"를 둘 다 기록하세요.',
         params: [
@@ -466,10 +472,11 @@ var LAB = (function(){
         ],
         compute: function(p){ var R = analyze(p.c, p.a); return R; },
         draw: function(c, W, H, p, r, tau){
-          var R = r || analyze(p.c, p.a), k = r ? Math.min(tau / 0.85, 1) : 0.15, px = 64, py = 16, pw = W - px - 20, ph = H - py - 100, i;
+          var R = r || analyze(p.c, p.a), k = r ? Math.min(tau / 0.85, 1) : 0.15, px = 64, py = 16, pw = W - px - 20, nar = W < 480, ph = H - py - (nar ? 170 : 100), i; // 좁은 화면: 아래 글이 여러 줄이 되므로 그래프를 줄인다
+          function btm(s, o){ var nl = wtxt(c, s, 16, 0, {bold:o.bold, dry:true}, W - 32, 22); wtxt(c, s, 16, H - 16 - (nl - 1) * 22, o, W - 32, 22); }
           if (p.c === 0){ var cx = W / 2, cy = py + ph / 2 + 10, rad = Math.min(pw, ph) / 2 - 6, pos = R.months.map(function(v){ return Math.max(0, v); }), tot = pos.reduce(function(s, v){ return s + v; }, 0), a0 = -Math.PI / 2;
             pos.forEach(function(v, m){ var a1 = a0 + 2 * Math.PI * v / tot * k; c.fillStyle = 'hsl(' + (m * 30) + ',55%,' + (55 + (m % 2) * 12) + '%)'; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, rad, a0, a1); c.closePath(); c.fill(); a0 = a1; });
-            txt(c, '12조각 · 어느 해인지 알 수 없음', 16, H - 44, {color:'#4A5868'}); }
+            if (nar) wtxt(c, '12조각 · 어느 해인지 알 수 없음', 16, H - 110, {color:'#4A5868'}, W - 32, 22); else txt(c, '12조각 · 어느 해인지 알 수 없음', 16, H - 44, {color:'#4A5868'}); }
           else if (p.c === 1){ var Hs = R.hist, top = Math.max.apply(null, Hs.b), ax = plotBox(c, px, py, pw, ph, [-6, 30, 6], [R.base, Math.ceil((top + 2) / 5) * 5, 5], '기온 (℃)', '달 수');
             Hs.b.forEach(function(n, j){ var x0 = ax.X(Hs.lo + j * Hs.bw), x1 = ax.X(Hs.lo + (j + 1) * Hs.bw), y = ax.Y(R.base + (Math.max(R.base, n) - R.base) * k); c.fillStyle = PAL[0]; c.fillRect(x0 + 1, y, x1 - x0 - 2, ax.Y(R.base) - y); }); }
           else if (p.c === 2){ var lo = R.base, ax2 = plotBox(c, px, py, pw, ph, [0, 10, 2], [lo, 30, p.a === 0 ? 10 : 1], '연도 (년째)', '기온 (℃)'), n = Math.floor(120 * k);
@@ -481,9 +488,9 @@ var LAB = (function(){
           else { var s = R.box, ax3 = plotBox(c, px, py, pw, ph, [-10, 30, 10], [0, 2, 1], '기온 (℃)', ''), yc = ax3.Y(1), l = function(v){ return ax3.X(s[2] + (v - s[2]) * k); };
             c.fillStyle = 'rgba(43,95,163,.15)'; c.fillRect(l(s[1]), yc - 30, l(s[3]) - l(s[1]), 60); c.strokeStyle = PAL[0]; c.lineWidth = 2; c.strokeRect(l(s[1]), yc - 30, l(s[3]) - l(s[1]), 60);
             seg(c, l(s[0]), yc, l(s[1]), yc, PAL[0], 2); seg(c, l(s[3]), yc, l(s[4]), yc, PAL[0], 2); seg(c, ax3.X(s[2]), yc - 30, ax3.X(s[2]), yc + 30, PAL[1], 3); }
-          if (r && tau >= 1){ txt(c, R.found, 16, H - 16, {bold:true, color:R.trendSeen ? PAL[1] : PAL[4]});
+          if (r && tau >= 1){ if (nar) btm(R.found, {bold:true, color:R.trendSeen ? PAL[1] : PAL[4]}); else txt(c, R.found, 16, H - 16, {bold:true, color:R.trendSeen ? PAL[1] : PAL[4]});
             if (R.lie != null && p.c === 2) txt(c, '거짓말 지수 ' + f(R.lie, 1) + (R.lie > 1.5 ? ' (부풀림)' : ' (정직)'), W - 20, py + 20, {align:'right', bold:true, color:R.lie > 1.5 ? PAL[4] : PAL[1]}); }
-          else txt(c, r ? '그리는 중…' : CH[p.c] + ' · ' + AX[p.a], 16, H - 16, {bold:true});
+          else if (nar) btm(r ? '그리는 중…' : CH[p.c] + ' · ' + AX[p.a], {bold:true}); else txt(c, r ? '그리는 중…' : CH[p.c] + ' · ' + AX[p.a], 16, H - 16, {bold:true});
         },
         stats: function(p, r){
           var out = [['그래프', CH[p.c] + (p.c === 2 ? ' · ' + AX[p.a] : '')], ['이 그래프에서 읽히는 것', r.found, r.trendSeen ? PAL[1] : PAL[6]],
@@ -718,5 +725,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

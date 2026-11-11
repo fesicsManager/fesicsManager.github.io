@@ -320,6 +320,18 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 (o.dry 면 그리지 않고 재기만) */
+function wrapT(c, s, x, y, maxW, lh, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){
+    var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; }
+    else line = t;
+  }
+  if (!o.dry) txt(c, line, x, y + n * lh, o);
+  return y + (n + 1) * lh;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -456,7 +468,7 @@ var TIME = [
 var MODE = ['빅뱅의 증거', '우주의 역사'];
 var Z = [0, 1, 3, 6, 10, 1100];
 return {
-  sceneHeight: 470,
+  sceneHeight: function(w){ return w < 480 ? 560 : 470; },   /* 좁은 화면은 설명이 두 줄씩이라 더 높게 */
   idle: '살펴볼 것을 고른 뒤 <b>관측하기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 증거 네 가지를 모두 살펴보고, 우주의 역사도 단계별로 기록하세요.',
   params: [
@@ -483,7 +495,8 @@ return {
       TIME.forEach(function(S, i){
         var x = ax + aw * i / (TIME.length - 1), on = i === p.s;
         c.fillStyle = on ? '#C8463D' : '#C9CDD2'; c.beginPath(); c.arc(x, ay, on ? 9 : 5, 0, Math.PI * 2); c.fill();
-        txt(c, S.t, x, ay + 26, {align:'center', color:on ? '#C8463D' : '#8C99A8', bold:on});
+        var nr = W < 480;   /* 좁은 화면: 이름표를 위·아래 번갈아 두고 양 끝은 안쪽으로 맞춤 */
+        txt(c, S.t, x, nr && i % 2 ? ay - 18 : ay + 26, {align:nr && i === 0 ? 'left' : nr && i === TIME.length - 1 ? 'right' : 'center', color:on ? '#C8463D' : '#8C99A8', bold:on});
       });
       // 팽창하는 우주 그림
       var cx = W / 2, cy = 250, R = 30 + p.s * 22;
@@ -493,17 +506,31 @@ return {
         c.beginPath(); c.arc(cx + Math.cos(a2) * rr, cy + Math.sin(a2) * rr, 2.5, 0, Math.PI * 2); c.fill(); }
       var by2 = 340;
       if (!r) return;
+      var tS = '그때의 우주 온도 약 ' + (r.S.T >= 1e6 ? r.S.T.toExponential(0) + ' K' : r.S.T.toLocaleString() + ' K');
+      if (W < 480){   /* 좁은 화면: 줄을 나눠 씀 */
+        var y3 = wrapT(c, r.S.t + ' · ' + r.S.name, 12, by2, W - 24, 23, {bold:true});
+        y3 = wrapT(c, r.S.ev, 12, y3 + 6, W - 24, 23, {});
+        wrapT(c, tS, 12, y3 + 6, W - 24, 23, {bold:true, color:'#C8463D'});
+        return;
+      }
       txt(c, r.S.t + ' · ' + r.S.name, 12, by2, {bold:true});
       txt(c, r.S.ev, 12, by2 + 30, {});
-      txt(c, '그때의 우주 온도 약 ' + (r.S.T >= 1e6 ? r.S.T.toExponential(0) + ' K' : r.S.T.toLocaleString() + ' K'), 12, by2 + 60, {bold:true, color:'#C8463D'});
+      txt(c, tS, 12, by2 + 60, {bold:true, color:'#C8463D'});
       return;
     }
     // 증거
-    var E = EV[p.e];
+    var E = EV[p.e], nar = W < 480, top = 160;
     txt(c, E.name, 12, 34, {bold:true});
+    if (nar){   /* 좁은 화면: 설명 세 줄을 띄어쓰기에서 나눠 쓰고 아래 그림을 내린다 */
+      var yy = wrapT(c, '관측: ' + E.obs, 12, 62, W - 24, 23, {});
+      yy = wrapT(c, '빅뱅 이론의 예측: ' + E.pred, 12, yy + 4, W - 24, 23, {color:'#4A5868'});
+      yy = wrapT(c, '관측 방법: ' + E.band, 12, yy + 4, W - 24, 23, {color:'#4A5868'});
+      top = yy + 10;
+    } else {
     txt(c, '관측: ' + E.obs, 12, 64, {});
     txt(c, '빅뱅 이론의 예측: ' + E.pred, 12, 94, {color:'#4A5868'});
     txt(c, '관측 방법: ' + E.band, 12, 124, {color:'#4A5868'});
+    }
     if (p.e === 0){
       // 배경 복사 스펙트럼
       var T = r ? r.Tz : 2.725;
@@ -512,7 +539,10 @@ return {
       var e10 = Math.pow(10, Math.floor(Math.log10(L * 2.8))), m = L * 2.8 / e10;
       var nice = m <= 1 ? [1, 0.2] : m <= 2 ? [2, 0.5] : m <= 3 ? [3, 0.5] : m <= 5 ? [5, 1] : [10, 2];
       var xMax = nice[0] * e10, xStep = nice[1] * e10;
-      var P = plotBox(c, 80, 160, W - 110, H - 250, [0, xMax, xStep], [0, 1.1, 0.25], um ? '파장 (µm)' : '파장 (mm)', '상대 세기');
+      var annS = T.toFixed(3) + ' K 흑체 곡선 (최대 세기 ' + (um ? f(L, 3) + ' µm' : f(lamMax, 3) + ' mm') + ')';
+      if (nar && r) wrapT(c, annS, 12, top + 8, W - 24, 22, {color:'#C8463D', bold:true});   /* 좁은 화면: 곡선 이름을 그래프 위에 두 줄로 */
+      var pTop = nar ? top + 52 : 160;
+      var P = plotBox(c, 80, pTop, W - 110, nar ? H - pTop - 110 : H - 250, [0, xMax, nar ? xStep * 2 : xStep], [0, 1.1, 0.25], um ? '파장 (µm)' : '파장 (mm)', '상대 세기');
       var C2 = 4.965, NORM = Math.exp(C2) - 1;               // hc/(λ_max·kT) = 4.965 → 봉우리 높이 1
       c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.beginPath(); c.moveTo(P.X(0), P.Y(0));
       for (var i = 1; i <= 200; i++){
@@ -520,7 +550,17 @@ return {
         c.lineTo(P.X(lm), P.Y(Math.min(1.1, y)));
       }
       c.stroke();
-      if (r) txt(c, T.toFixed(3) + ' K 흑체 곡선 (최대 세기 ' + (um ? f(L, 3) + ' µm' : f(lamMax, 3) + ' mm') + ')', 90, 180, {color:'#C8463D', bold:true});
+      if (r && !nar) txt(c, annS, 90, 180, {color:'#C8463D', bold:true});
+    } else if (r && nar){
+      // 값 막대 (좁은 화면: 이름·값을 막대 위 한 줄에, 막대는 왼쪽부터)
+      var nb = W - 24, ny = top + 14;
+      if (E.val != null){
+        txt(c, '관측값 ' + E.val + ' ' + E.unit, 12, ny, {});
+        c.fillStyle = '#2B5FA3'; c.fillRect(12, ny + 8, nb * 0.7 * k, 24);
+        txt(c, '이론값 ' + E.theo + ' ' + E.unit, 12, ny + 64, {});
+        c.fillStyle = '#2E9E78'; c.fillRect(12, ny + 72, nb * 0.7 * (E.theo / E.val), 24);
+        wrapT(c, '관측과 이론이 잘 맞습니다', 12, ny + 130, W - 24, 23, {bold:true, color:'#2E9E78'});
+      } else wrapT(c, '수치가 아니라 모습으로 확인하는 증거입니다', 12, ny, W - 24, 23, {color:'#4A5868'});
     } else if (r){
       // 값 막대
       var bx = 140, bw = W - bx - 30, by3 = 180;
@@ -535,7 +575,9 @@ return {
       } else txt(c, '수치가 아니라 모습으로 확인하는 증거입니다', 12, by3 + 12, {color:'#4A5868'});
     }
     if (r && p.e === 0){
-      txt(c, 'z = ' + r.z + '일 때 배경 복사 온도 ' + f(r.Tz, 3) + ' K (' + r.age + ')', 12, H - 14, {bold:true});
+      var zS = 'z = ' + r.z + '일 때 배경 복사 온도 ' + f(r.Tz, 3) + ' K (' + r.age + ')';
+      if (nar){ var zn = (wrapT(c, zS, 0, 0, W - 24, 23, {bold:true, dry:true}) / 23) | 0; wrapT(c, zS, 12, H - 14 - (zn - 1) * 23, W - 24, 23, {bold:true}); }   /* 좁은 화면: 두 줄로 */
+      else txt(c, zS, 12, H - 14, {bold:true});
     }
   },
   stats: function(p, r){
@@ -781,5 +823,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

@@ -316,6 +316,22 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 나눠 그림. 늘어난 높이를 돌려줌 */
+function wtxt(c, s, x, y, o, maxW, lh){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  if (c.measureText(s).width <= maxW){ txt(c, s, x, y, o); return 0; }
+  var ws = s.split(/ +/).reduce(function(a, w){ if (a.length && ('%)]'.indexOf(w.charAt(0)) >= 0 || (w.length === 2 && w.charAt(1) === ')') || (/\d$/.test(a[a.length - 1]) && /^[A-Za-zµ°]/.test(w)))) a[a.length - 1] += ' ' + w; else a.push(w); return a; }, []), ls = [], cur = '';
+  ws.forEach(function(w){ var t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > maxW){ ls.push(cur); cur = w; } else cur = t; });
+  if (cur) ls.push(cur);
+  ls.forEach(function(l, i){ txt(c, l, x, y + i * lh, o); });
+  return (ls.length - 1) * lh;
+}
+/* 폭(maxW)을 넘으면 글자를 줄여(11px 까지) 한 줄로 그림 */
+function ftxt(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  while (fs > 11 && c.measureText(s).width > maxW){ fs--; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; }
+  c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -454,8 +470,20 @@ return {
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.d, p.p, p.g), gx = 20, gy = 40, gs = Math.min(200, W * 0.32), n = p.d === 0 ? 4 : p.d === 1 ? 8 : 16, cell = gs / n;
     for (var i = 0; i < n * n; i++){ var gr = ((i * 37) % 100) < C.green; c.fillStyle = gr ? '#2E9E78' : '#8C99A8'; c.fillRect(gx + (i % n) * cell + 1, gy + Math.floor(i / n) * cell + 1, cell - 2, cell - 2); }
-    txt(c, '면적 ' + f(C.area, 0) + ' km² · 하루 이동 ' + f(C.dist, 0) + ' km', gx, gy + gs + 24, {color:'#4A5868'});
-    var px = gx + gs + 70, pw = W - px - 20, ph = H - 140; if (pw > 80){ var ax = plotBox(c, px, 40, pw, ph, [0, 2, 1], [0, 8, 2], '', ''); var bw = pw / 2 * 0.5;
+    ftxt(c, '면적 ' + f(C.area, 0) + ' km² · 하루 이동 ' + f(C.dist, 0) + ' km', gx, gy + gs + 24, {color:'#4A5868'}, W - gx - 8);
+    var px = gx + gs + 70, pw = W - px - 20, ph = H - 140;
+    if (pw <= 80 && W > 200){
+      /* 좁은 화면: 오른쪽 자리가 없으면 막대그래프를 격자 아래에 그림 */
+      var py = gy + gs + 44; px = 60; pw = W - px - 20; ph = H - py - 130;
+      var ax2 = plotBox(c, px, py, pw, ph, [0, 2, 1], [0, 8, 2], '', ''), bw2 = pw / 2 * 0.5;
+      c.fillStyle = '#C8463D'; c.fillRect(ax2.X(0.5) - bw2 / 2, ax2.Y(Math.min(8, C.em * k)), bw2, ax2.Y(0) - ax2.Y(Math.min(8, C.em * k)));
+      c.fillStyle = '#D98E04'; c.fillRect(ax2.X(1.5) - bw2 / 2, ax2.Y(Math.max(0, Math.min(8, C.heat * k))), bw2, ax2.Y(0) - ax2.Y(Math.max(0, Math.min(8, C.heat * k))));
+      ftxt(c, '교통 배출 ' + f(C.em * k, 1) + ' t/인·년', 12, py + ph + 46, {color:'#C8463D'}, W - 24);
+      ftxt(c, '열섬 +' + f(C.heat * k, 1) + ' ℃', 12, py + ph + 70, {color:'#D98E04'}, W - 24);
+      wtxt(c, '자가용 ' + f(C.car * 100, 0) + ' % · 대중교통 ' + f(C.pt * 100, 0) + ' % · 도보·자전거 ' + f(C.walk * 100, 0) + ' %', 12, H - 34, {color:'#4A5868'}, W - 20, 22);
+      return;
+    }
+    if (pw > 80){ var ax = plotBox(c, px, 40, pw, ph, [0, 2, 1], [0, 8, 2], '', ''); var bw = pw / 2 * 0.5;
       c.fillStyle = '#C8463D'; c.fillRect(ax.X(0.5) - bw / 2, ax.Y(Math.min(8, C.em * k)), bw, ax.Y(0) - ax.Y(Math.min(8, C.em * k))); txt(c, '교통 배출 ' + f(C.em * k, 1) + ' t/인·년', ax.X(0.5), 40 + ph + 24, {align:'center', color:'#C8463D'});
       c.fillStyle = '#D98E04'; c.fillRect(ax.X(1.5) - bw / 2, ax.Y(Math.max(0, Math.min(8, C.heat * k))), bw, ax.Y(0) - ax.Y(Math.max(0, Math.min(8, C.heat * k)))); txt(c, '열섬 +' + f(C.heat * k, 1) + ' ℃', ax.X(1.5), 40 + ph + 24, {align:'center', color:'#D98E04'}); }
     txt(c, '자가용 ' + f(C.car * 100, 0) + ' % · 대중교통 ' + f(C.pt * 100, 0) + ' % · 도보·자전거 ' + f(C.walk * 100, 0) + ' %', 12, H - 12, {color:'#4A5868'});
@@ -665,5 +693,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

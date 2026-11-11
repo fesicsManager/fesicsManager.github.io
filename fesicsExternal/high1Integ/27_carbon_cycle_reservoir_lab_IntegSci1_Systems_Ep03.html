@@ -329,6 +329,18 @@ function txt(c, s, x, y, o){
   }
   c.fillText(s, x, y);
 }
+/* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 (o.dry 면 재기만) */
+function wrapT(c, s, x, y, maxW, lh, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){
+    var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; }
+    else line = t;
+  }
+  if (!o.dry) txt(c, line, x, y + n * lh, o);
+  return y + (n + 1) * lh;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -453,7 +465,7 @@ var A0 = 596, PPMC = 2.13, TAU = 30, BIO0 = 550, KEEP = 0.2, C0 = 640;   // KEEP
 var EMIT = [0, 5, 10, 15];
 var FOR = [{n:'숲 10 % 늘림', k:1.1}, {n:'그대로', k:1.0}, {n:'숲 20 % 벰', k:0.8}];
 return {
-  sceneHeight: 470,
+  sceneHeight: function(w){ return w < 480 ? 500 : 470; },   /* 좁은 화면은 결과 글이 여러 줄이라 더 높게 */
   minRec: 4,
   idle: '화석 연료 사용량과 숲의 변화, 흘려보낼 햇수를 정하고 <b>시간 보내기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 배출량과 햇수를 바꿔 가며 기록하세요.',
@@ -504,8 +516,21 @@ return {
     });
     arrow(c, 30 + 3 * (bw + gap) + bw / 2, oy + 128, 30 + bw / 2, oy + 128, '#C8463D', 2.5);
     txt(c, '태우면 지권 → 기권', W / 2, oy + 152, {align:'center', color:'#C8463D', bold:true});
-    if (!r){ txt(c, '화석 연료를 태우면 오랫동안 갇혀 있던 탄소가 대기로 나와요.', 30, H - 18, {color:'#4A5868'}); return; }
+    var nar = W < 480;
+    if (!r){
+      if (nar) wrapT(c, '화석 연료를 태우면 오랫동안 갇혀 있던 탄소가 대기로 나와요.', 12, H - 41, W - 24, 23, {color:'#4A5868'});   /* 좁은 화면: 두 줄 */
+      else txt(c, '화석 연료를 태우면 오랫동안 갇혀 있던 탄소가 대기로 나와요.', 30, H - 18, {color:'#4A5868'});
+      return;
+    }
     var yy = oy + 198;
+    if (nar){   /* 좁은 화면: 긴 결과 글을 띄어쓰기에서 나눠 씀 */
+      txt(c, Math.round(r.yr * tau) + '년 경과 · 대기 ' + f(r.ppm0 + (r.ppm - r.ppm0) * tau, 0) + ' ppm', 12, yy, {bold:true, color:'#3A8FB7'});
+      if (tau < 1) return;
+      var y2 = wrapT(c, '화석 연료 ' + Math.round(r.fossil).toLocaleString() + ' GtC + 숲 ' + (r.land >= 0 ? '방출 ' : '흡수 ') + Math.round(Math.abs(r.land)).toLocaleString() + ' GtC · 수권·생물권이 흡수 ' + Math.round(r.absorbed).toLocaleString() + ' GtC', 12, yy + 30, W - 24, 22, {size:16});
+      y2 = wrapT(c, '대기 탄소 변화 ' + sgn(r.dA, 0) + ' GtC' + (r.stay != null ? ' (더해진 양의 ' + f(r.stay * 100, 0) + ' %)' : '') + ' → ' + f(r.ppm, 0) + ' ppm', 12, y2 + 6, W - 24, 22, {size:16, bold:true, color:'#C8463D'});
+      wrapT(c, '산업화 이전 대비 기온 ' + sgn(r.dT, 2) + ' °C (지금 시작점은 ' + sgn(r.dT0, 2) + ' °C)', 12, y2 + 6, W - 24, 22, {size:16, color:'#4A5868'});
+      return;
+    }
     txt(c, Math.round(r.yr * tau) + '년 경과 · 대기 ' + f(r.ppm0 + (r.ppm - r.ppm0) * tau, 0) + ' ppm', 30, yy, {bold:true, color:'#3A8FB7'});
     if (tau < 1) return;
     txt(c, '화석 연료 ' + Math.round(r.fossil).toLocaleString() + ' GtC + 숲 ' + (r.land >= 0 ? '방출 ' : '흡수 ') + Math.round(Math.abs(r.land)).toLocaleString() + ' GtC · 수권·생물권이 흡수 ' + Math.round(r.absorbed).toLocaleString() + ' GtC', 30, yy + 32, {});
@@ -780,5 +805,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

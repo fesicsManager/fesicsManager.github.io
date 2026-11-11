@@ -310,8 +310,35 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; var al = o.align || 'left', sz = o.size || 18, B = o.bold ? '700 ' : '';
+  c.fillStyle = o.color || '#1E2833'; c.textAlign = al; c.textBaseline = o.base || 'alphabetic';
+  c.font = B + sz + 'px ' + FONT;
+  /* 좁은 화면: 캔버스 밖으로 넘치면 글자를 줄이고(11px까지), 그래도 넘치면 띄어쓰기에서 줄을 나눈다 */
+  var cv = c.canvas, CW = (cv && cv.clientWidth) || 0, avail = 0;
+  if (CW && c.getTransform){
+    var T = c.getTransform(), d = cv.width / CW, sx = T.a / d, px = (T.a * x + T.e) / d;
+    if (!T.b && !T.c && sx > 0) avail = ((al === 'right' || al === 'end') ? px - 4 : al === 'center' ? 2 * Math.min(px, CW - px) - 4 : CW - px - 4) / sx;
+  }
+  var w = c.measureText(s).width;
+  if (avail > 30 && w > avail){
+    var nz = Math.max(11, Math.floor(sz * avail / w));
+    if (nz < 13 && / /.test(String(s)) && o.wrap !== false){
+      var wz = Math.max(12, Math.min(sz, Math.floor(sz * avail * 1.9 / w))), lines, words = String(s).split(' ');
+      for (;;){
+        c.font = B + wz + 'px ' + FONT; lines = [''];
+        for (var i = 0; i < words.length; i++){ var t = lines[lines.length - 1] ? lines[lines.length - 1] + ' ' + words[i] : words[i];
+          if (c.measureText(t).width <= avail || !lines[lines.length - 1]) lines[lines.length - 1] = t; else lines.push(words[i]); }
+        if ((lines.length <= 2 && Math.max.apply(null, lines.map(function(l){ return c.measureText(l).width; })) <= avail) || wz <= 11) break;
+        wz--;
+      }
+      var lh = Math.round(wz * 1.25), y0 = (o.base === 'bottom') ? y - lh * (lines.length - 1) : y, CH = cv.clientHeight;
+      if (CH && (o.base || 'alphabetic') === 'alphabetic' && y0 + lh * (lines.length - 1) + wz * 0.3 > CH - 2) y0 = CH - 2 - wz * 0.3 - lh * (lines.length - 1);   /* 아래로 넘치면 위로 올림 */
+      for (var k = 0; k < lines.length; k++) c.fillText(lines[k], x, y0 + k * lh);
+      return;
+    }
+    c.font = B + nz + 'px ' + FONT;
+  }
+  c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -451,8 +478,10 @@ var LAB = (function(){
         draw: function(c, W, H, p, r, tau){
           var x = RT[p.t], k = r ? Math.min(1, tau / 0.7) : 0, gap = (W - 40) / 10;
           c.save(); c.beginPath(); c.rect(10, 6, W - 20, 50); c.clip();
-          c.font = '15px ' + FONT; c.fillStyle = '#1E2833'; c.textAlign = 'left'; c.fillText('고민: “이번 수행평가 망쳤어. 밤새 준비했는데.”', 20, 26);
-          c.fillStyle = PAL[0]; c.fillText('반응: ' + x.say, 20, 48); c.restore();
+          /* 좁은 화면: 한 줄이 넘치면 글자를 줄인다(11px까지) */
+          var fit15 = function(s){ c.font = '15px ' + FONT; var w0 = c.measureText(s).width; if (w0 > W - 44) c.font = Math.max(11, Math.floor(15 * (W - 44) / w0)) + 'px ' + FONT; };
+          fit15('고민: “이번 수행평가 망쳤어. 밤새 준비했는데.”'); c.fillStyle = '#1E2833'; c.textAlign = 'left'; c.fillText('고민: “이번 수행평가 망쳤어. 밤새 준비했는데.”', 20, 26);
+          fit15('반응: ' + x.say); c.fillStyle = PAL[0]; c.fillText('반응: ' + x.say, 20, 48); c.restore();
           for (var i = 0; i < 10; i++){
             var cx = 20 + gap * i + gap / 2, on = r && i < (r.hit) * k + 0.01, col = on ? (p.v === 0 ? PAL[1] : PAL[3]) : '#D0D7E0';
             [-0.18, 0.18].forEach(function(dx, j){
@@ -462,7 +491,7 @@ var LAB = (function(){
           }
           txt(c, VW[p.v] + (r ? ': ' + Math.round(r.hit * k) + ' / 10쌍' : ''), 20, 160, {bold:true, color:p.v === 0 ? PAL[1] : PAL[3]});
           txt(c, '고민한 쪽의 다음 말 평균 길이', 20, 204, {color:'#4A5868'});
-          var bw = W - 160;
+          var bw = W < 420 ? W - 184 : W - 160;
           RT.forEach(function(o, i){
             var y = 218 + i * 34, on = i === p.t;
             c.font = (on ? '700 ' : '') + '15px ' + FONT; c.fillStyle = on ? '#1E2833' : '#8C99A8'; c.textAlign = 'left'; c.fillText(o.n, 20, y + 18);
@@ -701,5 +730,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 })();
 </script>
 <!-- fxNoteLink:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

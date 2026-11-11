@@ -317,14 +317,33 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; var al = o.align || 'left', sz = o.size || 18;
+  o = o || {}; var al = o.align || 'left', sz = o.size || 18, B = o.bold ? '700 ' : '';
   c.fillStyle = o.color || '#1E2833'; c.textAlign = al; c.textBaseline = o.base || 'alphabetic';
-  c.font = (o.bold ? '700 ' : '') + sz + 'px ' + FONT;
-  var CW = (c.canvas && c.canvas.clientWidth) || 0;
-  var avail = CW ? (al === 'left' ? CW - x - 4 : al === 'right' ? x - 4 : 2 * Math.min(x, CW - x) - 4) : 0;
-  if (avail > 40){
-    var w = c.measureText(s).width;
-    if (w > avail){ sz = Math.max(11, Math.floor(sz * avail / w)); c.font = (o.bold ? '700 ' : '') + sz + 'px ' + FONT; }
+  c.font = B + sz + 'px ' + FONT;
+  /* 좁은 화면: 캔버스 밖으로 넘치면 글자를 줄이고(11px까지), 그래도 넘치면 띄어쓰기에서 줄을 나눈다 */
+  var cv = c.canvas, CW = (cv && cv.clientWidth) || 0, avail = 0;
+  if (CW && c.getTransform){
+    var T = c.getTransform(), d = cv.width / CW, sx = T.a / d, px = (T.a * x + T.e) / d;
+    if (!T.b && !T.c && sx > 0) avail = ((al === 'right' || al === 'end') ? px - 4 : al === 'center' ? 2 * Math.min(px, CW - px) - 4 : CW - px - 4) / sx;
+  }
+  var w = c.measureText(s).width;
+  if (avail > 30 && w > avail){
+    var nz = Math.max(11, Math.floor(sz * avail / w));
+    if (nz < 13 && / /.test(String(s)) && o.wrap !== false){
+      var wz = Math.max(12, Math.min(sz, Math.floor(sz * avail * 1.9 / w))), lines, words = String(s).split(' ');
+      for (;;){
+        c.font = B + wz + 'px ' + FONT; lines = [''];
+        for (var i = 0; i < words.length; i++){ var t = lines[lines.length - 1] ? lines[lines.length - 1] + ' ' + words[i] : words[i];
+          if (c.measureText(t).width <= avail || !lines[lines.length - 1]) lines[lines.length - 1] = t; else lines.push(words[i]); }
+        if ((lines.length <= 2 && Math.max.apply(null, lines.map(function(l){ return c.measureText(l).width; })) <= avail) || wz <= 11) break;
+        wz--;
+      }
+      var lh = Math.round(wz * 1.25), y0 = (o.base === 'bottom') ? y - lh * (lines.length - 1) : y, CH = cv.clientHeight;
+      if (CH && (o.base || 'alphabetic') === 'alphabetic' && y0 + lh * (lines.length - 1) + wz * 0.3 > CH - 2) y0 = CH - 2 - wz * 0.3 - lh * (lines.length - 1);   /* 아래로 넘치면 위로 올림 */
+      for (var k = 0; k < lines.length; k++) c.fillText(lines[k], x, y0 + k * lh);
+      return;
+    }
+    c.font = B + nz + 'px ' + FONT;
   }
   c.fillText(s, x, y);
 }
@@ -481,7 +500,8 @@ return {
   },
   draw: function(c, W, H, p, r, tau){
     var O = ORE[p.o];
-    var fx = 60, fy = 80, fw = 170, fh = 210;
+    var narrow = W < 420;   /* 휴대폰 폭: 용광로를 좁히고 글자를 안쪽으로 */
+    var fx = narrow ? 12 : 60, fy = 80, fw = narrow ? 104 : 170, fh = 210;
     // 용광로
     c.fillStyle = '#E6D5C3'; c.fillRect(fx, fy, fw, fh);
     c.strokeStyle = '#6E4A1E'; c.lineWidth = 3; c.strokeRect(fx, fy, fw, fh);
@@ -507,18 +527,18 @@ return {
     // 배출 기체
     if (r && tau > 0.3){
       arrow(c, fx + fw / 2, fy - 20, fx + fw / 2, fy - 58, '#8C99A8', 2);
-      txt(c, 'CO → (공기 중 산소와 만나) CO₂', fx + fw / 2, fy - 64, {align:'center', color:'#8C99A8'});
+      txt(c, 'CO → (공기 중 산소와 만나) CO₂', narrow ? W / 2 : fx + fw / 2, fy - 64, {align:'center', color:'#8C99A8'});
     }
-    txt(c, O.eq, fx + fw + 30, fy + 16, {bold:true, color:'#2B5FA3'});
-    txt(c, '광석 ' + p.m + ' kg + 탄소 ' + p.c + ' kg', fx + fw + 30, fy + 48, {color:'#4A5868'});
+    txt(c, O.eq, fx + fw + (narrow ? 12 : 30), fy + 16, {bold:true, color:'#2B5FA3'});
+    txt(c, '광석 ' + p.m + ' kg + 탄소 ' + p.c + ' kg', fx + fw + (narrow ? 12 : 30), fy + (narrow ? 72 : 48), {color:'#4A5868'});
     if (!r){ txt(c, '탄소가 산소를 가져가면 철이 남아요.', fx, H - 18, {color:'#4A5868'}); return; }
     if (tau < 0.95) return;
-    var yy = fy + fh + 44;
+    var yy = fy + fh + (narrow ? 30 : 44);
     txt(c, '나온 철 ' + f(r.feKg, 1) + ' kg (이 광석의 최대 ' + f(r.feMax, 1) + ' kg 중 ' + f(r.pct, 0) + ' %)', fx, yy,
       {bold:true, color:r.pct >= 99.5 ? '#2E9E78' : '#C8463D'});
-    txt(c, '쓴 탄소 ' + f(r.usedC, 1) + ' kg · 남은 탄소 ' + f(r.leftC, 1) + ' kg · 이산화 탄소 ' + f(r.co2, 1) + ' kg', fx, yy + 30, {});
+    txt(c, '쓴 탄소 ' + f(r.usedC, 1) + ' kg · 남은 탄소 ' + f(r.leftC, 1) + ' kg · 이산화 탄소 ' + f(r.co2, 1) + ' kg', fx, yy + (narrow ? 44 : 30), {});
     txt(c, r.limit === '탄소' ? '탄소가 모자라 산소를 다 떼지 못했어요. 탄소를 ' + f(r.needC, 1) + ' kg까지 넣어 보세요.'
-      : '탄소가 충분해 광석을 모두 환원했어요. 남은 탄소는 그대로 남아요.', fx, H - 14, {color:'#4A5868'});
+      : '탄소가 충분해 광석을 모두 환원했어요. 남은 탄소는 그대로 남아요.', fx, H - (narrow ? 34 : 14), {color:'#4A5868'});
   },
   stats: function(p, r){
     return [['광석', r.O.n], ['반응식', r.O.eq], ['광석 속 철의 비율', f(r.grade, 1) + ' %'],
@@ -786,5 +806,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

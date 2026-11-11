@@ -328,6 +328,18 @@ function txt(c, s, x, y, o){
   }
   c.fillText(s, x, y);
 }
+/* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 (o.dry 면 재기만) */
+function wrapT(c, s, x, y, maxW, lh, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){
+    var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; }
+    else line = t;
+  }
+  if (!o.dry) txt(c, line, x, y + n * lh, o);
+  return y + (n + 1) * lh;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -478,7 +490,8 @@ return {
       denat:T > 60, vmax:VMAX1 * E * tf * pf};
   },
   draw: function(c, W, H, p, r, tau){
-    var bx = 50, by = 90, bw = 150, bh = 170;
+    var nar = W < 480;   /* 좁은 화면: 비커를 줄이고 왼쪽으로 붙여 실린더가 화면 안에 들어오게 */
+    var bx = nar ? 14 : 50, by = 90, bw = nar ? 110 : 150, bh = 170;
     // 비커
     c.fillStyle = '#EAF3F9'; c.fillRect(bx, by + 40, bw, bh - 40);
     c.strokeStyle = '#5B6776'; c.lineWidth = 2; c.strokeRect(bx, by + 40, bw, bh - 40);
@@ -497,7 +510,7 @@ return {
       }
     }
     // 눈금 실린더
-    var gx = bx + bw + 70, gw = 66, gh = 210, gy = by - 10;
+    var gx = bx + bw + (nar ? 52 : 70), gw = nar ? 56 : 66, gh = 210, gy = by - 10;
     c.fillStyle = '#F7F9FC'; c.fillRect(gx, gy, gw, gh);
     c.strokeStyle = '#5B6776'; c.lineWidth = 2; c.strokeRect(gx, gy, gw, gh);
     for (var v = 0; v <= 100; v += 20){
@@ -517,11 +530,13 @@ return {
       txt(c, '반응 속도', mx, gy + 20, {color:'#4A5868'});
       meter(c, mx, gy + 30, Math.min(180, W - mx - 12), f(r.rate, 1) + ' mL/분');
     }
-    if (!r){ txt(c, '효소가 과산화 수소를 물과 산소로 분해해요.', bx, H - 18, {color:'#4A5868'}); return; }
+    if (!r){ if (nar) wrapT(c, '효소가 과산화 수소를 물과 산소로 분해해요.', bx, H - 41, W - bx - 12, 23, {color:'#4A5868'}); else txt(c, '효소가 과산화 수소를 물과 산소로 분해해요.', bx, H - 18, {color:'#4A5868'}); return; }
     if (tau < 1) return;
     var yy2 = by + bh + 76;
-    txt(c, '온도 인자 ' + f(r.tf, 2) + ' × pH 인자 ' + f(r.pf, 2) + ' × 기질 인자 ' + f(r.sf, 2) + ' × 효소 ' + r.E + ' mL', bx, yy2, {});
-    txt(c, r.denat ? '60 °C를 넘겨 효소가 변성됐어요. 식혀도 되살아나지 않아요.'
+    var facS = '온도 인자 ' + f(r.tf, 2) + ' × pH 인자 ' + f(r.pf, 2) + ' × 기질 인자 ' + f(r.sf, 2) + ' × 효소 ' + r.E + ' mL';
+    if (nar) wrapT(c, facS, bx, yy2 - 6, W - bx - 12, 21, {size:16});   /* 좁은 화면: 줄을 나눠 씀 */
+    else txt(c, facS, bx, yy2, {});
+    (nar ? function(c2, s2, x2, y2, o2){ var n2 = (wrapT(c2, s2, 0, 0, W - bx - 12, 23, {bold:true, dry:true}) / 23) | 0; wrapT(c2, s2, x2, y2 - (n2 - 1) * 23, W - bx - 12, 23, o2); } : txt)(c, r.denat ?'60 °C를 넘겨 효소가 변성됐어요. 식혀도 되살아나지 않아요.'
       : (r.T >= 30 && r.T <= 50 && r.ph === 7 ? '최적 조건에 가까워 가장 빠르게 분해돼요.' : '최적 조건에서 벗어나 느려요.'),
       bx, H - 14, {bold:true, color:r.denat ? '#C8463D' : (r.T >= 30 && r.T <= 50 && r.ph === 7 ? '#2E9E78' : '#A8702F')});
   },
@@ -798,5 +813,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

@@ -320,7 +320,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -459,7 +459,7 @@ var PARK = [
 ];
 var STEPS = ['① 암석이 만들어진 때', '② 굳거나 쌓인 뒤의 변화', '③ 지금 모습이 드러난 과정'];
 return {
-  sceneHeight: function(W){ return W < 560 ? 500 : 400; },   // 좁으면 설명이 그림 아래로 내려가 더 길게
+  sceneHeight: function(W){ return W < 560 ? 580 : 400; },   // 좁으면 설명이 그림 아래로 내려가 더 길게
   idle: '지질공원을 고른 뒤 <b>야외 답사하기</b>를 누르세요. 대표 명소의 암석과 지질 구조를 관찰하고 형성 과정을 순서대로 봅니다.',
   shortHint: '자유 탐구 탭에서 여러 지질공원을 답사해 기록하세요.',
   params: [
@@ -469,9 +469,19 @@ return {
   compute: function(p){ return {P:PARK[p.p]}; },
   draw: function(c, W, H, p, r, tau){
     var P = PARK[p.p], k = r ? Math.min(tau / 0.9, 1) : 0, stage = r ? Math.min(2, Math.floor(k * 3)) : -1;
-    txt(c, P.name + ' · ' + P.spot, 12, 26, {bold:true});
+    // 좁은 화면: 글자를 조금 줄이고, 캔버스 폭을 넘는 글은 띄어쓰기에서 줄을 나눔 (그린 줄 수를 돌려줌)
+    var fs = W < 560 ? 16 : 18, lh = W < 560 ? 20 : 24;
+    function wt(s, x, y, o){
+      o.size = fs; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+      var maxW = W - x - 8, lines = [], cur = '';
+      String(s).split(' ').forEach(function(w){ var t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > maxW){ lines.push(cur); cur = w; } else cur = t; });
+      if (cur) lines.push(cur);
+      lines.forEach(function(L, i){ txt(c, L, x, y + i * lh, o); });
+      return lines.length;
+    }
+    var t1 = wt(P.name + ' · ' + P.spot, 12, 26, {bold:true});
     // 명소 모습 (주상절리·절벽 등 단순 그림)
-    var gx = 12, gy = 44, gw = Math.min(W - 24, 380), gh = 150;
+    var gx = 12, gy = 44 + (t1 - 1) * lh, gw = Math.min(W - 24, 380), gh = 150;
     c.fillStyle = '#E7EEF4'; c.fillRect(gx, gy, gw, gh);
     var n = 14, bw = gw / n;
     for (var i = 0; i < n; i++){
@@ -484,17 +494,19 @@ return {
     c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.strokeRect(gx, gy, gw, gh);
     // 정보
     var tx = gw + 30 > W - 140 ? 12 : gw + 30, ty = gw + 30 > W - 140 ? gy + gh + 30 : gy + 14;
-    txt(c, '암석: ' + P.rock, tx, ty, {bold:true});
-    txt(c, '주요 광물: ' + P.min, tx, ty + 26, {color:'#4A5868'});
-    txt(c, '시기: ' + P.era, tx, ty + 52, {color:'#4A5868'});
-    txt(c, '지질 구조: ' + P.feat.join(', '), tx, ty + 78, {color:'#1E2833'});
+    var yy = ty;
+    yy += 26 + (wt('암석: ' + P.rock, tx, yy, {bold:true}) - 1) * lh;
+    yy += 26 + (wt('주요 광물: ' + P.min, tx, yy, {color:'#4A5868'}) - 1) * lh;
+    yy += 26 + (wt('시기: ' + P.era, tx, yy, {color:'#4A5868'}) - 1) * lh;
+    yy += (wt('지질 구조: ' + P.feat.join(', '), tx, yy, {color:'#1E2833'}) - 1) * lh;
     // 형성 과정
-    var fy = Math.max(ty + 110, gy + gh + 30);
-    txt(c, '형성 과정', 12, fy, {bold:true});
+    var fy = Math.max(yy + 32, gy + gh + 30), sy = fy + 14;
+    txt(c, '형성 과정', 12, fy, {bold:true, size:fs});
     P.form.forEach(function(s, i){
       var on = stage >= i;
-      c.fillStyle = on ? PAL[i] : '#D4DCE5'; c.fillRect(12, fy + 14 + i * 34, 6, 26);
-      txt(c, s, 26, fy + 32 + i * 34, {color:on ? '#1E2833' : '#A9B4C0'});
+      var n = wt(s, 26, sy + 18, {color:on ? '#1E2833' : '#A9B4C0'});
+      c.fillStyle = on ? PAL[i] : '#D4DCE5'; c.fillRect(12, sy, 6, 26 + (n - 1) * lh);
+      sy += 34 + (n - 1) * lh;
     });
   },
   stats: function(p, r){
@@ -727,5 +739,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

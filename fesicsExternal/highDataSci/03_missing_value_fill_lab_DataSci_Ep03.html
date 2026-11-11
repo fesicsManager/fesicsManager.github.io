@@ -310,6 +310,12 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다(o.dry 면 세기만)
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(/ (?!\d{3}\b|[%°℃‰]|(?:MW|kW|W|K|m|km|kg|g|mL|L|s|eV|nm|cm|mm|Hz|kJ|J|ppm|kbar|bar|atm|hPa|kPa|Pa|mol|M|명|개|번|회|원|년|초|분)(?![A-Za-z]))/), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
+  if (!o.dry) txt(c, line, x, y + n * lh, o); return n + 1;
+}
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
@@ -457,7 +463,7 @@ var LAB = (function(){
         return {out:out, miss:miss, n:vals.length, mean:m, min:Math.min.apply(null, vals), sd:sd, cold:vals.filter(function(x){ return x < 10; }).length, err:m - TM};
       }
       return {
-        sceneHeight: 430,
+        sceneHeight: function(w){ return w < 480 ? 470 : 430; },
         idle: '빈칸 수·빈칸이 생긴 방식·처리 방법을 고른 뒤 <b>빈칸 처리하고 다시 계산</b>을 누르세요.',
         shortHint: '같은 빈칸에서 다섯 방법을 모두 기록하세요. 그다음 "더운 날에 몰림"으로 바꿔 삭제·평균 채움이 어떻게 되는지 보세요.',
         params: [
@@ -467,7 +473,7 @@ var LAB = (function(){
         ],
         compute: function(p){ return fill(p.c, p.k, p.m); },
         draw: function(c, W, H, p, r, tau){
-          var px = 64, py = 16, pw = W - px - 20, ph = H - py - 110, ax = plotBox(c, px, py, pw, ph, [1, 31, 5], [0, 35, 5], '8월 날짜', '기온 (℃)');
+          var nar = W < 480, px = 64, py = 16, pw = W - px - 20, ph = H - py - (nar ? 150 : 110), ax = plotBox(c, px, py, pw, ph, [1, 31, 5], [0, 35, 5], '8월 날짜', '기온 (℃)');
           var miss = r ? r.miss : missing(p.c, p.k), i;
           if (r && tau >= 1){ c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.beginPath(); TRUE.forEach(function(v, d){ if (d) c.lineTo(ax.X(d + 1), ax.Y(v)); else c.moveTo(ax.X(1), ax.Y(v)); }); c.stroke(); c.setLineDash([]); }
           for (i = 0; i < 31; i++){
@@ -476,8 +482,9 @@ var LAB = (function(){
           if (r){ var k = Math.min(tau / 0.7, 1);
             r.out.forEach(function(o, d){ if (!o || !o.f) return; var y = ax.Y(TRUE[d] + (o.v - TRUE[d]) * k); c.fillStyle = PAL[6]; c.beginPath(); c.arc(ax.X(d + 1), y, 6, 0, Math.PI * 2); c.fill(); });
             if (tau > 0.7){ var my = ax.Y(r.mean); seg(c, px, my, px + pw, my, PAL[6], 2, [8, 5]); seg(c, px, ax.Y(TM), px + pw, ax.Y(TM), '#1E2833', 1.5, [2, 4]); } }
-          if (r && tau >= 1) txt(c, MS[p.m] + ': 평균 ' + f(r.mean, 1) + '℃ (실제 ' + f(TM, 1) + '℃) · 최저 ' + f(r.min, 1) + '℃', 16, H - 16, {bold:true, color:Math.abs(r.err) > 0.3 || r.cold ? PAL[4] : PAL[1]});
-          else txt(c, '빨간 ? = 빈칸 (' + MN[p.c] + ')', 16, H - 16, {bold:true});
+          var bs = r && tau >= 1 ? MS[p.m] + ': 평균 ' + f(r.mean, 1) + '℃ (실제 ' + f(TM, 1) + '℃) · 최저 ' + f(r.min, 1) + '℃' : '빨간 ? = 빈칸 (' + MN[p.c] + ')', bo = {bold:true, color:r && tau >= 1 ? (Math.abs(r.err) > 0.3 || r.cold ? PAL[4] : PAL[1]) : '#1E2833'};
+          if (nar){ var bn = wtxt(c, bs, 16, 0, {bold:true, dry:true}, W - 28, 22); wtxt(c, bs, 16, H - 16 - (bn - 1) * 22, bo, W - 28, 22); } // 좁은 화면: 아래쪽 맞춰 줄바꿈
+          else txt(c, bs, 16, H - 16, bo);
         },
         stats: function(p, r){
           return [['빈칸', MN[p.c] + ' · ' + MECH[p.k]], ['처리 방법', MT[p.m] + ' (계산에 쓴 날 ' + r.n + '일)'],
@@ -712,5 +719,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

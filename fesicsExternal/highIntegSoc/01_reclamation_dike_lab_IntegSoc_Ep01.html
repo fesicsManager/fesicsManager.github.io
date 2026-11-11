@@ -315,6 +315,16 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 (up 이면 마지막 줄이 y) */
+function txtW(c, s, x, y, o, maxW, lh, up){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', out = [];
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > maxW){ var sp = line.lastIndexOf(' '); if (sp > 0 && ((/[\d.,]$/.test(line) && ws[i].length <= 4 && !/^\d/.test(ws[i])) || /^[=→·×÷+−]$/.test(line.slice(sp + 1)))){ out.push(line.slice(0, sp)); line = line.slice(sp + 1) + ' ' + ws[i]; } else { out.push(line); line = ws[i]; } } else line = t; }
+  out.push(line);
+  var y0 = up ? y - (out.length - 1) * lh : y;
+  for (var j = 0; j < out.length; j++) txt(c, out[j], x, y0 + j * lh, o);
+  return out.length;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -439,7 +449,7 @@ var SEA = [0, 0.5, 1.0], SN = ['현재', '+0.5 m (2100년 낮은 시나리오)',
 function Phi(z){ var t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989423 * Math.exp(-z * z / 2), p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return z > 0 ? 1 - p : p; }
 function calc(h, sea, area){ var mu = 2 + sea, sd = 0.8, p = 1 - Phi((h - mu) / sd), p100 = 1 - Math.pow(1 - p, 100); var cost = h * h * area * 0.5; return {h:h, sea:sea, area:area, p:p, p100:p100, cost:cost, mu:mu, surge100:mu + 2.33 * sd, land:area}; }
 return {
-  sceneHeight: 420,
+  sceneHeight: function(w){ return w < 480 ? 520 : 420; },
   idle: '제방 높이·해수면·간척 면적을 정한 뒤 <b>100년 살아 보기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 같은 해수면에서 제방 높이를 바꿔 가며 4번 이상 기록하세요.',
   params: [
@@ -450,10 +460,13 @@ return {
   ],
   compute: function(p){ var C = calc(p.h, SEA[p.s], p.a); C.sn = SN[p.s]; C.verdict = C.p100 < 0.05 ? '안전 (100년 침수 확률 5 % 미만)' : C.p100 < 0.5 ? '위험 — 세대 안에 침수 가능' : '매우 위험 — 100년 안에 거의 확실히 침수'; return C; },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.h, SEA[p.s], p.a), y0 = H - 70, sc = 32;
+    /* 좁은 화면: 간척지 이름표·판정 글을 그림 아래로 내려 두 줄로 */
+    var nar = W < 480, k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.h, SEA[p.s], p.a), y0 = H - (nar ? 170 : 70), sc = 32;
     var dx = W * 0.45;
     c.fillStyle = '#DDF0E6'; c.fillRect(dx + 16, y0 - 0.3 * sc, W - dx - 16, 0.3 * sc + 40);
-    txt(c, '간척지 ' + C.area + ' km² (해수면 아래 −1 m)', dx + 24, y0 + 30, {color:'#2E9E78', bold:true});
+    var nl = 1;
+    if (nar) nl = txtW(c, '간척지 ' + C.area + ' km² (해수면 아래 −1 m)', 12, y0 + 62, {color:'#2E9E78', bold:true}, W - 24, 22);
+    else txt(c, '간척지 ' + C.area + ' km² (해수면 아래 −1 m)', dx + 24, y0 + 30, {color:'#2E9E78', bold:true});
     // 제방
     c.fillStyle = '#8C99A8'; c.beginPath(); c.moveTo(dx - 30, y0); c.lineTo(dx, y0 - C.h * sc); c.lineTo(dx + 16, y0 - C.h * sc); c.lineTo(dx + 16, y0 + 40); c.lineTo(dx - 30, y0 + 40); c.closePath(); c.fill();
     txt(c, '제방 ' + f(C.h, 1) + ' m', dx + 20, y0 - C.h * sc - 8, {bold:true});
@@ -463,8 +476,12 @@ return {
     seg(c, 0, y0 - C.mu * sc, dx - 30, y0 - C.mu * sc, '#2B5FA3', 1.5, [6, 4]); txt(c, '평균 해일 ' + f(C.mu, 1) + ' m', 8, y0 - C.mu * sc - 6, {color:'#2B5FA3'});
     seg(c, 0, y0 - C.surge100 * sc, dx - 30, y0 - C.surge100 * sc, '#C8463D', 1.5, [6, 4]); txt(c, '100년 해일 ' + f(C.surge100, 1) + ' m', 8, y0 - C.surge100 * sc - 6, {color:'#C8463D'});
     seg(c, 0, y0, W, y0, '#4A5868', 1); txt(c, '기준 해수면', 8, y0 + 18, {color:'#4A5868'});
-    if (r && k > 0.9) txt(c, surge > C.h ? '넘침! 100년 해일이 제방보다 높음' : '100년 해일도 막음', dx + 24, y0 - C.h * sc - 36, {bold:true, color:surge > C.h ? '#C8463D' : '#2E9E78'});
-    txt(c, r ? '100년 침수 확률 ' + f(r.p100 * 100, 1) + ' % · 건설비 ' + f(r.cost, 0) + '억 원' : '', 12, 28, {bold:true});
+    if (r && k > 0.9){
+      if (nar) txtW(c, surge > C.h ? '넘침! 100년 해일이 제방보다 높음' : '100년 해일도 막음', 12, y0 + 62 + nl * 22 + 6, {bold:true, color:surge > C.h ? '#C8463D' : '#2E9E78'}, W - 24, 22);
+      else txt(c, surge > C.h ? '넘침! 100년 해일이 제방보다 높음' : '100년 해일도 막음', dx + 24, y0 - C.h * sc - 36, {bold:true, color:surge > C.h ? '#C8463D' : '#2E9E78'});
+    }
+    if (nar) txtW(c, r ? '100년 침수 확률 ' + f(r.p100 * 100, 1) + ' % · 건설비 ' + f(r.cost, 0) + '억 원' : '', 12, 28, {bold:true}, W - 24, 22);
+    else txt(c, r ? '100년 침수 확률 ' + f(r.p100 * 100, 1) + ' % · 건설비 ' + f(r.cost, 0) + '억 원' : '', 12, 28, {bold:true});
   },
   stats: function(p, r){
     return [['제방 · 해수면 · 면적', f(r.h, 1) + ' m · ' + r.sn + ' · ' + r.area + ' km²'], ['평균 해일 · 100년 해일', f(r.mu, 1) + ' m · ' + f(r.surge100, 1) + ' m'], ['연간 넘칠 확률', (r.p * 100 < 0.01 ? '0.01 % 미만' : f(r.p * 100, 2) + ' %'), PAL[4]],
@@ -671,5 +688,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

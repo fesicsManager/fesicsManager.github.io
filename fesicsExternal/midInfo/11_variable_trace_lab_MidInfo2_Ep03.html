@@ -314,6 +314,13 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -449,11 +456,13 @@ return {
   compute: function(p){ return calc(p.p, Math.min(p.n, PROG[p.p].lines.length)); },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, P2 = PROG[p.p], n = Math.min(p.n, P2.lines.length), C = r || calc(p.p, n), cur = Math.floor(n * k), lx = 20, ly = 40;
-    c.fillStyle = '#26313D'; c.fillRect(lx, ly, Math.min(240, W * 0.4), P2.lines.length * 28 + 16);
+    /* 좁은 화면(변수 통 3개가 오른쪽에 다 안 들어감): 코드 상자를 넓게, 변수 통은 그 아래로 */
+    var stack = lx + Math.min(240, W * 0.4) + 50 + 2 * 90 + 34 > W, cbw = stack ? W - 2 * lx : Math.min(240, W * 0.4);
+    c.fillStyle = '#26313D'; c.fillRect(lx, ly, cbw, P2.lines.length * 28 + 16);
     P2.lines.forEach(function(s, i){ c.font = '17px Consolas, monospace'; c.fillStyle = i === cur - 1 ? '#FFE08A' : i < cur ? '#7CF0B0' : '#8C99A8'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText((i + 1) + '  ' + s, lx + 12, ly + 26 + i * 28); });
-    var vars = cur > 0 ? C.hist[cur - 1].vars : {}, names = C.order.filter(function(v){ return vars[v] !== undefined; }), cx = lx + Math.min(240, W * 0.4) + 50;
-    names.forEach(function(v, i){ var x = cx + i * 90, y = 90; c.fillStyle = '#F5E8D0'; c.beginPath(); c.moveTo(x - 30, y); c.lineTo(x + 30, y); c.lineTo(x + 22, y + 70); c.lineTo(x - 22, y + 70); c.closePath(); c.fill(); c.strokeStyle = '#A8702F'; c.lineWidth = 2; c.stroke(); txt(c, v, x, y - 8, {align:'center', bold:true}); txt(c, String(vars[v]), x, y + 46, {align:'center', bold:true, color:'#2B5FA3'}); });
-    txt(c, cur > 0 ? cur + '줄 실행 뒤: ' + names.map(function(v){ return v + ' = ' + vars[v]; }).join(', ') : '실행 전 — 변수 없음', 12, H - 14, {bold:true});
+    var vars = cur > 0 ? C.hist[cur - 1].vars : {}, names = C.order.filter(function(v){ return vars[v] !== undefined; }), cx = stack ? 50 : lx + cbw + 50;
+    names.forEach(function(v, i){ var x = cx + i * 90, y = stack ? 240 : 90; c.fillStyle = '#F5E8D0'; c.beginPath(); c.moveTo(x - 30, y); c.lineTo(x + 30, y); c.lineTo(x + 22, y + 70); c.lineTo(x - 22, y + 70); c.closePath(); c.fill(); c.strokeStyle = '#A8702F'; c.lineWidth = 2; c.stroke(); txt(c, v, x, y - 8, {align:'center', bold:true}); txt(c, String(vars[v]), x, y + 46, {align:'center', bold:true, color:'#2B5FA3'}); });
+    txtFit(c, cur > 0 ? cur + '줄 실행 뒤: ' + names.map(function(v){ return v + ' = ' + vars[v]; }).join(', ') : '실행 전 — 변수 없음', 12, H - 14, {bold:true}, W - 24);
   },
   stats: function(p, r){
     var a = [['프로그램', r.pn], ['실행한 줄', r.n + ' / ' + r.total + '줄']]; r.order.forEach(function(v){ a.push([v + ' 의 값', String(r.vars[v]), PAL[0]]); }); if (r.swapOk != null && r.n === r.total) a.push(['두 값이 바뀌었나', r.swapOk ? '예 (a=2, b=1)' : '아니오 — 한 값이 사라짐', r.swapOk ? PAL[1] : PAL[4]]); return a;
@@ -658,5 +667,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

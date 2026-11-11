@@ -315,6 +315,16 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 나눠 그림. 늘어난 높이를 돌려줌 */
+function wtxt(c, s, x, y, o, maxW, lh){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  if (c.measureText(s).width <= maxW){ txt(c, s, x, y, o); return 0; }
+  var ws = s.split(' ').reduce(function(a, w){ if (a.length && ('%)]'.indexOf(w.charAt(0)) >= 0 || (w.length === 2 && w.charAt(1) === ')') || (/\d$/.test(a[a.length - 1]) && /^[A-Za-zµ°]/.test(w)))) a[a.length - 1] += ' ' + w; else a.push(w); return a; }, []), ls = [], cur = '';
+  ws.forEach(function(w){ var t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > maxW){ ls.push(cur); cur = w; } else cur = t; });
+  if (cur) ls.push(cur);
+  ls.forEach(function(l, i){ txt(c, l, x, y + i * lh, o); });
+  return (ls.length - 1) * lh;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -452,13 +462,14 @@ return {
   compute: function(p){ var C = calc(p.r, p.f, p.c); C.verdict = C.dacShare > 0.5 ? 'DAC 의존 — 비용·전력 부담 큼' : C.lossPct > 20 ? '숲 의존 — 산불·벌채로 되돌아올 위험' : '균형 잡힌 조합'; return C; },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.r, p.f, p.c), x0 = 12, bw = W - 24, y0 = 50, bh = 54, x = x0;
-    txt(c, '잔여 배출 ' + f(C.rem, 1) + '억 t를 이렇게 없앤다', 12, 32, {bold:true});
-    C.amt.forEach(function(a, i){ var w = a / C.rem * bw * (r ? k : 1); c.fillStyle = METH[i].col; c.fillRect(x, y0, w, bh); if (w > 50) txt(c, METH[i].name.split(' ')[0] + ' ' + f(a, 1), x + 6, y0 + 32, {color:'#fff', bold:true});
+    var mw = W - 20, sfit = function(s, bold, maxW){ var fs = 18; c.font = (bold ? '700 ' : '') + '18px ' + FONT; while (fs > 11 && c.measureText(s).width > maxW){ fs--; c.font = (bold ? '700 ' : '') + fs + 'px ' + FONT; } return c.measureText(s).width <= maxW; };
+    var ts = '잔여 배출 ' + f(C.rem, 1) + '억 t를 이렇게 없앤다'; sfit(ts, true, mw); c.fillStyle = '#1E2833'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(ts, 12, 32);
+    C.amt.forEach(function(a, i){ var w = a / C.rem * bw * (r ? k : 1); c.fillStyle = METH[i].col; c.fillRect(x, y0, w, bh); if (w > 50){ var bs = METH[i].name.split(' ')[0] + ' ' + f(a, 1); if (sfit(bs, true, w - 8)){ c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(bs, x + 6, y0 + 32); } }
       var lw = w * METH[i].loss; c.fillStyle = 'rgba(200,70,61,.55)'; c.fillRect(x + w - lw, y0 + bh - 12, lw, 12); x += w; });
-    txt(c, '빨간 부분 = 손실 위험 ' + f(C.loss * (r ? k : 1), 2) + '억 t (' + f(C.lossPct, 0) + ' %)', 12, y0 + bh + 26, {color:'#C8463D'});
-    var my = y0 + bh + 50; meter(c, 12, my, Math.min(W - 24, 360), '총비용 ' + f(C.cost * (r ? k : 1), 1) + '조 원');
-    txt(c, '숲 면적 ' + f(C.ha / 1e4, 0) + '만 ha' + (C.ha > 5e6 ? ' (남한 산림 630만 ha 대비 ' + f(C.ha / 6.3e6 * 100, 0) + ' %)' : ''), 12, my + 62, {color:'#2E9E78', bold:true});
-    txt(c, 'DAC 전력 ' + f(C.elec / 10, 0) + ' TWh/년' + (C.elec / 10 > 50 ? ' (한국 발전량 600 TWh의 ' + f(C.elec / 10 / 6, 0) + ' %)' : ''), 12, my + 88, {color:'#7657B3', bold:true});
+    var dy = wtxt(c, '빨간 부분 = 손실 위험 ' + f(C.loss * (r ? k : 1), 2) + '억 t (' + f(C.lossPct, 0) + ' %)', 12, y0 + bh + 26, {color:'#C8463D'}, mw, 22);
+    var my = y0 + bh + 50 + dy; meter(c, 12, my, Math.min(W - 24, 360), '총비용 ' + f(C.cost * (r ? k : 1), 1) + '조 원');
+    my += wtxt(c, '숲 면적 ' + f(C.ha / 1e4, 0) + '만 ha' + (C.ha > 5e6 ? ' (남한 산림 630만 ha 대비 ' + f(C.ha / 6.3e6 * 100, 0) + ' %)' : ''), 12, my + 62, {color:'#2E9E78', bold:true}, mw, 22);
+    wtxt(c, 'DAC 전력 ' + f(C.elec / 10, 0) + ' TWh/년' + (C.elec / 10 > 50 ? ' (한국 발전량 600 TWh의 ' + f(C.elec / 10 / 6, 0) + ' %)' : ''), 12, my + 88, {color:'#7657B3', bold:true}, mw, 22);
   },
   stats: function(p, r){
     return [['잔여 배출', f(r.rem, 1) + '억 t'], ['숲 · BECCS · DAC', f(r.amt[0], 1) + ' · ' + f(r.amt[1], 1) + ' · ' + f(r.amt[2], 1) + '억 t'], ['총비용', f(r.cost, 1) + '조 원', r.cost > 15 ? PAL[4] : PAL[0]], ['숲 면적', f(r.ha / 1e4, 0) + '만 ha', r.ha > 3e6 ? PAL[4] : PAL[1]],
@@ -665,5 +676,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

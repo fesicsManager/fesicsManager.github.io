@@ -315,6 +315,18 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 (o.dry 면 재기만) */
+function wrapT(c, s, x, y, maxW, lh, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){
+    var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; }
+    else line = t;
+  }
+  if (!o.dry) txt(c, line, x, y + n * lh, o);
+  return y + (n + 1) * lh;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -452,9 +464,12 @@ return {
   compute: function(p){ return calc(p.n, [p.c0, p.c1, p.c2, p.c3]); },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.n, [p.c0, p.c1, p.c2, p.c3]), lx = 20, ly = 40, cw = Math.min(280, W * 0.45);
+    if (lx + cw + 130 >= W) cw = Math.min(280, W - 2 * lx);   /* 아주 좁은 화면: 체크리스트가 안 보이므로 게시물 카드를 넓혀 글이 카드 안에 들어오게 */
     c.fillStyle = '#F7F9FC'; c.fillRect(lx, ly, cw, 170); c.strokeStyle = '#B8C2CE'; c.lineWidth = 2; c.strokeRect(lx, ly, cw, 170); c.fillStyle = '#C9D2DC'; c.fillRect(lx + 12, ly + 12, cw - 24, 80); txt(c, '📷 (사진)', lx + cw / 2, ly + 58, {align:'center', color:'#4A5868'}); txt(c, '"충격! 근처 공장에서 큰불"', lx + 12, ly + 118, {bold:true}); txt(c, '공유 12,340 · 좋아요 8,900', lx + 12, ly + 146, {color:'#4A5868'});
     var rx = lx + cw + 30; if (rx + 100 < W){ txt(c, '확인 체크리스트', rx, ly + 16, {bold:true}); var on = [p.c0, p.c1, p.c2, p.c3], shown = Math.floor(4 * k + 0.999); CHK.forEach(function(C2, i){ var y = ly + 48 + i * 34, o = on[i] && i < shown; txt(c, (o ? '☑ ' : '☐ ') + C2.name, rx, y, {color:o ? '#1E2833' : '#8C99A8', bold:o}); if (o && C.flags[i] && r) txt(c, '⚠ 문제 드러남', rx + 160, y, {color:'#C8463D'}); }); }
-    txt(c, r && k > 0.95 ? (C.fake ? '가짜를 잡아낼 확률 ' + f(C.catchP * 100, 0) + ' % — ' + C.verdict : C.verdict) : '', 12, H - 14, {bold:true, color:C.fake ? (C.catchP >= 0.9 ? '#2E9E78' : '#C8463D') : '#2E9E78'});
+    var vS = r && k > 0.95 ? (C.fake ? '가짜를 잡아낼 확률 ' + f(C.catchP * 100, 0) + ' % — ' + C.verdict : C.verdict) : '', vO = {bold:true, color:C.fake ? (C.catchP >= 0.9 ? '#2E9E78' : '#C8463D') : '#2E9E78'};
+    if (W < 480 && vS){ var vn = (wrapT(c, vS, 0, 0, W - 24, 22, {bold:true, dry:true}) / 22) | 0; wrapT(c, vS, 12, H - 14 - (vn - 1) * 22, W - 24, 22, vO); }   /* 좁은 화면: 아래에서 위로 여러 줄 */
+    else txt(c, vS, 12, H - 14, vO);
   },
   stats: function(p, r){
     return [['게시물', r.nn], ['확인한 항목', r.done.join(', ') || '없음 (' + r.n + '개)'], ['가짜를 잡아낼 확률', r.fake ? f(r.catchP * 100, 0) + ' %' : '(진짜 뉴스)', r.fake && r.catchP < 0.9 ? PAL[4] : PAL[1]], ['이 유형에 가장 효과적인 확인', r.best || '−', PAL[3]], ['판정', r.verdict, r.fake && r.catchP < 0.9 ? PAL[4] : PAL[1]], ['참고', '잡아낼 확률은 확인 방법별로 정한 교육용 모의값이에요']];
@@ -660,5 +675,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

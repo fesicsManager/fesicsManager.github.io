@@ -319,7 +319,20 @@ function axisFrom(lo, hi){
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  if (o.max){ for (var fz = 18; fz > 11 && c.measureText(s).width > o.max; fz--) c.font = (o.bold ? '700 ' : '') + (fz - 1) + 'px ' + FONT; }   /* 좁은 화면: 폭에 맞게 글자 줄이기(11px까지) */
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
+/* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 */
+function wrapT(c, s, x, y, maxW, lh, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){
+    var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; }
+    else line = t;
+  }
+  txt(c, line, x, y + n * lh, o);
+  return y + (n + 1) * lh;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -474,7 +487,8 @@ return {
       dep:Math.round(C.dep * 10000) / 10000, dur:Math.round(C.dur * 100) / 100, m:p.m, det:p.m === 0 ? detK : detD};
   },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, nar = W < 480, phN = nar ? H - 292 : H - 270;   /* 좁은 화면: 아래 판정 글 두 줄 자리 */
+    var bot = function(s, o){ if (nar) wrapT(c, s, 12, H - 36, W - 24, 22, o); else txt(c, s, 12, H - 14, o); };
     if (p.m === 0){
       // 별의 흔들림 + 시선 속도 그래프
       var cx = Math.min(W * 0.24, 130), cy = 110, ph = tau * 3;
@@ -483,13 +497,13 @@ return {
       c.fillStyle = '#5B6776'; c.beginPath(); c.arc(cx - Math.cos(ph) * 60, cy - Math.sin(ph) * 26, 7, 0, Math.PI * 2); c.fill();
       c.strokeStyle = '#D4DCE5'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(cx, cy, 60, 26, 0, 0, Math.PI * 2); c.stroke();
       txt(c, '별이 흔들림', cx - 40, cy + 56, {color:'#4A5868'});
-      var P = plotBox(c, 74, 190, W - 104, H - 270, [0, 2, 0.5], [-1, 1, 0.5], '주기 (회)', '시선 속도 (상대값)');
+      var P = plotBox(c, 74, 190, W - 104, phN, [0, 2, 0.5], [-1, 1, 0.5], '주기 (회)', '시선 속도 (상대값)');
       if (r){
         c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.beginPath();
         for (var t = 0; t <= 2 * k; t += 0.01){ var y = Math.sin(t * 2 * Math.PI); if (t === 0) c.moveTo(P.X(0), P.Y(0)); else c.lineTo(P.X(t), P.Y(y)); }
         c.stroke();
-        txt(c, '진폭 ' + f(r.K, 2) + ' m/s · 주기 ' + f(r.P, 2) + ' 일', 12, 30, {bold:true});
-        txt(c, r.det ? '검출 가능 (요즘 분광기는 약 1 m/s까지 잼)' : '검출 어려움 (진폭이 1 m/s 미만)', 12, H - 14,
+        txt(c, '진폭 ' + f(r.K, 2) + ' m/s · 주기 ' + f(r.P, 2) + ' 일', 12, 30, {bold:true, max:W - 20});
+        bot(r.det ? '검출 가능 (요즘 분광기는 약 1 m/s까지 잼)' : '검출 어려움 (진폭이 1 m/s 미만)',
           {bold:true, color:r.det ? '#2E9E78' : '#C8463D'});
       }
       return;
@@ -505,7 +519,7 @@ return {
     var yr2 = [99.9, 100.02, 0.02], T2 = 10;
     if (r){ var ys2 = niceStep(r.dep * 1.25 / 4); yr2 = [100 - Math.ceil(r.dep * 1.25 / ys2) * ys2, 100 + ys2, ys2]; T2 = Math.max(10, r.dur * 2.5); }
     var xs2 = niceStep(T2 / 5); T2 = Math.ceil(T2 / xs2 - 1e-9) * xs2;
-    var P2 = plotBox(c, 84, 190, W - 114, H - 270, [0, T2, xs2], yr2, '시간 (시간)', '');
+    var P2 = plotBox(c, 84, 190, W - 114, phN, [0, T2, xs2], yr2, '시간 (시간)', '');
     txt(c, '별의 밝기 (%)', W - 38, 212, {align:'right', color:'#4A5868'});   /* 눈금 숫자(99.990 등)가 길어 세로 제목과 겹치므로 그래프 안 오른쪽 위에 */
     if (r){
       var lo = 100 - r.dep, t0 = (T2 - r.dur) / 2;
@@ -516,8 +530,8 @@ return {
         if (t2 === 0) c.moveTo(P2.X(0), P2.Y(100)); else c.lineTo(P2.X(t2), P2.Y(y2));
       }
       c.stroke();
-      txt(c, '밝기 감소 ' + f(r.dep, 4) + ' % · 지속 ' + f(r.dur, 2) + ' 시간', 12, 30, {bold:true});
-      txt(c, r.det ? '검출 가능 (우주 망원경은 0.01 % 수준까지 잼)' : '검출 어려움 (감소가 너무 작음)', 12, H - 14,
+      txt(c, '밝기 감소 ' + f(r.dep, 4) + ' % · 지속 ' + f(r.dur, 2) + ' 시간', 12, 30, {bold:true, max:W - 20});
+      bot(r.det ? '검출 가능 (우주 망원경은 0.01 % 수준까지 잼)' : '검출 어려움 (감소가 너무 작음)',
         {bold:true, color:r.det ? '#2E9E78' : '#C8463D'});
     }
   },
@@ -760,5 +774,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

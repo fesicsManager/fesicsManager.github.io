@@ -307,9 +307,17 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다(o.dry 면 세기만)
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(/ (?!\d{3}\b|[%°℃‰]|(?:MW|kW|W|K|m|km|kg|g|mL|L|s|eV|nm|cm|mm|Hz|kJ|J|ppm|kbar|bar|atm|hPa|kPa|Pa|mol|M|명|개|번|회|원|년|초|분)(?![A-Za-z]))/), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
+  if (!o.dry) txt(c, line, x, y + n * lh, o); return n + 1;
+}
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic';
+  if (o.maxW && c.measureText(s).width > o.maxW) c.font = (o.bold ? '700 ' : '') + Math.max(11, Math.floor(18 * o.maxW / c.measureText(s).width)) + 'px ' + FONT;
+  c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -450,7 +458,7 @@ var LAB = (function(){
       var VO = ['원작 「사미인곡」 (현대어 풀이)', '신하가 직접 말하는 가상 예문'];
       var LY = ['1층 — 본문만', '2층 — 본문 + 맥락(지은 때의 처지)'];
       return {
-        sceneHeight: function(w){ return w < 560 ? 500 : 400; },
+        sceneHeight: function(w){ return w < 400 ? 560 : w < 560 ? 500 : 400; },
         idle: '화자 가설을 고른 뒤 <b>단서로 판정하기</b>를 누르세요.',
         shortHint: '원작에서 가설 네 개를 모두 대어 보고, 같은 가설을 가상 예문에도 대어 보세요.',
         params: [
@@ -473,22 +481,30 @@ var LAB = (function(){
         },
         draw: function(c, W, H, p, r, tau){
           var cl = CL[p.vo], narrow = W < 560, cols = narrow ? 1 : 2, cw = (W - 40 - (cols - 1) * 14) / cols, ch = narrow ? 62 : 82;
-          txt(c, (p.vo === 0 ? '「사미인곡」 화자 단서' : '가상 예문의 단서') + ' — 가설: ' + HY[p.h].short, 20, 30, {bold:true});
+          var t0 = 46 + 24 * (wtxt(c, (p.vo === 0 ? '「사미인곡」 화자 단서' : '가상 예문의 단서') + ' — 가설: ' + HY[p.h].short, 20, 30, {bold:true}, W - 40, 24) - 1); // 좁으면 제목을 두 줄로
           cl.forEach(function(x, i){
-            var cx = 20 + (i % cols) * (cw + 14), cy = 46 + Math.floor(i / cols) * (ch + 10), show = r && tau * 5 > i + 0.5;
+            var cx = 20 + (i % cols) * (cw + 14), cy = t0 + Math.floor(i / cols) * (ch + 10), show = r && tau * 5 > i + 0.5;
             var v = p.h < 3 ? x.v[p.h] : 0;
             c.fillStyle = !show ? '#F2F5F9' : v > 0 ? '#DDF3EA' : v < 0 ? '#FBE3E0' : '#ECEFF3'; c.fillRect(cx, cy, cw, ch);
             c.strokeStyle = !show ? '#C9D2DC' : v > 0 ? PAL[1] : v < 0 ? PAL[4] : '#9AA6B4'; c.lineWidth = 2; c.strokeRect(cx, cy, cw, ch);
             c.save(); c.beginPath(); c.rect(cx, cy, cw, ch); c.clip();
-            txt(c, x.t, cx + 12, cy + 26, {bold:true});
-            c.font = '15px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.fillText('→ ' + x.m + (show ? (v > 0 ? '  ✔' : v < 0 ? '  ✕' : '  ·') : ''), cx + 12, cy + 50);
+            txt(c, x.t, cx + 12, cy + 26, {bold:true, maxW:narrow ? cw - 20 : 0});
+            var ms = '→ ' + x.m + (show ? (v > 0 ? '  ✔' : v < 0 ? '  ✕' : '  ·') : '');
+            c.font = '15px ' + FONT; if (narrow && c.measureText(ms).width > cw - 20) c.font = Math.max(11, Math.floor(15 * (cw - 20) / c.measureText(ms).width)) + 'px ' + FONT;
+            c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.fillText(ms, cx + 12, cy + 50);
             c.restore();
           });
-          var by = 46 + Math.ceil(cl.length / cols) * (ch + 10) + 8;
+          var by = t0 + Math.ceil(cl.length / cols) * (ch + 10) + 8;
           if (r && tau > 0.85){
+            if (narrow){ // 좁은 화면: 판정·2층 글을 줄 나눠 쓴다
+              var nv = wtxt(c, r.verdict, 32, 0, {bold:true, dry:true}, W - 64, 24);
+              c.fillStyle = r.col; c.fillRect(20, by, W - 40, 14 + nv * 24); wtxt(c, r.verdict, 32, by + 25, {bold:true, color:'#fff'}, W - 64, 24);
+              if (p.ly === 1) wtxt(c, '2층: ' + r.layer2, 20, by + 14 + nv * 24 + 26, {color:PAL[3]}, W - 40, 24);
+            } else {
             c.fillStyle = r.col; c.fillRect(20, by, W - 40, 38);
             c.save(); c.beginPath(); c.rect(20, by, W - 40, 38); c.clip(); txt(c, r.verdict, 32, by + 25, {bold:true, color:'#fff'}); c.restore();
             if (p.ly === 1){ c.save(); c.beginPath(); c.rect(20, by + 44, W - 40, 30); c.clip(); txt(c, '2층: ' + r.layer2, 20, by + 66, {color:PAL[3]}); c.restore(); }
+            }
           }
         },
         stats: function(p, r){
@@ -727,5 +743,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 })();
 </script>
 <!-- fxNoteLink:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

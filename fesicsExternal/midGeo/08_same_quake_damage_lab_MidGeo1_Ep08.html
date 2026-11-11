@@ -315,6 +315,16 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 (up 이면 마지막 줄이 y) */
+function txtW(c, s, x, y, o, maxW, lh, up){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', out = [];
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > maxW){ var sp = line.lastIndexOf(' '); if (sp > 0 && ((/[\d.,]$/.test(line) && ws[i].length <= 4 && !/^\d/.test(ws[i])) || /^[=→·×÷+−]$/.test(line.slice(sp + 1)))){ out.push(line.slice(0, sp)); line = line.slice(sp + 1) + ' ' + ws[i]; } else { out.push(line); line = ws[i]; } } else line = t; }
+  out.push(line);
+  var y0 = up ? y - (out.length - 1) * lh : y;
+  for (var j = 0; j < out.length; j++) txt(c, out[j], x, y0 + j * lh, o);
+  return out.length;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -438,7 +448,7 @@ var LAB = (function(){
 var DEN = [{name:'농촌 (1만 명)', pop:1e4}, {name:'중소 도시 (30만 명)', pop:3e5}, {name:'대도시 (300만 명)', pop:3e6}], SEIS = [{name:'없음', k:1}, {name:'부분', k:0.4}, {name:'철저', k:0.1}], TSU = [{name:'내륙 (해당 없음)', k:0}, {name:'해안·대비 없음', k:0.3}, {name:'해안·경보+대피', k:0.01}];
 function calc(mag, di, si, ti){ var col = Math.min(90, 4 * Math.pow(3, mag - 6)) * SEIS[si].k, pop = DEN[di].pop, build = pop * col / 100 * 0.03, tsu = mag >= 8 ? pop * 0.3 * TSU[ti].k : 0, total = build + tsu; return {mag:mag, dn:DEN[di].name, sn:SEIS[si].name, tn:TSU[ti].name, col:col, build:build, tsu:tsu, total:total, pop:pop, main:tsu > build ? '쓰나미' : '건물 붕괴', ratio:total / pop * 100}; }
 return {
-  sceneHeight: 400,
+  sceneHeight: function(w){ return w < 480 ? 424 : 400; },
   idle: '규모·인구·내진·쓰나미 대비를 정한 뒤 <b>지진 일으키기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 같은 규모·인구에서 내진 설계와 쓰나미 대비를 바꿔 가며 기록하세요.',
   params: [
@@ -450,11 +460,11 @@ return {
   ],
   compute: function(p){ return calc(p.m, p.d, p.s, p.t); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.m, p.d, p.s, p.t), gy = H - 70, n = 12, bw = Math.min(40, (W - 60) / n - 6), shake = r && k < 0.6 ? Math.sin(tau * 60) * (p.m - 4) * 2 : 0;
+    var nar = W < 480, k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.m, p.d, p.s, p.t), gy = H - 70 - (nar ? 24 : 0), n = 12,   /* 좁은 화면: 땅을 조금 올려 아래 결과 글 두 줄 자리 */ bw = Math.min(40, (W - 60) / n - 6), shake = r && k < 0.6 ? Math.sin(tau * 60) * (p.m - 4) * 2 : 0;
     c.fillStyle = '#E8D9B5'; c.fillRect(0, gy, W, 30);
     for (var i = 0; i < n; i++){ var x = 30 + i * (bw + 6), h = 60 + (i * 37) % 60, fallen = r && k > 0.6 && (i * 53) % 100 < C.col; c.fillStyle = fallen ? '#C8463D' : '#8C99A8'; if (fallen) c.fillRect(x - 6 + shake, gy - 18, bw + 12, 18); else c.fillRect(x + shake, gy - h, bw, h); }
     if (p.t > 0 && p.m >= 8 && r && k > 0.7){ c.fillStyle = 'rgba(58,143,183,.55)'; var wh = 40 + 60 * Math.min(1, (k - 0.7) / 0.3); c.fillRect(0, gy - wh, W * 0.5 * Math.min(1, (k - 0.7) / 0.3), wh); txt(c, '🌊 쓰나미', 20, gy - wh - 8, {bold:true, color:'#2B5FA3'}); if (p.t === 2) txt(c, '🏃 대피 →', W * 0.6, 60, {bold:true, color:'#2E9E78'}); }
-    txt(c, r && k > 0.9 ? '붕괴 ' + f(C.col, 0) + ' % · 피해 약 ' + f(C.total, 0).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '명 (' + C.main + ' 위주)' : '규모 ' + f(p.m, 1), 12, H - 14, {bold:true, color:C.total > 1000 ? '#C8463D' : '#1E2833'});
+    txtW(c, r && k > 0.9 ? '붕괴 ' + f(C.col, 0) + ' % · 피해 약 ' + f(C.total, 0).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '명 (' + C.main + ' 위주)' : '규모 ' + f(p.m, 1), 12, H - 14, {bold:true, color:C.total > 1000 ? '#C8463D' : '#1E2833'}, W - 24, 22, true);
   },
   stats: function(p, r){
     return [['규모 · 인구 · 내진 · 쓰나미', f(r.mag, 1) + ' · ' + r.dn + ' · ' + r.sn + ' · ' + r.tn], ['건물 붕괴율', f(r.col, 1) + ' %', r.col > 20 ? PAL[4] : PAL[1]], ['건물 붕괴 피해', f(r.build, 0) + '명', PAL[4]], ['쓰나미 피해', f(r.tsu, 0) + '명', r.tsu > r.build ? PAL[4] : PAL[1]], ['총 피해', f(r.total, 0) + '명 (인구의 ' + f(r.ratio, 2) + ' %)', r.total > 1000 ? PAL[4] : PAL[1]], ['주된 원인', r.main],
@@ -661,5 +671,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

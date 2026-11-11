@@ -311,8 +311,35 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; var al = o.align || 'left', sz = o.size || 18, B = o.bold ? '700 ' : '';
+  c.fillStyle = o.color || '#1E2833'; c.textAlign = al; c.textBaseline = o.base || 'alphabetic';
+  c.font = B + sz + 'px ' + FONT;
+  /* 좁은 화면: 캔버스 밖으로 넘치면 글자를 줄이고(11px까지), 그래도 넘치면 띄어쓰기에서 줄을 나눈다 */
+  var cv = c.canvas, CW = (cv && cv.clientWidth) || 0, avail = 0;
+  if (CW && c.getTransform){
+    var T = c.getTransform(), d = cv.width / CW, sx = T.a / d, px = (T.a * x + T.e) / d;
+    if (!T.b && !T.c && sx > 0) avail = ((al === 'right' || al === 'end') ? px - 4 : al === 'center' ? 2 * Math.min(px, CW - px) - 4 : CW - px - 4) / sx;
+  }
+  var w = c.measureText(s).width;
+  if (avail > 30 && w > avail){
+    var nz = Math.max(11, Math.floor(sz * avail / w));
+    if (nz < 13 && / /.test(String(s)) && o.wrap !== false){
+      var wz = Math.max(12, Math.min(sz, Math.floor(sz * avail * 1.9 / w))), lines, words = String(s).split(' ');
+      for (;;){
+        c.font = B + wz + 'px ' + FONT; lines = [''];
+        for (var i = 0; i < words.length; i++){ var t = lines[lines.length - 1] ? lines[lines.length - 1] + ' ' + words[i] : words[i];
+          if (c.measureText(t).width <= avail || !lines[lines.length - 1]) lines[lines.length - 1] = t; else lines.push(words[i]); }
+        if ((lines.length <= 2 && Math.max.apply(null, lines.map(function(l){ return c.measureText(l).width; })) <= avail) || wz <= 11) break;
+        wz--;
+      }
+      var lh = Math.round(wz * 1.25), y0 = (o.base === 'bottom') ? y - lh * (lines.length - 1) : y, CH = cv.clientHeight;
+      if (CH && (o.base || 'alphabetic') === 'alphabetic' && y0 + lh * (lines.length - 1) + wz * 0.3 > CH - 2) y0 = CH - 2 - wz * 0.3 - lh * (lines.length - 1);   /* 아래로 넘치면 위로 올림 */
+      for (var k = 0; k < lines.length; k++) c.fillText(lines[k], x, y0 + k * lh);
+      return;
+    }
+    c.font = B + nz + 'px ' + FONT;
+  }
+  c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -439,7 +466,7 @@ function sim(mi, si, ni, ri){ var mfg = 40, other = 60, pop = 100, labor = 100, 
   for (var y = 0; y <= 30; y++){ var jobs = mfg + other, rate = Math.max(0, labor - jobs) / labor * 100; peak = Math.max(peak, rate); hist.push({y:y, pop:pop, rate:rate, mfg:mfg}); if (y === 30) break; var l = Math.min(mfg - (40 - lost), perYear); mfg -= Math.max(0, l); other += newPer; if (rate > 12){ pop *= 0.98; labor *= 0.98; other *= 0.99; } else if (rate < 6 && jobs > labor * 0.97){ pop *= 1.004; labor *= 1.004; } }
   var last = hist[30]; return {hist:hist, pop:last.pop, rate:last.rate, peak:peak, mn:MOVE[mi].name, sn:SPN[si], nn:NN[ni], rn:RN[ri], recovered:last.rate < 8}; }
 return {
-  sceneHeight: function(w){ return w < 480 ? 500 : 440; },
+  sceneHeight: function(w){ return w < 480 ? 520 : 440; },   /* 좁은 화면: 아래 상태 글이 두 줄이 될 자리 */
   idle: '이전 규모·속도·새 산업·재교육을 정한 뒤 <b>30년 돌려 보기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 이전 규모는 같게 두고 새 산업 유치와 속도를 바꿔 가며 기록하세요.',
   params: [
@@ -451,7 +478,7 @@ return {
   ],
   compute: function(p){ return sim(p.m, p.s, p.n, p.r); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, R = r || sim(p.m, p.s, p.n, p.r), idx = Math.floor(30 * k), px = 64, py = 30, pw = W - px - 20, ph = (H - py - (W < 480 ? 110 : 70)) / 2 - 10;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, R = r || sim(p.m, p.s, p.n, p.r), idx = Math.floor(30 * k), px = 64, py = 30, pw = W - px - 20, ph = (H - py - (W < 480 ? 130 : 70)) / 2 - 10;
     var ax = plotBox(c, px, py, pw, ph, [0, 30, 5], [40, 110, 10], '', '인구'); c.strokeStyle = '#2B5FA3'; c.lineWidth = 3; c.beginPath(); for (var i = 0; i <= idx; i++){ var h = R.hist[i]; if (i === 0) c.moveTo(ax.X(h.y), ax.Y(Math.max(40, h.pop))); else c.lineTo(ax.X(h.y), ax.Y(Math.max(40, h.pop))); } c.stroke();
     var py2 = py + ph + 50, ax2 = plotBox(c, px, py2, pw, ph, [0, 30, 5], [0, 40, 10], '년', '실업률 (%)'); seg(c, px, ax2.Y(12), px + pw, ax2.Y(12), '#C8463D', 1.5, [6, 4]); c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.beginPath(); for (var j = 0; j <= idx; j++){ var h2 = R.hist[j]; if (j === 0) c.moveTo(ax2.X(h2.y), ax2.Y(Math.min(40, h2.rate))); else c.lineTo(ax2.X(h2.y), ax2.Y(Math.min(40, h2.rate))); } c.stroke();
     txt(c, idx + '년 차: 인구 ' + f(R.hist[idx].pop, 0) + ' · 실업률 ' + f(R.hist[idx].rate, 1) + ' % · 제조업 일자리 ' + f(R.hist[idx].mfg, 0), 12, H - 12, {bold:true, color:R.hist[idx].rate > 12 ? '#C8463D' : '#1E2833'});
@@ -660,5 +687,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

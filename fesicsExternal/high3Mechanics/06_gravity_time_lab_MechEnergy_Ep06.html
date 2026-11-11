@@ -319,7 +319,18 @@ function axisFrom(lo, hi){
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  if (o.maxW){ var mw = c.measureText(s).width; if (mw > o.maxW) c.font = (o.bold ? '700 ' : '') + Math.max(11, Math.floor(18 * o.maxW / mw)) + 'px ' + FONT; }
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
+// 좁은 화면용: 띄어쓰기에서 줄을 나눠 그리고 다음 줄 y 를 돌려줌
+function wtxt(c, s, x, y, maxW, o, lh){
+  o = o || {}; o.maxW = maxW; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var words = String(s).split(' '), line = '';
+  for (var i = 0; i < words.length; i++){
+    var t = line ? line + ' ' + words[i] : words[i];
+    if (line && c.measureText(t).width > maxW){ txt(c, line, x, y, o); y += lh; line = words[i]; } else line = t;
+  }
+  txt(c, line, x, y, o); return y + lh;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -456,7 +467,7 @@ function rates(P){
   return {r:r, v:v, grav:grav, spec:spec, rel:(grav + spec) - base, day:((grav + spec) - base) * 86400 * 1e6};
 }
 return {
-  sceneHeight: 460,
+  sceneHeight: function(w){ return w < 500 ? 580 : 460; },
   idle: '시계를 놓을 곳과 승강기 상황을 정한 뒤 <b>하루 재기</b>를 누르세요. 지표면 시계와 얼마나 어긋나는지 봅니다.',
   shortHint: '자유 탐구 탭에서 높이가 다른 곳을 여러 군데 기록하세요.',
   params: [
@@ -490,11 +501,14 @@ return {
     if (L.a > 0) arrow(c, lx + lw / 2, ly + lh + 34, lx + lw / 2, ly + lh + 6, '#2E9E78', 3);
     if (L.a < 0) arrow(c, lx + lw / 2, ly - 30, lx + lw / 2, ly - 4, '#C8463D', 3);
     if (L.a < 0){ c.fillStyle = '#F2B544'; c.fillRect(lx + lw / 2 - 8, ly + lh / 2 - 20, 16, 34); c.clearRect(lx + lw / 2 - 8, ly + lh - 40, 16, 34); c.strokeStyle = '#5B6776'; c.strokeRect(lx, ly, lw, lh); }
-    txt(c, '승강기에서 느끼는 무게', lx, ly + lh + 56, {color:'#4A5868'});
-    txt(c, r ? f(r.felt, 1) + ' m/s²' : '−', lx, ly + lh + 82, {bold:true});
+    var narrow = W < 500;
+    var fy = narrow ? wtxt(c, '승강기에서 느끼는 무게', lx, ly + lh + 56, W - lx - 6, {color:'#4A5868'}, 24) - 24 : ly + lh + 56;
+    if (!narrow) txt(c, '승강기에서 느끼는 무게', lx, ly + lh + 56, {color:'#4A5868'});
+    txt(c, r ? f(r.felt, 1) + ' m/s²' : '−', lx, fy + 26, {bold:true});
     // 아래: 시간 차이
-    var by = 306;
-    txt(c, '지표면 시계와 비교 (하루 = 86,400초)', 12, by, {bold:true});
+    var by = narrow ? 334 : 306;
+    if (narrow) by = wtxt(c, '지표면 시계와 비교 (하루 = 86,400초)', 12, by, W - 20, {bold:true}, 24) - 24;
+    else txt(c, '지표면 시계와 비교 (하루 = 86,400초)', 12, by, {bold:true});
     if (!r){ txt(c, '재면 나타납니다', 12, by + 30, {color:'#4A5868'}); return; }
     var k = Math.min(tau / 0.9, 1);
     var items = [['중력 효과', r.R.grav * 86400 * 1e6 - (-GC * ME / (RE * CL * CL)) * 86400 * 1e6, '#2B5FA3'],
@@ -508,13 +522,14 @@ return {
       var y = by + 18 + i * 34, w = it[1] * sc * k;
       txt(c, it[0], 12, y + 13, {base:'middle', bold:i === 2});
       c.fillStyle = it[2]; c.fillRect(Math.min(zero, zero + w), y, Math.abs(w), 22);
-      txt(c, sgn(it[1] * k, 2) + ' µs', w >= 0 ? zero + w + 6 : zero + w - 6, y + 12, {base:'middle', align:w >= 0 ? 'left' : 'right'});
+      txt(c, sgn(it[1] * k, 2) + ' µs', w >= 0 ? zero + w + 6 : zero + w - 6, y + 12, {base:'middle', align:w >= 0 ? 'left' : 'right', maxW:!narrow ? 0 : w >= 0 ? W - (zero + w + 6) - 4 : zero + w - 6 - 96});
     });
     /* 긴 안내 글은 그림판 너비에 맞춰 두 줄로 나눔 */
     c.font = '15px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
     var ml = [''];
     r.msg.split(' ').forEach(function(wd){ var t = ml[ml.length - 1] ? ml[ml.length - 1] + ' ' + wd : wd; if (ml[ml.length - 1] && c.measureText(t).width > W - 24) ml.push(wd); else ml[ml.length - 1] = t; });
-    ml.slice(0, 2).forEach(function(s, i){ c.fillText(s, 12, H - (ml.length > 1 ? 27 : 12) + i * 19); });
+    if (narrow) ml.forEach(function(s, i){ c.fillText(s, 12, by + 134 + i * 19); });
+    else ml.slice(0, 2).forEach(function(s, i){ c.fillText(s, 12, H - (ml.length > 1 ? 27 : 12) + i * 19); });
   },
   stats: function(p, r){
     var base = -GC * ME / (RE * CL * CL);
@@ -749,5 +764,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

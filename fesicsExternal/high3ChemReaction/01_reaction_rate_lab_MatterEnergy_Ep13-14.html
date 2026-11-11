@@ -317,6 +317,12 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(/ (?!\d{3}\b|[%°℃‰]|(?:MW|kW|W|K|m|km|kg|g|mL|L|s|eV|nm|cm|mm|Hz|kJ|J|ppm|kbar|bar|atm|hPa|kPa|Pa|mol|M|명|개|번|회|원|년|초|분)(?![A-Za-z]))/), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
+  txt(c, line, x, y + n * lh, o); return n + 1;
+}
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
@@ -450,7 +456,7 @@ function rate(cs, ch, T, ci){
   return {k:k, v:k * cs * ch, Ea:C.Ea};
 }
 return {
-  sceneHeight: 450,
+  sceneHeight: function(w){ return w < 480 ? 474 : 450; },
   idle: '농도와 온도, 촉매를 정한 뒤 <b>반응 시작</b>을 누르세요. 십자 표시가 보이지 않을 때까지 걸린 시간을 잽니다.',
   shortHint: '자유 탐구 탭에서 농도와 온도를 하나씩만 바꿔 가며 기록하세요.',
   params: [
@@ -468,7 +474,7 @@ return {
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0;
     // 비커와 십자 표시
-    var bx = 40, by = 60, bw = 140, bh = 130;
+    var nar = W < 480, bx = nar ? 16 : 40, by = 60, bw = nar ? 104 : 140, bh = 130;
     c.strokeStyle = '#5B6776'; c.lineWidth = 2.5;
     c.beginPath(); c.moveTo(bx, by); c.lineTo(bx, by + bh); c.lineTo(bx + bw, by + bh); c.lineTo(bx + bw, by); c.stroke();
     var turb = r ? Math.min(1, k * 1.05) : 0;
@@ -479,11 +485,11 @@ return {
     txt(c, TS[p.t] + ' ℃ · ' + CAT[p.c].name, bx, by - 14, {bold:true});
     txt(c, turb > 0.95 ? '십자가 보이지 않음' : '십자가 보임', bx, by + bh + 26, {color:turb > 0.95 ? '#C8463D' : '#4A5868', bold:true});
     // 스톱워치
-    var mx = Math.max(bx + bw + 40, W * 0.45);
-    meter(c, mx, 70, Math.min(180, W - mx - 12), (r ? f(r.t * k, r.t < 1 ? 3 : r.t < 10 ? 2 : 1) : '0.0') + ' 초');
-    txt(c, '스톱워치', mx, 60, {color:'#4A5868'});
+    var mx = nar ? bx + bw + 20 : Math.max(bx + bw + 40, W * 0.45), my = nar ? 110 : 70; // 좁은 화면: 비커를 좁히고 스톱워치를 조금 아래로
+    meter(c, mx, my, Math.min(180, W - mx - 12), (r ? f(r.t * k, r.t < 1 ? 3 : r.t < 10 ? 2 : 1) : '0.0') + ' 초');
+    txt(c, '스톱워치', mx, my - 10, {color:'#4A5868'});
     // 에너지 곡선
-    var P = plotBox(c, 82, 236, W - 112, H - 320, [0, 100, 25], [-60, 80, 20], '반응 진행', '에너지 (kJ/mol)');
+    var P = plotBox(c, 82, 236, W - 112, H - (nar ? 344 : 320), [0, 100, 25], [-60, 80, 20], '반응 진행', '에너지 (kJ/mol)');
     [0, 1].forEach(function(ci){
       var on = p.c === ci, Ea = CAT[ci].Ea / 1000;
       c.strokeStyle = on ? (ci ? '#2E9E78' : '#C8463D') : 'rgba(140,153,168,.45)'; c.lineWidth = on ? 3 : 2;
@@ -500,7 +506,8 @@ return {
       } else
       txt(c, (ci ? '촉매 있음' : '촉매 없음') + ' Ea = ' + f(Ea, 0), P.X(ci ? 56 : 44), P.Y(Ea) - 10, {align:ci ? 'left' : 'right', color:on ? (ci ? '#2E9E78' : '#C8463D') : '#8C99A8', bold:on});
     });
-    if (r) txt(c, '속도 상수 k = ' + r.k.toExponential(3) + ', 반응 속도 ' + r.v.toExponential(3) + ' M/s', 12, H - 12, {color:'#4A5868'});
+    if (r){ var ks = '속도 상수 k = ' + r.k.toExponential(3) + ', 반응 속도 ' + r.v.toExponential(3) + ' M/s';
+      if (nar) wtxt(c, ks, 12, H - 36, {color:'#4A5868'}, W - 24, 24); else txt(c, ks, 12, H - 12, {color:'#4A5868'}); }
   },
   stats: function(p, r){
     return [['조건', f(r.cs, 2) + ' M · ' + f(r.ch, 1) + ' M · ' + r.T + ' ℃ · ' + CAT[r.cat].name],
@@ -751,5 +758,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

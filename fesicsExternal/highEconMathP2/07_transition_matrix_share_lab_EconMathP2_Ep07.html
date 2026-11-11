@@ -312,6 +312,16 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 (up 이면 마지막 줄이 y) */
+function txtW(c, s, x, y, o, maxW, lh, up){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', out = [];
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > maxW){ var sp = line.lastIndexOf(' '); if (sp > 0 && ((/[\d.,]$/.test(line) && ws[i].length <= 4 && !/^\d/.test(ws[i])) || /^[=→·×÷+−]$/.test(line.slice(sp + 1)))){ out.push(line.slice(0, sp)); line = line.slice(sp + 1) + ' ' + ws[i]; } else { out.push(line); line = ws[i]; } } else line = t; }
+  out.push(line);
+  var y0 = up ? y - (out.length - 1) * lh : y;
+  for (var j = 0; j < out.length; j++) txt(c, out[j], x, y0 + j * lh, o);
+  return out.length;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -436,7 +446,7 @@ var LAB = (function(){
       var YS = [3, 10, 30];
       function run(m, s, n){ var A = s[0], B = s[1], out = [[A, B]]; for (var t = 0; t < n; t++){ var A2 = (1 - m.a) * A + m.b * B, B2 = m.a * A + (1 - m.b) * B; A = A2; B = B2; out.push([A, B]); } return out; }
       return {
-        sceneHeight: 440,
+        sceneHeight: function(w){ return w < 480 ? 470 : 440; },
         idle: '이동 비율·처음 손님·지켜볼 해를 고른 뒤 <b>해마다 행렬 곱하기</b>를 누르세요.',
         shortHint: '웹툰 비율로 처음 손님을 네 가지 모두 바꿔 30년을 돌려 보세요. 도착점이 같나요?',
         params: [
@@ -450,8 +460,8 @@ var LAB = (function(){
         },
         draw: function(c, W, H, p, r, tau){
           var m = MV[p.m], n = YS[p.n], path = r ? r.path : run(m, ST[p.s], n), As = 1000 * m.b / (m.a + m.b);
-          var bx = W >= 620 ? 80 : 62, bw = W - bx - 24, top = 96;
-          var P = plotBox(c, bx, top, bw, H - top - 80, [0, n, n === 3 ? 1 : n === 10 ? 2 : 5], [0, 1000, 250], '해', '손님 (명)');
+          var bx = W >= 620 ? 80 : 62, bw = W - bx - 24, top = 96, nar = W < 480;   /* 좁은 화면: 아래 결과 글 두 줄 자리를 남김 */
+          var P = plotBox(c, bx, top, bw, H - top - (nar ? 110 : 80), [0, n, n === 3 ? 1 : n === 10 ? 2 : 5], [0, 1000, 250], '해', '손님 (명)');
           seg(c, P.X(0), P.Y(As), P.X(n), P.Y(As), PAL[0], 1.5, [7, 5]); seg(c, P.X(0), P.Y(1000 - As), P.X(n), P.Y(1000 - As), PAL[1], 1.5, [7, 5]);
           var shown = r ? tau * n : 0, full = Math.floor(shown), i;
           [0, 1].forEach(function(j){ c.strokeStyle = j === 0 ? PAL[0] : PAL[1]; c.lineWidth = 3; c.beginPath(); c.moveTo(P.X(0), P.Y(path[0][j]));
@@ -463,7 +473,7 @@ var LAB = (function(){
             c.fillStyle = x[2]; c.globalAlpha = 0.15; c.fillRect(X0, 10, bwid, 54); c.globalAlpha = 1; c.strokeStyle = x[2]; c.lineWidth = 2; c.strokeRect(X0, 10, bwid, 54);
             txt(c, '가게 ' + x[0], X0 + 8, 32, {bold:true, color:x[2]}); txt(c, f(x[1], 1) + '명', X0 + 8, 56, {bold:true}); });
           if (W >= 620){ txt(c, '나감 A→B ' + f(m.a * cur[0], 1) + ' · 옴 B→A ' + f(m.b * cur[1], 1), 16 + 2 * (bwid + 28), 42, {color:'#4A5868'}); }
-          if (r && tau >= 1) txt(c, n + '년 뒤 A ' + f(r.A, 1) + ' : B ' + f(r.B, 1) + ' → 정상 상태 ' + f(r.As, 1) + ' : ' + f(r.Bs, 1), 16, H - 14, {bold:true, color:PAL[0]});
+          if (r && tau >= 1) txtW(c, n + '년 뒤 A ' + f(r.A, 1) + ' : B ' + f(r.B, 1) + ' → 정상 상태 ' + f(r.As, 1) + ' : ' + f(r.Bs, 1), 16, H - 14, {bold:true, color:PAL[0]}, W - 28, 22, true);
           else txt(c, r ? Math.min(n, full) + '년째…' : '점선 = 정상 상태', 16, H - 14, {bold:true});
         },
         stats: function(p, r){
@@ -701,5 +711,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 })();
 </script>
 <!-- fxNoteLink:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

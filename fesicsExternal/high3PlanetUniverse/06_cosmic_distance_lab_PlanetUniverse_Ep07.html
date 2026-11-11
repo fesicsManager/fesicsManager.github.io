@@ -322,6 +322,16 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 나눠 그림. 늘어난 높이를 돌려줌 */
+function wtxt(c, s, x, y, o, maxW, lh){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  if (c.measureText(s).width <= maxW){ txt(c, s, x, y, o); return 0; }
+  var ws = s.split(' ').reduce(function(a, w){ if (a.length && ('%)]'.indexOf(w.charAt(0)) >= 0 || (w.length === 2 && w.charAt(1) === ')') || (/\d$/.test(a[a.length - 1]) && /^[A-Za-zµ°]/.test(w)))) a[a.length - 1] += ' ' + w; else a.push(w); return a; }, []), ls = [], cur = '';
+  ws.forEach(function(w){ var t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > maxW){ ls.push(cur); cur = w; } else cur = t; });
+  if (cur) ls.push(cur);
+  ls.forEach(function(l, i){ txt(c, l, x, y + i * lh, o); });
+  return (ls.length - 1) * lh;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -467,7 +477,7 @@ function measure(O, mi){
   return out;
 }
 return {
-  sceneHeight: 470,
+  sceneHeight: function(w){ return w < 420 ? 520 : 470; },
   idle: '천체와 측정 방법을 정한 뒤 <b>거리 재기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 천체마다 어떤 방법이 쓸 수 있는지 확인해 기록하세요.',
   params: [
@@ -497,8 +507,15 @@ return {
       c.fillStyle = on ? PAL[i] : 'rgba(140,153,168,.35)';
       c.fillRect(x1, y, Math.max(4, x2 - x1), 20);
       c.font = (on ? '700 ' : '') + '18px ' + FONT; var tw = c.measureText(M.name).width;   /* 막대 왼쪽에 자리가 없으면 오른쪽에 (왼쪽 잘림 방지) */
-      if (x1 - 8 - tw >= 4) txt(c, M.name, x1 - 8, y + 14, {align:'right', color:on ? PAL[i] : '#8C99A8', bold:on});
-      else txt(c, M.name, x1 + Math.max(4, x2 - x1) + 8, y + 14, {color:on ? PAL[i] : '#8C99A8', bold:on});
+      var xr = x1 + Math.max(4, x2 - x1) + 8, spL = x1 - 12, spR = W - 4 - xr;
+      if (tw > spL && tw > spR){
+        /* 양쪽 다 모자라면(좁은 화면) 넓은 쪽에 맞게 글자를 줄임 (11px 까지) */
+        var fs = 18, sp = Math.max(spL, spR); while (fs > 11 && c.measureText(M.name).width > sp){ fs--; c.font = (on ? '700 ' : '') + fs + 'px ' + FONT; }
+        c.fillStyle = on ? PAL[i] : '#8C99A8'; c.textBaseline = 'alphabetic';
+        if (spL >= spR){ c.textAlign = 'right'; c.fillText(M.name, x1 - 8, y + 14); } else { c.textAlign = 'left'; c.fillText(M.name, xr, y + 14); }
+      }
+      else if (x1 - 8 - tw >= 4) txt(c, M.name, x1 - 8, y + 14, {align:'right', color:on ? PAL[i] : '#8C99A8', bold:on});
+      else txt(c, M.name, xr, y + 14, {color:on ? PAL[i] : '#8C99A8', bold:on});
     });
     // 천체 위치
     var ox = X(OBJ[p.o].d);
@@ -507,16 +524,17 @@ return {
     txt(c, OBJ[p.o].name, Math.max(nw + 4, Math.min(W - nw - 4, ox)), ay - 30, {align:'center', bold:true});
     var by = ay + 230;
     if (!r) return;
-    txt(c, r.O.name + ' · ' + r.M.name, 12, by, {bold:true});
-    if (!r.R.ok){ txt(c, '이 방법으로는 잴 수 없습니다', 12, by + 30, {bold:true, color:'#C8463D'});
-      txt(c, '(' + (r.d > r.M.max ? '너무 멂' : '너무 가까워 이 방법을 쓰지 않음') + ')', 12, by + 56, {color:'#C8463D'});
-      txt(c, r.M.note, 12, by + 86, {color:'#4A5868'}); return; }
-    txt(c, '거리 ' + (r.d >= 1e6 ? (r.d / 1e6).toFixed(2) + ' Mpc' : r.d >= 1000 ? (r.d / 1000).toFixed(2) + ' kpc' : f(r.d, 2) + ' pc') +
-      ' = ' + (r.R.ly >= 1e6 ? (r.R.ly / 1e6).toFixed(2) + ' 백만 광년' : f(r.R.ly, 1) + ' 광년'), 12, by + 30, {bold:true, color:'#2E9E78'});
-    if (r.mi === 0) txt(c, '연주 시차 ' + r.R.paraStr + ' (거리 = 1 ÷ 시차(초))', 12, by + 60, {});
-    if (r.mi === 1 || r.mi === 2) txt(c, '거리 지수 m − M = ' + r.R.mStr + ' (겉보기 등급과 절대 등급의 차)', 12, by + 60, {});
-    if (r.mi === 3) txt(c, '후퇴 속도 ' + Math.round(r.R.v).toLocaleString() + ' km/s, 적색 편이 z = ' + r.R.z.toFixed(4), 12, by + 60, {});
-    txt(c, r.M.note, 12, by + 90, {color:'#4A5868'});
+    var mw = W - 20, lh = 22;
+    by += wtxt(c, r.O.name + ' · ' + r.M.name, 12, by, {bold:true}, mw, lh);
+    if (!r.R.ok){ by += wtxt(c, '이 방법으로는 잴 수 없습니다', 12, by + 30, {bold:true, color:'#C8463D'}, mw, lh);
+      by += wtxt(c, '(' + (r.d > r.M.max ? '너무 멂' : '너무 가까워 이 방법을 쓰지 않음') + ')', 12, by + 56, {color:'#C8463D'}, mw, lh);
+      wtxt(c, r.M.note, 12, by + 86, {color:'#4A5868'}, mw, lh); return; }
+    by += wtxt(c, '거리 ' + (r.d >= 1e6 ? (r.d / 1e6).toFixed(2) + ' Mpc' : r.d >= 1000 ? (r.d / 1000).toFixed(2) + ' kpc' : f(r.d, 2) + ' pc') +
+      ' = ' + (r.R.ly >= 1e6 ? (r.R.ly / 1e6).toFixed(2) + ' 백만 광년' : f(r.R.ly, 1) + ' 광년'), 12, by + 30, {bold:true, color:'#2E9E78'}, mw, lh);
+    if (r.mi === 0) by += wtxt(c, '연주 시차 ' + r.R.paraStr + ' (거리 = 1 ÷ 시차(초))', 12, by + 60, {}, mw, lh);
+    if (r.mi === 1 || r.mi === 2) by += wtxt(c, '거리 지수 m − M = ' + r.R.mStr + ' (겉보기 등급과 절대 등급의 차)', 12, by + 60, {}, mw, lh);
+    if (r.mi === 3) by += wtxt(c, '후퇴 속도 ' + Math.round(r.R.v).toLocaleString() + ' km/s, 적색 편이 z = ' + r.R.z.toFixed(4), 12, by + 60, {}, mw, lh);
+    wtxt(c, r.M.note, 12, by + 90, {color:'#4A5868'}, mw, lh);
   },
   stats: function(p, r){
     var a = [['천체', r.O.name + ' (' + r.O.kind + ')'], ['방법', r.M.name], ['쓸 수 있는가', r.R.ok ? '예' : '아니요', r.R.ok ? PAL[1] : PAL[4]]];
@@ -760,5 +778,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

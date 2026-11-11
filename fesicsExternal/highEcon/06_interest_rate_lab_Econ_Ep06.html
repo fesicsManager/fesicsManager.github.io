@@ -311,9 +311,17 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+function wrapLines(c, s, mw, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT;
+  if (c.measureText(s).width <= mw) return [s];
+  var ws = s.split(' '), out = [], cur = '';
+  ws.forEach(function(w){ var t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > mw){ out.push(cur); cur = w; } else cur = t; });
+  if (cur) out.push(cur); return out;
+}
+function txtWrap(c, s, x, y, mw, lh, o){ var ls = wrapLines(c, s, mw, o); ls.forEach(function(l, i){ txt(c, l, x, y + i * lh, o); }); return ls.length; }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -437,7 +445,7 @@ var LAB = (function(){
 var PRIN = [10000, 30000, 50000], YRS = [10, 20, 30], SPREAD = 1.75;
 function payment(P, rate, years){ var r = rate / 100 / 12, n = years * 12; return r === 0 ? P / n : P * r / (1 - Math.pow(1 + r, -n)); }
 return {
-  sceneHeight: function(w){ return w < 640 ? 520 : 430; },
+  sceneHeight: function(w){ return w < 640 ? 580 : 430; },
   idle: '기준금리와 대출 조건을 정한 뒤 <b>금리 적용하기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 기준금리를 바꿔 가며 4번 이상 기록하세요.',
   params: [
@@ -464,14 +472,24 @@ return {
       if (i < n - 1 && k * n > i + 0.5){ if (col < cols - 1) arrow(c, x + bw + 2, y + 35, x + bw + gap - 4, y + 35, '#2B5FA3', 2.5); else arrow(c, x + bw / 2, y + 72, 10 + bw / 2, y0 + (row + 1) * rh - 4, '#2B5FA3', 2.5); }
     });
     var ty = y0 + rowsN * rh - 10;
+    var nar = W < 640, my;
+    if (nar){
+      var o16 = {color:'#4A5868', size:15}, n1 = txtWrap(c, '기준금리 ↑ → 은행 금리 ↑ → 대출 ↓·저축 ↑ → 소비·투자 ↓', 12, ty, W - 24, 19, o16);
+      var n2 = txtWrap(c, '→ 물가 ↓, 자산 가격·환율 하락 압력 (6개월~1년 시차)', 12, ty + n1 * 19, W - 24, 19, o16);
+      my = ty + (n1 + n2) * 19 + 8;
+    } else {
     txt(c, '기준금리 ↑ → 은행 금리 ↑ → 대출 ↓·저축 ↑ → 소비·투자 ↓', 12, ty, {color:'#4A5868'});
     txt(c, '→ 물가 ↓, 자산 가격·환율 하락 압력 (6개월~1년 시차)', 12, ty + 24, {color:'#4A5868'});
-    var gx = 12, gw = Math.min(360, W - 24), my = ty + 50;
+    my = ty + 50;
+    }
+    var gx = 12, gw = Math.min(360, W - 24);
     txt(c, '월 상환액 (' + (r ? (r.P / 10000) + '억 원 · ' + r.y + '년' : '—') + ')', gx, my, {color:'#4A5868'});
     meter(c, gx, my + 10, gw, r ? Math.round(r.M * k).toLocaleString() + ' 만 원' : '— 만 원');
     txt(c, '총이자', gx, my + 76, {color:'#4A5868'}); meter(c, gx, my + 86, gw, r ? Math.round(r.tot * k).toLocaleString() + ' 만 원' : '—');
     if (!r) return;
-    txt(c, '1.25 % 때보다 월 ' + sgn(r.dM, 0) + '만 원 · 예금 1억 원 1년 이자 ' + f(r.dep, 0) + '만 원', 12, H - 34, {bold:true, color:r.b > 1.25 ? '#C8463D' : r.b < 1.25 ? '#2B5FA3' : '#1E2833'});
+    var ob = {bold:true, color:r.b > 1.25 ? '#C8463D' : r.b < 1.25 ? '#2B5FA3' : '#1E2833'}, sb = '1.25 % 때보다 월 ' + sgn(r.dM, 0) + '만 원 · 예금 1억 원 1년 이자 ' + f(r.dep, 0) + '만 원';
+    if (nar){ ob.size = 16; var lb = wrapLines(c, sb, W - 24, ob); txtWrap(c, sb, 12, H - 34 - (lb.length - 1) * 20, W - 24, 20, ob); }
+    else txt(c, sb, 12, H - 34, ob);
     txt(c, r.dir, 12, H - 10, {color:'#4A5868'});
   },
   stats: function(p, r){
@@ -683,5 +701,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

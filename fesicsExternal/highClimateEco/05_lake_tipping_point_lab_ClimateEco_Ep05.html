@@ -311,6 +311,12 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다(o.dry 면 세기만)
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(/ (?!\d{3}\b|[%°℃‰]|(?:MW|kW|W|K|m|km|kg|g|mL|L|s|eV|nm|cm|mm|Hz|kJ|J|ppm|kbar|bar|atm|hPa|kPa|Pa|mol|M|명|개|번|회|원|년|초|분)(?![A-Za-z]))/), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
+  if (!o.dry) txt(c, line, x, y + n * lh, o); return n + 1;
+}
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
@@ -438,7 +444,7 @@ var LAB = (function(){
 var START = [{name:'맑은 호수 (탁도 0.05)', x:0.05}, {name:'녹조 호수 (탁도 2.5)', x:2.5}];
 function sim(P, si, years){ var x = START[si].x, a = P / 16, hist = [x]; for (var y = 0; y < years; y++){ for (var i = 0; i < 100; i++){ var dx = a - 0.8 * x + Math.pow(x, 8) / (1 + Math.pow(x, 8)); x += dx * 0.01; if (x < 0) x = 0; } hist.push(x); } return {hist:hist, x:x, P:P, years:years, sn:START[si].name, turbid:x >= 1, s:si}; }
 return {
-  sceneHeight: 430,
+  sceneHeight: function(w){ return w < 480 ? 570 : 430; },
   idle: '인 유입·시작 상태·기간을 정한 뒤 <b>몇 년 돌려 보기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 맑은 호수로 인 유입을 올려 가며, 녹조 호수로 인 유입을 내려 가며 기록하세요.',
   params: [
@@ -450,13 +456,14 @@ return {
   compute: function(p){ return sim(p.p, p.s, p.y); },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, R = r || sim(p.p, p.s, p.y), idx = Math.floor(R.years * k), x = R.hist[idx], t = Math.min(1, x / 2.5);
-    var lx = 20, ly = 40, lw = Math.min(200, W * 0.32), lh = H - ly - 80;
+    var nar = W < 480, lx = 20, ly = 40, lw = nar ? Math.min(200, W * 0.6) : Math.min(200, W * 0.32), lh = nar ? 160 : H - ly - 80; // 좁은 화면: 호수 아래에 그래프
     c.fillStyle = 'rgb(' + Math.round(120 + 40 * t) + ',' + Math.round(180 + 20 * t) + ',' + Math.round(230 - 200 * t) + ')'; c.beginPath(); c.ellipse(lx + lw / 2, ly + lh / 2, lw / 2, lh / 2, 0, 0, Math.PI * 2); c.fill();
     txt(c, x >= 1 ? '녹조' : '맑음', lx + lw / 2, ly + lh / 2 + 6, {align:'center', bold:true, color:x >= 1 ? '#1E2833' : '#fff'}); txt(c, '탁도 ' + f(x, 2), lx + lw / 2, ly + lh + 26, {align:'center', color:'#4A5868'});
-    var px = lx + lw + 70, py = 40, pw = W - px - 20, ph = H - py - 80;
+    var px = nar ? 60 : lx + lw + 70, py = nar ? ly + lh + 60 : 40, pw = W - px - 20, ph = nar ? 170 : H - py - 80;
     if (pw > 80){ var ax = plotBox(c, px, py, pw, ph, [0, R.years, Math.max(5, Math.ceil(R.years / 4 / 5) * 5)], [0, 3, 1], '년', '탁도');
       seg(c, px, ax.Y(1), px + pw, ax.Y(1), '#C8463D', 1.5, [6, 4]); c.strokeStyle = '#2E9E78'; c.lineWidth = 3; c.beginPath(); for (var i = 0; i <= idx; i++){ if (i === 0) c.moveTo(ax.X(i), ax.Y(Math.min(3, R.hist[i]))); else c.lineTo(ax.X(i), ax.Y(Math.min(3, R.hist[i]))); } c.stroke(); }
-    txt(c, '인 유입 ' + R.P + ' · ' + R.sn + ' → ' + idx + '년 뒤 ' + (x >= 1 ? '녹조' : '맑음'), 12, H - 14, {bold:true, color:x >= 1 ? '#C8463D' : '#2E9E78'});
+    var ms = '인 유입 ' + R.P + ' · ' + R.sn + ' → ' + idx + '년 뒤 ' + (x >= 1 ? '녹조' : '맑음');
+    if (nar) wtxt(c, ms, 12, H - 38, {bold:true, color:x >= 1 ? '#C8463D' : '#2E9E78'}, W - 24, 24); else txt(c, ms, 12, H - 14, {bold:true, color:x >= 1 ? '#C8463D' : '#2E9E78'});
   },
   stats: function(p, r){
     return [['인 유입 · 시작 · 기간', r.P + ' · ' + r.sn + ' · ' + r.years + '년'], ['최종 탁도', f(r.x, 2), r.turbid ? PAL[4] : PAL[1]], ['상태', r.turbid ? '녹조 (탁도 ≥ 1)' : '맑음', r.turbid ? PAL[4] : PAL[1]],
@@ -664,5 +671,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

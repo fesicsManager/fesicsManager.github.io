@@ -312,6 +312,22 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 나눠 그림. 늘어난 높이를 돌려줌 */
+function wtxt(c, s, x, y, o, maxW, lh){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  if (c.measureText(s).width <= maxW){ txt(c, s, x, y, o); return 0; }
+  var ws = s.split(' ').reduce(function(a, w){ if (a.length && ('%)]'.indexOf(w.charAt(0)) >= 0 || (w.length === 2 && w.charAt(1) === ')') || (/\d$/.test(a[a.length - 1]) && /^[A-Za-zµ°]/.test(w)))) a[a.length - 1] += ' ' + w; else a.push(w); return a; }, []), ls = [], cur = '';
+  ws.forEach(function(w){ var t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > maxW){ ls.push(cur); cur = w; } else cur = t; });
+  if (cur) ls.push(cur);
+  ls.forEach(function(l, i){ txt(c, l, x, y + i * lh, o); });
+  return (ls.length - 1) * lh;
+}
+/* 폭(maxW)을 넘으면 글자를 줄여(11px 까지) 한 줄로 그림 */
+function ftxt(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  while (fs > 11 && c.measureText(s).width > maxW){ fs--; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; }
+  c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -468,7 +484,7 @@ var LAB = (function(){
         },
         draw: function(c, W, H, p, r, tau){
           var pb = PB[p.pb], nb = pb.box, cols = nb === 10 ? 5 : 10, rows = nb / cols, bw = (W - 32) / cols - 4, bh = Math.min(nb === 10 ? 110 : 56, (H - 120) / rows - 6);
-          txt(c, pb.short + ' · 상자 ' + nb + '개 · ' + (r ? r.k : (p.m === 2 ? 11 : p.k)) + '개 고름', 16, 24, {bold:true});
+          ftxt(c, pb.short + ' · 상자 ' + nb + '개 · ' + (r ? r.k : (p.m === 2 ? 11 : p.k)) + '개 고름', 16, 24, {bold:true}, W - 24);
           var show = r ? Math.ceil(r.k * Math.min(tau / 0.8, 1)) : 0, cnt = [], i;
           for (i = 0; i < nb; i++) cnt.push([]);
           if (r) r.nums.slice(0, show).forEach(function(v){ cnt[boxOf(p.pb, v)].push(v); });
@@ -477,16 +493,16 @@ var LAB = (function(){
             c.fillStyle = full ? '#F7D4D1' : cnt[i].length ? '#DCEAF7' : '#EEF2F6'; c.fillRect(x, y, bw, bh);
             if (full){ c.strokeStyle = PAL[4]; c.lineWidth = 2.5; c.strokeRect(x, y, bw, bh); }
             c.font = '13px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
-            if (nb === 10){ c.fillText('나머지 ' + i, x + 4, y + 16); c.font = '700 15px ' + FONT; c.fillStyle = full ? PAL[4] : PAL[0];
-              cnt[i].slice(0, 4).forEach(function(v, j){ c.fillText(String(v), x + 4 + (j % 2) * (bw / 2), y + 40 + Math.floor(j / 2) * 22); });
-              if (cnt[i].length > 4){ c.fillText('+' + (cnt[i].length - 4), x + 4, y + 40 + 44); } }
+            if (nb === 10){ var vy = 40; if (c.measureText('나머지 ' + i).width > bw - 6){ c.font = '11px ' + FONT; c.fillText('나머지', x + 4, y + 13); c.fillText(String(i), x + 4, y + 26); vy = 46; } else c.fillText('나머지 ' + i, x + 4, y + 16); c.font = '700 ' + (vy === 46 ? 11 : 15) + 'px ' + FONT; c.fillStyle = full ? PAL[4] : PAL[0];
+              cnt[i].slice(0, 4).forEach(function(v, j){ c.fillText(String(v), x + 4 + (j % 2) * (bw / 2), y + vy + Math.floor(j / 2) * 22); });
+              if (cnt[i].length > 4){ c.fillText('+' + (cnt[i].length - 4), x + 4, y + vy + 44); } }
             else { if (bw > 26) c.fillText(String(2 * i + 1), x + 3, y + 14);
               for (var j = 0; j < cnt[i].length; j++){ c.fillStyle = full ? PAL[4] : PAL[0]; c.beginPath(); c.arc(x + 8 + j * 11, y + bh - 10, 4.5, 0, Math.PI * 2); c.fill(); } }
           }
           if (r && tau >= 1){
             var by = 40 + rows * (bh + 6) + 24;
-            txt(c, r.has ? '쌍 발견: ' + r.pair[0] + ', ' + r.pair[1] + (p.pb === 0 ? ' (차 ' + (r.pair[1] - r.pair[0]) + ')' : '') : '쌍 없음 — ' + r.k + '개로는 반드시가 아니다!', 16, by, {bold:true, color:r.has ? PAL[4] : PAL[1]});
-            txt(c, r.sure ? r.k + ' > 상자 ' + nb + ' → 어떻게 골라도 반드시 있음' : r.k + ' ≤ 상자 ' + nb + ' → 없을 수도 있음', 16, by + 28, {color:PAL[3]});
+            by += wtxt(c, r.has ? '쌍 발견: ' + r.pair[0] + ', ' + r.pair[1] + (p.pb === 0 ? ' (차 ' + (r.pair[1] - r.pair[0]) + ')' : '') : '쌍 없음 — ' + r.k + '개로는 반드시가 아니다!', 16, by, {bold:true, color:r.has ? PAL[4] : PAL[1]}, W - 24, 24);
+            wtxt(c, r.sure ? r.k + ' > 상자 ' + nb + ' → 어떻게 골라도 반드시 있음' : r.k + ' ≤ 상자 ' + nb + ' → 없을 수도 있음', 16, by + 28, {color:PAL[3]}, W - 24, 24);
           }
         },
         stats: function(p, r){
@@ -727,5 +743,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 })();
 </script>
 <!-- fxNoteLink:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

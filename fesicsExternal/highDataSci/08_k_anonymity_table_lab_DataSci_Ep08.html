@@ -313,6 +313,16 @@ function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
+/* 폭(maxW)을 넘으면 띄어쓰기에서 여러 줄로 (up 이면 마지막 줄이 y) */
+function txtW(c, s, x, y, o, maxW, lh, up){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', out = [];
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > maxW){ var sp = line.lastIndexOf(' '); if (sp > 0 && ((/[\d.,]$/.test(line) && ws[i].length <= 4 && !/^\d/.test(ws[i])) || /^[=→·×÷+−]$/.test(line.slice(sp + 1)))){ out.push(line.slice(0, sp)); line = line.slice(sp + 1) + ' ' + ws[i]; } else { out.push(line); line = ws[i]; } } else line = t; }
+  out.push(line);
+  var y0 = up ? y - (out.length - 1) * lh : y;
+  for (var j = 0; j < out.length; j++) txt(c, out[j], x, y0 + j * lh, o);
+  return out.length;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -452,7 +462,7 @@ var LAB = (function(){
       }
       var BL = ['1명', '2명', '3~4명', '5~9명', '10명+'];
       return {
-        sceneHeight: 430,
+        sceneHeight: function(w){ return w < 520 ? 480 : 430; },
         idle: '반·생일·키를 얼마나 뭉갤지 정한 뒤 <b>공개용 표 만들고 찾아보기</b>를 누르세요.',
         shortHint: '원자료(반 그대로·생일 월·키 1 cm)에서 시작해 하나씩 뭉개 보세요. 1명짜리 묶음이 0이 되는 가장 덜 뭉갠 조합을 찾는 것이 목표예요.',
         params: [
@@ -463,13 +473,14 @@ var LAB = (function(){
         ],
         compute: function(p){ var R = run(p.c, p.b, p.h); R.q = '2학년 · ' + (p.c ? '반 ?' : '3반') + ' · ' + (p.b === 0 ? '3월생' : p.b === 1 ? '1분기생' : '생일 ?') + ' · ' + hlabel(p.h); return R; },
         draw: function(c, W, H, p, r, tau){
-          var nw = W < 520, px = nw ? 20 : 60, py = 50, pw = W - px - (nw ? 10 : 20), ph = H - py - 120, R = r || run(p.c, p.b, p.h), k = r ? Math.min(tau / 0.7, 1) : 0.08, mx = Math.max.apply(null, R.bins) || 1, bw = pw / 5;
+          var nw = W < 520, px = nw ? 20 : 60, py = 50, pw = W - px - (nw ? 10 : 20), ph = H - py - (nw ? 170 : 120), R = r || run(p.c, p.b, p.h), k = r ? Math.min(tau / 0.7, 1) : 0.08, mx = Math.max.apply(null, R.bins) || 1, bw = pw / 5;
           txt(c, '같은 조합 인원별 묶음 수', 16, 26, {bold:true});
           seg(c, px, py + ph, px + pw, py + ph, '#8C99A8', 1.5);
           R.bins.forEach(function(n, i){ var h = ph * n / mx * k; c.fillStyle = i === 0 ? PAL[4] : i === 1 ? PAL[6] : PAL[1]; c.fillRect(px + i * bw + 6, py + ph - h, bw - 12, h);
             txt(c, String(Math.round(n * k)), px + i * bw + bw / 2, py + ph - h - 6, {align:'center', bold:true}); txt(c, BL[i], px + i * bw + bw / 2, py + ph + 22 + (nw && i % 2 ? 20 : 0), {align:'center', color:'#4A5868'}); });
-          if (r && tau >= 1){ txt(c, '"' + R.q + '" → ' + R.tg + '명', 16, H - 42, {bold:true, color:R.tg === 1 ? PAL[4] : PAL[1]});
-            txt(c, R.tg === 1 ? '한 명뿐 — 건강 정보가 그대로 드러남' : R.tg + '명 중 알레르기 ' + R.tgAl + '명 — 누구인지 확정 못 함', 16, H - 14, {color:R.tg === 1 ? PAL[4] : PAL[1]}); }
+          if (r && tau >= 1){   /* 좁은 화면: 두 문장을 띄어쓰기에서 나누어 위로 쌓음 */
+            var n2 = txtW(c, R.tg === 1 ? '한 명뿐 — 건강 정보가 그대로 드러남' : R.tg + '명 중 알레르기 ' + R.tgAl + '명 — 누구인지 확정 못 함', 16, H - 14, {color:R.tg === 1 ? PAL[4] : PAL[1]}, W - 28, 22, true);
+            txtW(c, '"' + R.q + '" → ' + R.tg + '명', 16, H - 42 - (n2 - 1) * 22, {bold:true, color:R.tg === 1 ? PAL[4] : PAL[1]}, W - 28, 22, true); }
           else txt(c, r ? '묶음 세는 중…' : '반·생일·키 조합으로 묶습니다', 16, H - 14, {bold:true});
         },
         stats: function(p, r){
@@ -703,5 +714,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

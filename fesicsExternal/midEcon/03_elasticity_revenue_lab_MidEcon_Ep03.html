@@ -314,7 +314,18 @@ function axisFrom(lo, hi){
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  if (o.maxW){ var mw = c.measureText(s).width; if (mw > o.maxW) c.font = (o.bold ? '700 ' : '') + Math.max(11, Math.floor(18 * o.maxW / mw)) + 'px ' + FONT; }
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
+// 좁은 화면용: 띄어쓰기에서 줄을 나눠 그리고 다음 줄 y 를 돌려줌
+function wtxt(c, s, x, y, maxW, o, lh){
+  o = o || {}; o.maxW = maxW; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var words = String(s).split(' '), line = '';
+  for (var i = 0; i < words.length; i++){
+    var t = line ? line + ' ' + words[i] : words[i];
+    if (line && c.measureText(t).width > maxW){ txt(c, line, x, y, o); y += lh; line = words[i]; } else line = t;
+  }
+  txt(c, line, x, y, o); return y + lh;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -439,7 +450,7 @@ var LAB = (function(){
 var GOOD = [{name:'과자', e:2.0, why:'대체 과자가 많음'}, {name:'감기약', e:0.25, why:'꼭 필요, 대체재 적음'}, {name:'전기', e:0.3, why:'생활 필수'}, {name:'명품 가방', e:1.5, why:'사치품'}, {name:'쌀', e:0.4, why:'필수 식량'}, {name:'외식', e:1.2, why:'집밥으로 대체 가능'}];
 function calc(gi, pct){ var G = GOOD[gi], P0 = 1000, Q0 = 100, P1 = P0 * (1 + pct / 100), Q1 = Q0 * Math.pow(P1 / P0, -G.e), R0 = P0 * Q0, R1 = P1 * Q1; return {gn:G.name, e:G.e, why:G.why, pct:pct, P1:P1, Q1:Q1, R0:R0, R1:R1, dR:R1 - R0, elastic:G.e > 1, dQpct:(Q1 / Q0 - 1) * 100}; }
 return {
-  sceneHeight: 400,
+  sceneHeight: function(w){ return w < 500 ? 440 : 400; },
   idle: '상품과 가격 인상률을 정한 뒤 <b>값 올려 보기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 같은 인상률로 여러 상품을 기록하고, 인상률도 바꿔 보세요.',
   params: [
@@ -449,11 +460,13 @@ return {
   ],
   compute: function(p){ return calc(p.g, p.p); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.g, p.p), px = 70, py = 30, pw = W - px - 20, ph = H - py - 80;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.g, p.p), px = 70, py = 30, pw = W - px - 20, ph = H - py - (W < 500 ? 130 : 80);   /* 좁은 화면: 아래 결과 글 자리 */
     var ax = plotBox(c, px, py, pw, ph, [0, 120, 20], [0, 1600, 400], '판매량 (개)', '가격 (원)');
     c.fillStyle = 'rgba(140,153,168,.25)'; c.fillRect(ax.X(0), ax.Y(1000), ax.X(100) - ax.X(0), ax.Y(0) - ax.Y(1000)); txt(c, '원래 수입 10만 원', ax.X(50), ax.Y(500), {align:'center', color:'#4A5868'});
     var P1 = 1000 + (C.P1 - 1000) * k, Q1 = 100 + (C.Q1 - 100) * k; c.fillStyle = C.dR >= 0 ? 'rgba(46,158,120,.35)' : 'rgba(200,70,61,.35)'; c.fillRect(ax.X(0), ax.Y(P1), ax.X(Q1) - ax.X(0), ax.Y(0) - ax.Y(P1)); c.strokeStyle = C.dR >= 0 ? '#2E9E78' : '#C8463D'; c.lineWidth = 2; c.strokeRect(ax.X(0), ax.Y(P1), ax.X(Q1) - ax.X(0), ax.Y(0) - ax.Y(P1));
-    txt(c, r ? C.gn + ' 값 +' + C.pct + ' % → 양 ' + f(C.dQpct, 0) + ' % → 수입 ' + f(P1 * Q1 / 10000, 1) + '만 원 (' + sgn((P1 * Q1 - 100000) / 10000, 1) + ')' : '', 12, H - 14, {bold:true, color:C.dR >= 0 ? '#2E9E78' : '#C8463D'});
+    var rs = r ? C.gn + ' 값 +' + C.pct + ' % → 양 ' + f(C.dQpct, 0) + ' % → 수입 ' + f(P1 * Q1 / 10000, 1) + '만 원 (' + sgn((P1 * Q1 - 100000) / 10000, 1) + ')' : '', ro = {bold:true, color:C.dR >= 0 ? '#2E9E78' : '#C8463D'};
+    if (W < 500) wtxt(c, rs, 12, H - 62, W - 20, ro, 24);   /* 좁은 화면: 줄 나눔 */
+    else txt(c, rs, 12, H - 14, ro);
   },
   stats: function(p, r){
     return [['상품 · 탄력성', r.gn + ' · ' + f(r.e, 2) + ' (' + r.why + ')'], ['가격', '1,000 → ' + f(r.P1, 0) + '원 (+' + r.pct + ' %)'], ['판매량', '100 → ' + f(r.Q1, 0) + '개 (' + f(r.dQpct, 0) + ' %)', PAL[4]], ['총수입', f(r.R0 / 10000, 1) + ' → ' + f(r.R1 / 10000, 2) + '만 원', r.dR >= 0 ? PAL[1] : PAL[4]], ['수입 변화', sgn(r.dR / 10000, 2) + '만 원', r.dR >= 0 ? PAL[1] : PAL[4]],
@@ -659,5 +672,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

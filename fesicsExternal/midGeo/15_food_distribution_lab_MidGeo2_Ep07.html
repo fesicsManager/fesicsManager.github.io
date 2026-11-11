@@ -439,7 +439,7 @@ var INEQ = [{name:'낮음', s:0.3}, {name:'보통', s:0.7}, {name:'높음', s:1.
 function calc(prod, ii, ci, waste, feed){ var avail = prod * (1 - waste / 100) * (1 - feed / 100), s = INEQ[ii].s, dec = [], hungry = 0; var ws = []; for (var q = 0; q < 10; q++) ws.push(Math.max(0.05, 1 + s * (q - 4.5) / 4.5)); var wm = ws.reduce(function(a, b){ return a + b; }, 0) / 10; for (var d = 0; d < 10; d++){ var w = ws[d] / wm, kcal = avail * w; if (d < CONF[ci]) kcal *= 0.6; dec.push(kcal); if (kcal < 1800) hungry += 10; }
   return {prod:prod, avail:avail, dec:dec, hungry:hungry, people:hungry / 100 * 80, inn:INEQ[ii].name, cn:CN[ci], waste:waste, feed:feed, enough:avail >= 1800, top:dec[9], bottom:dec[0]}; }
 return {
-  sceneHeight: 400,
+  sceneHeight: function(w){ return w < 520 ? 440 : 400; },
   idle: '생산·불평등·분쟁·낭비·사료 비율을 정한 뒤 <b>분배해 보기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 생산은 그대로 두고 불평등·분쟁·낭비를 바꿔 가며 기아 인구를 기록하세요.',
   params: [
@@ -452,13 +452,16 @@ return {
   ],
   compute: function(p){ return calc(p.p, p.i, p.c, p.w, p.f); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.p, p.i, p.c, p.w, p.f), px = 70, py = 40, pw = W - px - 20, ph = H - py - 90;
-    var ax = plotBox(c, px, py, pw, ph, [0, 10, 1], [0, 4000, 1000], '인구 10분위 (가난한 쪽 → 부유한 쪽)', 'kcal/일');
+    var nar = W < 520, k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.p, p.i, p.c, p.w, p.f), px = 70, py = 40, pw = W - px - 20, ph = H - py - (nar ? 136 : 90);
+    var ax = plotBox(c, px, py, pw, ph, [0, 10, 1], [0, 4000, 1000], nar ? '' : '인구 10분위 (가난한 쪽 → 부유한 쪽)', 'kcal/일');
+    if (nar){ txt(c, '인구 10분위', px + pw / 2, py + ph + 30, {align:'center', base:'top'}); txt(c, '(가난한 쪽 → 부유한 쪽)', px + pw / 2, py + ph + 52, {align:'center', base:'top'}); }
     C.dec.forEach(function(v, i){ var bw = pw / 10 * 0.6, x = ax.X(i + 0.5), vv = v * k; c.fillStyle = vv < 1800 ? '#C8463D' : i < CONF[p.c] ? '#D98E04' : '#2E9E78'; c.fillRect(x - bw / 2, ax.Y(Math.min(4000, vv)), bw, ax.Y(0) - ax.Y(Math.min(4000, vv))); });
     seg(c, px, ax.Y(1800), px + pw, ax.Y(1800), '#C8463D', 2, [6, 4]); txt(c, '기아 기준 1,800', px + pw - 4, ax.Y(1800) - 6, {align:'right', color:'#C8463D'}); seg(c, px, ax.Y(C.avail), px + pw, ax.Y(C.avail), '#2B5FA3', 1.5, [3, 3]); c.font = '18px ' + FONT; var avT = '평균 ' + f(C.avail, 0), avDy = -6, dyL = ax.Y(C.avail) - ax.Y(1800);
     if (px + 8 + c.measureText(avT).width + c.measureText('기아 기준 1,800').width > px + pw - 8 && Math.abs(dyL) < 24) avDy = dyL >= 0 ? 20 : -6 - (24 - Math.abs(dyL));
     txt(c, avT, px + 4, ax.Y(C.avail) + avDy, {color:'#2B5FA3'});
-    txt(c, r && k > 0.9 ? '기아 ' + C.hungry + ' % = 약 ' + f(C.people, 0) + '억 명' + (C.enough ? ' (평균은 충분한데!)' : C.prod < 1800 ? ' (생산 자체가 부족)' : ' (낭비·사료 전환 때문에 부족)') : '', 12, H - 14, {bold:true, color:C.hungry ? '#C8463D' : '#2E9E78'});
+    var hA = '기아 ' + C.hungry + ' % = 약 ' + f(C.people, 0) + '억 명', hB = C.enough ? ' (평균은 충분한데!)' : C.prod < 1800 ? ' (생산 자체가 부족)' : ' (낭비·사료 전환 때문에 부족)';
+    if (nar){ if (r && k > 0.9){ txt(c, hA, 12, H - 38, {bold:true, color:C.hungry ? '#C8463D' : '#2E9E78'}); txt(c, hB.slice(1), 12, H - 14, {bold:true, color:C.hungry ? '#C8463D' : '#2E9E78'}); } }
+    else txt(c, r && k > 0.9 ? hA + hB : '', 12, H - 14, {bold:true, color:C.hungry ? '#C8463D' : '#2E9E78'});
   },
   stats: function(p, r){
     return [['생산 · 낭비 · 사료', r.prod.toLocaleString() + ' kcal · ' + r.waste + ' % · ' + r.feed + ' %'], ['실제 먹을 수 있는 평균', f(r.avail, 0) + ' kcal/일', r.enough ? PAL[1] : PAL[4]], ['불평등 · 분쟁', r.inn + ' · ' + r.cn], ['가장 부유한 10 % · 가장 가난한 10 %', f(r.top, 0) + ' · ' + f(r.bottom, 0) + ' kcal', PAL[3]], ['기아 인구', r.hungry + ' % (약 ' + f(r.people, 1) + '억 명)', r.hungry ? PAL[4] : PAL[1]],
@@ -663,5 +666,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

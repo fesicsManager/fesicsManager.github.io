@@ -438,7 +438,7 @@ var LAB = (function(){
 var SURF = [{name:'나무 그늘 흙', k:0.1, night:0}, {name:'맨흙 운동장', k:0.5, night:1}, {name:'아스팔트 주차장', k:1.1, night:4}, {name:'검은 옥상', k:1.4, night:3}], TIME = [{name:'낮 2시', sun:1}, {name:'저녁 7시', sun:0.3}, {name:'밤 11시', sun:0}];
 function calc(si, ti, green){ var S = SURF[si], T = TIME[ti], base = ti === 0 ? 26 : ti === 1 ? 24 : 22, surf = base + 23 * S.k * T.sun + (T.sun < 0.5 ? S.night * (1 - T.sun) : 0), air = base + 3 * (1 - green / 100) + 0.1 * Math.max(0, surf - base) + (ti === 0 ? 0 : (ti === 2 ? 1 : 0.5) * (1.5 + 0.75 * S.night) * (1 - green / 100)); return {sn:S.name, tn:T.name, green:green, surf:surf, air:air, island:air - base, rural:base, hot:surf > 45}; }
 return {
-  sceneHeight: 400,
+  sceneHeight: function(w){ return w < 420 ? 424 : 400; },
   idle: '지면·시각·녹지 비율을 정한 뒤 <b>온도 재 보기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 같은 시각에 네 지면을 모두 기록하고, 밤에도 재 보세요.',
   params: [
@@ -449,11 +449,14 @@ return {
   ],
   compute: function(p){ return calc(p.s, p.t, p.g); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.s, p.t, p.g), gy = H - 90, px = 60, pw = W - 80;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.s, p.t, p.g), nar = W < 420, gy = H - (nar ? 112 : 90), px = 60, pw = W - 80;
     var zones = [['공원', '#2E9E78', 100], ['주택가', '#C9D2DC', 50], ['대로변', '#5C6B7A', 0]]; zones.forEach(function(z, i){ c.fillStyle = z[1]; c.fillRect(px + i * pw / 3, gy, pw / 3, 30); txt(c, z[0], px + i * pw / 3 + pw / 6, gy + 50, {align:'center', color:'#4A5868'}); });
     var ax = plotBox(c, px, 40, pw, gy - 60, [0, 3, 1], [20, 36, 4], '', '기온 (℃)'); c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.beginPath(); for (var x = 0; x <= 3; x += 0.1){ var g = x < 1 ? 100 - 50 * x : x < 2 ? 50 - 40 * (x - 1) : 10 - 10 * (x - 2); var a = calc(2, p.t, g).air; if (x === 0) c.moveTo(ax.X(x), ax.Y(a)); else c.lineTo(ax.X(x), ax.Y(a)); } c.stroke();
-    var xx = ax.X(3 - C.green / 100 * 3 * 0.9); if (r){ c.fillStyle = '#1E2833'; c.beginPath(); c.arc(xx, ax.Y(C.rural + (C.air - C.rural) * k), 8, 0, Math.PI * 2); c.fill(); txt(c, '기온 ' + f(C.rural + (C.air - C.rural) * k, 1) + ' ℃', xx + 10, ax.Y(C.air) - 10, {bold:true}); }
-    txt(c, C.sn + ' 지면 ' + f(C.rural + (C.surf - C.rural) * k, 0) + ' ℃ · 열섬 +' + f(C.island * k, 1) + ' ℃', 12, H - 14, {bold:true, color:C.hot ? '#C8463D' : '#1E2833'});
+    var xx = ax.X(3 - C.green / 100 * 3 * 0.9); if (r){ c.fillStyle = '#1E2833'; c.beginPath(); c.arc(xx, ax.Y(C.rural + (C.air - C.rural) * k), 8, 0, Math.PI * 2); c.fill(); var tl = '기온 ' + f(C.rural + (C.air - C.rural) * k, 1) + ' ℃'; c.font = '700 18px ' + FONT; if (xx + 10 + c.measureText(tl).width > W - 4) txt(c, tl, xx - 10, ax.Y(C.air) - 10, {bold:true, align:'right'}); else txt(c, tl, xx + 10, ax.Y(C.air) - 10, {bold:true}); }
+    var b1 = C.sn + ' 지면 ' + f(C.rural + (C.surf - C.rural) * k, 0) + ' ℃', b2 = '열섬 +' + f(C.island * k, 1) + ' ℃', bo = {bold:true, color:C.hot ? '#C8463D' : '#1E2833'};
+    c.font = '700 18px ' + FONT;
+    if (c.measureText(b1 + ' · ' + b2).width > W - 24){ txt(c, b1, 12, H - 34, bo); txt(c, b2, 12, H - 12, bo); }
+    else txt(c, b1 + ' · ' + b2, 12, H - 14, bo);
   },
   stats: function(p, r){
     return [['지면 · 시각 · 녹지', r.sn + ' · ' + r.tn + ' · ' + r.green + ' %'], ['지면 온도', f(r.surf, 1) + ' ℃', r.hot ? PAL[4] : PAL[1]], ['기온', f(r.air, 1) + ' ℃', PAL[0]], ['시골 기온 (기준)', f(r.rural, 1) + ' ℃'], ['열섬 세기', '+' + f(r.island, 1) + ' ℃', r.island > 2 ? PAL[4] : PAL[1]], ['판정', r.hot ? '지면이 45 ℃ 넘음 — 화상·폭염 위험' : r.island > 2 ? '열섬 뚜렷' : '열섬 약함 (녹지 효과)', r.hot || r.island > 2 ? PAL[4] : PAL[1]]];
@@ -659,5 +662,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

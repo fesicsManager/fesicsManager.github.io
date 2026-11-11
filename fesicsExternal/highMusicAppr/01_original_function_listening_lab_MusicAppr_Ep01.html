@@ -309,7 +309,18 @@ function axisFrom(lo, hi){
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  if (o.maxW){ var mw = c.measureText(s).width; if (mw > o.maxW) c.font = (o.bold ? '700 ' : '') + Math.max(11, Math.floor(18 * o.maxW / mw)) + 'px ' + FONT; }
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
+// 좁은 화면용: 띄어쓰기에서 줄을 나눠 그리고 다음 줄 y 를 돌려줌
+function wtxt(c, s, x, y, maxW, o, lh){
+  o = o || {}; o.maxW = maxW; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var words = String(s).split(' '), line = '';
+  for (var i = 0; i < words.length; i++){
+    var t = line ? line + ' ' + words[i] : words[i];
+    if (line && c.measureText(t).width > maxW){ txt(c, line, x, y, o); y += lh; line = words[i]; } else line = t;
+  }
+  txt(c, line, x, y, o); return y + lh;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -492,7 +503,7 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
       function crowd(S, g){ if (!S) return; try { var a = S.a, src = a.createBufferSource(), fl = a.createBiquadFilter(), e = a.createGain(); src.buffer = noiseBuf(a); src.loop = true;
         fl.type = 'bandpass'; fl.frequency.value = 450; fl.Q.value = 0.6; e.gain.value = g; src.connect(fl); fl.connect(e); e.connect(S.out); src.start(S.t0); src.stop(S.t0 + S.d); } catch(e2){} }
       return {
-        sceneHeight: 440,
+        sceneHeight: function(w){ return w < 500 ? 500 : 440; },
         idle: '곡의 쓰임과 청중 방식을 고른 뒤 <b>그 자리에서 들어 보기</b>를 누르세요.',
         shortHint: '다섯 쓰임을 모두 두 가지 청중 방식으로 비교해 보세요(최소 4개 기록).',
         params: [
@@ -518,12 +529,20 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           txt(c, q.U.place + ' · ' + AU2[p.a].s, x0, 26, {bold:true});
           var Y = function(db){ return y0 + ph - ph * db / 90; };
           [0, 30, 60, 90].forEach(function(db){ seg(c, x0, Y(db), W - 30, Y(db), '#E1E7EE', 1); txt(c, db + '', x0 - 4, Y(db) + 6, {align:'right', color:'#8C99A8'}); });
-          var mx = x0 + 30, nx = mx + bw + 40;
+          var narrow = W < 500;
+          if (narrow) bw = 46;
+          var mx = x0 + (narrow ? 16 : 30), nx = mx + bw + (narrow ? 20 : 40), ax2 = narrow ? nx + bw + 14 : nx + bw + 20;
           c.fillStyle = PAL[0]; c.fillRect(mx, Y(q.U.lvl * k), bw, ph * q.U.lvl * k / 90); txt(c, '음악', mx + bw / 2, y0 + ph + 24, {align:'center', bold:true});
           c.fillStyle = PAL[7]; c.fillRect(nx, Y(q.nz * k), bw, ph * q.nz * k / 90); txt(c, '청중 소음', nx + bw / 2, y0 + ph + 24, {align:'center', bold:true});
-          if (r && tau > 0.5){ arrow(c, nx + bw + 20, Y(q.nz), nx + bw + 20, Y(q.U.lvl), PAL[4], 2.5); txt(c, '차이 ' + f(q.snr, 0) + ' dB', nx + bw + 30, (Y(q.nz) + Y(q.U.lvl)) / 2, {bold:true, color:PAL[4]}); }
+          if (r && tau > 0.5){ arrow(c, ax2, Y(q.nz), ax2, Y(q.U.lvl), PAL[4], 2.5); txt(c, '차이 ' + f(q.snr, 0) + ' dB', ax2 + 10, (Y(q.nz) + Y(q.U.lvl)) / 2, {bold:true, color:PAL[4], maxW:W - ax2 - 16}); }
           if (p.a === 0) for (var i = 0; i < 7; i++){ var px = nx + 10 + (i * 37) % (bw - 10), py = Y(q.nz) - 14 - (i % 3) * 10; c.fillStyle = 'rgba(92,107,122,.5)'; c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fill(); }
           var ty = y0 + ph + 60;
+          if (narrow){
+            var ny = wtxt(c, '설계 특징: ' + q.U.des, x0 - 18, ty, W - x0 + 10, {color:'#4A5868'}, 24);
+            ny = wtxt(c, '함께 볼 맥락: ' + q.U.ctx, x0 - 18, ny + 4, W - x0 + 10, {color:'#4A5868'}, 24);
+            wtxt(c, r ? q.role : '예상: 음악이 주인공일까, 배경일까?', x0 - 18, ny + 12, W - x0 + 10, {bold:true, color:r ? (q.snr >= 25 ? PAL[1] : PAL[6]) : '#1E2833'}, 24);
+            return;
+          }
           txt(c, '설계 특징: ' + q.U.des, x0, ty, {color:'#4A5868'});
           txt(c, '함께 볼 맥락: ' + q.U.ctx, x0, ty + 28, {color:'#4A5868'});
           txt(c, r ? q.role : '예상: 음악이 주인공일까, 배경일까?', x0, H - 14, {bold:true, color:r ? (q.snr >= 25 ? PAL[1] : PAL[6]) : '#1E2833'});
@@ -756,5 +775,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 })();
 </script>
 <!-- fxNoteLink:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

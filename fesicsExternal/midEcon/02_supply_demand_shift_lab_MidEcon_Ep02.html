@@ -313,7 +313,25 @@ function axisFrom(lo, hi){
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic';
+  if (o.clamp){   /* 화면 밖으로 나가면 안쪽으로 밀어 넣기 */
+    var CW = c.canvas.clientWidth || 0, w = c.measureText(s).width, al = c.textAlign;
+    var l = al === 'right' ? x - w : al === 'center' ? x - w / 2 : x;
+    if (CW && l + w > CW - 4) x -= l + w - (CW - 4); else if (l < 4) x += 4 - l;
+  }
+  c.fillText(s, x, y);
+}
+/* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 (o.dry 면 재기만) */
+function wrapT(c, s, x, y, maxW, lh, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){
+    var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; }
+    else line = t;
+  }
+  if (!o.dry) txt(c, line, x, y + n * lh, o);
+  return y + (n + 1) * lh;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -448,13 +466,15 @@ return {
   ],
   compute: function(p){ return calc(p.e, p.k); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.e, p.k), px = 64, py = 30, pw = W - px - 20, ph = H - py - 80;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.e, p.k), px = 64, py = 30, pw = W - px - 20, nar = W < 480, ph = H - py - (nar ? 102 : 80);   /* 좁은 화면: 아래 설명 두 줄 자리 */
     var ax = plotBox(c, px, py, pw, ph, [0, 100, 20], [0, 10, 2], '거래량 (상자)', '가격 (천 원)');
     function line(shiftD, shiftS, alpha){ c.globalAlpha = alpha; c.strokeStyle = '#2B5FA3'; c.lineWidth = 3; c.beginPath(); c.moveTo(ax.X(Math.max(0, shiftD)), ax.Y(Math.min(10, (100 + shiftD) / 10))); c.lineTo(ax.X(Math.min(100, 100 + shiftD)), ax.Y(0)); c.stroke(); c.strokeStyle = '#D98E04'; c.beginPath(); c.moveTo(ax.X(Math.max(0, shiftS)), ax.Y(Math.max(0, -shiftS / 10))); c.lineTo(ax.X(Math.min(100, 100 + shiftS)), ax.Y(Math.min(10, (100 - shiftS) / 10))); c.stroke(); c.globalAlpha = 1; }
     line(0, 0, r ? 0.3 : 1); if (r) line(C.dd * k, C.ds * k, 1);
-    c.fillStyle = '#8C99A8'; c.beginPath(); c.arc(ax.X(50), ax.Y(5), 6, 0, Math.PI * 2); c.fill(); txt(c, '처음 (5천 원, 50)', ax.X(50) + 8, ax.Y(5) + 20, {color:'#8C99A8'});
-    if (r){ var Pk = 5 + (C.P - 5) * k, Qk = 50 + (C.Q - 50) * k; c.fillStyle = '#C8463D'; c.beginPath(); c.arc(ax.X(Qk), ax.Y(Pk), 8, 0, Math.PI * 2); c.fill(); txt(c, '새 균형 (' + f(Pk, 1) + '천 원, ' + f(Qk, 0) + ')', ax.X(Qk) + 10, ax.Y(Pk) - 10, {color:'#C8463D', bold:true}); }
-    txt(c, '파랑 수요 · 주황 공급 · ' + (r ? C.curve + ' 곡선이 ' + C.dir + '으로' : ''), px, H - 14, {bold:true});
+    c.fillStyle = '#8C99A8'; c.beginPath(); c.arc(ax.X(50), ax.Y(5), 6, 0, Math.PI * 2); c.fill(); txt(c, '처음 (5천 원, 50)', ax.X(50) + 8, ax.Y(5) + 20, {color:'#8C99A8', clamp:true});
+    if (r){ var Pk = 5 + (C.P - 5) * k, Qk = 50 + (C.Q - 50) * k; c.fillStyle = '#C8463D'; c.beginPath(); c.arc(ax.X(Qk), ax.Y(Pk), 8, 0, Math.PI * 2); c.fill(); txt(c, '새 균형 (' + f(Pk, 1) + '천 원, ' + f(Qk, 0) + ')', ax.X(Qk) + 10, ax.Y(Pk) - 10, {color:'#C8463D', bold:true, clamp:true}); }
+    var lgS = '파랑 수요 · 주황 공급 · ' + (r ? C.curve + ' 곡선이 ' + C.dir + '으로' : '');
+    if (nar) wrapT(c, lgS, 12, H - 36, W - 24, 22, {bold:true});   /* 좁은 화면: 두 줄로 */
+    else txt(c, lgS, px, H - 14, {bold:true});
   },
   stats: function(p, r){
     return [['사건', r.en], ['움직인 곡선', r.curve + ' 곡선 → ' + r.dir + ' (' + r.why + ')', PAL[0]], ['가격', f(r.P0, 1) + ' → ' + f(r.P, 2) + '천 원 (' + sgn(r.dP, 2) + ')', r.dP > 0 ? PAL[4] : PAL[1]], ['거래량', r.Q0 + ' → ' + f(r.Q, 0) + '상자 (' + sgn(r.dQ, 0) + ')', r.dQ > 0 ? PAL[1] : PAL[4]],
@@ -660,5 +680,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

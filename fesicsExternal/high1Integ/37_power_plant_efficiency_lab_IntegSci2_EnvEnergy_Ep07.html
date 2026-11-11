@@ -316,6 +316,12 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(/ (?!\d{3}\b|[%°℃‰]|(?:MW|kW|W|K|m|km|kg|g|mL|L|s|eV|nm|cm|mm|Hz|kJ|J|ppm|kbar|bar|atm|hPa|kPa|Pa|mol|M|명|개|번|회|원|년|초|분)(?![A-Za-z]))/), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
+  txt(c, line, x, y + n * lh, o); return n + 1;
+}
 function txt(c, s, x, y, o){
   o = o || {}; var al = o.align || 'left', sz = o.size || 18;
   c.fillStyle = o.color || '#1E2833'; c.textAlign = al; c.textBaseline = o.base || 'alphabetic';
@@ -479,7 +485,9 @@ return {
   },
   draw: function(c, W, H, p, r, tau){
     var P = PLANT[p.p];
-    var bx = W < 520 ? 16 : 40, by = 110, gp = W < 520 ? Math.max(24, (W - 32 - 340) / 2) : 50;   // 좁은 화면에서도 세 상자가 다 들어가게
+    var bx = W < 520 ? 16 : 40, by = 110, gp = W < 520 ? Math.max(16, (W - 32 - 340) / 2) : 50;   // 좁은 화면에서도 세 상자가 다 들어가게
+    var s = W < 520 ? Math.min(1, (W - 32) / (340 + 2 * gp)) : 1; // 그래도 모자라면 그림을 줄인다
+    c.save(); c.translate(bx, 0); c.scale(s, s); c.translate(-bx, 0);
     // 보일러
     c.fillStyle = '#F6E2CE'; c.fillRect(bx, by, 120, 110);
     c.strokeStyle = '#C8463D'; c.lineWidth = 2; c.strokeRect(bx, by, 120, 110);
@@ -505,9 +513,10 @@ return {
     arrow(c, tx + 110, by + 70, cx2 - 4, by + 70, '#3A8FB7', 2.5);
     arrow(c, tx + 55, by + 10, tx + 55, by - 40, '#2E9E78', 2.5);
     txt(c, '전기 1 000 MW', tx + 55, by - 48, {align:'center', color:'#2E9E78', bold:true});
-    if (!r){ txt(c, '연료가 달라도 구조는 같아요 — 물을 끓여 터빈을 돌려요.', bx, H - 18, {color:'#4A5868'}); return; }
+    c.restore();
+    if (!r){ if (W < 520) wtxt(c, '연료가 달라도 구조는 같아요 — 물을 끓여 터빈을 돌려요.', bx, H - 42, {color:'#4A5868'}, W - bx - 10, 24); else txt(c, '연료가 달라도 구조는 같아요 — 물을 끓여 터빈을 돌려요.', bx, H - 18, {color:'#4A5868'}); return; }
     // 에너지 막대
-    var by2 = by + 150, bwAll = Math.min(W - 80, 620);
+    var by2 = Math.round((by + 150) * s), bwAll = Math.min(W - 80, 620);
     c.fillStyle = '#E6EBF1'; c.fillRect(bx, by2, bwAll, 34);
     var we = bwAll * r.eff * tau;
     c.fillStyle = '#2E9E78'; c.fillRect(bx, by2, we, 34);
@@ -517,12 +526,20 @@ return {
     txt(c, '버려지는 열 ' + f((1 - r.eff) * 100, 1) + ' %', nar ? bx : bx + bwAll - 8, nar ? by2 + 80 : by2 + 23, {align:nar ? 'left' : 'right', color:nar ? '#C8463D' : '#fff', bold:true});
     if (tau < 1) return;
     var yy = by2 + (nar ? 110 : 68);
-    txt(c, '카르노 최대 효율 = 1 − ' + f(r.TcK, 0) + ' ÷ ' + f(r.ThK, 0) + ' = ' + f(r.carnot * 100, 1) + ' % → 실제 ' + f(r.eff * 100, 1) + ' %',
-      bx, yy, {bold:true, color:'#2B5FA3'});
-    txt(c, '넣은 열 ' + Math.round(r.qin).toLocaleString() + ' MW · 전기 1 000 MW · 버린 열 ' + Math.round(r.waste).toLocaleString() + ' MW', bx, yy + 30, {});
-    txt(c, r.inRange ? P.n + '의 실제 증기 온도 범위(' + P.th[0] + '~' + P.th[1] + ' °C) 안이에요.'
-      : P.n + '에서는 보통 ' + P.th[0] + '~' + P.th[1] + ' °C를 써요. 지금 값은 그 범위 밖이에요.',
-      bx, H - 14, {color:r.inRange ? '#4A5868' : '#A8702F'});
+    var s1 = '카르노 최대 효율 = 1 − ' + f(r.TcK, 0) + ' ÷ ' + f(r.ThK, 0) + ' = ' + f(r.carnot * 100, 1) + ' % → 실제 ' + f(r.eff * 100, 1) + ' %',
+      s2 = '넣은 열 ' + Math.round(r.qin).toLocaleString() + ' MW · 전기 1 000 MW · 버린 열 ' + Math.round(r.waste).toLocaleString() + ' MW',
+      s3 = r.inRange ? P.n + '의 실제 증기 온도 범위(' + P.th[0] + '~' + P.th[1] + ' °C) 안이에요.'
+      : P.n + '에서는 보통 ' + P.th[0] + '~' + P.th[1] + ' °C를 써요. 지금 값은 그 범위 밖이에요.';
+    if (nar){ // 좁은 화면: 긴 문장을 줄 나눠 차례로 쓴다
+      var mw = W - bx - 10; yy = by2 + 104;
+      yy += 24 * wtxt(c, s1, bx, yy, {bold:true, color:'#2B5FA3'}, mw, 24) + 8;
+      yy += 24 * wtxt(c, s2, bx, yy, {}, mw, 24) + 8;
+      wtxt(c, s3, bx, yy, {color:r.inRange ? '#4A5868' : '#A8702F'}, mw, 24);
+      return;
+    }
+    txt(c, s1, bx, yy, {bold:true, color:'#2B5FA3'});
+    txt(c, s2, bx, yy + 30, {});
+    txt(c, s3, bx, H - 14, {color:r.inRange ? '#4A5868' : '#A8702F'});
   },
   stats: function(p, r){
     return [['발전 방식', r.P.n], ['증기 온도', r.Th + ' °C = ' + f(r.ThK, 0) + ' K'],
@@ -787,5 +804,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>

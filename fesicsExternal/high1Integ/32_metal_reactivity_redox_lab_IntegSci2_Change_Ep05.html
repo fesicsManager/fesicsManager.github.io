@@ -328,6 +328,18 @@ function txt(c, s, x, y, o){
   }
   c.fillText(s, x, y);
 }
+/* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 */
+function wrapT(c, s, x, y, maxW, lh, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 0;
+  for (var i = 0; i < ws.length; i++){
+    var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; }
+    else line = t;
+  }
+  txt(c, line, x, y + n * lh, o);
+  return y + (n + 1) * lh;
+}
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
   c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
@@ -474,7 +486,8 @@ return {
   },
   draw: function(c, W, H, p, r, tau){
     var M = MET[p.m], I = ION[p.i];
-    var bx = 70, by = 96, bw = Math.min(260, W - 300), bh = 190;
+    var nar = W < 480;
+    var bx = 70, by = 96, bw = W - 300 >= 100 ? Math.min(260, W - 300) : Math.min(220, W - bx - 20), bh = 190;   /* 좁은 화면: 비커 폭이 0 이하가 되지 않게 */
     c.fillStyle = '#F7F9FC'; c.fillRect(bx, by, bw, bh);
     c.strokeStyle = '#5B6776'; c.lineWidth = 2; c.strokeRect(bx, by, bw, bh);
     var fade = r && r.react ? Math.max(0.25, 1 - tau * 0.75) : 1;
@@ -504,9 +517,23 @@ return {
         txt(c, (i === 0 ? '큼  ' : i === 4 ? '작음 ' : '    ') + s, lx, by + 34 + i * 26, {bold:on, color:on ? '#2B5FA3' : '#8C99A8'});
       });
     }
-    if (!r){ txt(c, '반응성이 큰 금속이 작은 금속의 이온을 밀어내요.', bx, H - 18, {color:'#4A5868'}); return; }
+    if (!r){ if (nar) wrapT(c, '반응성이 큰 금속이 작은 금속의 이온을 밀어내요.', 16, H - 40, W - 32, 22, {color:'#4A5868'}); else txt(c, '반응성이 큰 금속이 작은 금속의 이온을 밀어내요.', bx, H - 18, {color:'#4A5868'}); return; }
     if (tau < 0.9) return;
     var yy = by + bh + 40;
+    if (nar){   /* 좁은 화면: 결과 글을 띄어쓰기에서 나눠 차례로 씀 */
+      var y6 = by + bh + 30;
+      if (r.same) y6 = wrapT(c, M.s + '을(를) ' + I.s + ' 용액에 담갔어요 — 같은 금속이라 겉보기 변화가 없어요.', 16, y6, W - 32, 21, {size:16, bold:true, color:'#A8702F'});
+      else if (!r.react) y6 = wrapT(c, M.s + '은(는) ' + I.m + '보다 반응성이 작아요 — 아무 일도 일어나지 않아요.', 16, y6, W - 32, 21, {size:16, bold:true, color:'#C8463D'});
+      else {
+        var gc6 = (function(a, b){ while (b){ var t2 = b; b = a % b; a = t2; } return a; })(M.v, I.v), cM6 = I.v / gc6, cI6 = M.v / gc6;
+        var co6 = function(k){ return k === 1 ? '' : k; };
+        y6 = wrapT(c, co6(cM6) + M.s + ' + ' + co6(cI6) + I.s + ' → ' + co6(cM6) + M.s + (M.v === 2 ? '²⁺' : '⁺') + ' + ' + co6(cI6) + I.m, 16, y6, W - 32, 21, {size:16, bold:true, color:'#2E9E78'});
+        y6 = wrapT(c, '(산화: ' + M.s + ', 환원: ' + I.m + ')', 16, y6, W - 32, 21, {size:16, bold:true, color:'#2E9E78'});
+        y6 = wrapT(c, M.s + ' ' + f(r.g, 1) + ' g 녹음 → 전자 ' + f(r.e, 3) + ' mol → ' + I.m + ' ' + f(r.dep, 2) + ' g 석출', 16, y6 + 4, W - 32, 21, {size:16});
+      }
+      txt(c, '질량 변화 ' + (r.react ? sgn(r.dmass, 2) + ' g' : '0 g'), 16, Math.max(y6 + 4, H - 14), {color:'#4A5868', size:16});
+      return;
+    }
     if (r.same) txt(c, M.s + '을(를) ' + I.s + ' 용액에 담갔어요 — 같은 금속이라 겉보기 변화가 없어요.', bx - 40, yy, {bold:true, color:'#A8702F'});
     else if (!r.react) txt(c, M.s + '은(는) ' + I.m + '보다 반응성이 작아요 — 아무 일도 일어나지 않아요.', bx - 40, yy, {bold:true, color:'#C8463D'});
     else {
@@ -784,5 +811,5 @@ buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null
 <!-- fxNoteLink:end -->
 <!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
-<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --></body>
 </html>
