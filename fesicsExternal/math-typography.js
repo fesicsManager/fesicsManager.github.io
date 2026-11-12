@@ -110,7 +110,7 @@
     nodes.forEach(function (node) { spans.push({node:node, start:text.length, end:text.length + node.length}); text += node.nodeValue; });
     var matches = [];
     for (var i = 1; i < text.length; i++) if (text[i] === '^' && /[A-Za-zα-ωΑ-Ω0-9)]/.test(text[i - 1])) {
-      var b;
+      var b = null;
       if ('([{'.includes(text[i + 1])) b = rootEnd(text, i);
       else {
         var atom = text.slice(i + 1).match(/^(?:[+−-]?\d+(?:\.\d+)?|[A-Za-zα-ωΑ-Ω])(?![A-Za-z0-9])/);
