@@ -672,7 +672,7 @@
     else if (c.run && c.ranges.length) steps.push({ text: '[' + c.runText + ']를 눌러 결과를 확인하세요.', target: c.run });
     else steps.push({ text: '값을 바꿀 때마다 결과가 어떻게 달라지는지 관찰하세요.', target: null });
     var hasTable = hasRecordTable() || !!c.rec || !!document.querySelector('tbody[id]');
-    steps.push({ text: hasTable ? '기록이 3개 넘게 모이면 [📊 그래프·CSV]로 규칙을 찾아보세요.' : '바꾼 값과 결과 사이의 규칙을 한 문장으로 말해 보세요.', target: null });
+    steps.push({ text: hasTable ? '기록이 쌓이면 [📊 그래프·CSV]로 규칙을 찾아보세요.' : '바꾼 값과 결과 사이의 규칙을 한 문장으로 말해 보세요.', target: null });
     return steps;
   }
 
