@@ -316,9 +316,41 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
+/* 글자가 캔버스 가장자리를 넘으면 글씨를 줄이고(12px까지) 그래도 넘으면 안쪽으로 밀어 넣음 */
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; var sz = o.size || 18, wt = o.bold ? '700 ' : '';
+  c.font = wt + sz + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic';
+  var t = c.getTransform(), dpr = window.devicePixelRatio || 1, cw = c.canvas.clientWidth;
+  if (cw && !t.b && !t.c && Math.abs(t.a - dpr) < 1e-6 && !t.e){
+    var al = c.textAlign, pad = 4, w = c.measureText(s).width;
+    var lft = function(){ return al === 'center' ? x - w / 2 : (al === 'right' || al === 'end') ? x - w : x; };
+    if (lft() < pad || lft() + w > cw - pad){
+      var room = al === 'center' ? 2 * Math.min(x - pad, cw - pad - x) : (al === 'right' || al === 'end') ? x - pad : cw - pad - x;
+      room = Math.max(room, (cw - 2 * pad) * 0.5);
+      if (w > room && sz > 12){ sz = Math.max(12, Math.floor(sz * room / w)); c.font = wt + sz + 'px ' + FONT; w = c.measureText(s).width; }
+      var L = lft();
+      if (L + w > cw - pad) x -= L + w - (cw - pad);
+      L = lft(); if (L < pad) x += pad - L;
+    }
+  }
+  c.fillText(s, x, y);
+}
+/* 한 줄(15px 이상)에 안 들어가면 가운데 가까운 띄어쓰기에서 두 줄로 나눔. 늘어난 높이를 돌려줌 */
+function txt2(c, s, x, y, o, lh){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '15px ' + FONT;
+  var cw = c.canvas.clientWidth || 9999;
+  if (c.measureText(s).width <= cw - x - 4){ txt(c, s, x, y, o); return 0; }
+  var mid = s.length / 2, cut = -1;
+  s.replace(/ /g, function(m, i){ if (cut < 0 || Math.abs(i - mid) < Math.abs(cut - mid)) cut = i; return m; });
+  if (cut < 0){ txt(c, s, x, y, o); return 0; }
+  var a = s.slice(0, cut), b = s.slice(cut + 1), base = o.size || 18;
+  c.font = (o.bold ? '700 ' : '') + base + 'px ' + FONT;
+  var wide = Math.max(c.measureText(a).width, c.measureText(b).width), o2 = {};
+  for (var k in o) o2[k] = o[k];
+  o2.size = Math.max(12, Math.min(base, Math.floor(base * (cw - x - 4) / wide)));   /* 두 줄 글씨 크기를 같게 */
+  txt(c, a, x, y, o2); txt(c, b, x, y + lh, o2);
+  return lh;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -519,7 +551,7 @@ return {
       N.g.reduce(function(idx, q){
         for (var j = 0; j < q[1]; j++){
           var x = 30 + (idx + j) * gw + gw / 2;
-          c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx, cy + 44); c.lineTo(x, gy2 - 26); c.stroke();
+          c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx, cy + 72); c.lineTo(x, gy2 - 26); c.stroke();   /* '모세포 (2n)' 글자 아래에서 출발 */
           var bad = q[0] !== '정상';
           c.fillStyle = bad ? 'rgba(200,70,61,.35)' : 'rgba(46,158,120,.3)';
           c.beginPath(); c.arc(x, gy2, 24, 0, Math.PI * 2); c.fill();
@@ -529,7 +561,7 @@ return {
         return idx + q[1];
       }, 0);
       txt(c, N.desc, 12, gy2 + 70, {bold:true});
-      txt(c, 'n+1 생식세포가 정상 생식세포와 수정되면 염색체가 3개인 자손이 됩니다', 12, gy2 + 100, {color:'#4A5868'});
+      txt2(c, 'n+1 생식세포가 정상 생식세포와 수정되면 염색체가 3개인 자손이 됩니다', 12, gy2 + 100, {color:'#4A5868'}, 24);
     }
   },
   stats: function(p, r){

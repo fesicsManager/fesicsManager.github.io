@@ -260,7 +260,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="8을 채우려고 주고받는 전자 실험 장면"></canvas>
-          <p class="note">원자가 전자만 그렸습니다. 금속은 전자를 잃고 비금속은 얻어, 둘 다 가장 가까운 비활성 기체와 같은 전자 배치가 됩니다.</p>
+          <p class="note">원자가 전자만 그렸습니다. 원자 수는 화학식대로 그렸고, 속이 빈 점은 금속에서 옮겨 온 전자예요. 금속 이온은 전자를 잃은 뒤 드러난 안쪽 껍질(전자 8개)을 회색으로 보여 줍니다. 금속이 잃은 전자 수와 비금속이 얻은 전자 수는 늘 같아요.</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -455,7 +455,7 @@ var NON = [{s:'F',n:'플루오린',g:17,ch:1,M:19.0,ne:'네온 Ne'},{s:'Cl',n:'�
 var SUB = ['', '', '₂', '₃', '₄'];
 function gcd(a, b){ return b ? gcd(b, a % b) : a; }
 return {
-  sceneHeight: 450,
+  sceneHeight: function(w){ return w < 420 ? Math.round(470 * w / 420) : 470; },
   minRec: 4,
   idle: '금속과 비금속, 금속의 질량을 정하고 <b>반응시키기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 원소 짝과 금속 질량을 바꿔 가며 기록하세요.',
@@ -477,50 +477,119 @@ return {
   },
   draw: function drawIon(c, W, H, p, r, tau){
     if (W < 420){ var s0 = W / 420; c.save(); c.scale(s0, s0); drawIon(c, 420, H / s0, p, r, tau); c.restore(); return; }
-    var A = MET[p.a], B = NON[p.b];
-    var cxA = Math.max(130, W * 0.24), cxB = Math.min(W - 130, W * 0.72), cy = 170, R = 58;
-    function atom(x, sym, col, ve, lost){
-      c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.arc(x, cy, R, 0, Math.PI * 2); c.stroke();
-      c.fillStyle = '#fff'; c.beginPath(); c.arc(x, cy, 26, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = col; c.beginPath(); c.arc(x, cy, 26, 0, Math.PI * 2); c.stroke();
-      txt(c, sym, x, cy + 7, {align:'center', bold:true, color:col});
-      for (var i = 0; i < ve; i++){
-        var ang = -Math.PI / 2 + i * 2 * Math.PI / Math.max(ve, 1);
-        var fade = (lost && i >= ve - lost) ? 0.18 : 1;
-        c.globalAlpha = fade; c.fillStyle = '#D98E04';
-        c.beginPath(); c.arc(x + R * Math.cos(ang), cy + R * Math.sin(ang), 7, 0, Math.PI * 2); c.fill();
+    var PI2 = Math.PI * 2;
+    var A = MET[p.a], B = NON[p.b], g0 = gcd(A.ch, B.ch), nA = B.ch / g0, nB = A.ch / g0;   // 화학식대로 금속 nA개, 비금속 nB개
+    var veA = A.g <= 2 ? A.g : A.g - 10, veB = B.g - 10, nMove = nA * A.ch;              // 잃은 전자 수 = 얻은 전자 수
+    var nMax = Math.max(nA, nB), gapX = Math.min(170, (W - 24) / nMax);
+    var R = Math.min(52, gapX * 0.36), rk = R * 0.45, er = Math.max(4.5, R * 0.13);
+    var cyA = 34 + R, cyB = cyA + 2 * R + 60;
+    var k = r ? tau : 0;
+    var CA = '#A8702F', CB = '#2B5FA3', CE = '#D98E04';
+    function rowX(n, i){ return W / 2 + (i - (n - 1) / 2) * gapX; }
+    // 글자가 그림 폭(논리 폭 W) 안에 들어가도록 줄여 쓴다
+    function put(s, x, y, o){
+      o = o || {}; var sz = o.size || 18, al = o.align || 'left', bw = o.bold ? '700 ' : '';
+      c.font = bw + sz + 'px ' + FONT;
+      var avail = al === 'left' ? W - x - 8 : al === 'right' ? x - 8 : 2 * Math.min(x, W - x) - 8;
+      if (o.max) avail = Math.min(avail, o.max);
+      var w = c.measureText(s).width;
+      if (w > avail){ sz = Math.max(10, Math.floor(sz * avail / w)); c.font = bw + sz + 'px ' + FONT; }
+      c.fillStyle = o.color || '#1E2833'; c.textAlign = al; c.textBaseline = o.base || 'alphabetic';
+      c.fillText(s, x, y);
+    }
+    function dotAt(x, y, hollow, alpha){
+      c.globalAlpha = alpha == null ? 1 : alpha;
+      c.beginPath(); c.arc(x, y, er, 0, PI2);
+      if (hollow){ c.fillStyle = '#fff'; c.fill(); c.strokeStyle = CE; c.lineWidth = 2.5; c.stroke(); }
+      else { c.fillStyle = CE; c.fill(); }
+      c.globalAlpha = 1;
+    }
+    // 금속 전자는 아래(비금속 쪽)를 보게, 비금속이 받을 빈자리는 위(금속 쪽)를 보게 놓는다
+    function angA(e){ return Math.PI / 2 + (e - (veA - 1) / 2) * PI2 / Math.max(veA, 1); }
+    function angB(s){ return -Math.PI / 2 + (s - veB - (B.ch - 1) / 2) * Math.PI / 4; }
+    function core(x, y, sym, col){
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y, rk, 0, PI2); c.fill();
+      c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.arc(x, y, rk, 0, PI2); c.stroke();
+      put(sym, x, y + 1, {align:'center', base:'middle', bold:true, color:col, size:Math.max(12, Math.round(R * 0.34)), max:rk * 2 - 4});
+    }
+    // 옮겨 가는 전자 목록: 금속 i의 e번째 전자 → 비금속 j의 s번째 자리
+    var moves = [], g;
+    for (g = 0; g < nMove; g++){
+      var i0 = Math.floor(g / A.ch), e0 = veA - A.ch + g % A.ch, j0 = Math.floor(g / B.ch), s0 = veB + g % B.ch;
+      var a0 = angA(e0), a1 = angB(s0), st = 0.1 + (nMove > 1 ? g / (nMove - 1) : 0) * 0.32;
+      var t = Math.min(1, Math.max(0, (k - st) / 0.4)); t = t * t * (3 - 2 * t);
+      moves.push({i:i0, e:e0, j:j0, s:s0, t:t,
+        x0:rowX(nA, i0) + R * Math.cos(a0), y0:cyA + R * Math.sin(a0),
+        x1:rowX(nB, j0) + R * Math.cos(a1), y1:cyB + R * Math.sin(a1)});
+    }
+    var symA = A.s + (k > 0.9 ? (A.ch === 1 ? '⁺' : A.ch === 2 ? '²⁺' : '³⁺') : '');
+    var symB = B.s + (k > 0.9 ? (B.ch === 1 ? '⁻' : '²⁻') : '');
+    var inner = Math.max(0, Math.min(1, (k - 0.82) / 0.15));   // 금속 이온의 안쪽 껍질(전자 8개)이 드러나는 정도
+    var i, e, s;
+    // 금속 원자들
+    for (i = 0; i < nA; i++){
+      var xa = rowX(nA, i);
+      c.globalAlpha = 1 - 0.75 * inner; c.strokeStyle = CA; c.lineWidth = 2;
+      if (inner > 0) c.setLineDash([5, 5]);
+      c.beginPath(); c.arc(xa, cyA, R, 0, PI2); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+      if (inner > 0){
+        var ri = R * 0.74;
+        c.globalAlpha = inner; c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5;
+        c.beginPath(); c.arc(xa, cyA, ri, 0, PI2); c.stroke();
+        c.fillStyle = '#6F7E8E';
+        for (e = 0; e < 8; e++){ var ai = -Math.PI / 2 + e * Math.PI / 4 + Math.PI / 8; c.beginPath(); c.arc(xa + ri * Math.cos(ai), cyA + ri * Math.sin(ai), er * 0.8, 0, PI2); c.fill(); }
         c.globalAlpha = 1;
       }
+      for (e = 0; e < veA - A.ch; e++) dotAt(xa + R * Math.cos(angA(e)), cyA + R * Math.sin(angA(e)), false);
+      core(xa, cyA, symA, CA);
     }
-    var k = r ? tau : 0;
-    var veA = A.g <= 2 ? A.g : A.g - 10, veB = B.g - 10;
-    atom(cxA, A.s + (k > 0.9 ? (A.ch === 1 ? '⁺' : A.ch === 2 ? '²⁺' : '³⁺') : ''), '#A8702F', veA, k > 0.5 ? A.ch : 0);
-    atom(cxB, B.s + (k > 0.9 ? (B.ch === 1 ? '⁻' : '²⁻') : ''), '#2B5FA3', veB + (k > 0.5 ? B.ch : 0), 0);
-    if (k > 0.1 && k < 0.95){
-      for (var j = 0; j < A.ch; j++){
-        var t = Math.min(1, Math.max(0, (k - 0.1 - j * 0.08) / 0.5));
-        c.fillStyle = '#D98E04';
-        c.beginPath(); c.arc(cxA + R + (cxB - cxA - 2 * R) * t, cy - 80 + j * 16, 7, 0, Math.PI * 2); c.fill();
+    // 비금속 원자들
+    for (i = 0; i < nB; i++){
+      var xb = rowX(nB, i);
+      c.strokeStyle = CB; c.lineWidth = 2; c.beginPath(); c.arc(xb, cyB, R, 0, PI2); c.stroke();
+      for (s = 0; s < veB; s++) dotAt(xb + R * Math.cos(angB(s)), cyB + R * Math.sin(angB(s)), false);
+      if (k < 0.1){   // 아직 비어 있는 자리
+        for (s = veB; s < 8; s++){
+          c.setLineDash([3, 3]); c.strokeStyle = '#C3CDD9'; c.lineWidth = 1.5;
+          c.beginPath(); c.arc(xb + R * Math.cos(angB(s)), cyB + R * Math.sin(angB(s)), er, 0, PI2); c.stroke(); c.setLineDash([]);
+        }
       }
-      txt(c, '전자 ' + A.ch + '개 이동', (cxA + cxB) / 2, cy - 96, {align:'center', color:'#D98E04', bold:true});
+      core(xb, cyB, symB, CB);
     }
-    txt(c, A.n, cxA, cy + R + 30, {align:'center', color:'#4A5868', bold:true});
-    txt(c, '(' + A.g + '족, 원자가 전자 ' + veA + '개)', cxA, cy + R + 50, {align:'center', color:'#4A5868', size:15});
-    txt(c, B.n, cxB, cy + R + 30, {align:'center', color:'#4A5868', bold:true});
-    txt(c, '(' + B.g + '족, 원자가 전자 ' + veB + '개)', cxB, cy + R + 50, {align:'center', color:'#4A5868', size:15});
-    if (!r || tau < 0.95){ if (!r) txt(c, '주황 점이 원자가 전자예요. 금속은 잃고 비금속은 얻어요.', 16, H - 18, {color:'#4A5868'}); return; }
-    var yy = cy + R + 76;
-    txt(c, '생긴 화합물: ' + r.form + ' (화학식량 ' + f(r.fw, 1) + ')', 16, yy, {bold:true, color:'#2E9E78'});
-    txt(c, '전하 맞추기: (' + sgn(r.A.ch, 0) + ') × ' + r.x + ' + (' + sgn(-r.B.ch, 0) + ') × ' + r.y + ' = 0', 16, yy + 30, {});
-    txt(c, r.A.s + ' ' + f(r.mA, 1) + ' g + ' + r.B.s + ' ' + f(r.mB, 1) + ' g → ' + r.form + ' ' + f(r.mP, 1) + ' g', 16, yy + 60, {bold:true, color:'#2B5FA3'});
-    var neS = '두 이온 모두 ' + r.A.ne + ' · ' + r.B.ne + '과 같은 전자 배치가 됐어요.'; c.font = '18px ' + FONT; var neW = c.measureText(neS).width;
-    txt(c, neS, 16, H - 14, {color:'#4A5868', size:neW > W - 28 ? Math.max(11, Math.floor(18 * (W - 28) / neW)) : 18});
+    // 가운데 안내 글
+    var midY = (cyA + R + cyB - R) / 2;
+    if (k > 0.1){
+      var ms = k < 0.95 ? '전자 ' + nMove + '개 이동' : '잃은 전자 ' + nMove + '개 = 얻은 전자 ' + nMove + '개';
+      put(ms, W / 2, midY, {align:'center', base:'middle', bold:true, color:CE, size:17});
+    } else {
+      put('금속 ' + nA + '개가 잃을 전자 ' + nMove + '개 → 비금속 ' + nB + '개의 빈자리 ' + nMove + '개', W / 2, midY, {align:'center', base:'middle', color:'#4A5868', size:15});
+    }
+    // 움직이는 전자 (속 빈 점 = 금속에서 온 전자)
+    moves.forEach(function(m){
+      if (m.t <= 0){ dotAt(m.x0, m.y0, false); return; }
+      var x = m.x0 + (m.x1 - m.x0) * m.t, y = m.y0 + (m.y1 - m.y0) * m.t;
+      dotAt(x, y, true);
+    });
+    put(A.n + ' ' + A.s + ' ' + nA + '개 (' + A.g + '족, 원자가 전자 ' + veA + '개)', W / 2, cyA - R - 12, {align:'center', color:CA, bold:true, size:16});
+    put(B.n + ' ' + B.s + ' ' + nB + '개 (' + B.g + '족, 원자가 전자 ' + veB + '개)', W / 2, cyB + R + 26, {align:'center', color:CB, bold:true, size:16});
+    var yy = cyB + R + 58;
+    if (!r || tau < 0.95){
+      if (!r){
+        put('화학식대로 금속 ' + nA + '개, 비금속 ' + nB + '개를 그렸어요.', 16, yy, {color:'#4A5868'});
+        put('주황 점이 원자가 전자예요. 금속은 잃고 비금속은 얻어요.', 16, H - 18, {color:'#4A5868'});
+      }
+      return;
+    }
+    put('생긴 화합물: ' + r.form + ' (화학식량 ' + f(r.fw, 1) + ')', 16, yy, {bold:true, color:'#2E9E78'});
+    put('전하 맞추기: (' + sgn(r.A.ch, 0) + ') × ' + r.x + ' + (' + sgn(-r.B.ch, 0) + ') × ' + r.y + ' = 0', 16, yy + 28, {});
+    put(r.A.s + ' ' + f(r.mA, 1) + ' g + ' + r.B.s + ' ' + f(r.mB, 1) + ' g → ' + r.form + ' ' + f(r.mP, 1) + ' g', 16, yy + 56, {bold:true, color:'#2B5FA3'});
+    put('모든 이온이 ' + (r.A.ne === r.B.ne ? r.A.ne : r.A.ne + ' · ' + r.B.ne) + '과 같은 전자 배치(바깥 전자 8개)가 됐어요.', 16, H - 14, {color:'#4A5868'});
   },
   stats: function(p, r){
     return [['금속', r.A.n + ' ' + r.A.s + ' (' + r.A.g + '족)'], ['비금속', r.B.n + ' ' + r.B.s + ' (' + r.B.g + '족)'],
       ['만든 이온', r.A.s + (r.A.ch === 1 ? '⁺' : r.A.ch === 2 ? '²⁺' : '³⁺') + ' + ' + r.B.s + (r.B.ch === 1 ? '⁻' : '²⁻'), PAL[6]],
       ['화학식', r.form, PAL[1]], ['이온 수의 비', r.x + ' : ' + r.y],
-      ['화학식량', f(r.fw, 1)], ['옮겨 간 전자 (화학식 단위당)', r.moved + '개'],
+      ['화학식량', f(r.fw, 1)], ['옮겨 간 전자 (화학식 단위당)', r.moved + '개 = ' + r.A.s + ' ' + r.x + '개 × ' + r.A.ch + ' = ' + r.B.s + ' ' + r.y + '개 × ' + r.B.ch],
       ['넣은 금속', f(r.mA, 1) + ' g = ' + f(r.nA, 3) + ' mol'],
       ['필요한 비금속', f(r.mB, 1) + ' g', PAL[0]], ['생긴 화합물', f(r.mP, 1) + ' g', PAL[4]],
       ['전자 배치', r.A.s + (r.A.ch === 1 ? '⁺' : r.A.ch === 2 ? '²⁺' : '³⁺') + '는 ' + r.A.ne + ', ' + r.B.s + (r.B.ch === 1 ? '⁻' : '²⁻') + '는 ' + r.B.ne + '와 같음']];

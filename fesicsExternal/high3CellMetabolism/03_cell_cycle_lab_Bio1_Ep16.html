@@ -462,13 +462,68 @@ var TOTAL = 20;   // 시간
 var N = [50, 100, 200, 500];
 var TREAT = [{name:'처리 없음', on:false}, {name:'분열 억제제 (콜히친) 처리', on:true}];
 var run = 0;
+function phaseFrac(treat){
+  if (treat) return [0.55, 0.07, 0.37, 0.005, 0.005];   // 중기에서 멈춤 → 후기·말기로 거의 못 넘어감
+  return PHASE.map(function(p){ return p.frac; });
+}
 function observe(n, treat, seed){
   var R = rng(seed), cnt = PHASE.map(function(){ return 0; });
-  var fr = PHASE.map(function(p){ return p.frac; });
-  if (treat){ fr = [0.55, 0.07, 0.37, 0.005, 0.005]; }   // 중기에서 멈춤 → 후기·말기로 거의 못 넘어감
+  var fr = phaseFrac(treat);
   var cum = [], s = 0; fr.forEach(function(v){ s += v; cum.push(s); });
   for (var i = 0; i < n; i++){ var x = R() * s; for (var j = 0; j < cum.length; j++) if (x < cum[j]){ cnt[j]++; break; } }
   return cnt;
+}
+/* 시야 속 세포 M개를 비율대로 시기에 나눔(큰 나머지 방식). 고른 시기가 0개가 되면 1개는 보이게 함 */
+function cellMix(fr, M, pi){
+  var s = fr.reduce(function(a, v){ return a + v; }, 0) || 1;
+  var cnt = fr.map(function(v){ return Math.floor(v / s * M); }), left = M - cnt.reduce(function(a, v){ return a + v; }, 0);
+  fr.map(function(v, i){ return {i:i, rem:v / s * M - cnt[i]}; }).sort(function(a, b){ return b.rem - a.rem; })
+    .slice(0, left).forEach(function(o){ cnt[o.i]++; });
+  if (fr[pi] > 0 && cnt[pi] === 0){ var big = cnt.indexOf(Math.max.apply(null, cnt)); if (big !== pi){ cnt[big]--; cnt[pi]++; } }
+  var out = []; cnt.forEach(function(v, i){ for (var k = 0; k < v; k++) out.push(i); });
+  return out;
+}
+function cellWall(c, x, y, w, h, ph){
+  c.fillStyle = ph < 0 ? '#F6EDE4' : '#F3E3D6'; c.fillRect(x - w / 2, y - h / 2, w, h);
+  c.strokeStyle = '#C9B7A8'; c.lineWidth = 1.5; c.strokeRect(x - w / 2, y - h / 2, w, h);
+}
+/* 한 세포 안의 모습: 0 간기, 1 전기, 2 중기, 3 후기, 4 말기 (방추사 축은 가로) */
+function drawPhase(c, x, y, w, h, ph, G){
+  var lw = Math.max(1.6, h * 0.09), CH = '#7A2E6E', i;
+  c.lineCap = 'round';
+  function spindle(){ c.strokeStyle = 'rgba(122,46,110,.28)'; c.lineWidth = 1; for (i = -1; i <= 1; i++){ c.beginPath(); c.moveTo(x - w * 0.42, y); c.quadraticCurveTo(x, y + i * h * 0.5, x + w * 0.42, y); c.stroke(); } }
+  if (ph === 0){
+    c.fillStyle = '#C98BBE'; c.beginPath(); c.arc(x, y, h * 0.26, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#8E4F86'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = CH; c.beginPath(); c.arc(x + h * 0.06, y - h * 0.04, Math.max(1.5, h * 0.07), 0, Math.PI * 2); c.fill();
+  } else if (ph === 1){
+    c.strokeStyle = 'rgba(142,79,134,.55)'; c.lineWidth = 1; c.setLineDash([2, 2]); c.beginPath(); c.arc(x, y, h * 0.32, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+    c.strokeStyle = CH; c.lineWidth = lw;
+    for (i = 0; i < 5; i++){
+      var a = G() * Math.PI * 2, d = h * 0.16 * G(), px = x + Math.cos(a) * d, py = y + Math.sin(a) * d, b = G() * Math.PI, L = h * 0.13;
+      c.beginPath(); c.moveTo(px - Math.cos(b) * L, py - Math.sin(b) * L);
+      c.quadraticCurveTo(px + Math.sin(b) * L * 0.7, py - Math.cos(b) * L * 0.7, px + Math.cos(b) * L, py + Math.sin(b) * L); c.stroke();
+    }
+  } else if (ph === 2){
+    spindle(); c.strokeStyle = CH; c.lineWidth = lw;
+    for (i = -2; i <= 2; i++){ c.beginPath(); c.moveTo(x - w * 0.07, y + i * h * 0.14); c.lineTo(x + w * 0.07, y + i * h * 0.14); c.stroke(); }
+  } else if (ph === 3){
+    spindle(); c.strokeStyle = CH; c.lineWidth = lw;
+    [-1, 1].forEach(function(sd){
+      var vx = x + sd * w * 0.26;
+      for (i = -1; i <= 1; i++){ var vy = y + i * h * 0.2; c.beginPath(); c.moveTo(vx - sd * w * 0.1, vy - h * 0.08); c.lineTo(vx, vy); c.lineTo(vx - sd * w * 0.1, vy + h * 0.08); c.stroke(); }
+    });
+  } else {
+    /* 식물 세포(양파)는 가운데에 세포판이 생겨 둘로 나뉨 */
+    c.strokeStyle = '#9C7F68'; c.lineWidth = 2.2; c.beginPath(); c.moveTo(x, y - h * 0.42); c.lineTo(x, y + h * 0.42); c.stroke();
+    [-1, 1].forEach(function(sd){
+      var nx = x + sd * w * 0.25;
+      c.fillStyle = '#B36AA8'; c.beginPath(); c.ellipse(nx, y, h * 0.2, h * 0.26, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = CH; c.lineWidth = Math.max(1.2, lw * 0.6);
+      c.beginPath(); c.moveTo(nx - w * 0.05, y - h * 0.1); c.quadraticCurveTo(nx + w * 0.04, y, nx - w * 0.04, y + h * 0.12); c.stroke();
+    });
+  }
+  c.lineCap = 'butt';
 }
 return {
   sceneHeight: 470,
@@ -493,26 +548,27 @@ return {
     c.fillStyle = '#FBF7F2'; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
     c.strokeStyle = '#5B6776'; c.lineWidth = 3; c.stroke();
     c.save(); c.beginPath(); c.arc(cx, cy, R - 2, 0, Math.PI * 2); c.clip();
-    var G = rng(r ? r.run : 1);
-    for (var i = 0; i < 20; i++){
-      var x = cx - R + (i % 5) * (R / 2.2) + 12, y = cy - R + Math.floor(i / 5) * (R / 2.2) + 16;
-      c.strokeStyle = '#C9B7A8'; c.lineWidth = 1.5; c.strokeRect(x, y, R / 2.4, R / 2.4);
-      var ph = i % 7 === 0 ? pi : (i % 3 === 0 ? 1 + (i % 4) : 0);
-      var mx = x + R / 4.8, my = y + R / 4.8;
-      if (ph === 0){ c.fillStyle = '#B36AA8'; c.beginPath(); c.arc(mx, my, 6, 0, Math.PI * 2); c.fill(); }
-      else if (ph === 2){ c.strokeStyle = '#7A2E6E'; c.lineWidth = 2.5; for (var q = -2; q <= 2; q++){ c.beginPath(); c.moveTo(mx + q * 4, my - 6); c.lineTo(mx + q * 4, my + 6); c.stroke(); } }
-      else if (ph === 3){ c.strokeStyle = '#7A2E6E'; c.lineWidth = 2.5; for (var q2 = -1; q2 <= 1; q2++){ c.beginPath(); c.moveTo(mx + q2 * 4, my - 12); c.lineTo(mx + q2 * 4, my - 4); c.moveTo(mx + q2 * 4, my + 4); c.lineTo(mx + q2 * 4, my + 12); c.stroke(); } }
-      else { c.fillStyle = '#8E4F86'; c.beginPath(); c.ellipse(mx, my, 8, 5, 0.4, 0, Math.PI * 2); c.fill(); }
+    /* 시야 안 세포를 벽돌처럼 놓고, 시기는 측정한 비율(측정 전에는 조건의 대표 비율)대로 나눠 줌 */
+    var cw = R * 0.40, chh = R * 0.27, full = [], edge = [];
+    for (var row = -5; row <= 5; row++) for (var col = -5; col <= 5; col++){
+      var ccx = cx + col * cw + (row & 1 ? cw / 2 : 0), ccy = cy + row * chh, dd = Math.hypot(ccx - cx, ccy - cy);
+      if (dd + Math.hypot(cw, chh) * 0.42 < R) full.push({x:ccx, y:ccy}); else if (dd - Math.hypot(cw, chh) / 2 < R) edge.push({x:ccx, y:ccy});
     }
+    var mix = cellMix(r ? r.frac : phaseFrac(TREAT[p.t].on), full.length, pi), G = rng(r ? r.run * 977 + 5 : 11 + p.t * 131 + p.n);
+    for (var si = mix.length - 1; si > 0; si--){ var sj = Math.floor(G() * (si + 1)), tmp = mix[si]; mix[si] = mix[sj]; mix[sj] = tmp; }
+    edge.forEach(function(e){ cellWall(c, e.x, e.y, cw, chh, -1); });
+    full.forEach(function(e, i){ cellWall(c, e.x, e.y, cw, chh, mix[i]); drawPhase(c, e.x, e.y, cw, chh, mix[i], G); });
+    full.forEach(function(e, i){ if (mix[i] === pi){ c.strokeStyle = '#C8463D'; c.lineWidth = 2.2; c.strokeRect(e.x - cw / 2 + 1.5, e.y - chh / 2 + 1.5, cw - 3, chh - 3); } });
     c.restore();
     txt(c, '양파 뿌리 끝 (400배)', cx - R, cy - R - 12, {bold:true});
     // 시기별 막대
     var bx = Math.max(cx + R + 40, W * 0.48), bw = W - bx - 24;
     if (bw > 120 && r){
-      txt(c, '시기별 세포 수', bx, 60, {color:'#4A5868'});
+      var narB = W < 420;   /* 좁은 화면은 결과 글이 y=250 에서 시작하므로 막대 간격을 줄여 겹치지 않게 */
+      txt(c, '시기별 세포 수', bx, narB ? 50 : 60, {color:'#4A5868'});
       var mxv = Math.max.apply(null, r.cnt);
       PHASE.forEach(function(P2, i){
-        var y = 74 + i * 40;
+        var y = (narB ? 62 : 74) + i * (narB ? 32 : 40);
         txt(c, P2.name.split(' ')[0], bx, y + 12, {base:'middle', bold:i === pi});
         c.fillStyle = i === pi ? '#C8463D' : PAL[i % 8];
         c.fillRect(bx + 46, y, (bw - 96) * r.cnt[i] / mxv * k, 22);   /* 오른쪽에 'NNN개' 자리 남김 */
