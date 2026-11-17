@@ -725,8 +725,36 @@
     setTimeout(function () { if (st.guide !== 'closed') drawGuide(); }, 900);
   }
 
+  // ---------- 간단히 보기(?compact=1) ----------
+  // 홈페이지 '가입 없이 3분 체험'처럼 다른 화면 안에 작게 넣을 때: 제목·설명 머리말과 예측·사용법 상자를 빼고
+  // 실험 그림과 조작부터 보이게 한다(휴대폰에서 들어가자마자 실험이 보이게, 261117).
+  var COMPACT = /[?&]compact=1(&|$)/.test(location.search);
+
+  function hideHead() {
+    var h1 = document.querySelector('h1');
+    if (!h1 || h1.closest('#fxPrinciple')) return;
+    var head = h1.closest('header');
+    var gone = head || h1;
+    if (head) head.style.display = 'none';
+    else {
+      // 머리말 상자가 없으면 제목과 바로 뒤 설명 한 줄만
+      h1.style.display = 'none';
+      var next = h1.nextElementSibling;
+      if (next && next.tagName === 'P') next.style.display = 'none';
+    }
+    // 오른쪽 위 소리 버튼이 탭 줄을 덮지 않게 그 자리만큼 비워 둔다
+    var gap = el('div', 'lk-ui');
+    gap.style.height = '40px';
+    gone.parentNode.insertBefore(gap, gone);
+  }
+
   function init() {
     style();
+    if (COMPACT) {
+      hideHead();
+      watchTables();
+      return;
+    }
     mountPoe();
     watchTables();
     mountGuide();
