@@ -36,6 +36,7 @@ main.layout{display:grid;grid-template-columns:1fr minmax(260px,330px);gap:14px;
 .tool.on{border-color:var(--brass);background:#fff6ea;color:var(--brass-dark);box-shadow:0 2px 0 #f0d3a8;}
 .tool.on svg{color:var(--brass-dark);}
 
+canvas#scope{width:100%;height:auto;display:block;border-radius:9px;background:#132226;border:1px solid #0d181b;}
 canvas#board{width:100%;height:auto;display:block;border-radius:11px;background:#f8fbfa;border:1px solid #dce8e5;
   touch-action:none;cursor:crosshair;}
 
@@ -106,9 +107,22 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
           <div><span>전체 저항</span><b id="roR">— Ω</b></div>
           <div><span>소비 전력</span><b id="roP">0 W</b></div>
         </div>
+        <div class="measure" id="acRow" style="display:none">
+          실효값(rms) — 전압 <b id="roVr">0 V</b> · 전류 <b id="roIr">0 A</b>
+        </div>
         <div class="measure" id="rcRow" style="display:none">
           시간 <b id="roT">0.0 s</b> · 축전기 전압 <b id="roVc">0 V</b>
           <div class="rowbtns"><button class="act" id="btnRCReset">처음부터</button></div>
+        </div>
+      </div>
+
+      <div class="card" id="scopeCard" style="margin-top:14px;display:none">
+        <h2>오실로스코프</h2>
+        <canvas id="scope"></canvas>
+        <div class="measure" id="scopeLbl">—</div>
+        <div class="prop">
+          <label>빠르기 <b id="lb_spd">1.0배</b></label>
+          <input type="range" id="spd" min="0.25" max="4" step="0.25" value="1">
         </div>
       </div>
 
@@ -145,6 +159,8 @@ var TOOLS = [
   {t:'ammeter', name:'전류계', lv:2},
   {t:'voltmeter',name:'전압계',lv:2},
   {t:'capacitor',name:'축전기',lv:3},
+  {t:'acsource',name:'교류 전원',lv:3},
+  {t:'inductor',name:'코일',lv:3},
   {t:'erase',   name:'지우개', lv:1}
 ];
 
@@ -155,7 +171,8 @@ var selId = null;
 var nextId = 1;
 var undoStack = [];
 var showValues = true, showFlow = true;
-var simTime = 0, hasCap = false;
+var simTime = 0, hasCap = false, hasAC = false, speedMul = 1;
+var scope = [], scopeWin = 10;
 var warnText = '';
 
 function defProps(t){
@@ -164,6 +181,8 @@ function defProps(t){
   if (t === 'resistor')  return {R:20};
   if (t === 'switch')    return {closed:true};
   if (t === 'capacitor') return {C:0.05};
+  if (t === 'acsource')  return {V:5, f:2};
+  if (t === 'inductor')  return {L:0.5};
   return {};
 }
 
@@ -207,7 +226,7 @@ function lusolve(A, b){
 
 /* ---------- 회로 풀기 ---------- */
 /* dt 를 주면 축전기를 시간에 따라 푼다. 안 주면 정상 상태(축전기는 끊긴 것). */
-function solve(dt){
+function solve(dt, simT){
   var i, e;
   /* 1) 선으로 이어진 점끼리 한 덩어리로 묶는다 */
   var par = {};
@@ -244,6 +263,8 @@ function solve(dt){
     var p = parts[i], ty = p.e.type;
     if (ty === 'battery'){
       if (p.e.props.r > 1e-6){ p.mid = nn + extra; extra++; }
+      vsrc.push(p); p.vk = vsrc.length - 1;
+    } else if (ty === 'acsource'){
       vsrc.push(p); p.vk = vsrc.length - 1;
     } else if (ty === 'ammeter' || (ty === 'switch' && p.e.props.closed)){
       vsrc.push(p); p.vk = vsrc.length - 1;
@@ -290,6 +311,18 @@ function solve(dt){
       } else {
         stampV(q.a, q.b, q.vk, pr.V);
       }
+    } else if (ty2 === 'acsource'){
+      stampV(q.a, q.b, q.vk, pr.V * Math.sin(6.283185307 * pr.f * (simT || 0)));
+    } else if (ty2 === 'inductor'){
+      if (dt){
+        /* 뒤로 오일러: i = (dt/L)·v + 지난번 전류 */
+        var gl = dt / Math.max(1e-6, pr.L);
+        var ip = (q.e.state && q.e.state.il) ? q.e.state.il : 0;
+        stampR(q.a, q.b, 1 / gl);
+        stampI(q.a, q.b, ip);
+      } else {
+        stampR(q.a, q.b, 1e-4);   /* 직류에서 코일은 그냥 선 */
+      }
     } else if (ty2 === 'capacitor'){
       if (dt){
         var g = Math.max(1e-9, pr.C) / dt;
@@ -317,6 +350,15 @@ function solve(dt){
     else if (w.e.type === 'switch') cur = pp.closed ? x[N + w.vk] : 0;
     else if (w.e.type === 'ammeter') cur = x[N + w.vk];
     else if (w.e.type === 'battery') cur = x[N + w.vk];
+    else if (w.e.type === 'acsource') cur = x[N + w.vk];
+    else if (w.e.type === 'inductor'){
+      if (dt){
+        var gl2 = dt / Math.max(1e-6, pp.L);
+        var ipp = (w.e.state && w.e.state.il) ? w.e.state.il : 0;
+        cur = gl2 * v + ipp;
+        w.e.state = w.e.state || {}; w.e.state.il = cur;
+      } else cur = v / 1e-4;
+    }
     else if (w.e.type === 'capacitor'){
       if (dt){
         var gc = Math.max(1e-9, pp.C) / dt;
@@ -328,7 +370,7 @@ function solve(dt){
     if (!isFinite(v)) v = 0;
     if (!isFinite(cur)) cur = 0;
     w.e.res = {v:v, i:cur};
-    if (w.e.type !== 'battery' && w.e.type !== 'voltmeter') totalP += Math.abs(v * cur);
+    if (w.e.type !== 'battery' && w.e.type !== 'acsource' && w.e.type !== 'voltmeter') totalP += Math.abs(v * cur);
     if (Math.abs(cur) > maxI) maxI = Math.abs(cur);
   }
   return {ok:true, parts:parts, maxI:maxI, totalP:totalP, nn:nn};
@@ -452,6 +494,24 @@ function drawEl(e, sel){
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.save(); ctx.translate(mx, 0); ctx.rotate(-elAngle(e));
       ctx.fillText(e.type === 'ammeter' ? 'A' : 'V', 0, s * 0.03); ctx.restore();
+    } else if (e.type === 'acsource'){
+      m = lead(L, bw);
+      var ra = Math.min(bw, s * 1.05) / 2, ax = L / 2;
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#173238'; ctx.lineWidth = Math.max(2, s * 0.09);
+      ctx.beginPath(); ctx.arc(ax, 0, ra, 0, 6.2832); ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      for (var w1 = -ra * 0.72; w1 <= ra * 0.72; w1 += ra * 0.08){
+        var yy1 = -Math.sin(w1 / ra * 4.4) * ra * 0.5;
+        if (w1 === -ra * 0.72) ctx.moveTo(ax + w1, yy1); else ctx.lineTo(ax + w1, yy1);
+      }
+      ctx.lineWidth = Math.max(1.6, s * 0.07); ctx.stroke();
+    } else if (e.type === 'inductor'){
+      m = lead(L, bw);
+      var bodyL = L - 2 * m, r2 = bodyL / 8;
+      ctx.strokeStyle = '#173238'; ctx.lineWidth = Math.max(2, s * 0.09); ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (var k2 = 0; k2 < 4; k2++) ctx.arc(m + r2 * (1 + 2 * k2), 0, r2, Math.PI, 0, false);
+      ctx.stroke();
     } else if (e.type === 'capacitor'){
       m = lead(L, bw);
       var cx2 = L / 2, gg = s * 0.16;
@@ -500,6 +560,8 @@ function drawLabels(){
     if (e.type === 'battery')   setLine = e.props.V.toFixed(1) + 'V';
     if (e.type === 'resistor' || e.type === 'bulb') setLine = e.props.R.toFixed(0) + 'Ω';
     if (e.type === 'capacitor') setLine = (e.props.C * 1000).toFixed(0) + 'mF';
+    if (e.type === 'acsource')  setLine = e.props.V.toFixed(1) + 'V ' + e.props.f.toFixed(1) + 'Hz';
+    if (e.type === 'inductor')  setLine = e.props.L.toFixed(2) + 'H';
     if (setLine) lines.push({t:setLine, c:'#a86825'});
     if (showValues && e.res){
       if (e.type === 'ammeter')        lines = [{t:fmt(Math.abs(e.res.i), 'A'), c:'#2f8f9d'}];
@@ -610,8 +672,10 @@ function computeWireCurrents(){
 
 /* ---------- 바꿀 때마다 다시 풀기 ---------- */
 function changed(){
-  hasCap = els.some(function(e){ return e.type === 'capacitor'; });
+  hasCap = els.some(function(e){ return e.type === 'capacitor' || e.type === 'inductor' || e.type === 'acsource'; });
+  hasAC  = els.some(function(e){ return e.type === 'acsource'; });
   if (!hasCap){ lastRes = solve(0); computeWireCurrents(); }
+  scope = [];
   buildProps();
   save();
 }
@@ -729,6 +793,8 @@ var ICONS = {
   ammeter:'<path d="M2 10 H8 M26 10 H32" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="17" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2"/><text x="17" y="14" font-size="10" font-weight="700" text-anchor="middle" fill="currentColor">A</text>',
   voltmeter:'<path d="M2 10 H8 M26 10 H32" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="17" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2"/><text x="17" y="14" font-size="10" font-weight="700" text-anchor="middle" fill="currentColor">V</text>',
   capacitor:'<path d="M2 10 H14 M20 10 H32" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M14 3 V17 M20 3 V17" stroke="currentColor" stroke-width="2.6"/>',
+  acsource:'<path d="M2 10 H8 M26 10 H32" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="17" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 10 q3 -5 6 0 t6 0" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+  inductor:'<path d="M2 10 H7 M27 10 H32" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M7 10 a2.5 2.5 0 0 1 5 0 a2.5 2.5 0 0 1 5 0 a2.5 2.5 0 0 1 5 0 a2.5 2.5 0 0 1 5 0" fill="none" stroke="currentColor" stroke-width="2"/>',
   erase:'<path d="M6 15 L16 5 L26 13 L21 18 H9 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M2 18 H30" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
 };
 function buildTools(){
@@ -750,7 +816,8 @@ function buildProps(){
   var e = els.filter(function(q){ return q.id === selId; })[0];
   if (!e){ box.innerHTML = '<div class="empty-msg">화살표 도구로 부품을 누르면 값을 바꿀 수 있어요.</div>'; return; }
   var name = {wire:'선', battery:'전지', bulb:'전구', resistor:'저항', 'switch':'스위치',
-              ammeter:'전류계', voltmeter:'전압계', capacitor:'축전기'}[e.type];
+              ammeter:'전류계', voltmeter:'전압계', capacitor:'축전기',
+              acsource:'교류 전원', inductor:'코일'}[e.type];
   var h = '<div style="font-weight:700;margin-bottom:6px">' + name + '</div>';
   function slider(id, label, unit, val, min, max, step){
     return '<div class="prop"><label>' + label + ' <b id="lb_' + id + '">' + val + unit + '</b></label>' +
@@ -765,6 +832,11 @@ function buildProps(){
     h += slider('pR', '저항', 'Ω', e.props.R, 1, 500, 1);
   } else if (e.type === 'capacitor'){
     h += slider('pC', '전기용량', 'mF', Math.round(e.props.C * 1000), 1, 500, 1);
+  } else if (e.type === 'acsource'){
+    h += slider('pAV', '전압(최대)', 'V', e.props.V, 0.5, 20, 0.5);
+    h += slider('pAF', '진동수', 'Hz', e.props.f, 0.2, 60, 0.2);
+  } else if (e.type === 'inductor'){
+    h += slider('pL', '인덕턴스', 'H', e.props.L, 0.01, 5, 0.01);
   } else if (e.type === 'switch'){
     h += '<div class="rowbtns"><button class="act primary" id="pSw">' + (e.props.closed ? '열기' : '닫기') + '</button></div>';
   }
@@ -782,6 +854,9 @@ function buildProps(){
   bind('pr', function(v){ e.props.r = v; document.getElementById('lb_pr').textContent = v.toFixed(1) + 'Ω'; });
   bind('pR', function(v){ e.props.R = v; document.getElementById('lb_pR').textContent = v.toFixed(0) + 'Ω'; });
   bind('pC', function(v){ e.props.C = v / 1000; document.getElementById('lb_pC').textContent = v.toFixed(0) + 'mF'; });
+  bind('pAV', function(v){ e.props.V = v; document.getElementById('lb_pAV').textContent = v.toFixed(1) + 'V'; });
+  bind('pAF', function(v){ e.props.f = v; document.getElementById('lb_pAF').textContent = v.toFixed(1) + 'Hz'; scope = []; });
+  bind('pL', function(v){ e.props.L = v; document.getElementById('lb_pL').textContent = v.toFixed(2) + 'H'; });
   var sw = document.getElementById('pSw');
   if (sw) sw.onclick = function(){ snapshot(); e.props.closed = !e.props.closed; changed(); };
   document.getElementById('pRot').onclick = function(){
@@ -798,6 +873,7 @@ function buildProps(){
   };
 }
 function lastResDirty(){ if (!hasCap){ lastRes = solve(0); computeWireCurrents(); } save(); }
+
 
 /* ---------- 합선 찾기 ---------- */
 function shortedBattery(){
@@ -817,7 +893,7 @@ function shortedBattery(){
   }
   for (i = 0; i < els.length; i++){
     var b = els[i];
-    if (b.type !== 'battery' || b.props.r > 1e-6) continue;
+    if ((b.type !== 'battery' && b.type !== 'acsource') || b.props.r > 1e-6) continue;
     if (find(key(b.x1, b.y1)) === find(key(b.x2, b.y2))) return true;
   }
   return false;
@@ -825,7 +901,7 @@ function shortedBattery(){
 
 /* ---------- 측정값 ---------- */
 function updateReadouts(){
-  var bat = els.filter(function(e){ return e.type === 'battery'; });
+  var bat = els.filter(function(e){ return e.type === 'battery' || e.type === 'acsource'; });
   var I = 0, V = 0, P = lastRes && lastRes.ok ? lastRes.totalP : 0;
   for (var i = 0; i < bat.length; i++){
     V += bat[i].props.V;
@@ -833,7 +909,26 @@ function updateReadouts(){
   }
   document.getElementById('roI').textContent = fmt(I, 'A');
   document.getElementById('roV').textContent = V ? V.toFixed(1) + ' V' : '0 V';
-  document.getElementById('roR').textContent = I > 1e-6 ? fmt(V / I, 'Ω') : '— Ω';
+  var vr = 0, ir = 0;
+  if (hasAC){
+    var src = els.filter(function(e){ return e.type === 'acsource'; })[0];
+    var per = src ? 1 / Math.max(0.01, src.props.f) : 1;
+    var sv = 0, si = 0, cnt = 0;
+    for (var q = scope.length - 1; q >= 0 && scope[q].t > simTime - per; q--){
+      sv += scope[q].v * scope[q].v; si += scope[q].i * scope[q].i; cnt++;
+    }
+    if (cnt){ vr = Math.sqrt(sv / cnt); ir = Math.sqrt(si / cnt); }
+  }
+  document.getElementById('roR').textContent =
+    hasAC ? (ir > 1e-6 ? fmt(vr / ir, 'Ω') : '— Ω')
+          : (I > 1e-6 ? fmt(V / I, 'Ω') : '— Ω');
+  var ar = document.getElementById('acRow');
+  ar.style.display = hasAC ? '' : 'none';
+  if (hasAC){
+    document.getElementById('roVr').textContent = fmt(vr, 'V');
+    document.getElementById('roIr').textContent = fmt(ir, 'A');
+  }
+  document.getElementById('scopeCard').style.display = hasCap ? '' : 'none';
   document.getElementById('roP').textContent = fmt(P, 'W');
 
   var rc = document.getElementById('rcRow');
@@ -846,9 +941,9 @@ function updateReadouts(){
 
   var msg = '';
   if (!els.length) msg = '';
-  else if (!bat.length) msg = '전지가 없어요. 전지를 놓아야 전류가 흐릅니다.';
-  else if (shortedBattery()) msg = '합선이에요 — 전지의 두 끝이 선으로만 이어져 있습니다. 사이에 전구나 저항을 넣어 주세요.';
-  else if (I < 1e-7) msg = '전류가 흐르지 않아요. 회로가 한 바퀴 이어졌는지, 스위치가 닫혀 있는지 보세요.';
+  else if (!bat.length) msg = '전지(또는 교류 전원)가 없어요. 전원을 놓아야 전류가 흐릅니다.';
+  else if (shortedBattery()) msg = '합선이에요 — 전원의 두 끝이 선으로만 이어져 있습니다. 사이에 전구나 저항을 넣어 주세요.';
+  else if (I < 1e-7 && !hasAC) msg = '전류가 흐르지 않아요. 회로가 한 바퀴 이어졌는지, 스위치가 닫혀 있는지 보세요.';
   else if (lastRes && lastRes.maxI > 5) msg = '전류가 너무 큽니다(' + lastRes.maxI.toFixed(1) + 'A). 실제라면 전선이 뜨거워져요.';
   var w = document.getElementById('warn');
   w.textContent = msg;
@@ -919,6 +1014,30 @@ var EXAMPLES = [
     addPart('capacitor', 16, 6, 16, 9);
     addWire(16, 9, 16, 12); addWire(16, 12, 3, 12); addWire(3, 12, 3, 9);
   }}
+  ,{name:'교류', lv:3, build:function(){
+    var ac = addPart('acsource', 3, 9, 3, 6); ac.props.V = 4; ac.props.f = 1.5;
+    addWire(3, 6, 3, 4); addWire(3, 4, 7, 4);
+    addPart('bulb', 7, 4, 10, 4);
+    addWire(10, 4, 14, 4); addWire(14, 4, 14, 12); addWire(14, 12, 3, 12); addWire(3, 12, 3, 9);
+  }}
+  ,{name:'RLC 공명', lv:3, build:function(){
+    /* L=0.5H, C=50mF 이면 공명진동수가 1/(2π√LC) ≈ 1.0Hz */
+    var ac = addPart('acsource', 3, 9, 3, 6); ac.props.V = 5; ac.props.f = 1;
+    addWire(3, 6, 3, 3); addWire(3, 3, 5, 3);
+    var r = addPart('resistor', 5, 3, 8, 3); r.props.R = 2;   /* 저항이 클수록 공명 봉우리가 뚜렷해진다 */
+    var l = addPart('inductor', 8, 3, 11, 3); l.props.L = 0.5;
+    var c = addPart('capacitor', 11, 3, 14, 3); c.props.C = 0.05;
+    addWire(14, 3, 17, 3); addWire(17, 3, 17, 12); addWire(17, 12, 3, 12); addWire(3, 12, 3, 9);
+  }}
+  ,{name:'코일', lv:3, build:function(){
+    addPart('battery', 3, 9, 3, 6);
+    addWire(3, 6, 3, 3); addWire(3, 3, 5, 3);
+    addPart('switch', 5, 3, 8, 3);
+    var l = addPart('inductor', 8, 3, 11, 3); l.props.L = 2;
+    addWire(11, 3, 13, 3);
+    addPart('bulb', 13, 3, 16, 3);
+    addWire(16, 3, 17, 3); addWire(17, 3, 17, 12); addWire(17, 12, 3, 12); addWire(3, 12, 3, 9);
+  }}
 ];
 function buildExamples(){
   var box = document.getElementById('examples');
@@ -979,23 +1098,105 @@ document.getElementById('btnRCReset').onclick = function(){
   els.forEach(function(e){ if (e.type === 'capacitor') e.state = {vc:0}; });
 };
 
+/* ---------- 오실로스코프 ---------- */
+var sc = document.getElementById('scope'), sctx = sc.getContext('2d');
+function fitScope(){
+  var w = sc.clientWidth || 300, h = Math.max(110, Math.round(w * 0.46));
+  var dpr = Math.min(2, window.devicePixelRatio || 1);
+  sc.width = Math.round(w * dpr); sc.height = Math.round(h * dpr);
+  sc.style.height = h + 'px';
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+/* 지켜볼 부품 — 고른 게 있으면 그것, 없으면 교류 전원·축전기·코일 */
+function watchedEl(){
+  var e = els.filter(function(q){ return q.id === selId && q.type !== 'wire'; })[0];
+  if (e) return e;
+  return els.filter(function(q){
+    return q.type === 'acsource' || q.type === 'capacitor' || q.type === 'inductor';
+  })[0] || null;
+}
+function drawScope(){
+  var w = sc.clientWidth || 300, h = parseFloat(sc.style.height) || 120;
+  sctx.fillStyle = '#132226'; sctx.fillRect(0, 0, w, h);
+  var el = watchedEl();
+  var lbl = document.getElementById('scopeLbl');
+  if (!el || scope.length < 3){ lbl.textContent = '—'; return; }
+  var vmax = 1e-9, imax = 1e-9, k;
+  for (k = 0; k < scope.length; k++){
+    if (Math.abs(scope[k].v) > vmax) vmax = Math.abs(scope[k].v);
+    if (Math.abs(scope[k].i) > imax) imax = Math.abs(scope[k].i);
+  }
+  vmax *= 1.15; imax *= 1.15;
+  var t0 = simTime - scopeWin, mid = h / 2;
+  sctx.strokeStyle = 'rgba(255,255,255,.13)'; sctx.lineWidth = 1;
+  for (k = 0; k <= 4; k++){
+    var yy = h * k / 4;
+    sctx.beginPath(); sctx.moveTo(0, yy); sctx.lineTo(w, yy); sctx.stroke();
+  }
+  sctx.strokeStyle = 'rgba(255,255,255,.3)';
+  sctx.beginPath(); sctx.moveTo(0, mid); sctx.lineTo(w, mid); sctx.stroke();
+  function trace(get, scale, color){
+    sctx.strokeStyle = color; sctx.lineWidth = 2; sctx.beginPath();
+    for (var q = 0; q < scope.length; q++){
+      var px = (scope[q].t - t0) / scopeWin * w;
+      var py = mid - get(scope[q]) / scale * (h * 0.44);
+      if (q === 0) sctx.moveTo(px, py); else sctx.lineTo(px, py);
+    }
+    sctx.stroke();
+  }
+  trace(function(d){ return d.v; }, vmax, '#5fd3e3');
+  trace(function(d){ return d.i; }, imax, '#f0a04b');
+  var nm = {battery:'전지', bulb:'전구', resistor:'저항', 'switch':'스위치', ammeter:'전류계',
+            voltmeter:'전압계', capacitor:'축전기', acsource:'교류 전원', inductor:'코일'}[el.type];
+  lbl.innerHTML = nm + ' · <b style="color:#2f8f9d">전압</b> ±' + fmt(vmax, 'V') +
+                  ' · <b style="color:#c07a2b">전류</b> ±' + fmt(imax, 'A') +
+                  ' · 가로 ' + scopeWin.toFixed(1) + '초';
+}
+
 /* ---------- 움직이기 ---------- */
+function stepSim(wallDt){
+  var fmax = 0;
+  els.forEach(function(e){ if (e.type === 'acsource' && e.props.f > fmax) fmax = e.props.f; });
+  var simRate, maxDt;
+  if (fmax > 0){
+    /* 한 주기가 화면에서 1.6초쯤 걸리게 — 눈으로 따라갈 수 있도록 */
+    simRate = speedMul / (1.6 * fmax);
+    maxDt = 1 / (fmax * 600);   /* 한 주기를 600번으로 나눠야 공명 높이가 제대로 나온다 */
+    scopeWin = 3 / fmax;
+  } else {
+    simRate = speedMul; maxDt = 0.01; scopeWin = 12;
+  }
+  var want = Math.min(0.05, wallDt) * simRate;
+  var n = Math.max(1, Math.min(300, Math.ceil(want / maxDt)));
+  var dt = want / n, w = watchedEl();
+  for (var k = 0; k < n; k++){
+    simTime += dt;
+    lastRes = solve(dt, simTime);
+    if (w && w.res) scope.push({t:simTime, v:w.res.v, i:w.res.i});
+  }
+  while (scope.length && scope[0].t < simTime - scopeWin) scope.shift();
+  if (scope.length > 4000) scope.splice(0, scope.length - 4000);
+  computeWireCurrents();
+}
+
 var lastT = 0;
 function loop(ts){
   var dt = lastT ? Math.min(0.05, (ts - lastT) / 1000) : 0.016;
   lastT = ts;
-  if (hasCap){
-    simTime += dt;
-    lastRes = solve(dt);
-    computeWireCurrents();
-  }
+  if (hasCap) stepSim(dt);
   flowPhase = (flowPhase + dt * 0.8) % 1;
   render();
+  if (hasCap) drawScope();
   updateReadouts();
   requestAnimationFrame(loop);
 }
 
-window.addEventListener('resize', function(){ fitCanvas(); });
+window.addEventListener('resize', function(){ fitCanvas(); fitScope(); });
+var spd = document.getElementById('spd');
+spd.oninput = function(){
+  speedMul = parseFloat(spd.value);
+  document.getElementById('lb_spd').textContent = speedMul.toFixed(1) + '배';
+};
 
 /* ---------- 시작 ---------- */
 if (!load()){
@@ -1003,6 +1204,7 @@ if (!load()){
 }
 if (window.innerWidth < 560) VC = 13;
 fitCanvas();
+fitScope();
 if (window.innerWidth < 560){ ox = 2; oy = 1; clampView(); }
 setLevel(level);
 document.getElementById('btnUndo').disabled = true;
