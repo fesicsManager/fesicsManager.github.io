@@ -519,6 +519,38 @@ document.querySelectorAll('#siteRow .btn-choice').forEach(function(b){
   b.addEventListener('click',function(){ setDist(parseFloat(b.dataset.d)); });
 });
 
+/* 몼 안을 지나는 길 — 꺾이는 점만 적고 직선으로 잉는다 (261121) */
+function polyline(P){
+  ctx.beginPath(); ctx.moveTo(P[0][0],P[0][1]);
+  for(var i=1;i<P.length;i++) ctx.lineTo(P[i][0],P[i][1]);
+  ctx.stroke();
+}
+function walk(P,p){
+  var lens=[], tot=0, i;
+  for(i=0;i<P.length-1;i++){ var L=Math.hypot(P[i+1][0]-P[i][0], P[i+1][1]-P[i][1]); lens.push(L); tot+=L; }
+  var t=Math.max(0,Math.min(1,p))*tot;
+  for(var j=0;j<lens.length;j++){
+    if(t<=lens[j]){ var f=lens[j]>0?t/lens[j]:0;
+      return [P[j][0]+(P[j+1][0]-P[j][0])*f, P[j][1]+(P[j+1][1]-P[j][1])*f]; }
+    t-=lens[j];
+  }
+  return P[P.length-1];
+}
+/* 신경: 자극부위 → 팔(또는 다리) → 몼통 → 목 → 뇌 */
+function nervePath(sx,startY){
+  if(startY<92)  return [[sx,startY],[206,70],[210,62]];
+  if(startY>210) return [[sx,startY],[199,startY],[199,200],[200,120],[204,80],[210,62]];
+  return [[sx,startY],[178,startY],[178,100],[196,92],[203,74],[210,62]];
+}
+/* 호르몬: 혈관을 타고 몼을 한 바퀴 돌아 뇌로 */
+function hormonePath(sx,startY){
+  var tail=[[224,180],[224,306],[217,306],[217,206],[205,190],[205,80],[210,62]];
+  var head;
+  if(startY<92)       head=[[sx,startY],[216,88],[224,130]];
+  else if(startY>210) return [[sx,startY],[224,startY],[224,306],[217,306],[217,206],[205,190],[205,80],[210,62]];
+  else                head=[[sx,startY],[242,startY],[242,110],[226,104]];
+  return head.concat(tail);
+}
 function bodyOutline(){
   /* 간단한 사람 실루엣 */
   ctx.fillStyle='#dfe9e7';
@@ -544,47 +576,23 @@ function draw(){
   /* 자극 지점 — 거리에 맞는 몸 부위(얼굴 0.2·팔꿈치 0.6·손끝 1.0·발끝 1.5m)에 놓음 */
   var KN=[[0,60],[0.2,80],[0.6,150],[1.0,206],[1.5,308],[2.0,308]], startY=KN[KN.length-1][1];
   for(var ki=1;ki<KN.length;ki++){ if(dist<=KN[ki][0]){ var kf=(dist-KN[ki-1][0])/(KN[ki][0]-KN[ki-1][0]); startY=KN[ki-1][1]+(KN[ki][1]-KN[ki-1][1])*kf; break; } }
-  var sx = startY<90 ? 188 : (startY<=212 ? 172 : 196);
+  var sx = startY<90 ? 200 : (startY<=212 ? 172 : 196);  /* 188 은 머리 밖이었다 (261121) */
   ctx.fillStyle='#c1443c';
   ctx.beginPath(); ctx.arc(sx, startY, 9, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle='#c1443c'; ctx.font="700 14px 'Noto Sans KR',sans-serif"; ctx.textAlign='right';
   ctx.fillText('자극 '+dist.toFixed(1)+'m', Math.min(sx-14, 168), startY+5);
 
-  /* 신경 경로 (직선) */
-  ctx.strokeStyle='#b9dde2'; ctx.lineWidth=5;
-  ctx.beginPath(); ctx.moveTo(sx,startY); ctx.lineTo(178,startY); ctx.lineTo(178,56); ctx.lineTo(197,56); ctx.stroke();
-  /* 호르몬 경로 (혈관, 구불구불) */
-  ctx.strokeStyle='#f0cba6'; ctx.lineWidth=5;
-  ctx.beginPath();
-  ctx.moveTo(sx,startY); ctx.lineTo(262,startY);
-  ctx.bezierCurveTo(300,startY, 300,300, 288,300);
-  ctx.lineTo(288,150); ctx.bezierCurveTo(288,90, 260,56, 224,56);
-  ctx.stroke();
+  /* 신경·호르몬 길은 모두 몼 안으로 지나가야 한다.
+     머리 arc(210,62,26) · 몼통 190~230/88~206 · 팔 168~188·232~252/92~210
+     · 다리 192~207·213~228/206~316 (261121) */
+  var NP=nervePath(sx,startY), HP=hormonePath(sx,startY);
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.strokeStyle='#b9dde2'; ctx.lineWidth=5; polyline(NP);
+  ctx.strokeStyle='#f0cba6'; ctx.lineWidth=5; polyline(HP);
 
-  /* 진행 표시 */
-  function alongNerve(p){
-    var seg=[[sx,startY],[178,startY],[178,56],[197,56]];
-    var lens=[], tot=0;
-    for(var i=0;i<seg.length-1;i++){
-      var L=Math.hypot(seg[i+1][0]-seg[i][0], seg[i+1][1]-seg[i][1]);
-      lens.push(L); tot+=L;
-    }
-    var t=p*tot;
-    for(var j=0;j<lens.length;j++){
-      if(t<=lens[j]){
-        var f=lens[j]>0?t/lens[j]:0;
-        return [seg[j][0]+(seg[j+1][0]-seg[j][0])*f, seg[j][1]+(seg[j+1][1]-seg[j][1])*f];
-      }
-      t-=lens[j];
-    }
-    return seg[seg.length-1];
-  }
-  function alongHormone(p){
-    /* 근사: 세 구간 */
-    if(p<0.35){ var f=p/0.35; return [sx+(262-sx)*f, startY]; }
-    if(p<0.7){ var f2=(p-0.35)/0.35; return [288, startY+(300-startY)*Math.min(1,f2*2)-(f2>0.5?(300-150)*(f2-0.5)*2:0)]; }
-    var f3=(p-0.7)/0.3; return [288-(288-224)*f3, 150-(150-56)*f3];
-  }
+  /* 진행 표시 — 그린 길 그대로 걷는다 */
+  function alongNerve(p){ return walk(NP,p); }
+  function alongHormone(p){ return walk(HP,p); }
   if(phase!=='ready'){
     var np=alongNerve(nProg);
     ctx.fillStyle='#2f8f9d';
