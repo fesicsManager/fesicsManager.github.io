@@ -76,12 +76,12 @@ select{width:100%;padding:8px 10px;border-radius:9px;border:1.5px solid #cddad6;
     <aside>
       <div class="card">
         <h2>파동</h2>
-        <div class="prop"><label>파장 <b id="lbLam">18칸</b></label>
-          <input type="range" id="sLam" min="7" max="45" step="1" value="18"></div>
+        <div class="prop"><label>파장 <b id="lbLam">16칸</b></label>
+          <input type="range" id="sLam" min="8" max="26" step="1" value="16"></div>
         <div class="prop"><label>파원 수 <b id="lbNum">1개</b></label>
           <input type="range" id="sNum" min="1" max="2" step="1" value="1"></div>
-        <div class="prop" id="gapRow" style="display:none"><label>두 파원 사이 <b id="lbSep">60칸</b></label>
-          <input type="range" id="sSep" min="15" max="130" step="1" value="60"></div>
+        <div class="prop" id="gapRow" style="display:none"><label>두 파원 사이 <b id="lbSep">70칸</b></label>
+          <input type="range" id="sSep" min="20" max="150" step="1" value="70"></div>
         <div class="prop" id="phRow" style="display:none"><label>위상차 <b id="lbPh">0°</b></label>
           <input type="range" id="sPh" min="0" max="360" step="15" value="0"></div>
       </div>
@@ -95,9 +95,9 @@ select{width:100%;padding:8px 10px;border-radius:9px;border:1.5px solid #cddad6;
           <option value="medium">매질 경계</option>
         </select>
         <div class="prop" id="slitRow" style="display:none"><label>틈 너비 <b id="lbSlit">10칸</b></label>
-          <input type="range" id="sSlit" min="2" max="60" step="1" value="10"></div>
-        <div class="prop" id="sep2Row" style="display:none"><label>두 틈 사이 <b id="lbSep2">50칸</b></label>
-          <input type="range" id="sSep2" min="15" max="120" step="1" value="50"></div>
+          <input type="range" id="sSlit" min="2" max="70" step="1" value="10"></div>
+        <div class="prop" id="sep2Row" style="display:none"><label>두 틈 사이 <b id="lbSep2">56칸</b></label>
+          <input type="range" id="sSep2" min="20" max="150" step="1" value="56"></div>
         <div class="prop" id="medRow" style="display:none"><label>아래쪽 빠르기 <b id="lbMed">0.60배</b></label>
           <input type="range" id="sMed" min="0.3" max="1.6" step="0.05" value="0.6"></div>
         <div class="prop" id="dopRow"><label>파원 움직이기 <b id="lbDop">0.00</b></label>
@@ -125,7 +125,7 @@ select{width:100%;padding:8px 10px;border-radius:9px;border:1.5px solid #cddad6;
    간섭·회절·굴절·도플러는 따로 넣은 게 아니라 이 식에서 저절로 나온다.
    =========================================================== */
 
-var NX = 280, NY = 180;          /* 칸 수 */
+var NX = 320, NY = 240;          /* 칸 수 */
 var N = NX * NY;
 var u0 = new Float32Array(N), u1 = new Float32Array(N), u2 = new Float32Array(N);
 var kk = new Float32Array(N);    /* 칸마다 (v·dt/dx)² */
@@ -135,27 +135,29 @@ var acc = new Float32Array(N);   /* 무늬 쌓기용 */
 var accN = 0;
 
 var C0 = 0.5;                    /* 기본 매질의 v·dt/dx — 0.707 보다 작아야 안 터진다 */
-var lam = 18, nSrc = 1, sep = 60, phase = 0;
-var dev = 'none', slitW = 10, slit2 = 50, medV = 0.6, dopV = 0;
+var lam = 16, nSrc = 1, sep = 70, phase = 0;
+var dev = 'none', slitW = 10, slit2 = 56, medV = 0.6, dopV = 0;
 var running = true, patternMode = false, level = 2;
-var step = 0, srcX = 60, srcY = 90, dopPos = 0;
+var step = 0, srcX = 95, srcY = 120, dopPos = 0;
 
 /* ---------- 바탕 만들기 ---------- */
 function buildField(){
   var x, y, i;
   for (i = 0; i < N; i++){ kk[i] = C0 * C0; wall[i] = 0; damp[i] = 1; }
   /* 가장자리 흡수층 */
-  var PML = 22;
+  /* 흡수층이 약하면 가장자리에서 물결이 되돌아와 간섭 무늘를 어지럽힌다.
+     세제곱으로 서서히 세게 죽여야 되돌아오는 게 거의 없다 (261121) */
+  var PML = 60;
   for (y = 0; y < NY; y++) for (x = 0; x < NX; x++){
     i = y*NX + x;
     var d = Math.min(x, y, NX-1-x, NY-1-y);
-    if (d < PML){ var t = (PML - d) / PML; damp[i] = 1 - 0.055 * t * t; }
+    if (d < PML){ var t = (PML - d) / PML; damp[i] = 1 - 0.09 * t * t * t; }
   }
   if (dev === 'medium'){
-    var yb = Math.round(NY * 0.56);
+    var yb = Math.round(NY * 0.60);
     for (y = yb; y < NY; y++) for (x = 0; x < NX; x++) kk[y*NX+x] = (C0*medV) * (C0*medV);
   } else if (dev === 'slit1' || dev === 'slit2'){
-    var wx = Math.round(NX * 0.46);
+    var wx = Math.round(NX * 0.52);
     for (y = 0; y < NY; y++){
       var open = false;
       if (dev === 'slit1'){
@@ -204,14 +206,14 @@ function stepOnce(){
     var val = Math.sin(w*step + S[s].ph * Math.PI/180);
     for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++){
       var j = (cyp+dy)*NX + (cxp+dx);
-      if (j > 0 && j < N) u2[j] += val * 0.9 * Math.exp(-(dx*dx+dy*dy)/2.2);
+      if (j > 0 && j < N) u2[j] += val * 0.3 * Math.exp(-(dx*dx+dy*dy)/2.2);
     }
   }
   var tmp = u0; u0 = u1; u1 = u2; u2 = tmp;
   step++;
   if (dopV > 0){
     dopPos += dopV * C0;
-    if (srcX + dopPos > NX - 40) dopPos = 0;
+    if (srcX + dopPos > NX - 75) dopPos = 0;
   }
   /* 무늬 쌓기 — 세기(u²)를 더해 둔다 */
   if (patternMode && step > lam * 6){
@@ -251,7 +253,7 @@ function draw(){
     }
   } else {
     for (i = 0; i < N; i++){
-      v = u1[i] * 1.6;
+      v = u1[i] * 2.2;
       if (v > 1) v = 1; else if (v < -1) v = -1;
       idx = ((v * 256) | 0) + 256;
       if (idx < 0) idx = 0; else if (idx > 511) idx = 511;
@@ -263,7 +265,7 @@ function draw(){
     if (wall[i]){ d[i*4] = 220; d[i*4+1] = 214; d[i*4+2] = 198; d[i*4+3] = 255; }
   }
   if (dev === 'medium'){
-    var yb = Math.round(NY * 0.56);
+    var yb = Math.round(NY * 0.60);
     for (var x2 = 0; x2 < NX; x2++){
       var j = yb*NX + x2;
       d[j*4] = 255; d[j*4+1] = 240; d[j*4+2] = 190; d[j*4+3] = 255;
@@ -372,8 +374,8 @@ bind('sDop', function(v){ dopV = v; clearWaves(); });
 $('selDev').onchange = function(){
   dev = this.value;
   if (dev !== 'none') nSrc = 1;
-  srcX = (dev === 'slit1' || dev === 'slit2') ? 45 : 60;
-  srcY = dev === 'medium' ? 55 : 90;
+  srcX = (dev === 'slit1' || dev === 'slit2') ? 95 : 110;
+  srcY = dev === 'medium' ? 80 : 120;
   rebuild();
 };
 
@@ -423,13 +425,13 @@ function moveSrc(p){
 
 /* ---------- 보기 ---------- */
 var EXAMPLES = [
-  {name:'물결 퍼지기', lv:1, go:function(){ dev='none'; nSrc=1; lam=18; dopV=0; srcX=90; srcY=90; }},
-  {name:'두 파원 간섭', lv:2, go:function(){ dev='none'; nSrc=2; lam=16; sep=60; phase=0; srcX=55; srcY=90; }},
-  {name:'틈 하나(회절)', lv:2, go:function(){ dev='slit1'; nSrc=1; lam=20; slitW=10; srcX=45; srcY=90; dopV=0; }},
-  {name:'넓은 틈', lv:2, go:function(){ dev='slit1'; nSrc=1; lam=12; slitW=48; srcX=45; srcY=90; dopV=0; }},
-  {name:'틈 둘(이중 슬릿)', lv:2, go:function(){ dev='slit2'; nSrc=1; lam=14; slitW=7; slit2=50; srcX=45; srcY=90; dopV=0; }},
-  {name:'굴절', lv:3, go:function(){ dev='medium'; nSrc=1; lam=16; medV=0.55; srcX=70; srcY=40; dopV=0; }},
-  {name:'도플러', lv:3, go:function(){ dev='none'; nSrc=1; lam=16; dopV=0.45; srcX=50; srcY=90; }}
+  {name:'물결 퍼지기', lv:1, go:function(){ dev='none'; nSrc=1; lam=16; dopV=0; srcX=160; srcY=120; }},
+  {name:'두 파원 간섭', lv:2, go:function(){ dev='none'; nSrc=2; lam=14; sep=70; phase=0; srcX=95; srcY=120; dopV=0; }},
+  {name:'틈 하나(회절)', lv:2, go:function(){ dev='slit1'; nSrc=1; lam=18; slitW=10; srcX=95; srcY=120; dopV=0; }},
+  {name:'넓은 틈', lv:2, go:function(){ dev='slit1'; nSrc=1; lam=10; slitW=56; srcX=95; srcY=120; dopV=0; }},
+  {name:'틈 둘(이중 슬릿)', lv:2, go:function(){ dev='slit2'; nSrc=1; lam=12; slitW=7; slit2=56; srcX=95; srcY=120; dopV=0; }},
+  {name:'굴절', lv:3, go:function(){ dev='medium'; nSrc=1; lam=16; medV=0.55; srcX=130; srcY=80; dopV=0; }},
+  {name:'도플러', lv:3, go:function(){ dev='none'; nSrc=1; lam=14; dopV=0.45; srcX=95; srcY=120; }}
 ];
 function buildExamples(){
   var box = $('examples');
