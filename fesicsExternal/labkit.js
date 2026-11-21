@@ -57,6 +57,9 @@
       '.lk-panel{margin:6px 0 12px;padding:10px;border:1px solid #dbe3ef;border-radius:12px;background:#f8fafc;font-size:14px}',
       '.lk-panel select{font:inherit;font-size:14px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;max-width:100%;background:#fff;color:#111}',
       '.lk-panel label{display:inline-flex;align-items:center;gap:4px;margin-right:8px}',
+      '.lk-chips{flex-wrap:wrap;gap:6px;margin:6px 0 2px}',
+      '.lk-chiplab{flex:1 0 100%;font-size:.92em;opacity:.8;margin-bottom:2px}',
+      '.lk-chip{border-radius:999px;padding:6px 13px;font-size:.95em}',
       '.lk-cv{display:block;width:100%;height:auto;margin:8px 0 4px;background:#fff;border:1px solid #e5e7eb;border-radius:8px}',
       '.lk-fit{font-size:13px;color:#374151}',
       '.lk-note{font-size:12px;color:#6b7280}',
@@ -532,6 +535,85 @@
       : '실험을 더 해 보면 예측과 비교해 볼 수 있어요.';
   }
 
+  // ---------- 이 실험에 맞는 예측 문장 만들기 ----------
+  // 슬라이더 이름과 측정값 이름을 읽어 "A를 크게 하면 B는 ~" 문장을 짓는다.
+  // 실험마다 화면 구조가 달라서 여러 방법으로 이름을 찾아본다. (261121)
+  var SKIP_CTRL = /속도|배속|빠르기|확대|축소|줌|zoom|크게 보기|시간 흐름|재생|투명|밝기 조절/i;
+
+  function tidyName(t) {
+    t = (t || '').replace(/\s+/g, ' ').trim();
+    t = t.replace(/^[0-9.\-+]+\s*/, '');
+    t = t.replace(/[:：]\s*$/, '');
+    t = t.replace(/[-+]?[0-9][0-9.,]*\s*[^\s]{0,4}$/, '').trim();   // 끝에 붙은 값·단위
+    t = t.replace(/\([^)]*\)\s*$/, '').trim();                      // 끝에 붙은 괄호
+    t = t.replace(/[.,·:：]+$/, '').trim();
+    return t;
+  }
+  function isName(t) {
+    return !!t && t.length >= 2 && t.length <= 14 && /[가-힣]/.test(t) &&
+           !/^[0-9]/.test(t) && !SKIP_CTRL.test(t);
+  }
+  function nodeName(node, skipEl) {
+    if (!node || node.nodeType !== 1) return '';
+    var c = node.cloneNode(true);
+    var junk = c.querySelectorAll('b, strong, output, input, select, button, [class*=val], [class*=num], [class*=unit]');
+    for (var i = junk.length - 1; i >= 0; i--) junk[i].parentNode.removeChild(junk[i]);
+    return tidyName(c.textContent);
+  }
+  function sliderName(r) {
+    var t = tidyName(r.getAttribute('aria-label'));
+    if (isName(t)) return t;
+    if (r.id) {
+      var lf = document.querySelector('label[for="' + r.id + '"]');
+      if (lf) { t = nodeName(lf); if (isName(t)) return t; }
+    }
+    var node = r, up = 0;
+    while (node && up < 4) {
+      node = node.parentNode; up++;
+      if (!node || node.nodeType !== 1) break;
+      var lb = node.querySelector('label, .row, [class*=label], [class*=name], [class*=title]');
+      if (lb) { t = nodeName(lb); if (isName(t)) return t; }
+      var own = nodeName(node);
+      if (isName(own)) return own;
+    }
+    var prev = r.previousElementSibling;
+    while (prev) { t = nodeName(prev); if (isName(t)) return t; prev = prev.previousElementSibling; }
+    return '';
+  }
+  function resultName(avoid) {
+    var sels = ['.readout span', '[class*=readout] span', '.analysis-card span', '[class*=analysis] span',
+                '[class*=stat] span', '[class*=result] span', '.measure span', '[class*=measure] span',
+                'dt', 'thead th'];
+    for (var i = 0; i < sels.length; i++) {
+      var list = document.querySelectorAll(sels[i]);
+      for (var k = 0; k < list.length; k++) {
+        if (isOurs(list[k])) continue;
+        var t = tidyName(list[k].textContent);
+        if (isName(t) && t !== avoid && t.indexOf(avoid) < 0 && avoid.indexOf(t) < 0) return t;
+      }
+    }
+    return '';
+  }
+  // 받침이 있으면 앞엣것, 없으면 뒤엣것
+  function josa(word, withJong, without) {
+    var c = word.charCodeAt(word.length - 1);
+    if (c < 0xAC00 || c > 0xD7A3) return without;
+    return ((c - 0xAC00) % 28) ? withJong : without;
+  }
+  function predictIdeas() {
+    try {
+      var rs = Array.prototype.filter.call(document.querySelectorAll('input[type=range]'),
+        function (e) { return !isOurs(e); });
+      var A = '';
+      for (var i = 0; i < rs.length && !A; i++) A = sliderName(rs[i]);
+      if (!A) return null;
+      var B = resultName(A);
+      if (!B) return null;
+      var head = A + josa(A, '을', '를') + ' 크게 하면 ' + B + josa(B, '은', '는') + ' ';
+      return { a: A, b: B, list: [head + '커질 것 같아요', head + '작아질 것 같아요', head + '그대로일 것 같아요'] };
+    } catch (e) { return null; }
+  }
+
   function textInput(placeholder, value) {
     var i = el('input', 'lk-in');
     i.type = 'text';
@@ -550,8 +632,22 @@
   function drawAsk() {
     poe.appendChild(el('b', 'lk-t', '🤔 실험하기 전에 예측해 보세요'));
     poe.appendChild(el('p', null, '이 실험을 하면 어떤 결과가 나올까요? 생각을 한 줄로 적어 두면, 실험한 뒤 내 예측과 비교해 볼 수 있어요.'));
+    var idea = predictIdeas();
     var row = el('div', 'lk-row');
-    var inp = textInput('예: ○○을 크게 하면 △△도 커질 것 같아요', st.predict);
+    var inp = textInput('예: ○○을 크게 하면 △△도 커질 것 같아요',
+                        st.predict || (idea ? idea.list[0] : ''));
+    if (idea) {
+      var chips = el('div', 'lk-row lk-chips');
+      chips.appendChild(el('span', 'lk-chiplab', '이대로 저장해도 되고, 눌러서 바꿔도 돼요:'));
+      ['커질 것 같아요', '작아질 것 같아요', '그대로일 것 같아요'].forEach(function (nm, k) {
+        chips.appendChild(button(nm, 'lk-chip', function () {
+          inp.value = idea.list[k];
+          inp.focus();
+          inp.setSelectionRange(inp.value.length, inp.value.length);
+        }));
+      });
+      poe.appendChild(chips);
+    }
     var ok = function () {
       var v = inp.value.trim();
       if (!v) { inp.focus(); return; }
