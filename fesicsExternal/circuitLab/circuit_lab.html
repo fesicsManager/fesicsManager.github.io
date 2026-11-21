@@ -146,6 +146,7 @@ var GW = 20, GH = 15;          /* 가로·세로 칸 수 */
 var cell = 30;                 /* 한 칸 크기(그릴 때 다시 정함) */
 var VC = 20;                   /* 한 화면에 보이는 가로 칸 수 */
 var VR = 15;                   /* 보이는 세로 칸 수 */
+var zoom = 1;                  /* 1 이면 판 전체가 다 보인다 */
 var ox = 0, oy = 0;            /* 왼쪽 위에 보이는 칸 위치 */
 
 /* ---------- 부품 ---------- */
@@ -381,22 +382,26 @@ var cv = document.getElementById('board'), ctx = cv.getContext('2d');
 var lastRes = null, flowPhase = 0;
 
 function clampView(){
-  VC = Math.max(7, Math.min(GW, VC));
-  ox = Math.max(0, Math.min(GW - VC, ox));
+  ox = Math.max(0, Math.min(Math.max(0, GW - VC), ox));
   oy = Math.max(0, Math.min(Math.max(0, GH - VR), oy));
 }
+/* 가로로 누우면 화면이 낮아진다. 가로만 보고 칸 크기를 정하면
+   아래 줄들이 잘려 보이지 않는다 — 둘 다 보고 정한다 (261121) */
 function fitCanvas(){
-  var w = cv.clientWidth || 600;
-  VC = Math.max(7, Math.min(GW, VC));
-  cell = w / VC;
-  /* 화면 높이의 절반을 넘지 않게 — 휴대폰에서 눈금이 너무 작아지지 않도록 */
-  var maxH = Math.max(230, Math.min(window.innerHeight * 0.58, cell * GH));
-  VR = Math.max(6, Math.min(GH, Math.round(maxH / cell)));
-  var h = cell * VR;
+  var box = cv.parentNode;
+  var avail = Math.max(240, (box.clientWidth || 600) - 32);
+  var maxH = Math.max(240, window.innerHeight * 0.82);
+  var fit = Math.min(avail / GW, maxH / GH);     /* 판 전체가 들어가는 칸 크기 */
+  cell = fit * zoom;
+  VC = Math.min(GW, avail / cell);
+  VR = Math.min(GH, maxH / cell);
+  var bw = cell * VC, bh = cell * VR;
   var dpr = Math.min(2, window.devicePixelRatio || 1);
-  cv.width  = Math.round(w * dpr);
-  cv.height = Math.round(h * dpr);
-  cv.style.height = h + 'px';
+  cv.width  = Math.round(bw * dpr);
+  cv.height = Math.round(bh * dpr);
+  cv.style.width = bw + 'px';
+  cv.style.height = bh + 'px';
+  cv.style.margin = '0 auto';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   clampView();
 }
@@ -1071,15 +1076,16 @@ for (var li = 0; li < lvBtns.length; li++){
 }
 
 /* ---------- 단추 ---------- */
-function zoom(d){
+function setZoom(mul){
   var cxg = ox + VC / 2, cyg = oy + VR / 2;
-  VC = Math.max(7, Math.min(GW, VC + d));
+  zoom = Math.max(1, Math.min(4, zoom * mul));
   fitCanvas();
   ox = cxg - VC / 2; oy = cyg - VR / 2;
   clampView();
+  document.getElementById('btnZoomOut').disabled = (zoom <= 1.001);
 }
-document.getElementById('btnZoomIn').onclick  = function(){ zoom(-4); };
-document.getElementById('btnZoomOut').onclick = function(){ zoom(4); };
+document.getElementById('btnZoomIn').onclick  = function(){ setZoom(1.45); };
+document.getElementById('btnZoomOut').onclick = function(){ setZoom(1/1.45); };
 document.getElementById('btnUndo').onclick = undo;
 document.getElementById('btnClear').onclick = function(){
   if (!els.length) return;
@@ -1191,7 +1197,9 @@ function loop(ts){
   requestAnimationFrame(loop);
 }
 
-window.addEventListener('resize', function(){ fitCanvas(); fitScope(); });
+function refit(){ fitCanvas(); fitScope(); }
+window.addEventListener('resize', refit);
+window.addEventListener('orientationchange', function(){ setTimeout(refit, 250); });
 var spd = document.getElementById('spd');
 spd.oninput = function(){
   speedMul = parseFloat(spd.value);
@@ -1202,10 +1210,9 @@ spd.oninput = function(){
 if (!load()){
   EXAMPLES[0].build();
 }
-if (window.innerWidth < 560) VC = 13;
 fitCanvas();
 fitScope();
-if (window.innerWidth < 560){ ox = 2; oy = 1; clampView(); }
+document.getElementById('btnZoomOut').disabled = true;
 setLevel(level);
 document.getElementById('btnUndo').disabled = true;
 changed();
