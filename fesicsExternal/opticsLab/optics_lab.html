@@ -16,10 +16,16 @@ body{margin:0;background:radial-gradient(var(--grid) 1.2px,transparent 1.2px) 0 
 .app{max-width:1500px;margin:0 auto;}
 h1{font-family:'Space Grotesk',sans-serif;font-size:27px;margin:0 0 4px;line-height:1.2;}
 .subtitle{color:var(--ink-soft);font-size:16px;margin:0 0 12px;}
+.backlink{display:none;margin:0 0 8px;font-size:14.5px;}
+.backlink a{color:var(--teal);font-weight:700;text-decoration:none;border-bottom:1.5px solid #bfdfe2;}
 .card{background:var(--card);border:1px solid #d5e0dc;border-radius:var(--radius);box-shadow:0 3px 0 rgba(23,50,56,.05);padding:14px 16px;}
 .card h2{font-family:'Space Grotesk',sans-serif;font-size:18px;margin:0 0 10px;}
 main.layout{display:grid;grid-template-columns:1fr minmax(260px,330px);gap:14px;align-items:start;}
 @media (max-width:900px){main.layout{grid-template-columns:1fr;}}
+/* 칸만 한 크기의 칸(min-width:auto) 때문에 부품 줄(.tools)이 길면 왼쪽 칸이 그만큼 늘어
+   휴대폰에서 쪽 전체가 가로로 넘친다. 0 으로 놓아 줄 안에서만 옮기게 한다 (261122) */
+main.layout>*{min-width:0;}
+
 .levels{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
 .lv{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;padding:8px 18px;border-radius:999px;
   border:2.5px solid var(--ink);background:transparent;color:var(--ink);cursor:pointer;}
@@ -58,6 +64,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
 </head>
 <body>
 <div class="app">
+  <p class="backlink" id="backlink"><a href="https://fesics.kr/lab">← 페직스 실험실로</a></p>
   <h1>빛 실험대</h1>
   <p class="subtitle">렌즈·거울·프리즘을 놓고 돌려 보세요. 빛이 꺾이는 길을 하나하나 계산해서 그립니다.</p>
 
@@ -74,6 +81,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
       <div class="rowbtns">
         <button class="act on" id="btnAxis">광축·초점</button>
         <button class="act" id="btnGrid">모눈</button>
+        <button class="act" id="btnUndo" disabled>되돌리기</button>
         <button class="act danger" id="btnClear">전부 지우기</button>
       </div>
       <div class="exrow" id="examples"></div>
@@ -93,6 +101,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
           <div><span>초점 거리 f</span><b id="roF">—</b></div>
           <div><span>배율 m</span><b id="roM">—</b></div>
         </div>
+        <div class="note">a 는 물체에서 렌즈(거울)까지, b 는 렌즈에서 상까지, f 는 초점까지의 거리예요. 길이는 모두 cm 입니다.</div>
         <div class="note" id="imgNote"></div>
       </div>
     </aside>
@@ -657,15 +666,15 @@ function drawImage(){
   var card = document.getElementById('imgCard');
   if (!info){ card.style.display = 'none'; return; }
   card.style.display = '';
-  document.getElementById('roA').textContent = Math.round(info.a) + '';
-  document.getElementById('roF').textContent = Math.round(info.f) + '';
+  document.getElementById('roA').textContent = Math.round(info.a) + ' cm';
+  document.getElementById('roF').textContent = Math.round(info.f) + ' cm';
   var note = '';
   if (!isFinite(info.b)){
     document.getElementById('roB').textContent = '∞';
     document.getElementById('roM').textContent = '∞';
     note = '물체가 초점 위에 있어 빛이 나란히 나갑니다. 상이 맺히지 않아요.';
   } else {
-    document.getElementById('roB').textContent = Math.round(info.b) + '';
+    document.getElementById('roB').textContent = Math.round(info.b) + ' cm';
     document.getElementById('roM').textContent = info.m.toFixed(2) + '배';
     if (info.b > 0){
       arrowTo(info.base[0], info.base[1], info.tip[0], info.tip[1], '#7CFFB2', false, 4);
@@ -701,6 +710,7 @@ function addObj(type, x, y, ang){
   return o;
 }
 function addDefault(type){
+  snapshot();
   var n = obs.filter(function(o){ return o.type === type; }).length;
   var x = isSource(type) ? 120 : (type === 'screen' ? 860 : 450);
   var y = H/2 + (n % 3) * 70 - 70;
@@ -771,6 +781,8 @@ cv.addEventListener('pointerdown', function(ev){
 });
 cv.addEventListener('pointermove', function(ev){
   if (!drag) return;
+  /* 누르기만 한 것은 되돌릴 거리가 아니니, 정말 움직일 때 한 번만 찍는다 */
+  if (!drag.moved){ drag.moved = true; snapshot(); }
   var p = evPos(ev);
   if (drag.rot){
     drag.o.ang = Math.atan2(p.y - drag.o.y, p.x - drag.o.x) - Math.PI/2;
@@ -828,18 +840,18 @@ function buildProps(){
       '<input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '"></div>';
   }
   var p = o.props;
-  if (o.type === 'beam')  h += sl('pr', '빛 다발 너비', '', p.r, 20, 180, 5) + sl('pc', '빛줄기 수', '개', p.count, 3, 25, 1);
+  if (o.type === 'beam')  h += sl('pr', '빛 다발 너비', 'cm', p.r, 20, 180, 5) + sl('pc', '빛줄기 수', '개', p.count, 3, 25, 1);
   if (o.type === 'point') h += sl('ps', '퍼지는 각', '도', p.spread, 10, 85, 1) + sl('pc', '빛줄기 수', '개', p.count, 3, 31, 1);
-  if (o.type === 'object') h += sl('ph', '물체 높이', '', p.h, 20, 150, 5);
+  if (o.type === 'object') h += sl('ph', '물체 높이', 'cm', p.h, 20, 150, 5);
   if (isLens(o.type)){
-    h += sl('pf', '초점 거리 f', '', Math.abs(p.f), 60, 400, 5) + sl('pr', '렌즈 크기', '', p.r, 15, 110, 5);
+    h += sl('pf', '초점 거리 f', 'cm', Math.abs(p.f), 60, 400, 5) + sl('pr', '렌즈 크기', 'cm', p.r, 15, 110, 5);
     if (level >= 3) h += sl('pn', '유리 굴절률 n', '', p.n || 1.5, 1.2, 2.0, 0.01, 2);
   }
   if (o.type === 'mirrorConcave' || o.type === 'mirrorConvex')
-                          h += sl('pf', '초점 거리 f', '', Math.abs(p.f), 60, 400, 5) + sl('pr', '거울 크기', '', p.r, 25, 120, 5);
-  if (o.type === 'mirrorPlane' || o.type === 'screen') h += sl('pr', '크기', '', p.r, 30, 180, 5);
-  if (o.type === 'glass') h += sl('pw', '가로', '', p.w, 40, 400, 10) + sl('phh', '세로', '', p.h, 30, 300, 10) + sl('pn', '굴절률 n', '', p.n, 1.1, 2.4, 0.01, 2);
-  if (o.type === 'prism') h += sl('psz', '크기', '', p.size, 60, 300, 10) + sl('pn', '굴절률 n', '', p.n, 1.1, 2.4, 0.01, 2);
+                          h += sl('pf', '초점 거리 f', 'cm', Math.abs(p.f), 60, 400, 5) + sl('pr', '거울 크기', 'cm', p.r, 25, 120, 5);
+  if (o.type === 'mirrorPlane' || o.type === 'screen') h += sl('pr', '크기', 'cm', p.r, 30, 180, 5);
+  if (o.type === 'glass') h += sl('pw', '가로', 'cm', p.w, 40, 400, 10) + sl('phh', '세로', 'cm', p.h, 30, 300, 10) + sl('pn', '굴절률 n', '', p.n, 1.1, 2.4, 0.01, 2);
+  if (o.type === 'prism') h += sl('psz', '크기', 'cm', p.size, 60, 300, 10) + sl('pn', '굴절률 n', '', p.n, 1.1, 2.4, 0.01, 2);
   if (isSolid(o.type) && level >= 3) h += sl('pd', '분산(무지개)', '', p.disp, 0, 0.12, 0.005, 3);
   h += sl('pa', '각도', '도', Math.round((o.ang + Math.PI/2) * 180 / Math.PI), -180, 180, 1);
   h += '<div class="rowbtns"><button class="act danger" id="pDel">지우기</button></div>';
@@ -854,6 +866,7 @@ function buildProps(){
       fn(v);
       document.getElementById('lb_' + id).textContent = v.toFixed(row.dec) + row.unit;
       redraw();
+      save();   /* 여기서 저장하지 않아 초점을 바꾸고 새로 고치면 예전 값으로 돌아갔다 (261122) */
     };
   }
   on('pr', function(v){ p.r = v; });
@@ -868,6 +881,7 @@ function buildProps(){
   on('pd', function(v){ p.disp = v; });
   on('pa', function(v){ o.ang = v * Math.PI / 180 - Math.PI/2; });
   document.getElementById('pDel').onclick = function(){
+    snapshot();
     obs = obs.filter(function(q){ return q !== o; });
     selId = null; buildProps(); redraw(); save();
   };
@@ -924,7 +938,7 @@ function buildExamples(){
     if (x.lv > level) return;
     var b = document.createElement('button');
     b.className = 'ex'; b.textContent = x.name;
-    b.onclick = function(){ obs = []; selId = null; x.build(); buildProps(); redraw(); save(); };
+    b.onclick = function(){ snapshot(); obs = []; selId = null; x.build(); buildProps(); redraw(); save(); };
     box.appendChild(b);
   });
 }
@@ -949,8 +963,27 @@ document.getElementById('btnGrid').onclick = function(){
   showGrid = !showGrid; this.classList.toggle('on', showGrid); redraw();
 };
 document.getElementById('btnClear').onclick = function(){
+  snapshot();
   obs = []; selId = null; buildProps(); redraw(); save();
 };
+
+/* ---------- 되돌리기 ---------- */
+/* 빛 실험대에는 되돌리기가 없어 잘못 지우면 다시 놓는 수밖에 없었다 (261122) */
+var undoStack = [];
+function snapshot(){
+  undoStack.push(JSON.stringify(obs));
+  if (undoStack.length > 60) undoStack.shift();
+  var b = document.getElementById('btnUndo'); if (b) b.disabled = false;
+}
+function undo(){
+  if (!undoStack.length) return;
+  obs = JSON.parse(undoStack.pop());
+  nextId = 1; obs.forEach(function(o){ o.id = nextId++; });
+  selId = null;
+  var b = document.getElementById('btnUndo'); if (b) b.disabled = !undoStack.length;
+  buildProps(); redraw(); save();
+}
+document.getElementById('btnUndo').onclick = undo;
 
 /* ---------- 저장 ---------- */
 function save(){
@@ -982,5 +1015,9 @@ fitStage();
 redraw();
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+<script>
+/* 화 안에 끼워 넣은 때는 나가는 문을 감춘다 — 학습 쪽을 떠나게 되니까 (261122) */
+try { if (window.top === window.self) document.getElementById('backlink').style.display = 'block'; } catch (e) {}
+</script>
 </body>
 </html>

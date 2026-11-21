@@ -16,10 +16,16 @@ body{margin:0;background:radial-gradient(var(--grid) 1.2px,transparent 1.2px) 0 
 .app{max-width:1500px;margin:0 auto;}
 h1{font-family:'Space Grotesk',sans-serif;font-size:27px;margin:0 0 4px;line-height:1.2;}
 .subtitle{color:var(--ink-soft);font-size:16px;margin:0 0 12px;}
+.backlink{display:none;margin:0 0 8px;font-size:14.5px;}
+.backlink a{color:var(--teal);font-weight:700;text-decoration:none;border-bottom:1.5px solid #bfdfe2;}
 .card{background:var(--card);border:1px solid #d5e0dc;border-radius:var(--radius);box-shadow:0 3px 0 rgba(23,50,56,.05);padding:14px 16px;}
 .card h2{font-family:'Space Grotesk',sans-serif;font-size:18px;margin:0 0 10px;}
 main.layout{display:grid;grid-template-columns:1fr minmax(260px,330px);gap:14px;align-items:start;}
 @media (max-width:900px){main.layout{grid-template-columns:1fr;}}
+/* 칸만 한 크기의 칸(min-width:auto) 때문에 부품 줄(.tools)이 길면 왼쪽 칸이 그만큼 늘어
+   휴대폰에서 쪽 전체가 가로로 넘친다. 0 으로 놓아 줄 안에서만 옮기게 한다 (261122) */
+main.layout>*{min-width:0;}
+
 
 /* 수준 단추 */
 .levels{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
@@ -62,6 +68,7 @@ button.act[disabled]{opacity:.45;cursor:default;}
   margin-bottom:4px;font-family:'IBM Plex Mono',monospace;}
 .prop label b{color:var(--brass-dark);font-size:17px;}
 input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
+input[type=number]{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15px;padding:6px 8px;border:1.5px solid #cddad6;border-radius:8px;background:#fff;color:var(--ink);}
 .empty-msg{background:#f6faf9;border:1px dashed #b7cdc9;border-radius:9px;padding:11px 13px;
   color:var(--ink-soft);font-size:14.5px;line-height:1.5;}
 .measure{font-family:'IBM Plex Mono',monospace;font-size:14.5px;margin-top:8px;color:var(--ink-soft);}
@@ -74,6 +81,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
 </head>
 <body>
 <div class="app">
+  <p class="backlink" id="backlink"><a href="https://fesics.kr/lab">← 페직스 실험실로</a></p>
   <h1>회로 실험실</h1>
   <p class="subtitle">부품을 골라 칸 위에 끌어 놓고, 선으로 이어 보세요. 전류와 전압은 바로 계산됩니다.</p>
 
@@ -102,9 +110,9 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
       <div class="card">
         <h2>측정값</h2>
         <div class="readout">
-          <div><span>전체 전류</span><b id="roI">0 A</b></div>
-          <div><span>전지 전압</span><b id="roV">0 V</b></div>
-          <div><span>전체 저항</span><b id="roR">— Ω</b></div>
+          <div><span id="lbI">전체 전류</span><b id="roI">0 A</b></div>
+          <div><span id="lbV">전지 전압</span><b id="roV">0 V</b></div>
+          <div><span id="lbR">전체 저항</span><b id="roR">— Ω</b></div>
           <div><span>소비 전력</span><b id="roP">0 W</b></div>
         </div>
         <div class="measure" id="acRow" style="display:none">
@@ -855,7 +863,12 @@ function buildProps(){
     h += slider('pC', '전기용량', 'mF', Math.round(e.props.C * 1000), 1, 500, 1);
   } else if (e.type === 'acsource'){
     h += slider('pAV', '전압(최대)', 'V', e.props.V, 0.5, 20, 0.5);
-    h += slider('pAF', '진동수', 'Hz', e.props.f, 0.2, 60, 0.2);
+    h += slider('pAF', '진동수', 'Hz', e.props.f, 0.05, 60, 0.05);
+    /* 막대만 있으면 공명진동수같은 정확한 값(1.007Hz)을 넣을 수 없다 — 칸과 단추를 두었다 (261122) */
+    h += '<div class="prop"><label>정확히 넣기 (Hz)</label>' +
+         '<input type="number" id="pAFn" min="0.01" max="60" step="0.001" value="' + e.props.f + '"></div>';
+    if (els.some(function(q){ return q.type === 'inductor'; }) && els.some(function(q){ return q.type === 'capacitor'; }))
+      h += '<div class="rowbtns"><button class="act" id="pAFres">공명진동수로 맞추기</button></div>';
   } else if (e.type === 'inductor'){
     h += slider('pL', '인덕턴스', 'H', e.props.L, 0.01, 5, 0.01);
   } else if (e.type === 'switch'){
@@ -876,7 +889,23 @@ function buildProps(){
   bind('pR', function(v){ e.props.R = v; document.getElementById('lb_pR').textContent = v.toFixed(0) + 'Ω'; });
   bind('pC', function(v){ e.props.C = v / 1000; document.getElementById('lb_pC').textContent = v.toFixed(0) + 'mF'; });
   bind('pAV', function(v){ e.props.V = v; document.getElementById('lb_pAV').textContent = v.toFixed(1) + 'V'; });
-  bind('pAF', function(v){ e.props.f = v; document.getElementById('lb_pAF').textContent = v.toFixed(1) + 'Hz'; scope = []; });
+  function setFreq(v){
+    v = Math.max(0.01, Math.min(60, v));
+    e.props.f = v;
+    var lb = document.getElementById('lb_pAF'); if (lb) lb.textContent = v.toFixed(v < 10 ? 3 : 1) + 'Hz';
+    var sl = document.getElementById('pAF'); if (sl) sl.value = v;
+    var nb = document.getElementById('pAFn'); if (nb && parseFloat(nb.value) !== v) nb.value = v;
+    scope = []; lastResDirty();
+  }
+  bind('pAF', function(v){ setFreq(v); });
+  var afn = document.getElementById('pAFn');
+  if (afn) afn.oninput = function(){ var v = parseFloat(afn.value); if (isFinite(v)) setFreq(v); };
+  var afr = document.getElementById('pAFres');
+  if (afr) afr.onclick = function(){
+    var L = 0, C = 0;
+    els.forEach(function(q){ if (q.type === 'inductor') L += q.props.L; if (q.type === 'capacitor') C += q.props.C; });
+    if (L > 0 && C > 0) setFreq(Math.round(1 / (2 * Math.PI * Math.sqrt(L * C)) * 1000) / 1000);
+  };
   bind('pL', function(v){ e.props.L = v; document.getElementById('lb_pL').textContent = v.toFixed(2) + 'H'; });
   var sw = document.getElementById('pSw');
   if (sw) sw.onclick = function(){ snapshot(); e.props.closed = !e.props.closed; changed(); };
@@ -928,20 +957,26 @@ function updateReadouts(){
     V += bat[i].props.V;
     if (bat[i].res) I = Math.max(I, Math.abs(bat[i].res.i));
   }
-  document.getElementById('roI').textContent = fmt(I, 'A');
-  document.getElementById('roV').textContent = V ? V.toFixed(1) + ' V' : '0 V';
-  var vr = 0, ir = 0;
+  /* 교류에서 '전체 저항'에 순간값을 보여 주면 같은 조건에서도 2.33Ω·5.70Ω 처럼 흔들리고,
+     한 주기를 다 못 모은 채 나눈 값도 띄었다. 주기 하나를 다 채운 뒤에만 임피던스를 적는다 (261122) */
+  var vr = 0, ir = 0, acReady = false;
   if (hasAC){
     var src = els.filter(function(e){ return e.type === 'acsource'; })[0];
     var per = src ? 1 / Math.max(0.01, src.props.f) : 1;
-    var sv = 0, si = 0, cnt = 0;
+    var sv = 0, si = 0, cnt = 0, oldest = simTime;
     for (var q = scope.length - 1; q >= 0 && scope[q].t > simTime - per; q--){
-      sv += scope[q].v * scope[q].v; si += scope[q].i * scope[q].i; cnt++;
+      sv += scope[q].v * scope[q].v; si += scope[q].i * scope[q].i; cnt++; oldest = scope[q].t;
     }
     if (cnt){ vr = Math.sqrt(sv / cnt); ir = Math.sqrt(si / cnt); }
+    acReady = cnt >= 16 && (simTime - oldest) >= per * 0.95;
   }
+  document.getElementById('roI').textContent = fmt(hasAC && acReady ? ir : I, 'A');
+  document.getElementById('roV').textContent = V ? V.toFixed(1) + ' V' : '0 V';
+  document.getElementById('lbI').textContent = hasAC ? '전류(rms)' : '전체 전류';
+  document.getElementById('lbV').textContent = hasAC ? '전압(최대)' : '전지 전압';
+  document.getElementById('lbR').textContent = hasAC ? '임피던스 Z' : '전체 저항';
   document.getElementById('roR').textContent =
-    hasAC ? (ir > 1e-6 ? fmt(vr / ir, 'Ω') : '— Ω')
+    hasAC ? (acReady && ir > 1e-6 ? fmt(vr / ir, 'Ω') : '재는 중…')
           : (I > 1e-6 ? fmt(V / I, 'Ω') : '— Ω');
   var ar = document.getElementById('acRow');
   ar.style.display = hasAC ? '' : 'none';
@@ -1235,5 +1270,9 @@ changed();
 requestAnimationFrame(loop);
 </script>
 <script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+<script>
+/* 화 안에 끼워 넣은 때는 나가는 문을 감춘다 — 학습 쪽을 떠나게 되니까 (261122) */
+try { if (window.top === window.self) document.getElementById('backlink').style.display = 'block'; } catch (e) {}
+</script>
 </body>
 </html>
