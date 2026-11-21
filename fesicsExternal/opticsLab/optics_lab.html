@@ -77,7 +77,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
         <button class="act danger" id="btnClear">전부 지우기</button>
       </div>
       <div class="exrow" id="examples"></div>
-      <div class="hint" id="hint">부품을 고르면 가운데에 놓입니다. <b>끌어서</b> 옮기고, 둥근 손잡이를 끌면 <b>돌아갑니다</b>.<br>렌즈는 교과서처럼 <b>얇은 렌즈</b>로 다룹니다. 유리·프리즘은 <b>면마다</b> 스넥 법칙으로 진짜 꽼니다.</div>
+      <div class="hint" id="hint">부품을 고르면 가운데에 놓입니다. <b>끌어서</b> 옮기고, 둥근 손잡이를 끌면 <b>돌아갑니다</b>.<br>렌즈·거울·유리 모두 <b>면마다</b> 스넬 법칙대로 꺾습니다. 렌즈를 크게 하면 가장자리 빛이 한 점에 안 모입니다(구면수차).</div>
     </section>
 
     <aside>
@@ -102,8 +102,8 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
 <script>
 /* ===========================================================
    빛 실험대 — 2차원 광선 추적
-   렌즈·거울은 얇은 렌즈 식(tanθ' = tanθ - h/f)으로,
-   유리·프리즘은 스넬 법칙으로 면마다 실제로 꺾는다.
+   렌즈는 두 구면(R = 2(n-1)f)으로 된 유리 덩어리, 거울은 반지름 2f 인 호다.
+   빛은 그 면에서 스넬 법칙대로 꺾인다. 유리·프리즘도 마찬가지.
    =========================================================== */
 
 var W = 1000, H = 620;      /* 실험대 속 좌표 */
@@ -131,8 +131,8 @@ function defProps(t){
   if (t === 'beam')         return {r:70, count:9};
   if (t === 'point')        return {spread:50, count:13};
   if (t === 'object')       return {h:70};
-  if (t === 'lensConvex')   return {f:160, r:80};
-  if (t === 'lensConcave')  return {f:-160, r:80};
+  if (t === 'lensConvex')   return {f:170, r:55, n:1.5};
+  if (t === 'lensConcave')  return {f:-170, r:55, n:1.5};
   if (t === 'mirrorPlane')  return {f:1e9, r:90};
   if (t === 'mirrorConcave')return {f:170, r:85};
   if (t === 'mirrorConvex') return {f:-170, r:85};
@@ -152,6 +152,34 @@ function nv(a){ return [-Math.sin(a), Math.cos(a)]; }          /* 면에 수직�
 function dot(a, b){ return a[0]*b[0] + a[1]*b[1]; }
 function norm(v){ var L = Math.hypot(v[0], v[1]) || 1; return [v[0]/L, v[1]/L]; }
 function add(a, b, k){ k = (k === undefined) ? 1 : k; return [a[0]+b[0]*k, a[1]+b[1]*k]; }
+
+/* ---------- 렌즈의 진짜 면 ----------
+   두 구면으로 된 유리 덩어리. 렌즈 제작자 식 1/f = (n-1)(1/R1 - 1/R2) 에서
+   양쪽이 같은 렌즈면 R = 2(n-1)f 이다. 면마다 스넬 법칙으로 꺾는다. */
+function lensGeom(o){
+  var ng = o.props.n || 1.5, f = o.props.f;
+  var Rm = 2 * (ng - 1) * f, A = Math.abs(Rm);
+  var r = Math.min(o.props.r, A * 0.92);
+  var q = Math.sqrt(Math.max(1, A*A - r*r));
+  var sag = A - q;
+  var conv = f > 0;
+  var tc = conv ? 1.2 : 7;            /* 볼록은 가장자리, 오목은 가운데 두께 */
+  var zc1, zc2;
+  if (conv){ zc1 = q - tc/2; zc2 = -zc1; }
+  else { var K = (tc/2 + sag) + q; zc1 = -K; zc2 = K; }
+  return {A:A, r:r, sag:sag, tc:tc, conv:conv, ng:ng,
+          zc1:zc1, zc2:zc2, s1:(conv ? -1 : 1), s2:(conv ? 1 : -1), out:(conv ? 1 : -1)};
+}
+/* 거울은 반지름 R = 2f 인 진짜 호. 오목면이 빛 쪽(-n)을 보게 둔다. */
+function mirrorGeom(o){
+  var f = o.props.f;
+  if (Math.abs(f) > 1e8) return null;
+  var R = Math.abs(2 * f), r = Math.min(o.props.r, R * 0.92);
+  var q = Math.sqrt(Math.max(1, R*R - r*r));
+  var sg = f > 0 ? 1 : -1;
+  return {R:R, r:r, q:q, sg:sg, zc:-sg * q, sag:R - q};
+}
+function surfZ(zc, sgn, A, h){ return zc + sgn * Math.sqrt(Math.max(0, A*A - h*h)); }
 
 /* ---------- 부품의 겉모양 ---------- */
 function faceSeg(o){
@@ -221,9 +249,59 @@ function shoot(O, D, color, lam, alpha){
           var h = hitSeg(O, D, A, B);
           if (h && (!best || h.t < best.t)) best = {t:h.t, o:o, ex:h.ex, ey:h.ey, solid:true};
         }
+      } else if (isLens(o.type)){
+        var G = lensGeom(o), tL = tv(o.ang), nL = nv(o.ang), sIdx;
+        for (sIdx = 0; sIdx < 2; sIdx++){
+          var zc = sIdx === 0 ? G.zc1 : G.zc2, sgn = sIdx === 0 ? G.s1 : G.s2;
+          var Cp = [o.x + nL[0]*zc, o.y + nL[1]*zc];
+          var ax = O[0]-Cp[0], ay = O[1]-Cp[1];
+          var bq = 2*(D[0]*ax + D[1]*ay), cq = ax*ax + ay*ay - G.A*G.A;
+          var disc = bq*bq - 4*cq;
+          if (disc < 0) continue;
+          var sd = Math.sqrt(disc);
+          for (var kq = 0; kq < 2; kq++){
+            var tt = (-bq + (kq ? sd : -sd)) / 2;
+            if (tt < 1e-6) continue;
+            var Px = O[0]+D[0]*tt, Py = O[1]+D[1]*tt;
+            var hh3 = (Px-o.x)*tL[0] + (Py-o.y)*tL[1];
+            var zz3 = (Px-o.x)*nL[0] + (Py-o.y)*nL[1];
+            if (Math.abs(hh3) > G.r) continue;
+            if (sgn * (zz3 - zc) < -1e-6) continue;
+            if (!best || tt < best.t) best = {t:tt, o:o, lens:true, C:Cp, G:G};
+          }
+        }
+        if (!G.conv){            /* 오목렌즈는 가장자리가 두꺼운 편이다 — 그 면도 유리 */
+          var eh = G.tc/2 + G.sag;
+          for (var ei = -1; ei <= 1; ei += 2){
+            var Ea = [o.x + tL[0]*G.r*ei - nL[0]*eh, o.y + tL[1]*G.r*ei - nL[1]*eh];
+            var Eb = [o.x + tL[0]*G.r*ei + nL[0]*eh, o.y + tL[1]*G.r*ei + nL[1]*eh];
+            var he = hitSeg(O, D, Ea, Eb);
+            if (he && (!best || he.t < best.t))
+              best = {t:he.t, o:o, lensEdge:true, ex:he.ex, ey:he.ey, G:G};
+          }
+        }
+      } else if (isMirror(o.type) && mirrorGeom(o)){
+        var M = mirrorGeom(o), tM = tv(o.ang), nM = nv(o.ang);
+        var Cm = [o.x + nM[0]*M.zc, o.y + nM[1]*M.zc];
+        var mx = O[0]-Cm[0], my = O[1]-Cm[1];
+        var bm = 2*(D[0]*mx + D[1]*my), cm = mx*mx + my*my - M.R*M.R;
+        var dm = bm*bm - 4*cm;
+        if (dm >= 0){
+          var sm = Math.sqrt(dm);
+          for (var km = 0; km < 2; km++){
+            var tm = (-bm + (km ? sm : -sm)) / 2;
+            if (tm < 1e-6) continue;
+            var Mx = O[0]+D[0]*tm, My = O[1]+D[1]*tm;
+            var hm = (Mx-o.x)*tM[0] + (My-o.y)*tM[1];
+            var zm = (Mx-o.x)*nM[0] + (My-o.y)*nM[1];
+            if (Math.abs(hm) > M.r) continue;
+            if (M.sg * (zm - M.zc) < -1e-6) continue;
+            if (!best || tm < best.t) best = {t:tm, o:o, curveMirror:true, C:Cm, M:M};
+          }
+        }
       } else {
-        var sg = faceSeg(o);
-        var h2 = hitSeg(O, D, sg[0], sg[1]);
+        var sg2 = faceSeg(o);
+        var h2 = hitSeg(O, D, sg2[0], sg2[1]);
         if (h2 && (!best || h2.t < best.t)) best = {t:h2.t, o:o, solid:false, s:h2.s};
       }
     }
@@ -238,13 +316,34 @@ function shoot(O, D, color, lam, alpha){
     if (o2.type === 'screen'){
       screenHits.push({o:o2, p:Pt, color:color});
       break;
-    } else if (isLens(o2.type) || isMirror(o2.type)){
-      var t2 = tv(o2.ang), n2 = nv(o2.ang);
-      var hh = (Pt[0]-o2.x)*t2[0] + (Pt[1]-o2.y)*t2[1];
-      var a = dot(D, n2), bb = dot(D, t2), f = o2.props.f;
-      if (isMirror(o2.type)) a = -a;
-      var nt = bb - Math.abs(a) * hh / f;
-      nD = norm([a*n2[0] + nt*t2[0], a*n2[1] + nt*t2[1]]);
+    } else if (best.lens || best.lensEdge){
+      /* 렌즈 면에서 스넬 법칙으로 꺾는다 */
+      var GG = best.G, Nl;
+      if (best.lensEdge){
+        Nl = norm([best.ey, -best.ex]);
+      } else {
+        Nl = [(Pt[0]-best.C[0])/GG.A, (Pt[1]-best.C[1])/GG.A];
+        if (GG.out < 0) Nl = [-Nl[0], -Nl[1]];
+      }
+      var ent = dot(D, Nl) < 0;
+      var Nf = ent ? Nl : [-Nl[0], -Nl[1]];
+      var etaL = ent ? 1/GG.ng : GG.ng;
+      var ciL = -dot(D, Nf);
+      var kL = 1 - etaL*etaL*(1 - ciL*ciL);
+      if (kL < 0) nD = norm([D[0] + 2*ciL*Nf[0], D[1] + 2*ciL*Nf[1]]);
+      else {
+        var cL = Math.sqrt(kL);
+        nD = norm([etaL*D[0] + (etaL*ciL - cL)*Nf[0], etaL*D[1] + (etaL*ciL - cL)*Nf[1]]);
+      }
+    } else if (best.curveMirror){
+      var MM = best.M;
+      var Nm = [(Pt[0]-best.C[0])/MM.R, (Pt[1]-best.C[1])/MM.R];
+      Nm = [-MM.sg*Nm[0], -MM.sg*Nm[1]];
+      var dn = dot(D, Nm);
+      nD = norm([D[0] - 2*dn*Nm[0], D[1] - 2*dn*Nm[1]]);
+    } else if (isMirror(o2.type)){
+      var n2 = nv(o2.ang), dn2 = dot(D, n2);
+      nD = norm([D[0] - 2*dn2*n2[0], D[1] - 2*dn2*n2[1]]);
     } else if (isSolid(o2.type)){
       var N = norm([best.ey, -best.ex]);          /* 면에 수직 */
       if (dot(D, N) > 0) N = [-N[0], -N[1]];      /* 오는 쪽을 보게 */
@@ -480,41 +579,46 @@ function drawObj(o, sel){
     ctx.fillStyle = '#ff9f68';
     ctx.beginPath(); ctx.arc(o.x, o.y, 4.5, 0, 6.2832); ctx.fill();
   } else if (isLens(o.type)){
-    /* 예전 코드는 두 곡선의 부풀은 방향만 서로 바꿔서
-       오목렌즈가 볼록렌즈와 똑같은 모양이었다.
-       또 얇게 그려야 빛이 '면에서' 꽺이는 것처럼 보인다 (261121) */
-    var sg = faceSeg(o), A = sg[0], B = sg[1];
-    var tc = o.type === 'lensConvex' ? 7 : 2.5;   /* 가운데 반두께 */
-    var te = o.type === 'lensConvex' ? 1 : 9;     /* 가장자리 반두께 */
-    var cOff = 2*tc - te;
-    ctx.fillStyle = 'rgba(126,214,232,.26)'; ctx.strokeStyle = '#7fd4e8'; ctx.lineWidth = lw(2.2);
+    /* 빛을 꺾는 바로 그 두 구면을 그린다 — 그림과 계산이 같은 면이라
+       빛은 유리 표면에서 꺾인다 (261121) */
+    var G = lensGeom(o), st = G.r / 28, hq, z, P1;
+    ctx.fillStyle = 'rgba(126,214,232,.26)'; ctx.strokeStyle = '#7fd4e8'; ctx.lineWidth = lw(2);
     ctx.beginPath();
-    ctx.moveTo(A[0] - n[0]*te, A[1] - n[1]*te);
-    ctx.quadraticCurveTo(o.x - n[0]*cOff, o.y - n[1]*cOff, B[0] - n[0]*te, B[1] - n[1]*te);
-    ctx.lineTo(B[0] + n[0]*te, B[1] + n[1]*te);
-    ctx.quadraticCurveTo(o.x + n[0]*cOff, o.y + n[1]*cOff, A[0] + n[0]*te, A[1] + n[1]*te);
+    for (hq = -G.r; hq <= G.r + 1e-6; hq += st){
+      var h1 = Math.min(G.r, hq); z = surfZ(G.zc1, G.s1, G.A, h1);
+      P1 = [o.x + t[0]*h1 + n[0]*z, o.y + t[1]*h1 + n[1]*z];
+      if (hq === -G.r) ctx.moveTo(P1[0], P1[1]); else ctx.lineTo(P1[0], P1[1]);
+    }
+    for (hq = G.r; hq >= -G.r - 1e-6; hq -= st){
+      var h2d = Math.max(-G.r, hq); z = surfZ(G.zc2, G.s2, G.A, h2d);
+      P1 = [o.x + t[0]*h2d + n[0]*z, o.y + t[1]*h2d + n[1]*z];
+      ctx.lineTo(P1[0], P1[1]);
+    }
     ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.strokeStyle = 'rgba(126,214,232,.45)'; ctx.lineWidth = lw(1);
-    ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
   } else if (isMirror(o.type)){
-    var sg2 = faceSeg(o);
-    /* 실제 휘어짐은 r²/4f 라 눈에 거의 안 보인다.
-       교과서처럼 좀 과장해 그려야 오목·볼록이 구분된다 (261121) */
-    var sag0 = o.props.f > 1e8 ? 0 : (p.r*p.r) / (4*o.props.f);
-    var sag = sag0 === 0 ? 0 :
-      (sag0 > 0 ? 1 : -1) * Math.min(p.r*0.42, Math.max(p.r*0.2, Math.abs(sag0)));
-    ctx.strokeStyle = '#cfe6ec'; ctx.lineWidth = lw(4.5);
+    /* 반지름 2f 인 진짜 호 — 빛도 바로 이 면에서 튀긴다 (261121) */
+    var M = mirrorGeom(o), hm, zm, bx, by;
+    ctx.strokeStyle = '#cfe6ec'; ctx.lineWidth = lw(4.5); ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(sg2[0][0], sg2[0][1]);
-    ctx.quadraticCurveTo(o.x - n[0]*sag*2, o.y - n[1]*sag*2, sg2[1][0], sg2[1][1]);
+    if (!M){
+      var sg2 = faceSeg(o);
+      ctx.moveTo(sg2[0][0], sg2[0][1]); ctx.lineTo(sg2[1][0], sg2[1][1]);
+    } else {
+      for (hm = -M.r; hm <= M.r + 1e-6; hm += M.r/26){
+        var hc = Math.min(M.r, hm); zm = surfZ(M.zc, M.sg, M.R, hc);
+        bx = o.x + t[0]*hc + n[0]*zm; by = o.y + t[1]*hc + n[1]*zm;
+        if (hm === -M.r) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
+      }
+    }
     ctx.stroke();
-    /* 뒷면 빗금 */
     ctx.strokeStyle = 'rgba(207,230,236,.35)'; ctx.lineWidth = lw(1.4);
-    for (var q = -p.r + 8; q < p.r; q += 13){
-      var bx = o.x + t[0]*q, by = o.y + t[1]*q;
+    var rr2 = M ? M.r : p.r;
+    for (var q = -rr2 + 8; q < rr2; q += 13){
+      zm = M ? surfZ(M.zc, M.sg, M.R, q) : 0;
+      bx = o.x + t[0]*q + n[0]*zm; by = o.y + t[1]*q + n[1]*zm;
       ctx.beginPath();
       ctx.moveTo(bx, by);
-      ctx.lineTo(bx - n[0]*9 + t[0]*6, by - n[1]*9 + t[1]*6);
+      ctx.lineTo(bx + n[0]*9 + t[0]*6, by + n[1]*9 + t[1]*6);
       ctx.stroke();
     }
   } else if (isSolid(o.type)){
@@ -570,6 +674,12 @@ function drawImage(){
       arrowTo(info.base[0], info.base[1], info.tip[0], info.tip[1], '#9db8ff', true, 3);
       note = '허상 — 스크린에는 안 맺히고, 눈으로 볼 때만 보입니다. ' + (info.m > 0 ? '바로 서고 커 보여요.' : '');
     }
+  }
+  /* 렌즈가 크면 가장자리 빛이 한 점에 안 모인다 — 공식과 어긋나는 까닭을 알려 준다 */
+  if (isLens(info.el.type)){
+    var ab = 1.07 * info.el.props.r * info.el.props.r / Math.abs(info.f);
+    if (ab > Math.abs(info.f) * 0.16)
+      note += ' — 렌즈가 커서 가장자리 빛은 좀 앞에 모입니다(구면수차). 렌즈 크기를 줄이면 공식과 같아집니다.';
   }
   document.getElementById('imgNote').textContent = note;
 }
@@ -721,9 +831,12 @@ function buildProps(){
   if (o.type === 'beam')  h += sl('pr', '빛 다발 너비', '', p.r, 20, 180, 5) + sl('pc', '빛줄기 수', '개', p.count, 3, 25, 1);
   if (o.type === 'point') h += sl('ps', '퍼지는 각', '도', p.spread, 10, 85, 1) + sl('pc', '빛줄기 수', '개', p.count, 3, 31, 1);
   if (o.type === 'object') h += sl('ph', '물체 높이', '', p.h, 20, 150, 5);
-  if (isLens(o.type))     h += sl('pf', '초점 거리 f', '', Math.abs(p.f), 40, 400, 5) + sl('pr', '렌즈 크기', '', p.r, 30, 150, 5);
+  if (isLens(o.type)){
+    h += sl('pf', '초점 거리 f', '', Math.abs(p.f), 60, 400, 5) + sl('pr', '렌즈 크기', '', p.r, 15, 110, 5);
+    if (level >= 3) h += sl('pn', '유리 굴절률 n', '', p.n || 1.5, 1.2, 2.0, 0.01, 2);
+  }
   if (o.type === 'mirrorConcave' || o.type === 'mirrorConvex')
-                          h += sl('pf', '초점 거리 f', '', Math.abs(p.f), 50, 400, 5) + sl('pr', '거울 크기', '', p.r, 30, 150, 5);
+                          h += sl('pf', '초점 거리 f', '', Math.abs(p.f), 60, 400, 5) + sl('pr', '거울 크기', '', p.r, 25, 120, 5);
   if (o.type === 'mirrorPlane' || o.type === 'screen') h += sl('pr', '크기', '', p.r, 30, 180, 5);
   if (o.type === 'glass') h += sl('pw', '가로', '', p.w, 40, 400, 10) + sl('phh', '세로', '', p.h, 30, 300, 10) + sl('pn', '굴절률 n', '', p.n, 1.1, 2.4, 0.01, 2);
   if (o.type === 'prism') h += sl('psz', '크기', '', p.size, 60, 300, 10) + sl('pn', '굴절률 n', '', p.n, 1.1, 2.4, 0.01, 2);
@@ -763,17 +876,17 @@ function buildProps(){
 /* ---------- 보기 실험 ---------- */
 var EXAMPLES = [
   {name:'볼록렌즈로 상 만들기', lv:2, build:function(){
-    var ob = addObj('object', 140, H/2); ob.props.h = 70;
-    var l = addObj('lensConvex', 420, H/2); l.props.f = 160; l.props.r = 95;
-    addObj('screen', 420 + Math.round(280*160/120), H/2);
+    var ob = addObj('object', 140, H/2); ob.props.h = 60;
+    var l = addObj('lensConvex', 420, H/2); l.props.f = 170; l.props.r = 55;
+    addObj('screen', 420 + Math.round(280*170/110), H/2);
   }},
   {name:'돋보기(허상)', lv:2, build:function(){
-    var ob = addObj('object', 320, H/2); ob.props.h = 55;
-    var l = addObj('lensConvex', 420, H/2); l.props.f = 180; l.props.r = 95;
+    var ob = addObj('object', 320, H/2); ob.props.h = 48;
+    var l = addObj('lensConvex', 420, H/2); l.props.f = 180; l.props.r = 55;
   }},
   {name:'오목렌즈', lv:2, build:function(){
-    addObj('object', 160, H/2).props.h = 70;
-    var l = addObj('lensConcave', 460, H/2); l.props.f = -170;
+    addObj('object', 160, H/2).props.h = 60;
+    var l = addObj('lensConcave', 460, H/2); l.props.f = -170; l.props.r = 55;
   }},
   {name:'평면거울', lv:1, build:function(){
     /* 반사된 빛이 화면 안에 남아 있도록 거울을 기울였다 */
@@ -781,12 +894,12 @@ var EXAMPLES = [
     addObj('mirrorPlane', 600, 280, -Math.PI/2 - 0.9).props.r = 100;
   }},
   {name:'오목거울', lv:2, build:function(){
-    var b = addObj('beam', 120, H/2); b.props.r = 80; b.props.count = 11;
-    var m = addObj('mirrorConcave', 720, H/2); m.props.f = 220; m.props.r = 100;
+    var b = addObj('beam', 120, H/2); b.props.r = 62; b.props.count = 11;
+    var m = addObj('mirrorConcave', 720, H/2); m.props.f = 220; m.props.r = 75;
   }},
   {name:'볼록거울', lv:2, build:function(){
-    var b = addObj('beam', 120, H/2); b.props.r = 80; b.props.count = 11;
-    var m = addObj('mirrorConvex', 720, H/2); m.props.f = -220; m.props.r = 100;
+    var b = addObj('beam', 120, H/2); b.props.r = 62; b.props.count = 11;
+    var m = addObj('mirrorConvex', 720, H/2); m.props.f = -220; m.props.r = 75;
   }},
   {name:'유리에서 꺾이기', lv:3, build:function(){
     addObj('laser', 120, H/2 - 120, -Math.PI/2 + 0.55);
