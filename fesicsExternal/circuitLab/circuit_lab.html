@@ -411,7 +411,7 @@ function fitCanvas(){
   cv.width  = Math.round(bw * dpr);
   cv.height = Math.round(bh * dpr);
   cv.style.width = bw + 'px';
-  cv.style.height = bh + 'px';
+  cv.style.height = 'auto';   /* 폭이 먼저 줄고 높이가 남아 한순간 찌그러졌다 — 높이는 브라우저가 비율대로 (261122) */
   cv.style.margin = '0 auto';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   clampView();
@@ -962,7 +962,7 @@ function updateReadouts(){
   }
   /* 교류에서 '전체 저항'에 순간값을 보여 주면 같은 조건에서도 2.33Ω·5.70Ω 처럼 흔들리고,
      한 주기를 다 못 모은 채 나눈 값도 띄었다. 주기 하나를 다 채운 뒤에만 임피던스를 적는다 (261122) */
-  /* 처으롱 한 주기만 차면 적었는데, 그때는 아직 흔들림이 안 가라지주어 2.11Ω 이 먼저 뜨고
+  /* 한 주기만 차면 적었는데, 그때는 아직 흔들림이 안 가라앉아 2.11Ω 이 먼저 뜨고
      조금 뒤에 2.03Ω 으로 내려갔다. 앞 주기와 값이 거의 같아질 때까지 기다린다 (261122) */
   var vr = 0, ir = 0, acReady = false, acZ = 0;
   if (hasAC){
@@ -977,18 +977,27 @@ function updateReadouts(){
         sv += scope[q].v * scope[q].v; si += scope[q].i * scope[q].i; cnt++; oldest = t;
       }
       if (!cnt) return null;
-      var full = cnt >= 16 && (t1 - oldest) >= per * 0.95;
+      var full = cnt >= 16 && (t1 - oldest) >= win * 0.95;
       return { v: Math.sqrt(sv / cnt), i: Math.sqrt(si / cnt), full: full };
     };
-    var now = rms(simTime, simTime - per);
-    var prev = rms(simTime - per, simTime - 2 * per);
+    /* 진동수가 높으면 한 주기에 들어오는 점이 16 개가 안 돼 영원히 '재는 중…' 이었다.
+       24 점이 들어올 만큼 주기의 정수배로 창을 넓힌다 (261122) */
+    var step = scope.length > 1 ? (scope[scope.length-1].t - scope[0].t) / (scope.length-1) : 0.016;
+    var win = per;
+    while (win < 24 * step && win < per * 40) win += per;
+    var now = rms(simTime, simTime - win);
+    var prev = rms(simTime - win, simTime - 2 * win);
     if (now){ vr = now.v; ir = now.i; }
     if (now && now.full && now.i > 1e-6) acZ = now.v / now.i;
-    if (acZ && prev && prev.full && prev.i > 1e-6){
+    /* 글자가 같아질 때까지 기다리게 했더니, 2~4Hz 처럼 셋째 자리가 계속 흔들리는
+       구간에서 영원히 '재는 중…' 이었다. 0.3% 안으로 들면 적고, 한 번 적은 값은
+       회로나 진동수가 바뀔 때까지 그대로 둔다 — 그러면 숫자가 다시 바뀌지 않는다 (261122) */
+    var sig = (src ? src.props.f : 0) + '/' + els.length + '/' + (hasCap ? 1 : 0);
+    if (sig !== acSig){ acSig = sig; acHold = 0; }
+    if (acHold){ acZ = acHold; acReady = true; }
+    else if (acZ && prev && prev.full && prev.i > 1e-6){
       var zPrev = prev.v / prev.i;
-      /* 1% 는 2.04Ω → 2.03Ω 처럼 화면 숫자가 한 번 바뀔 만큼 느슨했다.
-         적힐 글자가 앞 주기와 같아질 때까지 기다린다 (261122) */
-      acReady = fmt(acZ, 'Ω') === fmt(zPrev, 'Ω');
+      if (Math.abs(acZ - zPrev) <= Math.max(zPrev, acZ) * 0.003){ acHold = acZ; acReady = true; }
     }
   }
   document.getElementById('roI').textContent = fmt(hasAC && acReady ? ir : I, 'A');
@@ -1023,11 +1032,15 @@ function updateReadouts(){
     document.getElementById('roI').textContent = '—';
     document.getElementById('roR').textContent = '—';
     document.getElementById('roP').textContent = '—';
+    /* 전압만 숫자로 남으니, 그게 전지에 적힌 값이라는 뜻을 이름에 적는다 (261122) */
+    document.getElementById('lbV').textContent = '전지에 적힌 전압';
   }
   if (!els.length) msg = '';
   else if (!bat.length) msg = '전지(또는 교류 전원)가 없어요. 전원을 놓아야 전류가 흐릅니다.';
   else if (shorted) msg = '합선이에요 — 전원의 두 끝이 선으로만 이어져 있습니다. 사이에 전구나 저항을 넣어 주세요. 전류는 잴 수 없어 — 로 적었어요.';
-  else if (I < 1e-7 && !hasAC) msg = '전류가 흐르지 않아요. 회로가 한 바퀴 이어졌는지, 스위치가 닫혀 있는지 보세요.';
+  /* 전압계를 직렬로 넣으면 1.5e-7 A 가 흘러 이 안내가 안 나왔다. 화면에 0 으로 보이면 안내한다 (261122) */
+  else if (I < 1e-6 && !hasAC && hasCap) msg = '축전기가 다 차서 전류가 멎었어요. 축전기는 다 차면 더 이상 전류를 흘리지 않습니다.';
+  else if (I < 1e-6 && !hasAC) msg = '전류가 흐르지 않아요. 회로가 한 바퀴 이어졌는지, 스위치가 닫혀 있는지 보세요. 전압계는 직렬로 넣으면 전류를 막습니다.';
   else if (lastRes && lastRes.maxI > 5) msg = '전류가 너무 큽니다(' + lastRes.maxI.toFixed(1) + 'A). 실제라면 전선이 뜨거워져요.';
   var w = document.getElementById('warn');
   w.textContent = msg;
@@ -1189,7 +1202,7 @@ function fitScope(){
   var w = sc.clientWidth || 300, h = Math.max(110, Math.round(w * 0.46));
   var dpr = Math.min(2, window.devicePixelRatio || 1);
   sc.width = Math.round(w * dpr); sc.height = Math.round(h * dpr);
-  sc.style.height = h + 'px';
+  sc.style.height = 'auto';   /* 폭이 먼저 줄고 높이가 남아 한순간 찌그러졌다 — 높이는 브라우저가 비율대로 (261122) */
   sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 /* 지켜볼 부품 — 고른 게 있으면 그것, 없으면 교류 전원·축전기·코일 */
@@ -1201,7 +1214,7 @@ function watchedEl(){
   })[0] || null;
 }
 function drawScope(){
-  var w = sc.clientWidth || 300, h = parseFloat(sc.style.height) || 120;
+  var w = sc.clientWidth || 300, h = sc.clientHeight || 120;
   sctx.fillStyle = '#132226'; sctx.fillRect(0, 0, w, h);
   var el = watchedEl();
   var lbl = document.getElementById('scopeLbl');
@@ -1264,6 +1277,7 @@ function stepSim(wallDt){
   computeWireCurrents();
 }
 
+var acSig = '', acHold = 0;   /* 교류 임피던스: 한 번 자리 잡은 값을 붙들어 둔다 (261122) */
 var lastT = 0;
 function loop(ts){
   var dt = lastT ? Math.min(0.05, (ts - lastT) / 1000) : 0.016;
