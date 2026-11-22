@@ -993,17 +993,30 @@ function updateReadouts(){
        구간에서 영원히 '재는 중…' 이었다. 0.3% 안으로 들면 적고, 한 번 적은 값은
        회로나 진동수가 바뀔 때까지 그대로 둔다 — 그러면 숫자가 다시 바뀌지 않는다 (261122) */
     var sig = (src ? src.props.f : 0) + '/' + els.length + '/' + (hasCap ? 1 : 0);
-    if (sig !== acSig){ acSig = sig; acHold = 0; }
+    if (sig !== acSig){ acSig = sig; acHold = 0; acSince = simTime; }
+    /* 진동수를 옮기면 오실로스코프에 옛 진동수의 점이 남아 있고, 코일·축전기의 흔들림도 1~2 초 남는다.
+       창 하나가 다 찰 때까지는 재지 않고, 붙들기는 흔들림이 가라앉은 뒤에만 한다 —
+       1.5Hz 에서 2.44 Ω·2.93 Ω(참값 3.29 Ω) 을 붙들고 멎은 적이 있다. 그 사이에도 잰 값은 보여 준다 (261122) */
+    var since = simTime - acSince;
+    var fresh = since >= win;
+    if (!fresh) acZ = 0;
     if (acHold){ acZ = acHold; acReady = true; }
-    else if (acZ && prev && prev.full && prev.i > 1e-6){
-      var zPrev = prev.v / prev.i;
-      if (Math.abs(acZ - zPrev) <= Math.max(zPrev, acZ) * 0.003){ acHold = acZ; acReady = true; }
+    else if (fresh && acZ){
+      acReady = true;                       /* 자리 잡기 전에도 잰 값을 보여 준다 */
+      if (prev && prev.full && prev.i > 1e-6 && since >= 2 * win + 1.5){
+        var zPrev = prev.v / prev.i;
+        if (Math.abs(acZ - zPrev) <= Math.max(zPrev, acZ) * 0.003){ acHold = acZ; }
+      }
     }
   }
   document.getElementById('roI').textContent = fmt(hasAC && acReady ? ir : I, 'A');
-  document.getElementById('roV').textContent = V ? V.toFixed(1) + ' V' : '0 V';
+  /* 전압에 최대값, 전류에 rms 를 적어 놓으니 화면의 V/I 가 Z 와 안 맞았다 (5.0/1.07=4.67, Z=3.29).
+     교류에서는 전압도 rms 로 적는다 (261122) */
+  document.getElementById('roV').textContent = hasAC
+    ? ((acReady && vr ? vr : V / Math.SQRT2).toFixed(1) + ' V')
+    : (V ? V.toFixed(1) + ' V' : '0 V');
   document.getElementById('lbI').textContent = hasAC ? '전류(rms)' : '전체 전류';
-  document.getElementById('lbV').textContent = hasAC ? '전압(최대)' : '전지 전압';
+  document.getElementById('lbV').textContent = hasAC ? '전압(rms)' : '전지 전압';
   document.getElementById('lbR').textContent = hasAC ? '임피던스 Z' : '전체 저항';
   document.getElementById('roR').textContent =
     hasAC ? (acReady ? fmt(acZ, 'Ω') : '재는 중…')
@@ -1025,6 +1038,9 @@ function updateReadouts(){
     document.getElementById('roVc').textContent = fmt(cap && cap.res ? Math.abs(cap.res.v) : 0, 'V');
   }
 
+  /* hasCap 은 '시간에 따라 바뀌는 부품이 있다'는 뜻이어서 코일·교류만 있어도 참이다.
+     코일 + 열린 스위치처럼 축전기가 없는 회로에서도 축전기 안내가 떴다 (261122) */
+  var reallyCap = els.some(function(e){ return e.type === 'capacitor'; });
   var msg = '', shorted = bat.length && shortedBattery();
   /* 합선에서 전류·전력에 0 이 뜨면 흐르지 않는다고 읽힌다.
      잴 수 없는 것이니 숫자 대신 — 를 적는다 (261122) */
@@ -1039,7 +1055,7 @@ function updateReadouts(){
   else if (!bat.length) msg = '전지(또는 교류 전원)가 없어요. 전원을 놓아야 전류가 흐릅니다.';
   else if (shorted) msg = '합선이에요 — 전원의 두 끝이 선으로만 이어져 있습니다. 사이에 전구나 저항을 넣어 주세요. 전류는 잴 수 없어 — 로 적었어요.';
   /* 전압계를 직렬로 넣으면 1.5e-7 A 가 흘러 이 안내가 안 나왔다. 화면에 0 으로 보이면 안내한다 (261122) */
-  else if (I < 1e-6 && !hasAC && hasCap) msg = '축전기가 다 차서 전류가 멎었어요. 축전기는 다 차면 더 이상 전류를 흘리지 않습니다.';
+  else if (I < 1e-6 && !hasAC && reallyCap) msg = '축전기가 다 차서 전류가 멎었어요. 축전기는 다 차면 더 이상 전류를 흘리지 않습니다.';
   else if (I < 1e-6 && !hasAC) msg = '전류가 흐르지 않아요. 회로가 한 바퀴 이어졌는지, 스위치가 닫혀 있는지 보세요. 전압계는 직렬로 넣으면 전류를 막습니다.';
   else if (lastRes && lastRes.maxI > 5) msg = '전류가 너무 큽니다(' + lastRes.maxI.toFixed(1) + 'A). 실제라면 전선이 뜨거워져요.';
   var w = document.getElementById('warn');
@@ -1277,7 +1293,7 @@ function stepSim(wallDt){
   computeWireCurrents();
 }
 
-var acSig = '', acHold = 0;   /* 교류 임피던스: 한 번 자리 잡은 값을 붙들어 둔다 (261122) */
+var acSig = '', acHold = 0, acSince = 0;   /* 교류 임피던스: 한 번 자리 잡은 값을 붙들어 둔다 (261122) */
 var lastT = 0;
 function loop(ts){
   var dt = lastT ? Math.min(0.05, (ts - lastT) / 1000) : 0.016;
