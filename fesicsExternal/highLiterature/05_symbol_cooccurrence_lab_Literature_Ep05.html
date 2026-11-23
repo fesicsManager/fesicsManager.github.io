@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -450,7 +452,7 @@ var LAB = (function(){
         {name:'돈·전쟁', short:'돈·전쟁'}
       ];
       return {
-        sceneHeight: function(w){ return w < 560 ? 460 : 420; },
+        sceneHeight: function(w){ return w < 560 ? 560 : 420; },
         idle: '작품과 뜻 후보를 고른 뒤 <b>후보 대어 보기</b>를 누르세요.',
         shortHint: '‘희망’ 후보를 두 시 모두에 대어 보고, 각 시에서 가장 잘 받쳐지는 후보를 찾아보세요.',
         params: [
@@ -467,17 +469,28 @@ var LAB = (function(){
           return {pm:pm, hit:hit, n:n, verdict:verdict, col:col};
         },
         draw: function(c, W, H, p, r, tau){
-          var pm = PM[p.pm], cx = W / 2, cy = H / 2 - 6, R = Math.min(W / 2 - 70, H / 2 - 70), k = r ? Math.min(1, tau / 0.7) : 0;
+          var pm = PM[p.pm], narrow = W < 560;
+          var cx = W / 2, cy = narrow ? 84 : H / 2 - 6, R = Math.min(W / 2 - 70, H / 2 - 70), k = r ? Math.min(1, tau / 0.7) : 0;
           txt(c, pm.name + ' 의 ‘별’ 곁에 놓인 말', 20, 28, {bold:true, color:PAL[0]});
+          var nw = pm.words.length, listTop = cy + 42, step = Math.min(32, (H - 150 - listTop) / Math.max(1, nw));
           pm.words.forEach(function(w, i){
-            var a = -Math.PI / 2 + i / pm.words.length * Math.PI * 2, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R * 0.82;
-            var on = r && w[1] === p.ca && i / pm.words.length <= k + 0.05;
-            seg(c, cx, cy, x, y, on ? PAL[1] : '#D9DEE5', on ? 3 : 1.2);
-            c.font = (on ? '700 ' : '') + '15px ' + FONT; var tw = c.measureText(w[0]).width + 14;
-            var bx = Math.max(4, Math.min(W - tw - 4, x - tw / 2));
-            c.fillStyle = on ? '#DDF3EA' : w[1] < 0 ? '#ECEFF3' : '#fff'; c.fillRect(bx, y - 14, tw, 28);
-            c.strokeStyle = on ? PAL[1] : '#B7C2CF'; c.lineWidth = 1.5; c.strokeRect(bx, y - 14, tw, 28);
-            c.fillStyle = '#1E2833'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(w[0], bx + 7, y); c.textBaseline = 'alphabetic';
+            var on = r && w[1] === p.ca && i / nw <= k + 0.05;
+            c.font = (on ? '700 ' : '') + '15px ' + FONT;
+            var tw = c.measureText(w[0]).width + 14, x, y, bx, bh = 28;
+            if (narrow){
+              y = listTop + i * step + step / 2; bh = Math.min(28, step - 3);
+              bx = 30; tw = Math.min(tw, W - 36);
+              seg(c, 18, cy + 30, 18, y, on ? PAL[1] : '#D9DEE5', on ? 3 : 1.2);
+              seg(c, 18, y, bx, y, on ? PAL[1] : '#D9DEE5', on ? 3 : 1.2);
+            } else {
+              var a = -Math.PI / 2 + i / nw * Math.PI * 2;
+              x = cx + Math.cos(a) * R; y = cy + Math.sin(a) * R * 0.82;
+              seg(c, cx, cy, x, y, on ? PAL[1] : '#D9DEE5', on ? 3 : 1.2);
+              bx = Math.max(4, Math.min(W - tw - 4, x - tw / 2));
+            }
+            c.fillStyle = on ? '#DDF3EA' : w[1] < 0 ? '#ECEFF3' : '#fff'; c.fillRect(bx, y - bh / 2, tw, bh);
+            c.strokeStyle = on ? PAL[1] : '#B7C2CF'; c.lineWidth = 1.5; c.strokeRect(bx, y - bh / 2, tw, bh);
+            c.fillStyle = '#1E2833'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(w[0], bx + 7, y, tw - 14); c.textBaseline = 'alphabetic';
           });
           glow(c, cx, cy, 46, 'rgba(240,190,60,.8)', 1);
           c.fillStyle = '#E5A50A'; c.beginPath();
@@ -512,7 +525,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

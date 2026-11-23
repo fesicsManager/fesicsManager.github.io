@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -241,6 +242,7 @@ tbody tr:hover{background:#F5F8FB}
 <p><span class="fx-formula">같은 법이라도 시대에 따라 판단이 달라질 수 있음 (간통죄: 2008년 합헌 → 2015년 위헌)</span></p>
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
 · 여기서는 사건마다 대표 기본권 하나만 적었지만, 실제 결정에서는 여러 기본권과 쟁점을 함께 판단합니다.<br>
+· ‘모의 재판’의 위헌 의견 수는 과잉금지원칙을 아주 단순하게 흉내 낸 <b>교육용 모형값</b>이에요. ‘위헌 의견 ≈ 4.5 + 1.3 × (제한의 세기 − 공익의 크기)’로 세고 6명 이상이면 효력을 잃는 것으로 봅니다. 실제 결정은 이렇게 계산하지 않아요.<br>
 · 결정 뒤 법이 어떻게 고쳐졌는지는 사건마다 다르니 법령 연혁으로 확인해야 해요.</div>
 <h3>🌍 생활 속에서</h3>
 <ul><li>헌법 제31조(교육받을 권리), 제32조(근로의 권리, 연소자의 근로 보호)처럼 학생의 생활과 바로 이어지는 조문도 많습니다.</li></ul>
@@ -300,9 +302,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -446,15 +449,19 @@ var LAB = (function(){
       ];
       var RES = ['합헌', '헌법불합치', '위헌'];
       var LV = ['헌법', '법률', '명령 (시행령)', '조례 · 규칙'];
+      /* 모의 재판 — 교육용 모형값: 과잉금지원칙을 아주 단순하게 흉내 냈다 */
+      function judges(rs, bn){ return Math.max(0, Math.min(9, Math.round(4.5 + 1.3 * (rs - bn)))); }
       return {
         sceneHeight: 430,
-        idle: '사례와 나의 예측을 고른 뒤 <b>결정 확인하기</b>를 누르세요.',
-        shortHint: '여섯 사례를 모두 예측해 보세요. 특히 간통죄 두 결정을 비교해 보세요.',
+        idle: '사례 · 제한의 세기 · 공익의 크기 · 나의 예측을 고른 뒤 <b>결정 확인하기</b>를 누르세요.',
+        shortHint: '여섯 사례를 모두 예측하고, 제한의 세기와 공익의 크기를 밀어 모의 재판 결과가 실제 결정과 같아지는 자리를 찾아보세요.',
         params: [
           {key:'c', type:'seg', label:'사례 (괄호는 결정 연도)', cols:2, value:0, options:CS.map(function(x){ return x.n; })},
+          {key:'rs', type:'range', label:'내가 본 제한의 세기 (기본권을 얼마나 세게 막나)', min:1, max:5, step:1, value:3, fmt:function(v){ return v + ' / 5'; }},
+          {key:'bn', type:'range', label:'내가 본 공익의 크기 (막아서 얻는 이익)', min:1, max:5, step:1, value:3, fmt:function(v){ return v + ' / 5'; }},
           {key:'g', type:'seg', label:'나의 예측', cols:3, value:0, options:RES, note:'위헌 결정에는 재판관 9명 중 6명 이상의 찬성이 필요합니다.'}
         ],
-        compute: function(p){ var s = CS[p.c]; return {s:s, hit:p.g === s.res, lost:s.res > 0}; },
+        compute: function(p){ var s = CS[p.c], N = judges(+p.rs, +p.bn), mock = N >= 6; return {s:s, hit:p.g === s.res, lost:s.res > 0, N:N, mock:mock, same:mock === (s.res > 0)}; },
         draw: function(c, W, H, p, r, tau){
           var s = CS[p.c], k = r ? Math.min(tau / 0.8, 1) : 0, cx = W / 2, top = 40, lh = 62;
           for (var i = 0; i < 4; i++){
@@ -477,26 +484,33 @@ var LAB = (function(){
           var by = top + lh * 4 + 20;
           txt(c, s.s, 20, by + 10, {bold:true});
           txt(c, s.note.length > Math.floor((W - 40) / 18) ? s.note.slice(0, Math.floor((W - 40) / 18) - 1) + '…' : s.note, 20, by + 40, {color:'#4A5868'});
+          if (r) txt(c, '모의 재판: 위헌 의견 ' + r.N + ' / 9명 → ' + (r.mock ? '효력 상실' : '합헌'), 20, by + 70, {bold:true, color:r.mock ? PAL[4] : PAL[1]});
           txt(c, r ? '나의 예측: ' + RES[p.g] + (r.hit ? ' ✓ 일치' : ' → 실제 ' + RES[s.res]) : '예측을 고르세요', 20, H - 16, {bold:true, color:r ? (r.hit ? PAL[1] : PAL[4]) : '#1E2833'});
         },
         stats: function(p, r){
           return [['사례', r.s.n], ['판단 근거가 된 기본권', r.s.right, PAL[6]], ['실제 결정', RES[r.s.res], r.lost ? PAL[4] : PAL[1]],
             ['나의 예측', RES[p.g] + (r.hit ? ' — 일치' : ' — 다름'), r.hit ? PAL[1] : PAL[7]], ['요지', r.s.note],
+            ['모의 재판 (제한 ' + p.rs + ' · 공익 ' + p.bn + ')', '위헌 의견 ' + r.N + ' / 9명 → ' + (r.mock ? '효력 상실' : '합헌') + (r.same ? ' · 실제와 같음' : ' · 실제와 다름'), r.same ? PAL[1] : PAL[6]],
+            ['저울', '제한이 공익보다 1칸만 커도 위헌 의견이 6명을 넘어요. 두 쪽 무게를 바꿔 가며 어디서 결론이 뒤집히는지 찾아보세요. (교육용 모형값)', '#4A5868'],
             ['의미', r.lost ? '국회가 만든 법률도 기본권을 침해하면 그대로 둘 수 없다' : '헌법에 어긋나지 않는다고 판단되어 법률이 유지됨']];
         },
-        columns: ['사례', '예측', '실제 결정', '일치', '기본권'],
-        record: function(p, r){ return {c:p.c, g:p.g, hit:r.hit}; },
-        row: function(d){ return [CS[d.c].s, RES[d.g], RES[CS[d.c].res], d.hit ? '예' : '아니오', CS[d.c].right]; },
+        columns: ['사례', '예측', '실제 결정', '일치', '모의 재판'],
+        record: function(p, r){ return {c:p.c, g:p.g, hit:r.hit, rs:+p.rs, bn:+p.bn, N:r.N, mock:r.mock, same:r.same}; },
+        row: function(d){ return [CS[d.c].s, RES[d.g], RES[CS[d.c].res], d.hit ? '예' : '아니오', d.N + '/9 → ' + (d.mock ? '효력 상실' : '합헌') + (d.same ? ' ✓' : ' ✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('사례별 실제 결정과 나의 예측', '<div id="cr1"></div><p class="ask">같은 간통죄 조항이 2008년과 2015년에 다르게 판단된 까닭은 무엇일까요? 헌법 조문은 그대로인데 해석이 바뀐 이유를 생각해 보세요.</p>') +
             card('예측 적중률', '<div id="cr2"></div><p class="ask">과제: 헌법 조문 중 나의 생활과 직접 관련된 것 세 개를 골라 원문을 옮겨 적고, 각각과 연결된 법률을 하나씩 찾아보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.c; }), rows = [];
-          CS.forEach(function(s, i){ var g = by[i]; if (!g) return; var last = g[g.length - 1]; rows.push([s.s, RES[s.res], RES[last.g], last.hit ? '✓' : '✕']); });
-          $('cr1').innerHTML = tableHTML(['사례', '실제 결정', '마지막 예측', '일치'], rows) + (Object.keys(by).length < 6 ? '<p class="msg">아직 예측하지 않은 사례가 있어요.</p>' : '');
+          CS.forEach(function(s, i){ var g = by[i]; if (!g) return; var last = g[g.length - 1]; rows.push([s.s, RES[s.res], RES[last.g], last.hit ? '✓' : '✕', last.rs + ' : ' + last.bn + ' → ' + last.N + '/9']); });
+          $('cr1').innerHTML = tableHTML(['사례', '실제 결정', '마지막 예측', '일치', '제한 : 공익 → 위헌 의견'], rows) + (Object.keys(by).length < 6 ? '<p class="msg">아직 예측하지 않은 사례가 있어요.</p>' : '');
           var hit = rec.filter(function(d){ return d.hit; }).length / rec.length * 100;
+          var same = rec.filter(function(d){ return d.same; }).length;
           var lost = rec.filter(function(d){ return CS[d.c].res > 0; }).length;
-          $('cr2').innerHTML = hbars([{label:'나의 적중률', v:hit, color:PAL[1], text:f(hit, 0) + '%'}, {label:'효력을 잃은 사례 비율', v:lost / rec.length * 100, color:PAL[4], text:lost + ' / ' + rec.length}], 100);
+          $('cr2').innerHTML = hbars([{label:'나의 적중률', v:hit, color:PAL[1], text:f(hit, 0) + '%'},
+            {label:'모의 재판이 실제와 같은 비율', v:same / rec.length * 100, color:PAL[3], text:same + ' / ' + rec.length},
+            {label:'효력을 잃은 사례 비율', v:lost / rec.length * 100, color:PAL[4], text:lost + ' / ' + rec.length}], 100) +
+            '<p class="msg">모의 재판의 위헌 의견 수는 과잉금지원칙을 단순하게 흉내 낸 교육용 모형값이에요.</p>';
         }
       };
     })();
@@ -505,7 +519,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

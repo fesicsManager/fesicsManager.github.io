@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -468,6 +470,8 @@ var LAB = (function(){
         {name:'에틸아민', f:'CH₃CH₂–', fg:'NH₂', g:'아미노기', mol:'C₂H₇N', M:45, bp:16.6, sol:'잘 섞임', lit:'붉은 리트머스 → 푸르게 (염기성)', na:'거의 반응 없음', ag:'반응 없음'}
       ];
       var TS = ['끓는점', '물에 녹이기', '리트머스', '나트륨 조각', '은거울 반응'];
+      var MD = ['그대로 시험하기', '거꾸로 맞히기 (라벨 없는 병)'];
+      var UKN = ['병 A', '병 B', '병 C', '병 D'], UK = [3, 1, 4, 2];   /* 라벨 없는 병에 든 화합물 */
       function res(s, t){ return [f(s.bp, 1) + ' ℃', s.sol, s.lit, s.na, s.ag][t]; }
       return {
         sceneHeight: 400,
@@ -475,15 +479,24 @@ var LAB = (function(){
         shortHint: '다섯 시험 중 하나를 골라 여섯 화합물 모두에 해 보세요. 작용기마다 "튀는" 시험이 있어요.',
         params: [
           {key:'s', type:'seg', label:'화합물', cols:3, value:1, options:S.map(function(x){ return x.name; })},
-          {key:'t', type:'seg', label:'시험', cols:3, value:0, options:TS}
+          {key:'t', type:'seg', label:'시험', cols:3, value:0, options:TS},
+          {key:'md', type:'seg', label:'방식', cols:2, value:0, options:MD,
+            note:'거꾸로 맞히기에서는 화합물 이름과 구조를 가리고 시험 결과만 보여 줍니다. 위의 "화합물"이 내 답이 되고, 시험하기를 누르면 채점합니다.'},
+          {key:'uk', type:'seg', label:'라벨 없는 병 (거꾸로 맞히기에서만)', cols:4, value:0, options:UKN}
         ],
-        compute: function(p){ var s = S[p.s]; return {s:s, res:res(s, p.t)}; },
+        compute: function(p){
+          var target = p.md ? UK[p.uk] : p.s, s = S[target], ok = p.md ? p.s === target : true;
+          var vd = !p.md ? '시험 결과를 작용기와 이어 보세요'
+            : ok ? '맞았습니다 — 이 시험 결과는 ' + s.g + '의 특징입니다'
+            : '아직 아닙니다 — 이 결과만으로는 가릴 수 없는 짝이 있습니다. 다른 시험도 해 보세요';
+          return {s:s, res:res(s, p.t), md:p.md, uk:p.uk, my:S[p.s], target:target, ok:ok, vd:vd};
+        },
         draw: function(c, W, H, p, r, tau){
-          var s = S[p.s], k = r ? Math.min(1, tau / 0.7) : 0, cx = W / 2;
+          var s = S[p.md ? UK[p.uk] : p.s], k = r ? Math.min(1, tau / 0.7) : 0, cx = W / 2;
           c.font = '700 18px sans-serif';
-          var pre = s.f, mid = s.fg, post = s.f2 || '', w1 = pre.length * 12, w2 = mid.length * 13, x = cx - (w1 + w2 + post.length * 12) / 2;
+          var pre = p.md ? '?' : s.f, mid = p.md ? '' : s.fg, post = p.md ? '' : (s.f2 || ''), w1 = pre.length * 12, w2 = mid.length * 13, x = cx - (w1 + w2 + post.length * 12) / 2;
           txt(c, pre, x, 40, {bold:true}); txt(c, mid, x + w1, 40, {bold:true, color:PAL[4]}); txt(c, post, x + w1 + w2, 40, {bold:true});
-          txt(c, s.name + ' · ' + s.mol + (s.fg ? ' · ' + s.g : ''), cx, 70, {align:'center', color:'#4A5868'});
+          txt(c, p.md ? UKN[p.uk] + ' — 결과로 알아내기' : s.name + ' · ' + s.mol + (s.fg ? ' · ' + s.g : ''), cx, 70, {align:'center', color:'#4A5868'});
           var ty = 110, tb = H - 60;
           c.strokeStyle = '#5B6776'; c.lineWidth = 3; c.beginPath(); c.moveTo(cx - 40, ty); c.lineTo(cx - 40, tb - 30); c.arc(cx, tb - 30, 40, Math.PI, 0, true); c.lineTo(cx + 40, ty); c.stroke();
           if (!r) return;
@@ -521,12 +534,16 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
+          if (r.md) return [['라벨 없는 병', UKN[r.uk]], [TS[p.t], r.res, PAL[0]],
+            ['내 답', r.my.name + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['실제', r.s.name + ' (' + r.s.mol + ', ' + r.s.g + ')', r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.ok ? PAL[1] : PAL[4]]];
           return [['화합물', r.s.name + ' (' + r.s.mol + ', ' + r.s.M + ' g/mol)'], ['작용기', r.s.g, PAL[4]], [TS[p.t], r.res, PAL[0]],
             ['끓는점 (참고)', f(r.s.bp, 1) + ' ℃']];
         },
-        columns: ['화합물', '작용기', '시험', '결과'],
-        record: function(p, r){ return {s:p.s, t:p.t}; },
-        row: function(d){ return [S[d.s].name, S[d.s].g, TS[d.t], res(S[d.s], d.t)]; },
+        columns: ['방식', '화합물', '작용기', '시험', '결과', '내 답'],
+        record: function(p, r){ return {s:r.target, t:p.t, md:r.md, uk:r.uk, my:p.s, ok:r.ok}; },
+        row: function(d){ return [d.md ? '거꾸로 ' + UKN[d.uk] : '그대로', S[d.s].name, S[d.s].g, TS[d.t], res(S[d.s], d.t), d.md ? S[d.my].name + (d.ok ? ' ○' : ' ✕') : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('끓는점과 작용기 (확인한 화합물)', '<div id="cr11a"></div><p class="ask">분자량이 46으로 같은 에탄올과 다이메틸 에테르의 끓는점 차이는 몇 ℃인가요? 무엇 때문일까요?</p>') +
@@ -539,7 +556,10 @@ var LAB = (function(){
             rows.push([s.name + ' (' + s.g.replace(/ \(.*\)/, '') + ')'].concat([1, 2, 3, 4].map(function(t){ return done[t] ? res(s, t).replace(/ \(.*\)/, '') : '·'; })));
           });
           $('cr11a').innerHTML = hbars(items, 230) + '<p class="msg">막대 길이는 (끓는점 + 100 ℃)입니다.</p>';
-          $('cr11b').innerHTML = tableHTML(['화합물', '물', '리트머스', '나트륨', '은거울'], rows);
+          var gs2 = rec.filter(function(d){ return d.md; }), okN = gs2.filter(function(d){ return d.ok; }).length;
+          $('cr11b').innerHTML = tableHTML(['화합물', '물', '리트머스', '나트륨', '은거울'], rows)
+            + (gs2.length ? '<p class="msg">거꾸로 맞히기: ' + okN + ' / ' + gs2.length + ' 맞음. 분자식이 같은 에탄올과 다이메틸 에테르는 나트륨 조각 시험(O–H 유무)으로 갈립니다.</p>'
+              : '<p class="msg">방식을 "거꾸로 맞히기"로 바꾸면 결과만 보고 화합물을 알아내는 문제가 됩니다.</p>');
         }
       };
     })();
@@ -548,7 +568,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

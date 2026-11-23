@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,7 +439,7 @@ var LAB = (function(){
       var CH = ['수술을 택한다', '다른 치료를 택한다'];
       return {
         sceneHeight: 430,
-        idle: '설명 방식·수치·나의 선택을 고른 뒤 실행하세요.',
+        idle: '설명 방식·수치·나의 선택을 고른 뒤 실행하세요. 같은 수치를 두 틀로 각각 고르면 내 답이 뒤집혔는지 그 자리에서 짚어 줍니다.',
         shortHint: '같은 수치를 두 틀로 각각 보고 선택해 보세요. 수치도 바꿔 4번 이상 기록하세요.',
         params: [
           {key:'fr', type:'seg', label:'설명 방식', cols:2, value:0, options:FR},
@@ -446,8 +448,12 @@ var LAB = (function(){
             note:'어느 쪽도 틀린 답이 아닙니다. 틀에 따라 내 선택이 흔들리는지만 봐요.'}
         ],
         compute: function(p){
-          var s = p.sv, d = 100 - s;
-          return {s:s, d:d, sentence:p.fr === 0 ? '수술 후 1개월 생존률 ' + s + '%' : '수술 후 1개월 사망률 ' + d + '%', other:p.fr === 0 ? '사망률 ' + d + '%' : '생존률 ' + s + '%'};
+          var s = p.sv, d = 100 - s, prev = null, i;
+          /* 같은 수치를 다른 틀로 이미 골랐는지 찾아, 그 자리에서 선택이 흔들렸는지 짚어 준다 */
+          for (i = records.length - 1; i >= 0; i--){ if (records[i].sv === p.sv && records[i].fr !== p.fr){ prev = records[i]; break; } }
+          var flip = prev ? (prev.c !== p.c) : null;
+          return {s:s, d:d, prev:prev, flip:flip,
+            sentence:p.fr === 0 ? '수술 후 1개월 생존률 ' + s + '%' : '수술 후 1개월 사망률 ' + d + '%', other:p.fr === 0 ? '사망률 ' + d + '%' : '생존률 ' + s + '%'};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var s = p.sv, d = 100 - s, k = r ? tau : 0, i;
@@ -463,13 +469,20 @@ var LAB = (function(){
           if (r && tau >= 1){
             tfit(c, '같은 그림: 생존 ' + s + '명 · 사망 ' + d + '명 (100명 중)', 20, by, {bold:true});
             tfit(c, '다른 틀로 말하면 → "' + r.other + '"', 20, by + 30, {color:'#4A5868'});
+            tfit(c, r.flip === null ? '다른 틀로도 해 보세요' : r.flip ? '틀만 바꿨는데 선택이 달라졌어요' : '두 틀에서 같은 선택', 20, H - 46,
+              {bold:true, color:r.flip === null ? '#4A5868' : r.flip ? PAL[4] : PAL[1]});
             tfit(c, '나의 선택: ' + CH[p.c], 20, H - 16, {bold:true, color:PAL[3]});
           } else if (!r) tfit(c, '선택을 고르고 실행하세요', 20, H - 16, {color:'#4A5868'});
         },
         stats: function(p, r){
           return [['들은 설명', '"' + r.sentence + '"', p.fr === 0 ? PAL[1] : PAL[4]], ['같은 정보의 다른 표현', '"' + r.other + '"'],
             ['100명으로 보면', '생존 ' + r.s + '명 · 사망 ' + r.d + '명'], ['나의 선택', CH[p.c], PAL[3]],
-            ['연구 경향', '생존 틀로 들을 때 수술을 택하는 사람이 더 많은 경향이 보고됨 (의료 결정 연구, 표본·질문에 따라 크기 다름)', PAL[6]]];
+            ['연구 경향', '생존 틀로 들을 때 수술을 택하는 사람이 더 많은 경향이 보고됨 (의료 결정 연구, 표본·질문에 따라 크기 다름)', PAL[6]],
+            ['같은 수치, 두 틀에서의 내 선택',
+              r.prev === null ? '생존률 ' + r.s + '%를 ‘' + FR[1 - p.fr] + '’로도 한 번 더 골라 보세요. 같은 사람이 다른 답을 골랐는지 그 자리에서 짚어 줘요.'
+                : r.flip ? '생존 틀에서는 ‘' + CH[p.fr === 0 ? p.c : r.prev.c] + '’, 사망 틀에서는 ‘' + CH[p.fr === 1 ? p.c : r.prev.c] + '’ — 숫자가 같은데 내 답이 달라졌어요. 바뀐 것은 정보가 아니라 말하는 방식뿐이었습니다.'
+                : '두 틀에서 모두 ‘' + CH[p.c] + '’ — 이 수치에서는 말하는 방식에 흔들리지 않았어요.',
+              r.prev === null ? null : r.flip ? PAL[4] : PAL[1]]];
         },
         columns: ['설명 방식', '생존률', '나의 선택'],
         record: function(p, r){ return {fr:p.fr, sv:p.sv, c:p.c}; },
@@ -486,7 +499,18 @@ var LAB = (function(){
             var a = g.filter(function(d){ return d.fr === 0; }), b = g.filter(function(d){ return d.fr === 1; });
             var t = function(x){ return x.length ? x.filter(function(d){ return d.c === 0; }).length + '/' + x.length + ' 수술' : '—'; };
             rows.push([k + '%', t(a), t(b)]); });
-          $('ps4b').innerHTML = tableHTML(['생존률', '생존 틀', '사망 틀'], rows);
+          /* 같은 수치를 두 틀로 모두 골라 본 짝만 모아 뒤집힘을 센다 */
+          var frows = [], nf = 0, np = 0;
+          Object.keys(by).sort(function(x, z){ return x - z; }).forEach(function(k){
+            var g = by[k], a = g.filter(function(d){ return d.fr === 0; }), b = g.filter(function(d){ return d.fr === 1; });
+            if (!a.length || !b.length) return;
+            var ca = a[a.length - 1].c, cb = b[b.length - 1].c; np++; if (ca !== cb) nf++;
+            frows.push([k + '%', CH[ca], CH[cb], ca !== cb ? '달라짐' : '같음']);
+          });
+          $('ps4b').innerHTML = tableHTML(['생존률', '생존 틀', '사망 틀'], rows) +
+            (frows.length ? tableHTML(['생존률', '생존 틀에서', '사망 틀에서', '내 선택'], frows) +
+              '<p class="msg">두 틀로 모두 골라 본 수치 ' + np + '개 가운데 ' + nf + '개에서 내 답이 달라졌어요. 생존률과 사망률은 더하면 100%인 같은 정보입니다 — 달라진 것은 정보가 아니라 말하는 방식이었어요.</p>'
+              : '<p class="msg">같은 생존률을 두 틀로 모두 골라 보면, 같은 사람이 다른 답을 골랐는지 여기서 짚어 줘요.</p>');
         }
       };
     })();
@@ -495,7 +519,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

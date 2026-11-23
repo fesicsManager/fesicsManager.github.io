@@ -151,12 +151,19 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="고차식 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="a">근 a <b><span id="a_v">1</span></b></label><input type="range" id="a" min="-3" max="3" step="1" value="1"></div><div class="ctl"><label for="b">근 b <b><span id="b_v">2</span></b></label><input type="range" id="b" min="-3" max="3" step="1" value="2"></div><div class="ctl"><label for="c">근 c <b><span id="c_v">-1</span></b></label><input type="range" id="c" min="-3" max="3" step="1" value="-1"></div><div class="ctl"><label for="step">몇 번 뽑아낼까 <b><span id="step_v">0</span></b></label><input type="range" id="step" min="0" max="3" step="1" value="0"></div><div class="row"><button class="btn go" id="goBtn">✂️ 인수를 하나씩 떼어내기</button></div>
+      <div class="pick">어떤 식을 쪼갤까요? <label><input type="radio" name="kd" value="real3" checked>세 근으로 만든 삼차식</label><label><input type="radio" name="kd" value="quad">실근 하나 + 이차식</label></div>
+      <div class="ctl"><label for="a">근 a <b><span id="a_v">1</span></b></label><input type="range" id="a" min="-3" max="3" step="1" value="1"></div><div class="ctl"><label for="b">근 b <b><span id="b_v">2</span></b> <span style="font-size:.85rem">(둘째 종류에선 이차식의 x 계수)</span></label><input type="range" id="b" min="-3" max="3" step="1" value="2"></div><div class="ctl"><label for="c">근 c <b><span id="c_v">-1</span></b> <span style="font-size:.85rem">(둘째 종류에선 쓰이지 않아요)</span></label><input type="range" id="c" min="-3" max="3" step="1" value="-1"></div><div class="ctl"><label for="q">이차식의 상수항 q <b><span id="q_v">2</span></b> <span style="font-size:.85rem">(둘째 종류에서만)</span></label><input type="range" id="q" min="-4" max="9" step="1" value="2"></div><div class="ctl"><label for="step">몇 번 뽑아낼까 <b><span id="step_v">0</span></b></label><input type="range" id="step" min="0" max="3" step="1" value="0"></div>
+      <div class="pick" id="predBox">✍ <b>떼기 전에 짚어 보기</b> — 이 식은 일차식의 곱으로 끝까지 쪼개질까요?
+        <select id="predIn" style="background:#0f1727;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:.35rem .4rem"><option value="">고르기</option><option value="y">끝까지 쪼개진다</option><option value="n">중간에 멈춘다</option></select>
+        <button class="btn" id="predBtn" style="flex:0 0 auto">채점</button>
+        <div id="predRes" style="margin-top:.45rem">고른 다음 아래 단추로 떼어 보세요.</div></div>
+      <div class="row"><button class="btn go" id="goBtn">✂️ 인수를 하나씩 떼어내기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>세 근</th><th>전개한 식</th><th>뽑아낸 인수</th><th>남은 몫</th><th>완전히 인수분해</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>종류</th><th>전개한 식</th><th>뽑아낸 인수</th><th>남은 몫</th><th>판별식</th><th>끝까지 쪼개짐?</th><th>내가 짚은 것</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -238,12 +245,36 @@ if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();})
 function expand(rs){var c=[1];for(var i=0;i<rs.length;i++){var n=[0];
 for(var j=0;j<c.length;j++){n[j]=(n[j]||0)+c[j];n[j+1]=(n[j+1]||0)-rs[i]*c[j];}c=n;}return c;}
 function synth(c,k){var out=[c[0]];for(var i=1;i<c.length;i++)out.push(out[i-1]*k+c[i]);return out;}
-function st(){var rs=[v('a'),v('b'),v('c')],c=expand(rs),step=v('step');
+var predPick='',predHit=null;
+function kindOf(){var e=document.querySelector('input[name="kd"]:checked');return e?e.value:'real3';}
+function maxStep(){if(kindOf()==='real3')return 3;return 1;}
+function clampStep(){var sl=$('step');if(!sl)return;var mx=maxStep();
+if(+sl.max!==mx){sl.max=mx;}
+if(+sl.value>mx){sl.value=mx;var sv=$('step_v');if(sv)sv.textContent=mx;}}
+function st(){var k=kindOf(),step=v('step'),i,s;
+if(k==='real3'){var rs=[v('a'),v('b'),v('c')],c=expand(rs);
+step=Math.min(step,3);
 var cur=c.slice(),taken=[];
-for(var i=0;i<step;i++){var s=synth(cur,rs[i]);taken.push(rs[i]);cur=s.slice(0,s.length-1);}
-return{rs:rs,c:c,cur:cur,step:step,taken:taken};}
-function draw(){clr();var o=st();
-label('세 근 '+o.rs.join(', ')+' 으로 만든 삼차식',W/2,30,'#9db0d4',15);
+for(i=0;i<step;i++){s=synth(cur,rs[i]);taken.push(rs[i]);cur=s.slice(0,s.length-1);}
+return{k:k,rs:rs,c:c,cur:cur,step:step,taken:taken,maxS:3,disc:null,splits:true,full:(step===3)};}
+var a=v('a'),p=v('b'),q=v('q'),disc=p*p-4*q;
+var cc=[1,p-a,q-a*p,-a*q];
+step=Math.min(step,1);
+var cur2=cc.slice(),tk=[];
+for(i=0;i<step;i++){s=synth(cur2,a);tk.push(a);cur2=s.slice(0,s.length-1);}
+return{k:k,rs:[a],c:cc,cur:cur2,step:step,taken:tk,maxS:1,disc:disc,p:p,q:q,a:a,
+splits:(disc>=0),full:false};}
+function gradePred(){var o=st(),el=$('predRes'),g=$('predIn').value;
+if(!g){predPick='';predHit=null;el.innerHTML='먼저 둘 가운데 하나를 골라 보세요.';draw();return;}
+predPick=g;predHit=((g==='y')===o.splits);
+el.innerHTML=(predHit?'✅ <b>맞혔어요.</b> ':'❌ <b>달라요.</b> ')
++(o.splits?'이 식은 일차식의 곱으로 <b>끝까지 쪼개집니다</b>.':'이 식은 <b>중간에 멈춥니다</b> — 실근이 없는 이차식이 남아요.')
++(o.k==='quad'?' 판별식 p²−4q = '+o.disc+(o.disc<0?' < 0':' ≥ 0')+'.':'')
++'<br>q 를 움직여 판별식의 부호를 바꾸면 결론이 뒤집혀요.';
+draw();}
+function draw(){clr();clampStep();var o=st();
+label(o.k==='real3'?('세 근 '+o.rs.join(', ')+' 으로 만든 삼차식')
+:('실근 '+o.a+' 하나와 이차식 x²+'+o.p+'x+'+o.q+' 의 곱'),W/2,30,'#9db0d4',15);
 label('f(x) = '+polyStr(o.c),W/2,60,'#7aa2ff',18);
 var y=110;
 panel(24,y,W-48,150);
@@ -253,20 +284,47 @@ label(txt,44,y+58,'#5ee0c8',18,'left');
 label('남은 몫',44,y+96,'#9db0d4',14,'left');
 label(polyStr(o.cur)+'   ('+(o.cur.length-1)+'차)',44,y+126,'#ffb86b',18,'left');
 panel(24,280,W-48,60);
-label(o.step===3?'완전히 인수분해되었습니다':'차수가 '+(3-o.step)+'만큼 더 내려갈 수 있습니다',
-W/2,316,o.step===3?'#5ee0c8':'#c8d5ef',17);
+var msg,col;
+if(o.k==='real3'){msg=(o.step===3)?'완전히 인수분해되었습니다':'차수가 '+(3-o.step)+'만큼 더 내려갈 수 있습니다';col=(o.step===3)?'#5ee0c8':'#c8d5ef';}
+else if(o.step<1){msg='실근 하나를 먼저 떼어 봅시다';col='#c8d5ef';}
+else if(o.disc<0){msg='실근이 없어 여기서 멈춥니다';col='#ff7a8a';}
+else{msg='남은 이차식도 더 쪼개집니다';col='#5ee0c8';}
+label(msg,W/2,316,col,17);
 panel(24,352,W-48,64);
 var bars=[3,2,1,0];
 for(var i=0;i<=3;i++){var on=i<=o.step*gr+0.001;
 ctx.fillStyle=on?'#2f6f92':'rgba(255,255,255,.08)';
 ctx.fillRect(44+i*100,368,86,18);
 label((3-i)+'차',44+i*100+43,377,on?'#fff':'#6d80a8',13);}
-label('인수를 뽑을 때마다 몫의 차수가 1씩 내려갑니다',W/2,406,'#9db0d4',14);
-ro(kv('원래 식',(o.c.length-1)+'차')+' &nbsp;'+kv('뽑아낸 인수',o.taken.length+'개')+' &nbsp;'+kv('남은 몫',(o.cur.length-1)+'차'));}
+label(o.k==='real3'?'인수를 뽑을 때마다 몫의 차수가 1씩 내려갑니다'
+:(o.disc<0?'차수가 낮아져도 실수에서는 더 쪼갤 수 없습니다':'판별식이 0 이상이면 이차식도 쪼개집니다'),W/2,406,'#9db0d4',14);
+ro(kv('원래 식',(o.c.length-1)+'차')+' &nbsp;'+kv('뽑아낸 인수',o.taken.length+'개')+' &nbsp;'+kv('남은 몫',(o.cur.length-1)+'차')
++(o.k==='quad'?'<br>'+kv('판별식 p²−4q',o.disc)+' &nbsp;'+kv('끝까지 쪼개짐?',o.splits?'예':'아니요(멈춤)'):'<br>'+kv('끝까지 쪼개짐?','예'))
++(predHit===null?'':'<br>'+kv('내가 짚은 것',(predPick==='y'?'끝까지 쪼개진다':'중간에 멈춘다')+' '+(predHit?'✅':'❌'))));
+whyBox(o);}
+function whyBox(o){var el=$('why');if(!el)return;
+if(o.k==='real3'){el.className='why same';
+el.innerHTML='✅ <b>세 실근으로 만든 식이라 끝까지 쪼개져요.</b><br>'
++'· 근을 하나 찾을 때마다 몫의 차수가 1씩 내려가요: 3차 → 2차 → 1차 → 상수.<br>'
++'· 이 종류에서는 어떤 근을 골라도 결론이 같아요. 위에서 <b>‘실근 하나 + 이차식’</b>으로 바꿔 보세요 — 쪼개기가 멈추는 자리가 생깁니다.';
+return;}
+if(o.disc<0){el.className='why diff';
+el.innerHTML='🛑 <b>여기서 멈춰요.</b><br>'
++'· 남은 이차식 x²+'+o.p+'x+'+o.q+' 의 판별식은 '+o.p+'² − 4×'+o.q+' = <b>'+o.disc+'</b> 로 음수예요.<br>'
++'· 판별식이 음수면 실근이 없어서, 실수 범위에서는 더 이상 일차식으로 갈라지지 않아요. x²+1 과 같은 꼴이 남는 거예요.<br>'
++'· 그러니 “삼차 이상은 인수분해가 안 된다”가 아니라, <b>실근이 없을 때 멈춘다</b>가 맞는 말이에요. q 를 '+(Math.floor(o.p*o.p/4))+' 이하로 내리면 다시 쪼개집니다.';
+return;}
+el.className='why same';
+el.innerHTML='✅ <b>이번엔 계속 쪼개져요.</b><br>'
++'· 남은 이차식 x²+'+o.p+'x+'+o.q+' 의 판별식이 '+o.disc+' 로 0 이상이라 실근이 있어요.<br>'
++'· 그래서 일차식 셋의 곱까지 갈 수 있어요. q 를 올려 판별식을 음수로 만들면 <b>같은 자리에서 멈추게</b> 됩니다.';}
 function record(){var o=st();
-return{cells:[o.rs.join(', '),polyStr(o.c),o.taken.length?o.taken.map(function(k){return '(x'+(k<0?'+'+(-k):'−'+k)+')';}).join(''):'—',
-polyStr(o.cur),o.step===3?'✅':'진행 중'],
-step:o.step,deg:o.cur.length-1,done:o.step===3};}
+return{cells:[o.k==='real3'?'세 실근':'실근+이차식',polyStr(o.c),
+o.taken.length?o.taken.map(function(k){return '(x'+(k<0?'+'+(-k):'−'+k)+')';}).join(''):'—',
+polyStr(o.cur),o.disc===null?'—':o.disc,
+o.splits?'✅ 쪼개짐':'🛑 멈춤',
+(predHit===null?'—':(predPick==='y'?'쪼개짐':'멈춤')+' '+(predHit?'✅':'❌'))],
+step:o.step,deg:o.cur.length-1,done:o.step===3,splits:o.splits,disc:o.disc,k:o.k,hit:predHit};}
 function analyze(){var done=rows.filter(function(r){return r.done;}).length;
 var t='<table><thead><tr><th>뽑아낸 인수</th><th>남은 몫의 차수</th></tr></thead><tbody>';
 rows.forEach(function(r){t+='<tr><td>'+r.step+'개</td><td class="'+(r.deg===0?'ok':'')+'">'+r.deg+'차</td></tr>';});
@@ -276,9 +334,21 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 '<p class="note">인수 1개를 뽑을 때마다 남은 몫의 차수가 정확히 1씩 줄어듭니다. 3 → 2 → 1 → 0(상수).</p></div>'+
 '<div class="card"><h4>2. “안 되는” 것이 아니라 “아직”</h4>'+
 '<p class="big">끝까지 쪼갠 기록 <span class="ok">'+done+'개</span></p>'+
-'<p class="note">삼차식도 근을 하나 찾는 순간 이차식으로 내려와 근의 공식으로 마무리됩니다. 인수분해가 막히는 것은 차수 때문이 아니라 <b>실근이 없을 때</b>입니다 — 그때 x²+1 같은 이차 인수가 남습니다.</p></div></div>';}
+'<p class="note">삼차식도 근을 하나 찾는 순간 이차식으로 내려와 근의 공식으로 마무리됩니다. 인수분해가 막히는 것은 차수 때문이 아니라 <b>실근이 없을 때</b>입니다 — 그때 x²+1 같은 이차 인수가 남습니다.</p></div>'+
+'<div class="card"><h4>3. 멈춘 기록과 쪼개진 기록</h4>'+stopTab()+'</div></div>';}
+function stopTab(){var st2=rows.filter(function(r){return r.splits===false;}).length;
+var h=rows.filter(function(r){return r.hit===true;}).length,m=rows.filter(function(r){return r.hit===false;}).length;
+var t='<table><thead><tr><th>종류</th><th>판별식</th><th>결과</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+r.cells[0]+'</td><td>'+(r.disc===null?'—':r.disc)+'</td><td class="'+(r.splits?'ok':'no')+'">'+(r.splits?'끝까지':'멈춤')+'</td></tr>';});
+t+='</tbody></table>';
+return t+'<p class="note">'+(st2?'<span class="no">'+st2+'개</span>는 실근이 없어 멈췄습니다. 판별식이 음수인 기록이 바로 그것입니다.':'아직 멈춘 기록이 없습니다. ‘실근 하나 + 이차식’에서 q 를 올려 판별식을 음수로 만들어 보세요.')+'</p>'+
+'<p class="note">'+((h+m===0)?'짚어 보기 기록이 아직 없습니다.':'짚어 보기: 맞춘 기록 '+h+'개, 빗나간 기록 '+m+'개.')+'</p>';}
 
 
+$('predBtn').addEventListener('click',gradePred);
+document.querySelectorAll('input[name="kd"]').forEach(function(e){e.addEventListener('change',function(){
+predPick='';predHit=null;var pi=$('predIn');if(pi)pi.value='';
+var pr=$('predRes');if(pr)pr.innerHTML='식의 종류를 바꿨어요. 다시 골라 채점해 보세요.';clampStep();draw();});});
 draw();sync();
 </script>
 <script id="fxPrincipleJs">

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -442,8 +444,9 @@ var LAB = (function(){
       ];
       var NM = ['가', '나', '다', '라', '마'];
       function g(x, n){ return String(+x.toFixed(n == null ? 2 : n)); }
+      function distOf(p){ return p.cu ? {name:'내가 정한 분포', s:'내 분포', v:[p.v1, p.v2, p.v3, p.v4, p.v5]} : DS[p.s]; }
       function lor(v){ var s = v.slice().sort(function(a, b){ return a - b; }), S = 0, c = 0, cum = [0], B = 0;
-        s.forEach(function(x){ S += x; }); s.forEach(function(x){ c += x; cum.push(c / S); });
+        s.forEach(function(x){ S += x; }); if (!S) S = 1; s.forEach(function(x){ c += x; cum.push(c / S); });
         for (var i = 0; i < 5; i++) B += 0.2 * (cum[i] + cum[i + 1]) / 2;
         return {cum:cum, B:B, G:1 - 2 * B, mean:S / 5, med:s[2], S:S}; }
       var BASE = lor(DS[0].v);
@@ -453,11 +456,18 @@ var LAB = (function(){
         shortHint: '&lsquo;전&rsquo;과 &lsquo;후&rsquo;를 먼저 비교하고, 모두 10%씩·모두 2씩 오른 경우의 지니계수를 기록해 보세요.',
         params: [
           {key:'s', type:'seg', label:'다섯 명의 소득 분포 (가상, 단위 천만 원)', cols:3, value:1, options:DS.map(function(x){ return x.name; }),
-            note:'순서대로 가 · 나 · 다 · 라 · 마의 소득입니다.'}
+            note:'순서대로 가 · 나 · 다 · 라 · 마의 소득입니다.'},
+          {key:'cu', type:'seg', label:'분포 정하기', cols:2, value:0, options:['목록에서 고르기', '내가 직접 정하기'],
+            note:'직접 정하기로 바꾸면 아래 다섯 손잡이로 가~마의 소득을 내가 정합니다. 평균은 그대로인데 지니계수만 커지는 분포를 만들어 보세요.'},
+          {key:'v1', type:'range', label:'가의 소득', min:0, max:20, step:1, value:2, fmt:function(v){ return v + ''; }},
+          {key:'v2', type:'range', label:'나의 소득', min:0, max:20, step:1, value:3, fmt:function(v){ return v + ''; }},
+          {key:'v3', type:'range', label:'다의 소득', min:0, max:20, step:1, value:4, fmt:function(v){ return v + ''; }},
+          {key:'v4', type:'range', label:'라의 소득', min:0, max:20, step:1, value:5, fmt:function(v){ return v + ''; }},
+          {key:'v5', type:'range', label:'마의 소득', min:0, max:20, step:1, value:6, fmt:function(v){ return v + ''; }}
         ],
-        compute: function(p){ var D = DS[p.s], L = lor(D.v); return {D:D, L:L, dG:L.G - BASE.G, dMean:L.mean - BASE.mean, dMed:L.med - BASE.med}; },
+        compute: function(p){ var D = distOf(p), L = lor(D.v); return {D:D, L:L, cu:p.cu, dG:L.G - BASE.G, dMean:L.mean - BASE.mean, dMed:L.med - BASE.med}; },
         draw: function(c, W, H, p, r, tau){
-          var D = DS[p.s], L = r ? r.L : lor(D.v), k = r ? Math.min(tau / 0.6, 1) : 1, i;
+          var D = distOf(p), L = r ? r.L : lor(D.v), k = r ? Math.min(tau / 0.6, 1) : 1, i;
           var bx = 70, bwid = W - bx - 30, bh = 90, by = 20, cw = bwid / 5, sc = bh / 20;
           for (i = 0; i < 5; i++){ var h = D.v[i] * sc * k; c.fillStyle = PAL[0]; c.fillRect(bx + i * cw + cw * 0.2, by + bh - h, cw * 0.6, h);
             var nl = NM[i] + ' ' + g(D.v[i], 1); c.font = '700 18px ' + FONT; var nk = Math.min(1, (cw - 6) / c.measureText(nl).width); /* 좁으면 가로로 줄임 */
@@ -486,7 +496,8 @@ var LAB = (function(){
         },
         stats: function(p, r){
           var L = r.L;
-          return [['소득 (천만 원)', r.D.v.map(function(x, i){ return NM[i] + ' ' + g(x); }).join(' · ')],
+          return [['분포', r.D.name + (r.cu ? ' (직접 정함)' : '')],
+            ['소득 (천만 원)', r.D.v.map(function(x, i){ return NM[i] + ' ' + g(x); }).join(' · ')],
             ['평균 · 중앙값', g(L.mean) + ' · ' + g(L.med) + ' (전: 4 · 4)', PAL[6]],
             ['소득 누적 비율', L.cum.map(function(v){ return g(v * 100, 1) + '%'; }).join(' → ')],
             ['로렌츠 곡선 아래 넓이 B', g(L.B, 3)],
@@ -494,14 +505,18 @@ var LAB = (function(){
             ['&lsquo;전&rsquo;과 비교', '평균 ' + sgn(r.dMean, 2) + ' · 중앙값 ' + sgn(r.dMed, 2) + ' · 지니계수 ' + sgn(r.dG, 3), PAL[3]],
             ['판정', Math.abs(r.dG) < 1e-9 ? '불평등 정도는 &lsquo;전&rsquo;과 같음' : r.dG > 0 ? '&lsquo;전&rsquo;보다 격차가 커짐' : '&lsquo;전&rsquo;보다 고르게 됨', r.dG > 1e-9 ? PAL[4] : PAL[1]]];
         },
-        columns: ['분포', '평균', '중앙값', '넓이 B', '지니계수'],
-        record: function(p, r){ return {s:p.s, mean:r.L.mean, med:r.L.med, B:r.L.B, G:r.L.G}; },
-        row: function(d){ return [DS[d.s].s, g(d.mean), g(d.med), g(d.B, 3), g(d.G, 3)]; },
+        columns: ['분포', '소득', '평균', '중앙값', '넓이 B', '지니계수'],
+        record: function(p, r){ return {s:p.s, cu:r.cu, sn:r.D.s, v:r.D.v.slice(), mean:r.L.mean, med:r.L.med, B:r.L.B, G:r.L.G}; },
+        row: function(d){ return [d.sn, d.v.map(function(x){ return g(x); }).join('·'), g(d.mean), g(d.med), g(d.B, 3), g(d.G, 3)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록별 지니계수와 대표값', '<div id="lg1"></div><p class="ask">평균이 오른 두 경우(후, 모두 +10%)에서 지니계수는 각각 어떻게 되었나요? 평균만 보고 &lsquo;모두 나아졌다&rsquo;고 할 수 있나요?</p>') +
             card('누적 비율표 (웹툰 #4)', '<div id="lg2"></div><p class="ask">과제: 가상의 다섯 명 소득표를 직접 만들어, 평균은 오르지만 중앙값은 그대로인 경우와 평균과 중앙값이 함께 오르는 경우의 지니계수를 각각 계산해 보세요.</p>') + '</div>';
-          $('lg1').innerHTML = hbars(rec.map(function(d){ return {label:DS[d.s].s + ' (평균 ' + g(d.mean) + ', 중앙값 ' + g(d.med) + ')', v:d.G, color:d.G > BASE.G + 1e-9 ? PAL[4] : PAL[1], text:'G = ' + g(d.G, 3)}; }), 1);
+          var sameMean = rec.filter(function(d){ return Math.abs(d.mean - BASE.mean) < 1e-9; });
+          var worse = sameMean.filter(function(d){ return d.G > BASE.G + 1e-9; });
+          $('lg1').innerHTML = hbars(rec.map(function(d){ return {label:d.sn + ' (평균 ' + g(d.mean) + ', 중앙값 ' + g(d.med) + ')', v:d.G, color:d.G > BASE.G + 1e-9 ? PAL[4] : PAL[1], text:'G = ' + g(d.G, 3)}; }), 1)
+            + (worse.length ? '<p class="msg">평균이 &lsquo;전&rsquo;과 같은데 지니계수만 커진 분포를 ' + worse.length + '개 만들었습니다 — 평균만으로는 불평등을 알 수 없습니다.</p>'
+              : '<p class="msg">직접 정하기로 평균은 4로 그대로 두고(합 20) 지니계수만 커지는 분포를 만들어 보세요.</p>');
           var A = lor(DS[0].v), Bf = lor(DS[1].v);
           $('lg2').innerHTML = tableHTML(['인구 누적', '0', '20%', '40%', '60%', '80%', '100%'], [['소득 누적 (전, 합 20)'].concat(A.cum.map(function(v){ return g(v * 100, 1) + '%'; })), ['소득 누적 (후, 합 30)'].concat(Bf.cum.map(function(v){ return g(v * 100, 1) + '%'; }))]) +
             '<p class="msg">전: B = ' + g(A.B, 3) + ', G = ' + g(A.G, 3) + ' / 후: B = ' + g(Bf.B, 3) + ', G = ' + g(Bf.G, 3) + '</p>';
@@ -513,7 +528,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

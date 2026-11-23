@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -261,7 +262,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="역학적 에너지와 열 실험 장면"></canvas>
-          <p class="note">추는 일정한 느린 속력으로 내려간다고 보고 운동 에너지는 무시합니다. 통은 단열되어 열이 빠져나가지 않으며, 통과 날개가 흡수하는 열도 무시합니다. 물의 비열은 4186 J/(kg·℃), 온도계는 0.01 ℃ 단위입니다.</p>
+          <p class="note">추는 일정한 느린 속력으로 내려간다고 보고 운동 에너지는 무시합니다. 통과 날개가 흡수하는 열은 무시합니다. 통이 밖으로 흘리는 열은 기본값 0 %(완전 단열)이며, 슬라이더로 넣어 볼 수 있습니다 — 넣는 비율은 교육용 모형값입니다. 물의 비열은 4186 J/(kg·℃), 온도계는 0.01 ℃ 단위입니다.</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -446,12 +448,14 @@ return {
     {key:'m', type:'range', label:'추의 질량 m', min:1, max:5, step:1, value:4, fmt:function(v){ return v + ' kg'; }},
     {key:'h', type:'range', label:'추가 떨어지는 높이 h', min:0.5, max:2.0, step:0.5, value:1.5, fmt:function(v){ return f(v, 1) + ' m'; }},
     {key:'n', type:'range', label:'떨어뜨린 횟수 N', min:5, max:30, step:5, value:20, fmt:function(v){ return v + '회'; }},
-    {key:'w', type:'seg', label:'통 속 물의 질량', cols:3, value:0, options:MW.map(function(v){ return f(v, 2) + ' kg'; })}
+    {key:'w', type:'seg', label:'통 속 물의 질량', cols:3, value:0, options:MW.map(function(v){ return f(v, 2) + ' kg'; })},
+    {key:'loss', type:'range', label:'통이 밖으로 흘리는 열의 비율', min:0, max:30, step:5, value:0, fmt:function(v){ return v + ' %'; },
+      note:'기본값 0 %는 완전히 단열된 이상 조건입니다. 0보다 크게 하면 그만큼의 열이 통 밖으로 새어 나가 물의 온도가 덜 올라요. 이 비율은 <b>교육용 모형값</b>입니다.'}
   ],
   compute: function(p){
-    var W = p.n * p.m * G * p.h, Mw = MW[p.w], dT = W / (Mw * CW);
-    var T1 = Math.round((T0 + dT) * 100) / 100, dTm = T1 - T0;
-    return {W:W, Mw:Mw, T1:T1, dT:dTm, Q:Mw * CW * dTm};
+    var W = p.n * p.m * G * p.h, Mw = MW[p.w], dT = W * (1 - p.loss / 100) / (Mw * CW);
+    var T1 = Math.round((T0 + dT) * 100) / 100, dTm = T1 - T0, Q = Mw * CW * dTm;
+    return {W:W, Mw:Mw, T1:T1, dT:dTm, Q:Q, Qout:W - Q};
   },
   draw: function(c, W, H, p, r, tau){
     var nar = W < 400;   /* 좁은 화면: 통을 줄여 추 옆 글자가 안 잘리게 */
@@ -485,29 +489,53 @@ return {
   stats: function(p, r){
     return [
       ['추가 한 일 N × mgh', f(r.W, 1) + ' J', PAL[0]],
+      ['통이 흘리는 열의 비율', p.loss + ' %'],
       ['처음 물 온도', f(T0, 2) + ' ℃'],
       ['나중 물 온도', f(r.T1, 2) + ' ℃'],
       ['온도 변화 ΔT', f(r.dT, 2) + ' ℃'],
-      ['물이 얻은 열 Q = 질량 × 비열 × ΔT', f(r.Q, 1) + ' J', PAL[4]]
+      ['물이 얻은 열 Q = 질량 × 비열 × ΔT', f(r.Q, 1) + ' J', PAL[4]],
+      ['한 일 − 얻은 열 (어디로 샜나)', f(r.Qout, 1) + ' J'],
+      ['검산: 열 ÷ 일', f(r.Q / r.W, 3) + (p.loss > 0 ? ' — 1보다 작아요. 통 밖으로 샜어요.' : ' — 거의 1. 온도계 눈금 차이만 남아요.'), p.loss > 0 ? '#C8463D' : '#2E9E78']
     ];
   },
-  columns: ['m (kg)', 'h (m)', 'N (회)', '물 (kg)', '일 (J)', 'ΔT (℃)', 'Q (J)'],
-  record: function(p, r){ return {m:p.m, h:p.h, n:p.n, Mw:r.Mw, W:r.W, dT:r.dT, Q:r.Q}; },
-  row: function(d){ return [d.m, f(d.h, 1), d.n, f(d.Mw, 2), f(d.W, 1), f(d.dT, 2), f(d.Q, 1)]; },
+  columns: ['m (kg)', 'h (m)', 'N (회)', '물 (kg)', '샌 비율 (%)', '일 (J)', 'ΔT (℃)', 'Q (J)', '일 − 열 (J)'],
+  record: function(p, r){ return {m:p.m, h:p.h, n:p.n, Mw:r.Mw, loss:p.loss, W:r.W, dT:r.dT, Q:r.Q, Qout:r.Qout}; },
+  row: function(d){ return [d.m, f(d.h, 1), d.n, f(d.Mw, 2), d.loss, f(d.W, 1), f(d.dT, 2), f(d.Q, 1), f(d.Qout, 1)]; },
   verify: function(rec, box){
     var col = function(Mw){ return PAL[MW.indexOf(Mw)]; };
     var used = MW.filter(function(v){ return rec.some(function(d){ return d.Mw === v; }); });
     var ser = function(fx, fy){ return used.map(function(v){ return {color:col(v), pts:rec.filter(function(d){ return d.Mw === v; }).map(function(d){ return {x:fx(d), y:fy(d)}; })}; }); };
+    var ser2 = function(fx, fy){
+      var out = [];
+      used.forEach(function(v){
+        out.push({color:col(v), pts:rec.filter(function(d){ return d.Mw === v && !d.loss; }).map(function(d){ return {x:fx(d), y:fy(d)}; })});
+        out.push({color:col(v), hollow:true, pts:rec.filter(function(d){ return d.Mw === v && d.loss > 0; }).map(function(d){ return {x:fx(d), y:fy(d)}; })});
+      });
+      return out;
+    };
+    var sealed = rec.filter(function(d){ return !d.loss; }), leaky = rec.filter(function(d){ return d.loss > 0; });
+    var leakCard = leaky.length
+      ? tableHTML(['샌 비율 (%)', '한 일 (J)', 'ΔT (℃)', '얻은 열 (J)', '일 − 열 (J)', '열 ÷ 일'],
+          leaky.map(function(d){ return [d.loss, f(d.W, 1), f(d.dT, 2), f(d.Q, 1), f(d.Qout, 1), f(d.Q / d.W, 3)]; }), 'center') +
+        '<ul class="readout"><li>열이 새면 물이 얻은 열이 한 일보다 <b>작아져요</b>. ‘한 일이 그대로 열이 된다’는 결론은 통이 단열되어 있을 때만 그대로 쓸 수 있어요.</li>' +
+        '<li>샌 열은 사라진 것이 아니라 <b>통 벽과 공기</b>로 옮겨 갔어요. 통 밖 공기까지 함께 보면 에너지의 합은 그대로입니다.</li>' +
+        '<li>실제 실험에서는 통을 감싸 단열하고, 물 온도를 방 온도보다 낮게 시작해 재는 동안 새는 열을 줄입니다.</li></ul>'
+      : '<p class="msg">‘통이 밖으로 흘리는 열의 비율’을 0보다 크게 하고 기록해 보세요. 그러면 한 일과 얻은 열이 어긋나는 경우를 여기서 견줄 수 있어요.</p>';
     box.innerHTML = legend(used.map(function(v){ return {color:col(v), label:'물 ' + f(v, 2) + ' kg'}; })) + '<div class="vgrid">' +
-      card('추가 한 일과 물이 얻은 열', '<canvas class="chart" id="ch1" role="img" aria-label="역학적 에너지와 열 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">점선은 두 값이 같은 경우입니다. 추가 잃은 역학적 에너지는 어디로 갔나요?</p>') +
+      card('추가 한 일과 물이 얻은 열', '<canvas class="chart" id="ch1" role="img" aria-label="역학적 에너지와 열 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">점선은 두 값이 같은 경우입니다. 추가 잃은 역학적 에너지는 어디로 갔나요? 속이 빈 점은 통이 열을 흘리게 한 기록입니다.</p>') +
       card('온도 변화와 물 1 kg당 받은 일', '<canvas class="chart" id="ch2" role="img" aria-label="역학적 에너지와 열 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">물의 양이 달라도 점들이 한 직선에 모이나요? 1 ÷ 기울기는 어떤 물질의 성질일까요?</p>') +
       card('거꾸로도 될까?', '<ul class="readout" id="ro3"></ul><p class="ask">따뜻해진 물이 스스로 식으면서 그 열로 추를 처음 높이까지 끌어올릴 수 있을까요? 열을 일로 바꾸는 열기관의 효율이 100%가 될 수 없는 까닭과, 영구 기관이 불가능한 까닭을 이 실험과 연결해 설명해 보세요.</p>') +
+      card('열이 새면 어떻게 되나 — 결론이 갈리는 경우', leakCard) +
       '</div>';
-    drawScatter($('ch1'), {xLabel:'추가 한 일 (J)', yLabel:'물이 얻은 열 (J)', square:true, lines:[{k:1, color:'#8C99A8', dash:true}], series:ser(function(d){ return d.W; }, function(d){ return d.Q; })});
-    $('ro1').innerHTML = '<li>기록 ' + rec.length + '개: 열 ÷ 일 평균 <b>' + f(mean(rec.map(function(d){ return d.Q / d.W; })), 3) + '</b></li>';
-    var pts = rec.map(function(d){ return {x:d.W / d.Mw, y:d.dT}; }), k = fit0(pts);
-    drawScatter($('ch2'), {xLabel:'일 ÷ 물의 질량 (J/kg)', yLabel:'ΔT (℃)', lines:[{k:k, color:'#1E2833'}], series:ser(function(d){ return d.W / d.Mw; }, function(d){ return d.dT; })});
-    $('ro2').innerHTML = '<li>원점을 지나는 직선의 기울기 ' + f(k * 1e4, 3) + ' × 10⁻⁴ ℃·kg/J</li><li>1 ÷ 기울기 = <b>' + f(1 / k, 0) + ' J/(kg·℃)</b></li>';
+    drawScatter($('ch1'), {xLabel:'추가 한 일 (J)', yLabel:'물이 얻은 열 (J)', square:true, lines:[{k:1, color:'#8C99A8', dash:true}], series:ser2(function(d){ return d.W; }, function(d){ return d.Q; })});
+    var li1 = [];
+    if (sealed.length) li1.push('<li>단열된(샌 비율 0 %) 기록 ' + sealed.length + '개: 열 ÷ 일 평균 <b>' + f(mean(sealed.map(function(d){ return d.Q / d.W; })), 3) + '</b> → 추가 한 일이 그대로 물의 열이 되었어요.</li>');
+    if (leaky.length) li1.push('<li>열을 흘린 기록 ' + leaky.length + '개: 평균 <b>' + f(mean(leaky.map(function(d){ return d.Q / d.W; })), 3) + '</b> → 1보다 <b>작아요</b>. 모자란 몫은 통 벽과 공기로 빠져나갔어요.</li>');
+    $('ro1').innerHTML = li1.join('');
+    var base = sealed.length ? sealed : rec;
+    var pts = base.map(function(d){ return {x:d.W / d.Mw, y:d.dT}; }), k = fit0(pts);
+    drawScatter($('ch2'), {xLabel:'일 ÷ 물의 질량 (J/kg)', yLabel:'ΔT (℃)', lines:[{k:k, color:'#1E2833'}], series:ser2(function(d){ return d.W / d.Mw; }, function(d){ return d.dT; })});
+    $('ro2').innerHTML = '<li>' + (sealed.length ? '단열된 기록' : '기록') + '으로 구한, 원점을 지나는 직선의 기울기 ' + f(k * 1e4, 3) + ' × 10⁻⁴ ℃·kg/J</li><li>1 ÷ 기울기 = <b>' + f(1 / k, 0) + ' J/(kg·℃)</b>' + (sealed.length ? ' — 물의 비열에 가깝습니다.' : ' — 샌 열 때문에 물의 비열보다 크게 나와요.') + '</li>' + (leaky.length && sealed.length ? '<li>열을 흘린 기록(속이 빈 점)은 같은 일에서도 ΔT 가 작아 이 직선 <b>아래</b>에 놓여요.</li>' : '');
     var best = rec.reduce(function(a, b){ return b.W > a.W ? b : a; });
     $('ro3').innerHTML = '<li>가장 큰 기록: 추가 ' + f(best.W, 0) + ' J의 일을 해서 물 ' + f(best.Mw, 2) + ' kg의 온도가 ' + f(best.dT, 2) + ' ℃ 올랐습니다.</li>' +
       '<li>이 일은 ' + f(best.m, 0) + ' kg 추를 ' + f(best.W / (best.m * G), 1) + ' m 들어 올리는 일과 같습니다.</li>';
@@ -519,7 +547,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

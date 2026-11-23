@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -308,6 +310,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -436,11 +445,15 @@ var LAB = (function(){
       var SC = [{a:2, d:2, n:'가로 2배 · 세로 2배'}, {a:3, d:2, n:'가로 3배 · 세로 2배 (과제)'}];
       var MT = ['가장 가까운 칸 복사', '이웃 값 섞기 (선형 보간)'], MS = ['복사', '선형 보간'];
       var BK = ['확대만', '다시 원래 크기로 줄이기'];
-      function up(m, a, d){ var R = 2 * d, C = 2 * a, out = [];
+      /* 먼저 1칸으로 줄여 정보를 잃은 뒤 키워 보면, 잃은 무늬는 어떤 방법으로도 돌아오지 않는다 */
+      var PRE = ['원본 2 × 2 그대로', '먼저 1칸(평균)으로 줄인 뒤 확대'];
+      var LOST = [[50, 50], [50, 50]];   /* 10·90·90·10 의 평균 50 하나만 남은 그림 */
+      function srcOf(pre){ return pre ? LOST : IMG; }
+      function up(m, a, d, S){ S = S || IMG; var R = 2 * d, C = 2 * a, out = [];
         for (var i = 0; i < R; i++){ var row = [];
           for (var j = 0; j < C; j++){
-            if (m === 0) row.push(IMG[Math.floor(i / d)][Math.floor(j / a)]);
-            else { var u = i / (R - 1), t = j / (C - 1); row.push(IMG[0][0] * (1 - u) * (1 - t) + IMG[0][1] * (1 - u) * t + IMG[1][0] * u * (1 - t) + IMG[1][1] * u * t); } }
+            if (m === 0) row.push(S[Math.floor(i / d)][Math.floor(j / a)]);
+            else { var u = i / (R - 1), t = j / (C - 1); row.push(S[0][0] * (1 - u) * (1 - t) + S[0][1] * (1 - u) * t + S[1][0] * u * (1 - t) + S[1][1] * u * t); } }
           out.push(row); }
         return out; }
       function down(M, a, d){ return [0, 1].map(function(bi){ return [0, 1].map(function(bj){ var s = 0; for (var i = 0; i < d; i++) for (var j = 0; j < a; j++) s += M[bi * d + i][bj * a + j]; return s / (a * d); }); }); }
@@ -454,22 +467,28 @@ var LAB = (function(){
         params: [
           {key:'s', type:'seg', label:'확대 행렬', cols:2, value:0, options:['S = [[2, 0], [0, 2]] (가로세로 2배)', 'S = [[3, 0], [0, 2]] (가로 3배 · 세로 2배)']},
           {key:'m', type:'seg', label:'새 칸 채우는 방법', cols:2, value:0, options:MT},
+          {key:'pre', type:'seg', label:'키우기 전에 무엇으로 시작할까', cols:2, value:0, options:PRE},
           {key:'b', type:'seg', label:'보기', cols:2, value:0, options:BK, note:'다시 줄이기 = 확대 그림을 a × d 칸씩 묶어 평균 내기'}
         ],
         compute: function(p){
-          var s = SC[p.s], M = up(p.m, s.a, s.d), D = down(M, s.a, s.d), flat = [].concat.apply([], M);
+          var s = SC[p.s], S = srcOf(p.pre), M = up(p.m, s.a, s.d, S), D = down(M, s.a, s.d), flat = [].concat.apply([], M);
           var lo = Math.min.apply(null, flat), hi = Math.max.apply(null, flat), vals = distinct(flat.map(function(x){ return x.toFixed(2); }));
-          var back = [0, 1].every(function(i){ return [0, 1].every(function(j){ return Math.abs(D[i][j] - IMG[i][j]) < 1e-9; }); });
-          return {s:s, det:s.a * s.d, M:M, D:D, lo:lo, hi:hi, vals:vals, cells:flat.length, back:back, row0:M[0], px0:200 * 150, px1:200 * s.a * 150 * s.d};
+          var back = [0, 1].every(function(i){ return [0, 1].every(function(j){ return Math.abs(D[i][j] - S[i][j]) < 1e-9; }); });
+          var orig = [0, 1].every(function(i){ return [0, 1].every(function(j){ return Math.abs(D[i][j] - IMG[i][j]) < 1e-9; }); });
+          return {s:s, S:S, pre:p.pre, det:s.a * s.d, M:M, D:D, lo:lo, hi:hi, vals:vals, cells:flat.length, back:back, orig:orig, row0:M[0], px0:200 * 150, px1:200 * s.a * 150 * s.d,
+            lostMsg:p.pre === 0 ? '원본을 그대로 키웠어요 — 새 칸은 원래 값 사이를 메웁니다'
+              : '먼저 1칸(평균 50)으로 줄여 10과 90의 차이를 버렸어요. 그 뒤로는 복사든 보간이든 모든 칸이 50 — 잃은 무늬는 돌아오지 않습니다'};
         },
         draw: function(c, W, H, p, r, tau){
           var s = SC[p.s], k = r ? Math.min(tau / 0.7, 1) : 0, cs0 = Math.min(56, W * 0.12), x0 = 16, y0 = 40;
-          txt(c, '원본 2 × 2', x0, 26, {bold:true}); grid(c, IMG, x0, y0, cs0, 1);
+          void srcOf;
+          var S0 = srcOf(p.pre);
+          txtFit(c, p.pre ? '줄인 뒤 2 × 2' : '원본 2 × 2', x0, 26, {bold:true}, Math.max(50, 2 * cs0 + 34)); grid(c, S0, x0, y0, cs0, 1);
           var avail = W - (x0 + 2 * cs0 + 50) - 16, cs = Math.min(avail / (2 * s.a), (H - 130) / (2 * s.d)), x1 = x0 + 2 * cs0 + 50;
           arrow(c, x0 + 2 * cs0 + 8, y0 + cs0, x1 - 8, y0 + cs0, PAL[7], 2);
           if (r){
-            if (p.b === 0){ txt(c, (2 * s.d) + ' × ' + (2 * s.a) + ' (' + MS[p.m] + ')', x1, 26, {bold:true}); grid(c, r.M, x1, y0, cs, k); }
-            else { txt(c, '다시 줄인 2 × 2', x1, 26, {bold:true}); grid(c, r.D, x1, y0, Math.min(cs * 2, 70), k); }
+            if (p.b === 0){ txtFit(c, (2 * s.d) + ' × ' + (2 * s.a) + ' (' + MS[p.m] + ')', x1, 26, {bold:true}, Math.max(50, W - x1 - 10)); grid(c, r.M, x1, y0, cs, k); }
+            else { txtFit(c, '다시 줄인 2 × 2', x1, 26, {bold:true}, Math.max(50, W - x1 - 10)); grid(c, r.D, x1, y0, Math.min(cs * 2, 70), k); }
           }
           if (r && tau >= 1) txt(c, p.b === 0 ? '칸 4 → ' + r.cells + ' (×' + r.det + ') · 값 범위 ' + f(r.lo, 0) + '~' + f(r.hi, 0) : (r.back ? '원본 그대로 → 새 정보 없음' : '줄이면 원본보다 흐린 값 (' + f(r.D[0][0], 1) + ', ' + f(r.D[0][1], 1) + ')'), 16, H - 16, {bold:true, color:PAL[0]});
           else txt(c, r ? '칸 채우는 중…' : 'det S = ' + (s.a * s.d), 16, H - 16, {bold:true});
@@ -480,20 +499,24 @@ var LAB = (function(){
             ['200 × 150 사진이라면', '30,000 → ' + String(r.px1).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '픽셀', PAL[0]],
             ['첫 줄 값', r.row0.map(function(x){ return f(x, Math.abs(x - Math.round(x)) < 1e-9 ? 0 : 1); }).join(', '), PAL[3]],
             ['새 칸 값의 범위', f(r.lo, 0) + ' ~ ' + f(r.hi, 0) + ' — 원래 값(10, 90) 사이를 벗어나지 않음', PAL[1]],
-            ['서로 다른 값의 개수', r.vals + '개' + (p.m === 0 ? ' (10과 90뿐)' : ' (모두 10과 90을 섞은 값)')]];
+            ['서로 다른 값의 개수', r.vals + '개' + (r.pre ? ' (평균 50뿐)' : (p.m === 0 ? ' (10과 90뿐)' : ' (모두 10과 90을 섞은 값)'))],
+            ['시작한 그림', PRE[r.pre]],
+            ['잃은 정보는 돌아오나', r.lostMsg, r.pre ? PAL[4] : '#4A5868'],
+            ['원본(10, 90)과 같아졌나', r.orig ? '원본과 같아요' : '원본과 달라요 — 한 번 버린 차이는 어떤 방법으로도 못 되살립니다', r.orig ? PAL[1] : PAL[4]]];
           s.push(['다시 원래 크기로 줄이면', '[[' + f(r.D[0][0], 1) + ', ' + f(r.D[0][1], 1) + '], [' + f(r.D[1][0], 1) + ', ' + f(r.D[1][1], 1) + ']]' + (r.back ? ' = 원본' : ' — 섞인 값이라 흐려짐(새 정보는 여전히 없음)'), r.back ? PAL[1] : PAL[6]]);
           return s;
         },
-        columns: ['배율', '방법', '보기', '칸 수', '첫 줄'],
-        record: function(p, r){ return {s:p.s, m:p.m, b:p.b, cells:r.cells, row:r.row0.map(function(x){ return f(x, Math.abs(x - Math.round(x)) < 1e-9 ? 0 : 1); }).join(', '), back:r.back}; },
-        row: function(d){ return [SC[d.s].a + '×' + SC[d.s].d, MS[d.m], BK[d.b], d.cells, d.row]; },
+        columns: ['배율', '방법', '시작', '보기', '칸 수', '첫 줄', '원본과 같나'],
+        record: function(p, r){ return {s:p.s, m:p.m, b:p.b, pre:r.pre, cells:r.cells, row:r.row0.map(function(x){ return f(x, Math.abs(x - Math.round(x)) < 1e-9 ? 0 : 1); }).join(', '), back:r.back, orig:r.orig}; },
+        row: function(d){ return [SC[d.s].a + '×' + SC[d.s].d, MS[d.m], d.pre ? '줄인 뒤' : '원본', BK[d.b], d.cells, d.row, d.orig ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('방법별 확대 결과', '<div id="up1"></div><p class="ask">칸 수는 행렬식만큼 늘었나요? 어느 방법에서도 10보다 작거나 90보다 큰 값, 즉 새 무늬가 생겼나요?</p>') +
             card('웹툰 #4 2 × 2 그림을 4 × 4로', '<div id="up2"></div><p class="ask">과제: 3 × 3 그림을 직접 만들어 가로 3배, 세로 2배로 키우는 행렬과 행렬식을 쓰고, 복사 방식으로 결과 행렬을 채운 뒤 픽셀 수가 몇 배인지 확인해 보세요.</p>') + '</div>';
           var seen = {}, rows = [];
-          rec.forEach(function(d){ var key = d.s + '_' + d.m; if (seen[key]) return; seen[key] = 1; rows.push([SC[d.s].n, MS[d.m], d.cells + '칸', d.row]); });
-          $('up1').innerHTML = tableHTML(['배율', '방법', '칸 수', '첫 줄 값'], rows);
+          rec.forEach(function(d){ var key = d.s + '_' + d.m + '_' + (d.pre || 0); if (seen[key]) return; seen[key] = 1;
+            rows.push([SC[d.s].n, MS[d.m], d.pre ? '줄인 뒤' : '원본', d.cells + '칸', d.row]); });
+          $('up1').innerHTML = tableHTML(['배율', '방법', '시작', '칸 수', '첫 줄 값'], rows);
           $('up2').innerHTML = tableHTML(['방법', '4 × 4 결과의 한 줄', '새로 생긴 값'], [['가장 가까운 칸 복사', '10, 10, 90, 90', '없음 (10과 90뿐)'], ['이웃 값 섞기(선형 보간)', '10, 36.7, 63.3, 90', '원래 두 값 사이의 값뿐']]) +
             '<p class="msg">픽셀 수 200 × 150 = 30,000 → 400 × 300 = 120,000 (4배). 복사 방식의 4 × 4를 2 × 2 칸씩 평균 내면 [[10, 90], [90, 10]], 원본 그대로.</p>';
         }
@@ -504,7 +527,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

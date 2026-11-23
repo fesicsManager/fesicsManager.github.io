@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -457,19 +459,43 @@ var EL = [
  [{s:'K',n:'칼륨',z:19,r:227,ie:419,en:0.82,c:'금속'},{s:'Ca',n:'칼슘',z:20,r:197,ie:590,en:1.00,c:'금속'},{s:'Ga',n:'갈륨',z:31,r:135,ie:579,en:1.81,c:'금속'},{s:'Ge',n:'저마늄',z:32,r:122,ie:762,en:2.01,c:'준금속'},{s:'As',n:'비소',z:33,r:120,ie:947,en:2.18,c:'준금속'},{s:'Se',n:'셀레늄',z:34,r:119,ie:941,en:2.55,c:'비금속'},{s:'Br',n:'브로민',z:35,r:114,ie:1140,en:2.96,c:'비금속'},{s:'Kr',n:'크립톤',z:36,r:110,ie:1351,en:null,c:'비금속'}]
 ];
 var CCOL = {'금속':'#A8702F', '준금속':'#7657B3', '비금속':'#2B5FA3'};
+var UPDN = ['커진다', '작아진다'];
+/* 이 표에서 원자 번호가 바로 앞인 원소 (3주기 1족 앞은 2주기 18족) */
+function prevOf(pi, gi){
+  var k = pi * 8 + gi - 1;
+  if (k < 0) return null;
+  return {e:EL[Math.floor(k / 8)][k % 8], per:Math.floor(k / 8) + 2, gnum:GNUM[k % 8]};
+}
 return {
   sceneHeight: 470,
   minRec: 5,
-  idle: '주기와 족을 골라 <b>이 원소 조사하기</b>를 누르세요.',
+  get idle(){
+    var pv = (typeof p.p === 'number') ? prevOf(p.p, p.g) : null;
+    var cur = (typeof p.p === 'number' && EL[p.p]) ? EL[p.p][p.g] : null;
+    var head = '주기와 족을 골라 <b>이 원소 조사하기</b>를 누르세요.<br><br>🔎 <b>값을 보기 전에 먼저 맞히기</b><br>';
+    if (!pv) return head + '지금 고른 ' + (cur ? cur.n + ' ' + cur.s : '원소') + '은 이 표에서 가장 앞이라 견줄 앞 원소가 없어요. 다른 칸을 골라 보세요.';
+    return head + '원자 번호가 바로 앞인 원소는 <b>' + pv.e.n + ' ' + pv.e.s + '</b>(' + pv.per + '주기 ' + pv.gnum + '족)이에요. ' +
+      '이제 고른 <b>' + (cur ? cur.n + ' ' + cur.s : '') + '</b>의 원자 반지름과 이온화 에너지가 그 원소보다 커질지 작아질지 <b>먼저</b> 고른 뒤 조사하세요. 값은 조사한 뒤에 보여 줘요.';
+  },
   shortHint: '자유 탐구 탭에서 여러 원소를 기록하세요. 같은 주기·같은 족을 고루 모으면 경향이 잘 보입니다.',
   params: [
     {key:'p', type:'seg', label:'주기 (가로줄)', cols:3, value:1, options:['2주기', '3주기', '4주기']},
     {key:'g', type:'seg', label:'족 (세로줄)', cols:4, value:0, options:GNAME,
-      note:'4주기는 3~12족(전이 원소)을 뺀 1·2·13~18족만 다룹니다. 같은 족을 세로로, 같은 주기를 가로로 비교해 보세요.'}
+      note:'4주기는 3~12족(전이 원소)을 뺀 1·2·13~18족만 다룹니다. 같은 족을 세로로, 같은 주기를 가로로 비교해 보세요.'},
+    {key:'qr', type:'seg', label:'예상 ① 앞 원소보다 원자 반지름은?', cols:2, value:0, options:UPDN},
+    {key:'qi', type:'seg', label:'예상 ② 앞 원소보다 이온화 에너지는?', cols:2, value:0, options:UPDN,
+      note:'같은 주기에서 오른쪽으로 가면 대체로 반지름은 작아지고 이온화 에너지는 커집니다. 하지만 주기가 바뀌는 자리와 Mg→Al, P→S 같은 자리에서는 거꾸로예요. 두 예상을 먼저 고르고 조사하면 채점합니다.'}
   ],
   compute: function(p){
     var e = EL[p.p][p.g];
-    return {e:e, per:p.p + 2, gnum:GNUM[p.g], gi:p.g, pi:p.p};
+    var pv = prevOf(p.p, p.g);
+    var o = {e:e, per:p.p + 2, gnum:GNUM[p.g], gi:p.g, pi:p.p, prev:pv, qr:p.qr, qi:p.qi};
+    if (pv){
+      o.dR = e.r - pv.e.r; o.dIE = e.ie - pv.e.ie;
+      o.aR = o.dR > 0 ? 0 : 1; o.aIE = o.dIE > 0 ? 0 : 1;
+      o.okR = (p.qr === o.aR); o.okIE = (p.qi === o.aIE);
+    }
+    return o;
   },
   draw: function(c, W, H, p, r, tau){
     var nar = W < 480, ox = nar ? 12 : 30, cw = Math.min(64, (W - 2 * ox - (nar ? 0 : 36)) / 8), ch = 50, oy = 56;
@@ -527,19 +553,29 @@ return {
     return [['원소', e.n + ' (' + e.s + ')'], ['원자 번호', String(e.z)], ['자리', r.per + '주기 ' + r.gnum + '족'],
       ['원자가 전자 수', r.gnum === 18 ? '0 (가장 바깥 껍질 전자 8개로 안정)' : String(r.gnum <= 2 ? r.gnum : (r.gnum - 10))],
       ['원자 반지름', f(e.r, 0) + ' pm', PAL[0]], ['첫 번째 이온화 에너지', f(e.ie, 0) + ' kJ/mol', PAL[4]],
-      ['전기 음성도', e.en === null ? '—' : f(e.en, 2)], ['분류', e.c]];
+      ['전기 음성도', e.en === null ? '—' : f(e.en, 2)], ['분류', e.c]].concat(
+      r.prev ? [
+        ['앞 원소', r.prev.e.n + ' ' + r.prev.e.s + ' (반지름 ' + r.prev.e.r + ' pm, 이온화 E ' + r.prev.e.ie + ')', PAL[7]],
+        ['반지름 — 내 예상 / 실제', UPDN[r.qr] + ' / ' + UPDN[r.aR] + ' (' + sgn(r.dR, 0) + ' pm)', r.okR ? PAL[1] : PAL[4]],
+        ['이온화 E — 내 예상 / 실제', UPDN[r.qi] + ' / ' + UPDN[r.aIE] + ' (' + sgn(r.dIE, 0) + ' kJ/mol)', r.okIE ? PAL[1] : PAL[4]],
+        ['채점', (r.okR ? '반지름 맞음 ✔' : '반지름 아쉬움 ✘') + ' · ' + (r.okIE ? '이온화 E 맞음 ✔' : '이온화 E 아쉬움 ✘'), (r.okR && r.okIE) ? PAL[1] : PAL[4]]
+      ] : [['앞 원소', '없음 (이 표에서 가장 앞이라 채점하지 않아요)', PAL[7]]]);
   },
-  columns: ['원소', '원자 번호', '주기', '족', '원자가 전자', '반지름 (pm)', '이온화 E (kJ/mol)', '전기 음성도', '분류'],
+  columns: ['원소', '원자 번호', '주기', '족', '원자가 전자', '반지름 (pm)', '이온화 E (kJ/mol)', '전기 음성도', '분류', '앞 원소', '반지름 예상', '반지름 실제', '이온화 E 예상', '이온화 E 실제', '채점'],
   record: function(p, r){
     var e = r.e;
-    return {sym:e.s, nm:e.n, z:e.z, per:r.per, g:r.gnum, gi:r.gi, pi:r.pi, ve:r.gnum <= 2 ? r.gnum : r.gnum === 18 ? 0 : r.gnum - 10, rad:e.r, ie:e.ie, en:e.en, cls:e.c};
+    return {sym:e.s, nm:e.n, z:e.z, per:r.per, g:r.gnum, gi:r.gi, pi:r.pi, ve:r.gnum <= 2 ? r.gnum : r.gnum === 18 ? 0 : r.gnum - 10, rad:e.r, ie:e.ie, en:e.en, cls:e.c,
+      pvs:r.prev ? r.prev.e.s : null, qr:r.qr, qi:r.qi, aR:r.aR, aIE:r.aIE, okR:r.okR, okIE:r.okIE, dR:r.dR, dIE:r.dIE};
   },
-  row: function(d){ return [d.nm + ' ' + d.sym, d.z, d.per + '주기', d.g + '족', d.ve, d.rad, d.ie, d.en === null ? '—' : f(d.en, 2), d.cls]; },
+  row: function(d){ return [d.nm + ' ' + d.sym, d.z, d.per + '주기', d.g + '족', d.ve, d.rad, d.ie, d.en === null ? '—' : f(d.en, 2), d.cls,
+    d.pvs || '—', d.pvs ? UPDN[d.qr] : '—', d.pvs ? UPDN[d.aR] : '—', d.pvs ? UPDN[d.qi] : '—', d.pvs ? UPDN[d.aIE] : '—',
+    d.pvs ? ((d.okR ? '○' : '✘') + '/' + (d.okIE ? '○' : '✘')) : '—']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('원자 번호 순서와 이온화 에너지', '<canvas class="chart" id="ch1" role="img" aria-label="원자 번호와 이온화 에너지 산점도"></canvas><ul class="readout" id="ro1"></ul><p class="ask">값이 커졌다 작아졌다를 되풀이합니다. 갑자기 값이 뚝 떨어지는 자리는 주기율표의 어디인가요?</p>') +
       card('같은 주기에서 오른쪽으로 갈수록', '<canvas class="chart" id="ch2" role="img" aria-label="족과 원자 반지름 산점도"></canvas><ul class="readout" id="ro2"></ul><p class="ask">전자 껍질 수가 같은데 반지름이 줄어드는 까닭은 무엇일까요? 이온화 에너지와는 반대 방향인 것도 설명해 보세요.</p>') +
-      card('같은 족은 성질이 닮는다', '<div id="ro3"></div><p class="ask">같은 족 원소의 원자가 전자 수를 비교해 보세요. 성질이 닮는 진짜 이유가 무엇인지 말할 수 있나요?</p>') + '</div>';
+      card('같은 족은 성질이 닮는다', '<div id="ro3"></div><p class="ask">같은 족 원소의 원자가 전자 수를 비교해 보세요. 성질이 닮는 진짜 이유가 무엇인지 말할 수 있나요?</p>') +
+      card('먼저 맞히기 — 채점과 예외', '<div id="ro4"></div><p class="ask">틀린 줄이 모여 있는 곳을 보세요. 주기가 바뀌는 자리와 Mg→Al·P→S 같은 자리예요. 경향을 외우는 것과 어디서 깨지는지 아는 것은 다릅니다.</p>') + '</div>';
     var bp = groupBy(rec, function(d){ return d.pi; }), s1 = [], s2 = [], r1 = [], r2 = [];
     Object.keys(bp).sort(function(a,b){ return a - b; }).forEach(function(k){
       var g = bp[k], col = PAL[+k];
@@ -565,6 +601,22 @@ return {
     });
     $('ro3').innerHTML = tableHTML(['족', '원자가 전자', '기록한 원소(번호순)', '원자 반지름', '분류'], rows, 'wrap') +
       '<p class="note">같은 족이면 원자가 전자 수가 같아 화학 반응에서 같은 방식으로 전자를 주고받아요. 그래서 성질이 닮아요.</p>';
+    var qrec = rec.filter(function(d){ return d.pvs; });
+    if (!qrec.length){
+      $('ro4').innerHTML = '<p class="note">조작 칸에서 두 예상을 고르고 조사하면 여기에 채점표가 쌓여요.</p>';
+    } else {
+      var hr = qrec.filter(function(d){ return d.okR; }).length, hi = qrec.filter(function(d){ return d.okIE; }).length;
+      var upR = qrec.filter(function(d){ return d.aR === 0; }), dnIE = qrec.filter(function(d){ return d.aIE === 1; });
+      $('ro4').innerHTML = tableHTML(['원소', '앞 원소', '반지름 예상/실제', '이온화 E 예상/실제', '채점'],
+        qrec.map(function(d){ return [d.sym, d.pvs,
+          UPDN[d.qr] + ' / ' + UPDN[d.aR] + ' (' + sgn(d.dR, 0) + ')',
+          UPDN[d.qi] + ' / ' + UPDN[d.aIE] + ' (' + sgn(d.dIE, 0) + ')',
+          (d.okR ? '○' : '✘') + ' / ' + (d.okIE ? '○' : '✘')]; }), 'wrap') +
+        '<p class="note">반지름 <b>' + hr + ' / ' + qrec.length + '</b>, 이온화 에너지 <b>' + hi + ' / ' + qrec.length + '</b> 맞혔어요.</p>' +
+        '<p class="note">' +
+        (upR.length ? '반지름이 <b>커진</b> 줄(' + upR.map(function(d){ return d.pvs + '→' + d.sym; }).join(', ') + ')은 주기가 바뀌어 전자 껍질이 하나 늘어난 자리예요. ' : '반지름이 커지는 자리(주기가 바뀌는 곳, 예를 들어 네온 다음 나트륨)도 기록해 보세요. ') +
+        (dnIE.length ? '이온화 에너지가 <b>작아진</b> 줄(' + dnIE.map(function(d){ return d.pvs + '→' + d.sym; }).join(', ') + ')에는 주기가 바뀐 자리뿐 아니라 Mg→Al, P→S처럼 같은 주기 안의 예외도 섞여 있을 수 있어요.' : '이온화 에너지가 작아지는 예외 자리(Mg→Al, P→S)도 찾아보세요.') + '</p>';
+    }
   }
 };
 })();
@@ -573,7 +625,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>화석으로 지질시대 알아내기 | 고2 지구과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -391,7 +393,7 @@ function fos(n){ for (var i = 0; i < FOS.length; i++) if (FOS[i].n === n) return
 function range(list){ var s = 4600, e = 0; list.forEach(function(n){ var F = fos(n); s = Math.min(s, F.s); e = Math.max(e, F.e); }); return {s:s, e:e, empty:s < e}; }
 function eraOf(s, e){ var mid = (s + e) / 2, out = []; ERAS.forEach(function(E){ if (s > E.e && e < E.s) out.push(E); }); return out; }
 return {
-  sceneHeight: 460,
+  sceneHeight: function (w){ return w < 560 ? 620 : 460; },
   idle: '지역과 지층을 고른 뒤 <b>화석 살펴보기</b>를 누르세요. 그 층에서 나온 화석으로 쌓인 시기와 환경을 추정합니다.',
   shortHint: '자유 탐구 탭에서 세 지역의 지층을 모두 살펴보고 기록하세요.',
   params: [
@@ -405,7 +407,9 @@ return {
     return {S:S, B:B, R:R, es:es, env:envs.sort(function(a, b){ return b.length - a.length; })[0], eraName:es.map(function(E){ return E.era; }).filter(function(v, i, a2){ return a2.indexOf(v) === i; }).join('~') || '−'};
   },
   draw: function(c, W, H, p, r, tau){
-    var S = SITES[p.st], x0 = 14, y0 = 34, w = Math.min(W * 0.42, 230), bh = 62;
+    /* 좁은 화면에서는 단면을 전체 폭으로 하고 화석 결과를 그 아래로 내린다 */
+    var narrow = W < 560;
+    var S = SITES[p.st], x0 = 14, y0 = 34, w = narrow ? W - 28 : Math.min(W * 0.42, 230), bh = 62;
     txt(c, S.name + ' 지층 단면', x0, 24, {bold:true});
     var cols = {'사암':'#E3D2A5', '셰일':'#9AA6B3', '석회암':'#DCE6E0', '역암':'#C9B394'};
     S.beds.forEach(function(B, i){
@@ -416,12 +420,12 @@ return {
       txt(c, B.f.join(', '), x0 + 10, y + 46, {color:'#4A5868'});
     });
     // 화석 살펴보기 결과
-    var tx = x0 + w + 24, k = r ? Math.min(tau / 0.8, 1) : 0;
-    if (!r){ txt(c, '층을 고르고 살펴보세요', tx, y0 + 30, {color:'#4A5868'}); }
+    var tx = narrow ? x0 : x0 + w + 24, ty = narrow ? y0 + S.beds.length * bh + 20 : y0, k = r ? Math.min(tau / 0.8, 1) : 0;
+    if (!r){ txt(c, '층을 고르고 살펴보세요', tx, ty + 30, {color:'#4A5868'}); }
     else {
-      txt(c, '나온 화석', tx, y0 + 10, {color:'#4A5868'});
-      r.B.f.forEach(function(n, i){ if (i / r.B.f.length > k) return; var F = fos(n); txt(c, '· ' + n + ' (' + F.s + '~' + F.e + ' Ma, ' + F.env + ')', tx, y0 + 40 + i * 28, {}); });
-      if (k >= 1){ txt(c, '겹치는 기간: ' + f(r.R.s, 0) + ' ~ ' + f(r.R.e, 1) + ' Ma', tx, y0 + 40 + r.B.f.length * 28 + 16, {bold:true, color:'#C8463D'}); }
+      txt(c, '나온 화석', tx, ty + 10, {color:'#4A5868'});
+      r.B.f.forEach(function(n, i){ if (i / r.B.f.length > k) return; var F = fos(n); txt(c, '· ' + n + ' (' + F.s + '~' + F.e + ' Ma, ' + F.env + ')', tx, ty + 40 + i * 28, {}); });
+      if (k >= 1){ txt(c, '겹치는 기간: ' + f(r.R.s, 0) + ' ~ ' + f(r.R.e, 1) + ' Ma', tx, ty + 40 + r.B.f.length * 28 + 16, {bold:true, color:'#C8463D'}); }
     }
     // 지질시대 막대
     var gy = H - 120, gx = 60, gw = W - 80;
@@ -467,7 +471,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

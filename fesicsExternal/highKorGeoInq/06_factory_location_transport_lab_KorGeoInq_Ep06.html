@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -309,7 +311,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -471,7 +473,12 @@ var LAB = (function(){
             if (r && w > 0 && dist(q, S) > 0.5){ var inb = key !== 'C', a = inb ? q : S, b = inb ? S : q;
               arrow(c, X(a), Y(a), X(a) + (X(b) - X(a)) * k, Y(a) + (Y(b) - Y(a)) * k, cols[key], 1.5 + w * 2.5); }
             c.fillStyle = cols[key]; c.beginPath(); c.arc(X(q), Y(q), 8 + Math.sqrt(w) * 12, 0, Math.PI * 2); c.fill();
-            txt(c, lab[key] + ' ' + w + 't', X(q), Y(q) + (key === 'P' ? -28 : W < 520 ? 58 : 38), {align:key === 'R' ? 'left' : key === 'C' ? 'right' : 'center', bold:true});
+            // 좁은 화면: 원료지·시장 이름표를 양 끝으로 보내고 위아래로 벌림
+            var nar6 = W < 520;
+            txt(c, lab[key] + ' ' + w + 't',
+              nar6 ? (key === 'R' ? 16 : key === 'C' ? W - 16 : X(q)) : X(q),
+              nar6 ? (key === 'P' ? Y(q) - 28 : Y(q) + (key === 'R' ? 58 : 80)) : Y(q) + (key === 'P' ? -28 : 38),
+              {align:key === 'R' ? 'left' : key === 'C' ? 'right' : 'center', bold:true, size:nar6 ? 13 : 18});
           });
           c.fillStyle = PAL[4]; c.beginPath(); for (var j = 0; j < 10; j++){ var rr = j % 2 ? 6 : 14, an = -Math.PI / 2 + j * Math.PI / 5; c.lineTo(X(S) + rr * Math.cos(an), Y(S) + rr * Math.sin(an)); } c.closePath(); c.fill();
           if (r && tau >= 1) txt(c, I.short + ' 공장 ' + SITE[p.s].short + ': 운송비 ' + nf(r.my) + (r.isMin ? ' (최소)' : ' (최소 ' + SITE[r.best].short + ' ' + nf(r.cs[r.best]) + ')'), 16, H - 14, {bold:true, color:r.isMin ? PAL[1] : PAL[4]});
@@ -506,7 +513,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

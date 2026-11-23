@@ -259,6 +259,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">측정할 지점: 출발선에서 <span class="slider-val" id="sVal">40</span> % 지점</div>
             <input type="range" id="sSlider" min="0" max="100" step="10" value="40" aria-label="측정할 지점">
+            <div class="control-label">트랙의 마찰계수 μ: <span class="slider-val" id="uVal">0.00</span></div>
+            <input type="range" id="uSlider" min="0" max="12" step="2" value="0" aria-label="트랙의 마찰계수">
             <button class="btn-main" id="runBtn">그 지점까지 굴려서 재기 ▶</button>
             <div class="result-box" id="result">지점을 정하고 굴리면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -267,8 +269,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>지점(%)</th><th>높이(m)</th><th>속력(m/s)</th><th>위치(J)</th><th>운동(J)</th><th>합(J)</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>μ</th><th>지점(%)</th><th>높이(m)</th><th>속력(m/s)</th><th>위치(J)</th><th>운동(J)</th><th>열(J)</th><th>위치+운동(J)</th><th>열까지 합(J)</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="10" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -516,7 +518,17 @@ function heightAt(s){
   var c=Math.cos(1.5*Math.PI*s);
   return 1.0 + 4.0*c*c*(1-0.45*s);
 }
-function speedAt(s){ return Math.sqrt(Math.max(0, 2*G*(H0-heightAt(s)))); }
+var XL=20, MU=0;                             /* 코스의 수평 길이 20 m, 마찰계수 (0 이면 예전과 똑같다) */
+/* 빗면에서 마찰이 하는 일 = μ·m·g·cosθ·(빗면 길이) = μ·m·g·(수평으로 간 거리) */
+function heatAt(s){ return MU*M*G*XL*s; }
+function needAt(s){ return M*G*heightAt(s) + heatAt(s); }
+function speedAt(s){ return Math.sqrt(Math.max(0, 2*(E_TOT-needAt(s))/M)); }
+/* 마찰이 크면 언덕을 넘지 못하고 멈춘다 — 갈 수 있는 가장 먼 지점 */
+function reachMax(){
+  if(MU<=0) return 1;
+  for(var i=1;i<=100;i++){ if(needAt(i/100)>E_TOT+1e-9) return (i-1)/100; }
+  return 1;
+}
 
 var setS=40, records=[], busy=false, revealed=false, pos=0;
 var canvas=document.getElementById('eCanvas'), ctx=canvas.getContext('2d');
@@ -524,18 +536,26 @@ var TX0=32, TX1=306, TTOP=54, TBOT=282;
 function px(s){ return TX0+(TX1-TX0)*s; }
 function py(h){ return TBOT-(TBOT-TTOP)*(h/5.4); }
 
+function resetRun(){
+  pos=0; revealed=false;
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='지점과 마찰계수를 정하고 굴리면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+}
 document.getElementById('sSlider').addEventListener('input',function(e){
   setS=parseInt(e.target.value,10);
   document.getElementById('sVal').textContent=setS;
-  pos=0; revealed=false;
-  document.getElementById('result').className='result-box';
-  document.getElementById('result').innerHTML='지점을 정하고 굴리면 결과가 표에 자동으로 기록됩니다.';
-  draw();
+  resetRun();
+});
+document.getElementById('uSlider').addEventListener('input',function(e){
+  MU=parseInt(e.target.value,10)/100;
+  document.getElementById('uVal').textContent=MU.toFixed(2);
+  resetRun();
 });
 
 function draw(){
   var s=pos, h=heightAt(s), v=speedAt(s);
-  var Ep=M*G*h, Ek=0.5*M*v*v;
+  var Ep=M*G*h, Ek=0.5*M*v*v, Q=heatAt(s);
   ctx.clearRect(0,0,440,420);
   ctx.fillStyle='#f7fbfa'; ctx.fillRect(0,0,440,336);
 
@@ -566,7 +586,7 @@ function draw(){
   ctx.beginPath(); ctx.moveTo(24,py(H0)); ctx.lineTo(312,py(H0)); ctx.stroke(); ctx.setLineDash([]);
 
   /* 목표 지점 표시 */
-  var ts=setS/100;
+  var ts=Math.min(setS/100, reachMax());
   ctx.strokeStyle='#2f8f9d'; ctx.lineWidth=2.5; ctx.setLineDash([5,4]);
   ctx.beginPath(); ctx.moveTo(px(ts),py(heightAt(ts))-40); ctx.lineTo(px(ts),TBOT+16); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle='#2f8f9d'; ctx.font="700 17px 'Noto Sans KR',sans-serif"; ctx.textAlign='center';
@@ -602,7 +622,7 @@ function draw(){
   }
   bar(BX, Ep, '#d98e3b', '위치');
   bar(BX+36, Ek, '#2f8f9d', '운동');
-  bar(BX+72, Ep+Ek, '#8a6fb0', '합');
+  bar(BX+72, Q, '#c1443c', '열');
   ctx.fillStyle='#173238'; ctx.font="700 16px 'Noto Sans KR',sans-serif"; ctx.textAlign='center';
   ctx.fillText('에너지(J)', BX+49, BY0-12);
   ctx.strokeStyle='#8a6fb0'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
@@ -613,15 +633,25 @@ function draw(){
   ctx.fillStyle='#e9f1f0'; ctx.fillRect(0,336,440,84);
   ctx.textAlign='center';
   if(revealed){
-    var hh2=heightAt(ts), vv=speedAt(ts);
-    ctx.fillStyle='#173238'; ctx.font="700 22px 'Noto Sans KR',sans-serif";
-    ctx.fillText('높이 '+hh2.toFixed(2)+'m · 속력 '+vv.toFixed(2)+' m/s', 220, 364);
-    ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
-    ctx.fillText('위치 '+(M*G*hh2).toFixed(1)+' + 운동 '+(0.5*M*vv*vv).toFixed(1)+' = '+E_TOT.toFixed(0)+' J', 220, 390);
+    var hh2=heightAt(ts), vv=speedAt(ts), QQ=heatAt(ts);
+    ctx.fillStyle='#173238'; ctx.font="700 21px 'Noto Sans KR',sans-serif";
+    ctx.fillText('높이 '+hh2.toFixed(2)+'m · 속력 '+vv.toFixed(2)+' m/s', 220, 360);
+    ctx.fillStyle='#4a636a'; ctx.font="600 18px 'IBM Plex Mono',monospace";
+    var fs8 = MU>0
+      ? '위치 '+(M*G*hh2).toFixed(1)+' + 운동 '+(0.5*M*vv*vv).toFixed(1)+' + 열 '+QQ.toFixed(1)+' = '+E_TOT.toFixed(0)+' J'
+      : '위치 '+(M*G*hh2).toFixed(1)+' + 운동 '+(0.5*M*vv*vv).toFixed(1)+' = '+E_TOT.toFixed(0)+' J';
+    var fw8=ctx.measureText(fs8).width;
+    if(fw8>424) ctx.font="600 "+Math.max(11,Math.floor(18*424/fw8))+"px 'IBM Plex Mono',monospace";
+    ctx.fillText(fs8, 220, 386);
+    if(MU>0){
+      ctx.font="600 16px 'Noto Sans KR',sans-serif"; ctx.fillStyle='#c1443c';
+      ctx.fillText(ts<setS/100-1e-9 ? '마찰 때문에 '+Math.round(ts*100)+'% 에서 멈췄어요 (더 못 넘어감)'
+                                    : '위치+운동만 보면 '+(M*G*hh2+0.5*M*vv*vv).toFixed(1)+'J — 열까지 세야 49J', 220, 410);
+    }
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
-    ctx.fillText('"그 지점까지 굴려서 재기"를 눌러보세요', 220, 368);
-    ctx.fillText('측정할 지점: '+setS+'%', 220, 396);
+    ctx.fillText('"그 지점까지 굴려서 재기"를 눌러보세요', 220, 364);
+    ctx.fillText('지점 '+setS+'% · 마찰계수 μ = '+MU.toFixed(2), 220, 392);
   }
   ctx.textAlign='left';
 }
@@ -630,14 +660,15 @@ draw();
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return r.s===setS; })){
-    notify('이미 측정한 지점이에요. 다른 지점을 골라보세요.');
+  if(records.some(function(r){ return r.s===setS && Math.abs(r.mu-MU)<1e-9; })){
+    notify('이미 측정한 조합이에요. 지점이나 마찰계수를 바꿔보세요.');
     return;
   }
   busy=true; revealed=false; pos=0;
   var btn=this; btn.disabled=true;
-  lockInputs('#sSlider', true);
-  var target=setS/100;
+  lockInputs('#sSlider,#uSlider', true);
+  var target=Math.min(setS/100, reachMax());
+  if(target<setS/100-1e-9) notify('마찰이 커서 '+Math.round(target*100)+'% 에서 멈춥니다.');
   /* 속력이 빠른 곳은 빨리, 느린 곳은 느리게 지나간다 */
   var last=performance.now();
   function frame(ts){
@@ -649,14 +680,15 @@ document.getElementById('runBtn').addEventListener('click', function(){
     else{
       pos=target; revealed=true; draw();
       btn.disabled=false; busy=false;
-      lockInputs('#sSlider', false);
-      var h=heightAt(target), v2=speedAt(target);
-      records.push({s:setS, h:h, v:v2, Ep:M*G*h, Ek:0.5*M*v2*v2});
+      lockInputs('#sSlider,#uSlider', false);
+      var h=heightAt(target), v2=speedAt(target), Q2=heatAt(target);
+      records.push({s:Math.round(target*100), ask:setS, mu:MU, h:h, v:v2, Ep:M*G*h, Ek:0.5*M*v2*v2, Q:Q2,
+        stopped:target<setS/100-1e-9});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
       box.innerHTML='위치 <span class="big-val">'+(M*G*h).toFixed(1)+'J</span> + 운동 <span class="big-val">'
-        +(0.5*M*v2*v2).toFixed(1)+'J</span> = '+E_TOT.toFixed(0)+'J '
+        +(0.5*M*v2*v2).toFixed(1)+'J</span>'+(MU>0?' + 열 <span class="big-val">'+Q2.toFixed(1)+'J</span>':'')+' = '+E_TOT.toFixed(0)+'J '
         +'<span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
       maybeToast(records.length);
     }
@@ -667,11 +699,12 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  var s=records.slice().sort(function(a,b){ return a.s-b.s; });
+  if(!records.length){ tb.innerHTML='<tr><td colspan="10" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  var s=records.slice().sort(function(a,b){ return (a.mu-b.mu)||(a.s-b.s); });
   tb.innerHTML=s.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.s+'</td><td>'+r.h.toFixed(2)+'</td><td>'+r.v.toFixed(2)+'</td>'
-      +'<td>'+r.Ep.toFixed(1)+'</td><td>'+r.Ek.toFixed(1)+'</td><td>'+(r.Ep+r.Ek).toFixed(1)+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td>'+r.mu.toFixed(2)+'</td><td>'+r.s+'</td><td>'+r.h.toFixed(2)+'</td><td>'+r.v.toFixed(2)+'</td>'
+      +'<td>'+r.Ep.toFixed(1)+'</td><td>'+r.Ek.toFixed(1)+'</td><td>'+r.Q.toFixed(1)+'</td><td>'+(r.Ep+r.Ek).toFixed(1)+'</td><td>'
+      +(r.Ep+r.Ek+r.Q).toFixed(1)+'</td></tr>';
   }).join('');
 }
 
@@ -699,17 +732,34 @@ function renderValidation(){
     + '<div class="insight-box">자동 분석: 위치 에너지는 높이에 <b>정비례</b>하고 기울기가 <span class="mono">'+reg.m.toFixed(1)
     + '</span>입니다 (= mg = 1kg × 9.8). 높이가 낮은 곳일수록 위치 에너지가 작은 대신 <b>운동 에너지가 그만큼 크죠</b>.</div>';
 
-  var sums=records.map(function(r){ return r.Ep+r.Ek; });
+  var noFr=records.filter(function(r){ return r.mu<=0; });
+  var fr=records.filter(function(r){ return r.mu>0; });
+  var g0=noFr.length?noFr:records;
+  var sums=g0.map(function(r){ return r.Ep+r.Ek; });
   var avg=sums.reduce(function(a,b){return a+b;},0)/sums.length;
   var spread=Math.max.apply(null,sums)-Math.min.apply(null,sums);
   document.getElementById('invariantAnalysis').innerHTML =
     s.map(function(r){
-      return '<div class="mini-row"><span>'+r.Ep.toFixed(1)+' + '+r.Ek.toFixed(1)+'</span><span class="mono">'+(r.Ep+r.Ek).toFixed(2)+' J</span></div>';
+      return '<div class="mini-row"><span>μ '+r.mu.toFixed(2)+' · '+r.Ep.toFixed(1)+' + '+r.Ek.toFixed(1)+(r.mu>0?' (+ 열 '+r.Q.toFixed(1)+')':'')
+        +'</span><span class="mono">'+(r.Ep+r.Ek).toFixed(2)+' J'+(r.mu>0?' → '+(r.Ep+r.Ek+r.Q).toFixed(2)+' J':'')+'</span></div>';
     }).join('')
-    + '<div class="insight-box">자동 분석: 어느 지점에서 재도 <b>두 에너지의 합이 '+avg.toFixed(1)
-    + ' J</b>로 같습니다 (최대-최소 차이 '+spread.toFixed(3)+'J). '
-    + '이 값은 출발할 때의 위치 에너지 <span class="mono">1 × 9.8 × 5 = 49 J</span>와 같아요. '
-    + '에너지가 사라지거나 생기지 않고 <b>형태만 바뀌는 것</b>이 역학적 에너지 보존 법칙입니다.</div>';
+    + '<div class="insight-box">자동 분석: 마찰이 <b>없을 때(μ = 0)</b>는 어느 지점에서 재도 <b>위치 + 운동 = '+avg.toFixed(1)
+    + ' J</b>로 같습니다 (최대-최소 차이 '+spread.toFixed(3)+'J). 출발할 때의 위치 에너지 <span class="mono">1 × 9.8 × 5 = 49 J</span> 그대로예요.</div>'
+    + (fr.length
+        ? (function(){
+            var m2=fr.map(function(r){ return r.Ep+r.Ek; });
+            var t2=fr.map(function(r){ return r.Ep+r.Ek+r.Q; });
+            var lo=Math.min.apply(null,m2), hi=Math.max.apply(null,m2);
+            var tl=Math.min.apply(null,t2), th2=Math.max.apply(null,t2);
+            var st=fr.filter(function(r){ return r.stopped; });
+            return '<div class="insight-box">그런데 <b>마찰을 넣으면</b>(기록 '+fr.length+'개) 위치 + 운동이 '
+              + lo.toFixed(1)+'~'+hi.toFixed(1)+' J 로 <b>49 J 보다 작아지고, 멀리 갈수록 더 줄어듭니다</b>. '
+              + '빠져나간 만큼은 <b>열</b>로 바뀌었고, 열까지 더하면 다시 '+tl.toFixed(1)+'~'+th2.toFixed(1)+' J 로 돌아옵니다. '
+              + '즉 <b>역학적 에너지 보존은 마찰이 없을 때만</b> 성립하고, <b>에너지 전체의 보존</b>은 늘 성립해요. '
+              + (st.length ? '마찰이 커서 언덕을 넘지 못하고 멈춘 기록도 '+st.length+'개 있었습니다 — 넘을 힘(에너지)이 모자랐던 거예요.' : '마찰을 더 키우면 언덕을 아예 넘지 못하기도 합니다.')
+              + ' (열 = μ × 무게 × 수평으로 간 거리, 교육용 모형)</div>';
+          })()
+        : '<div class="insight-box wait">마찰계수 μ 를 <b>0 보다 크게</b> 두고 한 번 더 재 보세요. 그때 ‘합’이 어떻게 되는지가 이 실험의 핵심입니다.</div>');
 }
 
 document.getElementById('predictBtn').addEventListener('click', function(){

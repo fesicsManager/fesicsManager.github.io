@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -455,13 +457,17 @@ var LAB = (function(){
           {key:'s', type:'seg', label:'대칭', cols:3, value:2, options:SY},
           {key:'g', type:'seg', label:'배엽', cols:2, value:1, options:GE},
           {key:'c', type:'seg', label:'체강', cols:3, value:2, options:CO},
-          {key:'d', type:'seg', label:'발생 (원구가 무엇이 되나)', cols:2, value:0, options:['선구 (입이 먼저)', '후구 (항문이 먼저)']}
+          {key:'d', type:'seg', label:'발생 (원구가 무엇이 되나)', cols:2, value:0, options:['선구 (입이 먼저)', '후구 (항문이 먼저)']},
+          {key:'gp', type:'seg', label:'짐작 — 어느 문이 나올까', cols:3, value:8,
+            options:PH.map(function(x){ return x.n; }).concat(['해당하는 문 없음']),
+            note:'조립을 누르기 전에 먼저 고르세요. 조합에 따라 여러 문이 함께 나오기도 하고, 하나도 없기도 합니다.'}
         ],
         compute:function(p){
           var m = match(p), warn = '';
           if (p.s === 0) warn = '조직이 없는 해면동물은 배엽·체강 기준을 쓰지 않아요.';
           else if (p.g === 0 && p.s === 1) warn = '2배엽 동물은 체강·선구/후구 구분을 쓰지 않아요.';
-          return {m:m, warn:warn, key:[p.s, p.g, p.c, p.d].join('')};
+          var hit = p.gp === PH.length ? m.length === 0 : m.some(function(x){ return x.n === PH[p.gp].n; });
+          return {m:m, warn:warn, key:[p.s, p.g, p.c, p.d].join(''), gp:p.gp, hit:hit};
         },
         draw:function(c, W, H, p, r, tau){
           var cx = Math.min(W * 0.32, 160), cy = 200, R = Math.min(120, cx - 20), k = r ? Math.min(tau / 0.6, 1) : 1;
@@ -499,15 +505,18 @@ var LAB = (function(){
             ['맞는 문', r.m.length ? r.m.map(function(x){ return x.n; }).join(', ') : '해당하는 문 없음', r.m.length ? PAL[1] : PAL[4]],
             ['대표 동물', r.m.length ? r.m.map(function(x){ return x.ex; }).join(' / ') : '−'],
             ['기재 종 수 (대략)', r.m.length ? r.m.map(function(x){ return x.n.replace('동물', '') + ' ' + big(x.sp); }).join(' · ') : '−']];
+          s.push(['나의 짐작', (p.gp === PH.length ? '해당하는 문 없음' : PH[p.gp].n) + (r.hit ? ' — 맞힘' : ' — 빗나감'), r.hit ? PAL[1] : PAL[4]]);
           if (r.warn) s.push(['참고', r.warn, PAL[6]]);
           return s;
         },
-        columns:['대칭', '배엽', '체강', '발생', '맞는 문'],
-        record:function(p, r){ return {s:p.s, g:p.g, c:p.c, d:p.d, m:r.m.map(function(x){ return x.n; })}; },
-        row:function(d){ return [SY[d.s], GE[d.g], CO[d.c], DV[d.d].slice(0, 2), d.m.length ? d.m.join(', ') : '없음']; },
+        columns:['대칭', '배엽', '체강', '발생', '맞는 문', '짐작', '맞힘'],
+        record:function(p, r){ return {s:p.s, g:p.g, c:p.c, d:p.d, m:r.m.map(function(x){ return x.n; }), gp:r.gp, hit:r.hit}; },
+        row:function(d){ return [SY[d.s], GE[d.g], CO[d.c], DV[d.d].slice(0, 2), d.m.length ? d.m.join(', ') : '없음',
+          d.gp == null ? '−' : (d.gp === PH.length ? '없음' : PH[d.gp].n), d.gp == null ? '−' : (d.hit ? '○' : '×')]; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('시도한 몸 설계와 결과', '<div id="ab1"></div><p class="ask">좌우 대칭·3배엽·진체강·선구동물 조합에는 문이 여럿 나왔습니다. 연체·환형·절지동물을 가르려면 어떤 기준(체절, 외골격, 탈피)이 더 필요할까요?</p>') +
+            card('짐작 채점', '<div id="ab3"></div><p class="ask">빗나간 조합은 어떤 기준에서 갈렸나요? 하나의 조합에 여러 문이 함께 나올 때, 그 문들을 가르는 기준을 하나 더 찾아 적어 보세요.</p>') +
             card('찾아낸 문의 기재 종 수 (대략, 로그 눈금)', '<div id="ab2"></div><p class="ask">과제: 절지동물이 알려진 동물 종의 대부분을 차지하는 까닭을 외골격·체절·변태·육상 진출과 연결해 설명해 보세요.</p>') + '</div>';
           var seen = {}, rows = [], found = {};
           rec.forEach(function(d){ var k = [d.s, d.g, d.c, d.d].join(''); d.m.forEach(function(n){ found[n] = 1; }); if (seen[k]) return; seen[k] = 1;
@@ -515,6 +524,18 @@ var LAB = (function(){
           $('ab1').innerHTML = tableHTML(['대칭', '배엽', '체강', '발생', '맞는 문'], rows);
           var items = PH.filter(function(x){ return found[x.n]; }).map(function(x){ return {label:x.n, v:Math.log10(x.sp) - 3, color:PAL[1], text:big(x.sp)}; });
           $('ab2').innerHTML = items.length ? hbars(items, 3.2) : '<p class="msg">아직 찾아낸 문이 없어요.</p>';
+          (function(){
+            var gr = rec.filter(function(d){ return d.gp != null; });
+            if (!gr.length){ $('ab3').innerHTML = '<p class="msg">짐작을 고르고 조립하면 여기에서 채점해 줍니다.</p>'; return; }
+            var hit = gr.filter(function(d){ return d.hit; }).length;
+            var none = gr.filter(function(d){ return !d.m.length; }).length;
+            $('ab3').innerHTML = '<p>맞힌 횟수 <b>' + hit + ' / ' + gr.length + '</b></p>' +
+              tableHTML(['조합', '나의 짐작', '실제로 나온 문', '맞힘'],
+                gr.slice(-8).map(function(d){ return [[SY[d.s], GE[d.g], CO[d.c], DV[d.d].slice(0, 2)].join('·'),
+                  d.gp === PH.length ? '없음' : PH[d.gp].n, d.m.length ? d.m.join(', ') : '없음', d.hit ? '○' : '×']; }), 'wrap') +
+              (none ? '<p class="msg">문이 하나도 없는 조합을 ' + none + '번 만들었습니다 — <b>있을 수 있는 몸 설계와 실제로 있는 몸 설계는 다릅니다.</b></p>'
+                    : '<p class="msg">문이 하나도 나오지 않는 조합도 찾아보세요 (예: 좌우 대칭·2배엽·진체강).</p>');
+          })();
         }
       };
     })();
@@ -523,7 +544,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,6 +436,7 @@ var LAB = (function(){
         {name:'내막(크리스타)', role:'전자 전달계와 ATP 합성 효소 — H⁺가 되돌아오며 ATP를 만들어요.'},
         {name:'기질', role:'피루브산 산화와 TCA 회로가 일어나 NADH·FADH₂를 만들어요.'}];
       var LEN = 2, WID = 0.8;
+      var TGT = [2, 3, 4, 5];
       function perim(a, b){ var h = Math.pow(a - b, 2) / Math.pow(a + b, 2); return Math.PI * (a + b) * (1 + 3 * h / (10 + Math.sqrt(4 - 3 * h))); }
       return {
         sceneHeight: 420,
@@ -442,12 +445,29 @@ var LAB = (function(){
         params: [
           {key:'n', type:'range', label:'크리스타 수', min:0, max:16, step:1, value:6, fmt:function(v){ return v + '개'; }},
           {key:'d', type:'range', label:'크리스타 깊이 (폭 대비)', min:10, max:90, step:10, value:60, fmt:function(v){ return v + '%'; }},
-          {key:'c', type:'seg', label:'살펴볼 구획', cols:4, value:2, options:CP.map(function(x){ return x.name; })}
+          {key:'c', type:'seg', label:'살펴볼 구획', cols:4, value:2, options:CP.map(function(x){ return x.name; })},
+          {key:'tg', type:'seg', label:'목표 — 내막을 외막의 몇 배로?', cols:3, value:0, options:['안 함(원래대로)'].concat(TGT.map(function(v){ return v + '배'; })),
+            note:'목표를 고르면 지금 깊이로 그 배율을 만들려면 주름이 몇 개 필요한지 채점해 줍니다. 깊이가 얕으면 16개를 넣어도 안 되는 목표도 있어요.'},
+          {key:'gn', type:'range', label:'먼저 짐작: 주름이 몇 개 필요할까?', min:0, max:16, step:1, value:0, fmt:function(v){ return v === 0 ? '짐작 안 함' : v + '개'; }}
         ],
         compute: function(p){
           var n = Math.round(p.n), out = perim(LEN / 2, WID / 2), inBase = perim(LEN / 2 - 0.04, WID / 2 - 0.04), depth = (WID - 0.08) * p.d / 100;
           var inner = inBase + 2 * n * depth;
-          return {n:n, out:out, inner:inner, ratio:inner / out, depth:depth, cap:inner / inBase * 100, cp:CP[p.c]};
+          var res = {n:n, out:out, inner:inner, ratio:inner / out, depth:depth, cap:inner / inBase * 100, cp:CP[p.c]};
+          if (p.tg > 0){
+            var T = TGT[p.tg - 1], need = Math.ceil((T * out - inBase) / (2 * depth));
+            res.tgt = T; res.need = need; res.feasible = need >= 0 && need <= 16;
+            res.needMsg = need <= 0 ? '주름 없이도 이미 넘어요' : (res.feasible ? '주름 ' + need + '개가 필요해요' : '이 깊이로는 16개를 넣어도 ' + T + '배가 안 돼요 — 깊이를 늘려야 해요');
+            if (p.gn > 0 && res.feasible){
+              var dd = Math.abs(p.gn - need);
+              res.gn = p.gn;
+              res.grade = dd === 0 ? '맞음 ✓' : (dd <= 1 ? '한 개 차이' : (dd <= 3 ? '빗나감' : '크게 빗나감 ✕'));
+              res.gmsg = res.grade + ' — 실제 ' + need + '개 (내 짐작 ' + p.gn + '개)';
+            } else if (p.gn > 0){
+              res.gn = p.gn; res.grade = '채점 못 함'; res.gmsg = '이 깊이로는 목표에 닿지 못해 채점할 수 없어요';
+            }
+          }
+          return res;
         },
         draw: function(c, W, H, p, r, tau){
           var n = Math.round(p.n), cx = W / 2, cy = H * 0.44, a = Math.min(W * 0.44, 320), b = Math.min(110, a * 0.4), hc = p.c;
@@ -472,13 +492,20 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['크리스타', r.n + '개, 깊이 ' + f(r.depth, 2) + ' μm'], ['외막 둘레', f(r.out, 2) + ' μm'], ['내막 길이', f(r.inner, 2) + ' μm', PAL[4]],
-            ['내막 ÷ 외막', f(r.ratio, 2) + '배', PAL[4]], ['ATP 생산 능력(주름 없음 = 100)', f(r.cap, 0), PAL[6]], [r.cp.name, r.cp.role, PAL[2]]];
+            ['내막 ÷ 외막', f(r.ratio, 2) + '배', PAL[4]], ['ATP 생산 능력(주름 없음 = 100)', f(r.cap, 0), PAL[6]], [r.cp.name, r.cp.role, PAL[2]]].concat(
+            r.tgt ? [['목표 ' + r.tgt + '배를 만들려면', r.needMsg, r.feasible ? PAL[0] : PAL[4]]] : []).concat(
+            r.gn ? [['내 짐작 채점', r.gmsg, /맞음/.test(r.grade || '') ? PAL[1] : PAL[4]],
+              ['셈하는 법', '필요한 주름 수 = (목표배율 × 외막 − 주름 없는 내막) ÷ (2 × 깊이) — 깊이가 두 배면 주름 수는 절반', PAL[6]]] : []);
         },
-        columns: ['크리스타 수', '깊이 %', '내막 μm', '내막/외막', '생산 능력'],
-        record: function(p, r){ return {n:r.n, d:p.d, inner:r.inner, ratio:r.ratio, cap:r.cap}; },
-        row: function(d){ return [d.n, d.d, f(d.inner, 2), f(d.ratio, 2), f(d.cap, 0)]; },
+        columns: ['크리스타 수', '깊이 %', '내막 μm', '내막/외막', '생산 능력', '목표 · 내 짐작'],
+        record: function(p, r){ return {n:r.n, d:p.d, inner:r.inner, ratio:r.ratio, cap:r.cap, tgt:r.tgt || 0, need:r.need, feas:r.feasible, gn:r.gn || 0, grade:r.grade || ''}; },
+        row: function(d){ return [d.n, d.d, f(d.inner, 2), f(d.ratio, 2), f(d.cap, 0), d.tgt ? (d.tgt + '배 → ' + (d.feas ? '필요 ' + d.need + '개' : '불가') + (d.gn ? ' · 짐작 ' + d.gn + '개 ' + d.grade : '')) : '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var gs = rec.filter(function(d){ return d.tgt; });
+          var gcard = !gs.length ? '' : card('목표 배율에 필요한 주름 수 — 내 짐작과 계산값', tableHTML(['목표', '깊이', '내 짐작', '필요한 주름', '채점'],
+              gs.map(function(d){ return [d.tgt + '배', d.d + '%', d.gn ? d.gn + '개' : '—', d.feas ? d.need + '개' : '16개로도 안 됨', d.grade || '—']; })) +
+            '<p class="ask">같은 목표에서 깊이를 두 배로 하면 필요한 주름 수는 어떻게 되나요? 깊이가 얕을 때 16개를 넣어도 목표에 닿지 못한 적이 있었나요? 주름은 수와 깊이가 <b>함께</b> 내막 길이를 만듭니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + gcard +
             card('크리스타 수와 내막 길이', '<canvas class="chart" id="mc1"></canvas><div id="mc1b"></div><p class="ask">같은 깊이에서 크리스타가 하나 늘 때 내막은 몇 μm씩 늘어나나요? 기울기가 2 × 깊이와 같은지 확인하세요.</p>') +
             card('깊이별 비교', '<div id="mc2"></div><p class="ask">과제: 심장근 세포와 지방 세포 가운데 크리스타가 더 발달했을 세포를 고르고 까닭을 쓰세요. 소장의 융털·폐의 폐포와 공통점도 찾아보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.d; }), ser = [], rows = [], ci = 0;
@@ -496,7 +523,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

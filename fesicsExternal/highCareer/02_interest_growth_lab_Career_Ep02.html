@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>좋아하는 일 하나를 먼저 찾아야 진로를 정할 수 있는가</h1>
-    <p>제로의 6주 흥미 기록장(1 ~ 5점)에서 <b>활동</b>과 <b>판단한 시점</b>을 골라 보세요. 해 보기 전 예상이나 1주 뒤에 “나와 안 맞는다”고 그만뒀다면 무엇을 놓쳤을지, 6주 뒤 점수와 비교해 확인합니다.<br><span style="font-size:.9em;color:#a86825">※ 흥미 점수는 제로 랩의 수업용 가상 기록입니다. 흥미가 자라는 방식은 사람과 활동마다 달라요.</span></p>
+    <p>6주 흥미 기록장(1 ~ 5점)에서 <b>활동</b>·<b>판단한 시점</b>·<b>같이 하는 사람</b>을 골라 보세요. 6주 뒤 점수는 가려져 있습니다. 보이는 점수만 보고 <b>계속할지 그만둘지 내 판단을 먼저 정한 뒤</b> 누르면, 6주 뒤 점수와 맞혔는지 채점해 줍니다.<br><span style="font-size:.9em;color:#a86825">※ 흥미 점수는 <b>교육용 모형값</b>입니다. 1주 뒤부터 6주까지 자라는 몫에는 ‘같이 하는 사람’이 차지하는 비중이 활동마다 다르게 들어 있어, 혼자 하면 그만큼 덜 자라게 계산합니다(토론 대회 준비는 그 비중이 가장 큽니다). 그래서 <b>같은 활동이라도 옳은 판단이 뒤집힐 수 있습니다.</b> 실제 흥미가 자라는 방식은 사람과 활동마다 달라요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -433,66 +435,109 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
+      /* soc = 그 활동에서 흥미가 자라는 데 '같이 하는 사람'이 차지하는 몫 (교육용 모형값) */
       var ACT = [
-        {n:'코딩 동아리', v:[2, 2, 4], why:'오류를 혼자 고칠 수 있게 된 주부터 재미있어짐', c:PAL[0]},
-        {n:'요리 체험', v:[4, 4, 3], why:'재미있었지만 같은 걸 반복하니 조금 식음', c:PAL[2]},
-        {n:'토론 대회 준비', v:[1, 2, 4], why:'같이 준비한 친구들이 있어서', c:PAL[3]},
-        {n:'사진 찍기', v:[3, 4, 4], why:'1주 만에 올라 그대로 유지', c:PAL[1]},
-        {n:'네 활동 평균', v:[2.5, 3.0, 3.75], why:'평균은 예상보다 1.25점 높아짐', c:PAL[7]}
+        {n:'코딩 동아리', v:[2, 2, 4], soc:0.3, why:'오류를 혼자 고칠 수 있게 된 주부터 재미있어짐', whyS:'혼자서도 오류를 고치는 재미는 남지만 자라는 속도가 느려짐', c:PAL[0]},
+        {n:'요리 체험', v:[4, 4, 3], soc:0.3, why:'재미있었지만 같은 걸 반복하니 조금 식음', whyS:'같이 먹어 줄 사람이 없으니 더 빨리 식음', c:PAL[2]},
+        {n:'토론 대회 준비', v:[1, 2, 4], soc:1.0, why:'같이 준비한 친구들이 있어서', whyS:'같이 준비할 친구가 없으면 오르던 흥미가 되돌아감', c:PAL[3]},
+        {n:'사진 찍기', v:[3, 4, 4], soc:0.2, why:'1주 만에 올라 그대로 유지', whyS:'혼자서도 거의 그대로 유지됨', c:PAL[1]},
+        {n:'네 활동 평균', v:[2.5, 3.0, 3.75], soc:0.45, why:'평균은 예상보다 1.25점 높아짐', whyS:'혼자 하면 평균이 예상보다 거의 오르지 않음', c:PAL[7]}
       ];
       var WHEN = ['해 보기 전 예상만 보고', '1주 해 보고', '6주 해 보고'], TX = [0, 1, 6];
+      var MY = ['그만둔다', '계속한다'], SUP = ['친구와 함께', '혼자'];
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       function sc(v){ return v % 1 ? f(v, 2).replace(/0$/, '') : f(v, 0); }
+      /* 같이 하는 사람에 따라 6주 뒤 점수를 다시 계산한다 */
+      function seriesOf(ai, sup){
+        var a = ACT[ai];
+        if (ai === 4){
+          var s = [0, 0, 0];
+          for (var i = 0; i < 4; i++){ var v = seriesOf(i, sup); s[0] += v[0]; s[1] += v[1]; s[2] += v[2]; }
+          return [s[0] / 4, s[1] / 4, Math.round(s[2] / 4 * 100) / 100];
+        }
+        var g = a.v[2] - a.v[1];
+        if (sup === 1) g -= a.soc * 2.5;
+        return [a.v[0], a.v[1], Math.max(1, Math.min(5, Math.round((a.v[1] + g) * 100) / 100))];
+      }
       return {
         sceneHeight: 420,
-        idle: '활동과 판단 시점을 고른 뒤 <b>이 시점에서 판단하기</b>를 누르세요.',
-        shortHint: '네 활동을 모두, 특히 코딩과 토론을 ‘1주 해 보고’ 시점으로 판단해 보세요.',
+        idle: '활동·판단 시점·같이 하는 사람을 고르고, 6주 점수를 보기 전에 <b>내 판단</b>을 적은 뒤 <b>이 시점에서 판단하기</b>를 누르세요.',
+        shortHint: '같은 활동을 ‘친구와 함께’와 ‘혼자’로 각각 판단해 보세요. 특히 토론 대회 준비를 두 가지로 해 보세요.',
         params: [
           {key:'a', type:'seg', label:'활동', cols:3, value:0, options:ACT.map(function(x){ return x.n; })},
           {key:'w', type:'seg', label:'“나와 맞는가”를 판단한 시점', cols:3, value:1, options:WHEN,
-            note:'판단 시점에 3점 이하면 “안 맞는다”며 그만뒀다고 가정합니다.'}
+            note:'고른 시점까지의 점수만 보고 판단합니다. 6주 뒤 점수는 누른 다음에 열려요.'},
+          {key:'my', type:'seg', label:'6주 점수를 보기 전 — 내 판단', cols:2, value:0, options:MY,
+            note:'지금 보이는 점수만 보고 먼저 정하세요. 누르면 6주 뒤 점수와 맞혔는지 채점해 줘요.'},
+          {key:'sup', type:'seg', label:'같이 하는 사람', cols:2, value:0, options:SUP,
+            note:'같이 할 친구가 있는지에 따라 흥미가 자라는 속도가 달라져요. 활동마다 그 몫이 달라요.'}
         ],
         compute: function(p){
-          var a = ACT[p.a], now = a.v[p.w], last = a.v[2], quit = p.w < 2 && now <= 3;
-          return {a:a, now:now, last:last, miss:last - now, quit:quit};
+          var a = ACT[p.a], vv = seriesOf(p.a, p.sup);
+          var now = vv[p.w], last = vv[2];
+          var right = last > 3 ? 1 : 0;              // 1 = 계속하는 것이 옳았다
+          var hit = p.my === right;
+          var miss = p.my === 0 && p.w < 2 ? Math.round((last - now) * 100) / 100 : 0;
+          return {a:a, vv:vv, now:now, last:last, right:right, hit:hit, miss:miss, quit:p.my === 0};
         },
         draw: function(c, W, H, p, r, tau){
-          var k = r ? Math.min(1, tau / 0.8) : 0, a = ACT[p.a];
+          var k = r ? Math.min(1, tau / 0.8) : 0, a = ACT[p.a], vv = seriesOf(p.a, p.sup);
           var pb = plotBox(c, 70, 30, W - 100, H - 120, [0, 6, 1], [0, 5, 1], '주 (0 = 해 보기 전 예상)', '흥미 점수');
           var upto = p.w;
           for (var i = 0; i < 2; i++){
-            var vis = i < upto, x1 = pb.X(TX[i]), y1 = pb.Y(a.v[i]), x2 = pb.X(TX[i + 1]), y2 = pb.Y(a.v[i + 1]);
+            var vis = i < upto, x1 = pb.X(TX[i]), y1 = pb.Y(vv[i]), x2 = pb.X(TX[i + 1]), y2 = pb.Y(vv[i + 1]);
             if (vis) seg(c, x1, y1, x2, y2, a.c, 4); else if (r) { c.globalAlpha = k; seg(c, x1, y1, x2, y2, a.c, 2, [6, 5]); c.globalAlpha = 1; }
           }
           for (var j = 0; j < 3; j++){
             var seen = j <= upto; c.globalAlpha = seen ? 1 : (r ? 0.4 * k : 0);
-            c.fillStyle = seen ? a.c : '#fff'; c.strokeStyle = a.c; c.lineWidth = 2.5; c.beginPath(); c.arc(pb.X(TX[j]), pb.Y(a.v[j]), 7, 0, Math.PI * 2); c.fill(); c.stroke();
-            if (seen || r) tf(c, sc(a.v[j]), pb.X(TX[j]) + 10, pb.Y(a.v[j]) - 10, {bold:true, color:a.c});
+            c.fillStyle = seen ? a.c : '#fff'; c.strokeStyle = a.c; c.lineWidth = 2.5; c.beginPath(); c.arc(pb.X(TX[j]), pb.Y(vv[j]), 7, 0, Math.PI * 2); c.fill(); c.stroke();
+            if (seen || r) tf(c, sc(vv[j]), pb.X(TX[j]) + 10, pb.Y(vv[j]) - 10, {bold:true, color:a.c});
             c.globalAlpha = 1;
           }
           seg(c, pb.X(TX[upto]), 30, pb.X(TX[upto]), H - 90, PAL[4], 2, [4, 4]);
-          if (r) tf(c, r.quit ? '여기서 그만뒀다면 → 6주 뒤 ' + sc(r.last) + '점을 몰랐음' : (p.w < 2 ? '계속해 봄 → 6주 뒤 ' + sc(r.last) + '점' : '6주 기록 완료: ' + sc(r.last) + '점'), 20, H - 16, {bold:true, color:r.quit && r.miss > 0 ? PAL[4] : PAL[1]}, W - 40);
+          if (r) tf(c, r.quit && p.w < 2 ? '여기서 그만뒀다면 → 6주 뒤 ' + sc(r.last) + '점을 몰랐음' : (p.w < 2 ? '계속해 봄 → 6주 뒤 ' + sc(r.last) + '점' : '6주 기록 완료: ' + sc(r.last) + '점'), 20, H - 16, {bold:true, color:r.quit && r.miss > 0 ? PAL[4] : PAL[1]}, W - 40);
         },
         stats: function(p, r){
-          return [['활동', r.a.n], ['예상 → 1주 → 6주', r.a.v.map(sc).join(' → ')],
-            ['판단 시점의 점수', WHEN[p.w] + ': ' + sc(r.now) + '점' + (r.quit ? ' → 그만둠(가정)' : ''), r.quit ? PAL[4] : PAL[1]],
+          var judge = r.hit
+            ? '맞혔어요 — 6주 뒤 ' + sc(r.last) + '점이니 ' + MY[r.right] + '는 판단이 맞았어요'
+            : '빗나갔어요 — 6주 뒤 ' + sc(r.last) + '점이니 ' + MY[r.right] + '는 판단이 맞았어요';
+          return [['활동', r.a.n + ' · ' + SUP[p.sup]],
+            ['예상 → 1주 → 6주', r.vv.map(sc).join(' → ')],
+            ['판단 시점의 점수', WHEN[p.w] + ': ' + sc(r.now) + '점'],
+            ['6주 점수를 보기 전 내 판단', MY[p.my], r.hit ? PAL[1] : PAL[4]],
+            ['판정', judge, r.hit ? PAL[1] : PAL[4]],
             ['판단 뒤 일어난 변화', (r.miss > 0 ? '+' : '') + sc(r.miss) + '점' + (r.quit && r.miss > 0 ? ' — 그만뒀다면 놓쳤을 변화' : ''), PAL[3]],
-            ['무엇이 점수를 바꿨나', r.a.why]];
+            ['무엇이 점수를 바꿨나', p.sup === 1 ? r.a.whyS : r.a.why]];
         },
-        columns: ['활동', '판단 시점', '그때 점수', '6주 뒤', '놓친 변화'],
-        record: function(p, r){ return {a:p.a, w:p.w, now:r.now, last:r.last, miss:r.quit ? r.miss : 0}; },
-        row: function(d){ return [ACT[d.a].n, ['예상', '1주', '6주'][d.w], sc(d.now), sc(d.last), d.miss ? (d.miss > 0 ? '+' : '') + sc(d.miss) : '—']; },
+        columns: ['활동', '같이', '판단 시점', '내 판단', '6주 뒤', '채점'],
+        record: function(p, r){ return {a:p.a, w:p.w, my:p.my, sup:p.sup, now:r.now, last:r.last, right:r.right, hit:r.hit ? 1 : 0, miss:r.miss}; },
+        row: function(d){ return [ACT[d.a].n, SUP[d.sup], ['예상', '1주', '6주'][d.w], MY[d.my], sc(d.last), d.hit ? '○' : '×']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
-            card('해 보기 전 예상 vs 6주 뒤', '<canvas class="chart" id="ig1"></canvas><p class="ask">점이 대각선(예상 = 6주 뒤)에서 벗어날수록 예상이 빗나간 활동입니다. 해 보기 전 예상만으로 “좋아하는 일 하나”를 고를 수 있을까요?</p>') +
-            card('판단 시점별로 놓친 변화', '<div id="ig2"></div><p class="ask">과제: 이번 달에 처음 해 보는 활동 두 가지를 정하고, 예상·1주·4주 흥미 점수와 ‘무엇이 점수를 바꿨는지’ 한 줄 메모를 기록하세요.</p>') + '</div>';
-          var seen = groupBy(rec, function(d){ return d.a; }), pts = [];
-          Object.keys(seen).forEach(function(i){ if (+i < 4) pts.push({x:ACT[+i].v[0], y:ACT[+i].v[2]}); });
-          drawScatter($('ig1'), {series:[{color:PAL[0], pts:pts}], square:true, lines:[{k:1, b:0, color:'#8C99A8', dash:true}], xLabel:'해 보기 전 예상', yLabel:'6주 뒤'});
           var g = groupBy(rec, function(d){ return d.w; }), items = [];
-          [0, 1, 2].forEach(function(w){ if (!g[w]) return; var m = mean(g[w].map(function(d){ return Math.abs(d.miss); }));
-            items.push({label:WHEN[w] + ' (' + g[w].length + '회)', v:m, color:w < 2 ? PAL[4] : PAL[1], text:'평균 ' + f(m, 2) + '점'}); });
-          $('ig2').innerHTML = hbars(items, 3) + (Object.keys(g).length < 2 ? '<p class="msg">판단 시점을 바꿔 가며 더 기록해 보세요.</p>' : '');
+          [0, 1, 2].forEach(function(w){ if (!g[w]) return; var m = mean(g[w].map(function(d){ return d.hit; })) * 100;
+            items.push({label:WHEN[w] + ' (' + g[w].length + '회)', v:m, color:m >= 60 ? PAL[1] : PAL[4], text:'적중 ' + Math.round(m) + '%'}); });
+          var sol = rec.filter(function(d){ return d.sup === 1; }), tog = rec.filter(function(d){ return d.sup === 0; });
+          var flip = {};
+          rec.forEach(function(d){ var key = d.a + '-' + d.w; (flip[key] = flip[key] || {})[d.sup] = d.right; });
+          var flipped = Object.keys(flip).filter(function(k){ var o = flip[k]; return o[0] != null && o[1] != null && o[0] !== o[1]; });
+          var msg;
+          if (flipped.length){
+            var ai = +flipped[0].split('-')[0];
+            msg = ACT[ai].n + '은 같은 점수에서 출발해도 <b>친구와 함께면 계속하는 쪽</b>, <b>혼자면 그만두는 쪽</b>이 맞는 판단이었어요. 옳은 답이 활동 이름만으로 정해지지 않았어요.';
+          } else if (sol.length && tog.length){
+            msg = '‘혼자’일 때 적중률 ' + Math.round(mean(sol.map(function(d){ return d.hit; })) * 100) + '%, ‘친구와 함께’일 때 ' +
+              Math.round(mean(tog.map(function(d){ return d.hit; })) * 100) + '%예요. 토론 대회 준비를 두 가지로 해 보면 옳은 답이 뒤집히는 경우를 만들 수 있어요.';
+          } else {
+            msg = '‘친구와 함께’와 ‘혼자’를 모두 해 보면, 옳은 판단이 뒤집히는 활동을 찾을 수 있어요.';
+          }
+          box.innerHTML = '<div class="vgrid">' +
+            card('해 보기 전 예상 vs 6주 뒤 (내가 기록한 것)', '<canvas class="chart" id="ig1"></canvas><p class="ask">점이 대각선(예상 = 6주 뒤)에서 벗어날수록 예상이 빗나간 활동입니다. 해 보기 전 예상만으로 “좋아하는 일 하나”를 고를 수 있을까요?</p>') +
+            card('내 판단은 몇 번 맞았나', '<div id="ig2"></div><p class="ask">과제: 이번 달에 처음 해 보는 활동 두 가지를 정하고, 예상·1주·4주 흥미 점수와 ‘같이 한 사람이 있었는지’를 함께 기록하세요.</p>') + '</div>';
+          var seen = {}, pts = [];
+          rec.forEach(function(d){ var key = d.a + '-' + d.sup; if (seen[key] || d.a >= 4) return; seen[key] = 1;
+            pts.push({x:ACT[d.a].v[0], y:d.last}); });
+          drawScatter($('ig1'), {series:[{color:PAL[0], pts:pts}], square:true, lines:[{k:1, b:0, color:'#8C99A8', dash:true}], xLabel:'해 보기 전 예상', yLabel:'6주 뒤'});
+          $('ig2').innerHTML = hbars(items, 100) + '<p class="msg">' + msg + '</p>';
         }
       };
     })();
@@ -501,7 +546,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

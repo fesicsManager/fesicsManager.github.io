@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,16 +443,29 @@ var LAB = (function(){
         {key:'scope', n:'줄일 대상의 범위', o:['특정 물질·좁은 산업', '경제 전체'], sc:[2, 0]}];
       var MON = [0, 0, 0, 0, 0], CLI = [1, 0, 1, 1, 1];
       function same(p, s){ return CO.every(function(x, i){ return p[x.key] === s[i]; }); }
+      /* 조건 하나만 기후 쪽으로 바꿀 때 점수가 가장 많이 깎이는 고리를 먼저 짐작하게 한다 */
+      function sum(a){ return a.reduce(function(x, y){ return x + y; }, 0); }
       return {
         sceneHeight: function(w){ return w < 500 ? 440 : 420; },
         idle: '다섯 조건을 고른 뒤 <b>조건 맞춰 보기</b>를 누르세요. 처음 값은 몬트리올 의정서 설정입니다.',
         shortHint: '몬트리올 의정서 설정과 기후 체제 설정을 모두 기록하고, 조건을 하나씩 바꿔서도 기록해 보세요.',
-        params: CO.map(function(x){ return {key:x.key, type:'seg', label:x.n, cols:x.o.length, value:0, options:x.o}; }),
+        params: CO.map(function(x){ return {key:x.key, type:'seg', label:x.n, cols:x.o.length, value:0, options:x.o}; })
+          .concat([{key:'pg', type:'seg', label:'먼저 짐작 — 기후 쪽으로 하나만 바꿀 때 점수를 가장 많이 깎는 고리는', cols:5, value:0,
+            options:CO.map(function(x){ return x.n; })}]),
         compute: function(p){
           var sc = CO.map(function(x){ return x.sc[p[x.key]]; }), sum = sc.reduce(function(a, b){ return a + b; }, 0);
+          var sum2 = function(a){ return a.reduce(function(x, y){ return x + y; }, 0); };
           var mn = Math.min.apply(null, sc), weak = CO.filter(function(x, i){ return sc[i] === mn; }).map(function(x){ return x.n; });
           var preset = same(p, MON) ? '몬트리올 의정서와 같은 설정' : (same(p, CLI) ? '기후 변화 협약 체제와 같은 설정' : '직접 만든 설정');
-          return {sc:sc, score:sum / 10 * 100, mn:mn, weak:weak, preset:preset, blocked:mn === 0};
+          var here = sum / 10 * 100;
+          var drops = CO.map(function(x, i){ var s2 = sc.slice(); s2[i] = x.sc[CLI[i]]; return here - sum2(s2) / 10 * 100; });
+          var worst = 0; drops.forEach(function(v, i){ if (v > drops[worst]) worst = i; });
+          var pgOk = p.pg === worst, maxDrop = drops[worst];
+          return {sc:sc, score:here, mn:mn, weak:weak, preset:preset, blocked:mn === 0,
+            drops:drops, worst:worst, pgOk:pgOk, maxDrop:maxDrop,
+            pgMsg:maxDrop <= 0 ? '지금 설정에서는 하나만 바꿔도 점수가 더 깎이지 않아요 (이미 기후 쪽 값들)'
+              : CO[p.pg].n + ' → 실제로 가장 많이 깎는 고리는 ' + CO[worst].n + ' (' + f(maxDrop, 0) + '점)' + (pgOk ? ' — 맞음' : ' — 틀림'),
+            dropList:CO.map(function(x, i){ return x.n + ' −' + f(Math.max(0, drops[i]), 0); }).join(' · ')};
         },
         draw: function(c, W, H, p, r, tau){
           var y = 30, LC = ['#C8463D', '#D98E04', '#2E9E78'];
@@ -479,17 +494,24 @@ var LAB = (function(){
           return [['설정', r.preset], ['조건 충족도 (단순 모형)', f(r.score, 0) + ' / 100', r.blocked ? PAL[4] : PAL[1]],
             ['가장 약한 고리', r.mn === 2 ? '없음 — 다섯 조건 모두 갖춤' : r.weak.join(', ') + (r.blocked ? ' — 0점 조건(가장 어려운 고리)' : ' — 일부만 갖춤'), PAL[4]],
             ['고리별 점수', CO.map(function(x, i){ return x.n + ' ' + r.sc[i]; }).join(' · '), PAL[0]],
-            ['비교', '몬트리올 의정서 설정 100 · 기후 변화 협약 체제 설정 50', PAL[6]]];
+            ['고리 하나만 기후 쪽으로 바꾸면 깎이는 점수', r.dropList, PAL[6]],
+            ['먼저 짐작 채점', r.pgMsg, r.maxDrop <= 0 ? '#4A5868' : (r.pgOk ? PAL[1] : PAL[4])],
+            ['비교', '몬트리올 의정서 설정 100 · 기후 변화 협약 체제 설정 50', PAL[6]],
+            ['※', '충족도 점수는 조건마다 0·1·2점을 매겨 더한 교육용 모형값입니다 — 실제 협약의 성과 지표가 아닙니다.']];
         },
-        columns: ['설정', '대체 기술', '참여', '감축 방식', '이행·지원', '대상 범위', '충족도', '약한 고리'],
-        record: function(p, r){ return {v:CO.map(function(x){ return p[x.key]; }), score:r.score, weak:r.mn === 2 ? '없음' : r.weak.join(', '), preset:r.preset}; },
-        row: function(d){ return [d.preset.replace(' 설정', '').replace('와 같은', '').replace('과 같은', '')].concat(CO.map(function(x, i){ return x.o[d.v[i]].split('(')[0]; })).concat([f(d.score, 0), d.weak]); },
+        columns: ['설정', '대체 기술', '참여', '감축 방식', '이행·지원', '대상 범위', '충족도', '약한 고리', '짐작'],
+        record: function(p, r){ return {v:CO.map(function(x){ return p[x.key]; }), score:r.score, weak:r.mn === 2 ? '없음' : r.weak.join(', '), preset:r.preset,
+          pg:p.pg, worst:r.worst, pgOk:r.pgOk, maxDrop:r.maxDrop}; },
+        row: function(d){ return [d.preset.replace(' 설정', '').replace('와 같은', '').replace('과 같은', '')].concat(CO.map(function(x, i){ return x.o[d.v[i]].split('(')[0]; }))
+          .concat([f(d.score, 0), d.weak, d.pgOk == null ? '—' : (d.maxDrop <= 0 ? '—' : (CO[d.worst].n + (d.pgOk ? ' ○' : ' ✕')))]); },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록한 설정의 조건 충족도', '<div id="kv1"></div><p class="ask">기후 체제 설정에서 고리 하나만 바꿔 점수를 가장 많이 올릴 수 있는 조건은 무엇인가요? 그 조건은 현실에서 바꾸기 쉬운가요?</p>') +
             card('가장 약한 고리 모아 보기', '<div id="kv2"></div><p class="ask">과제: 국경을 넘는 문제 하나(미세 먼지, 해양 플라스틱, 감염병, 난민 등)를 골라 비교표의 조건 일곱 줄을 채우고, 지금 가장 부족한 조건 하나를 근거와 함께 적어 보세요.</p>') + '</div>';
           var items = rec.map(function(d, i){ return {label:(i + 1) + '. ' + d.preset.replace(' 설정', ''), v:d.score, color:d.score >= 80 ? PAL[1] : (d.score >= 50 ? PAL[6] : PAL[4]), text:f(d.score, 0)}; });
-          $('kv1').innerHTML = hbars(items, 100);
+          var qr = rec.filter(function(d){ return d.maxDrop > 0; }), qh = qr.filter(function(d){ return d.pgOk; }).length;
+          $('kv1').innerHTML = hbars(items, 100) +
+            (qr.length ? '<p class="msg">가장 많이 깎는 고리 짐작: ' + qh + ' / ' + qr.length + ' 맞힘</p>' : '');
           var cnt = {};
           rec.forEach(function(d){ if (d.weak === '없음') return; d.weak.split(', ').forEach(function(w){ cnt[w] = (cnt[w] || 0) + 1; }); });
           var rows = Object.keys(cnt).sort(function(a, b){ return cnt[b] - cnt[a]; }).map(function(k){ return [k, cnt[k] + '번']; });
@@ -502,7 +524,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,6 +439,7 @@ var LAB = (function(){
       var CO = ['조건 A — 내 처지를 앎', '조건 B — 내 처지를 모름 (무지의 베일)'];
       var ME = ['부유한 쪽으로 태어남', '가난한 쪽으로 태어남'];
       var REFB = [7, 18, 5];
+      var POS = ['가장 가난', '조금 가난', '중간', '조금 부유', '가장 부유'];
       function share(ru){
         if (ru === 0) return MK.slice();
         if (ru === 2) return MK.map(function(){ return 51; });
@@ -448,28 +451,42 @@ var LAB = (function(){
         ['번 몫과 상관없이 나눔 — 정당한 소유를 크게 무시', '최저 51 — 이 모형에선 가장 높지만, 실제로는 총액이 줄어드는지가 쟁점', '평등 그 자체보다 공동체가 무엇을 좋은 삶으로 보는지가 먼저라고 볼 수 있음']
       ];
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 560 ? 470 : 420; },
         idle: '조건과 나의 규칙을 고른 뒤 <b>이 규칙으로 사회 만들기</b>를 누르세요.',
         shortHint: '조건 A에서 &lsquo;부유&rsquo;와 &lsquo;가난&rsquo;으로 한 번씩, 조건 B에서 한 번 골라 보세요. 처지를 알 때와 모를 때 내 선택이 바뀌었나요?',
         params: [
           {key:'co', type:'seg', label:'조건', cols:2, value:0, options:CO},
           {key:'me', type:'seg', label:'조건 A에서 나의 처지', cols:2, value:0, options:ME, note:'조건 B를 고르면 이 칸은 쓰이지 않아요(베일 때문에 모름).'},
-          {key:'ru', type:'seg', label:'내가 고르는 분배 규칙', cols:1, value:0, options:RU}
+          {key:'ru', type:'seg', label:'내가 고르는 분배 규칙', cols:1, value:0, options:RU},
+          {key:'dr', type:'seg', label:'조건 B에서 — 규칙을 고른 뒤 내 자리 뽑기', cols:2, value:0, options:['안 뽑음', '자리를 무작위로 뽑기'],
+            note:'조건 B(무지의 베일)에서만 쓰여요. 고른 규칙을 그대로 두고 자리를 뽑아 내 몫을 봅니다.'}
         ],
         compute: function(p){
           var s = share(p.ru), my = p.co === 0 ? (p.me === 0 ? s[4] : s[0]) : null;
           var lo = Math.min.apply(null, s), av = s.reduce(function(a, b){ return a + b; }, 0) / 5;
-          return {s:s, my:my, lo:lo, av:av, gap:Math.max.apply(null, s) - lo};
+          var out = {s:s, my:my, lo:lo, av:av, gap:Math.max.apply(null, s) - lo};
+          if (p.co === 1 && p.dr === 1){
+            var idx = Math.floor(Math.random() * 5);
+            var each = [0, 1, 2].map(function(ru){ return share(ru)[idx]; });
+            var best = 0; each.forEach(function(v, i){ if (v > each[best]) best = i; });
+            out.idx = idx; out.drawn = s[idx]; out.each = each; out.best = best;
+            out.luck = idx >= 3 ? '유리한 자리' : (idx <= 1 ? '불리한 자리' : '중간 자리');
+            out.verdict = p.ru === best ? '내가 고른 규칙이 이 자리에서 가장 유리했어요'
+              : '이 자리에서는 「' + RS[best] + '」이 더 유리했어요 (' + each[best] + ' vs 내 ' + each[p.ru] + ')';
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var s = r ? r.s : MK, k = r ? Math.min(1, tau / 0.8) : 0, L = 30, R = W - 30, B = H - 70, T = 50, bw = (R - L) / 5;
+          var narrow = W < 560;
+          var s = r ? r.s : MK, k = r ? Math.min(1, tau / 0.8) : 0, L = 30, R = W - 30, B = H - (narrow ? 110 : 70), T = 50, bw = (R - L) / 5;
           tf(c, CO[p.co].split(' — ')[0] + (p.co === 0 ? ' · ' + ME[p.me] : ' · 무지의 베일'), 16, 28, {bold:true});
           for (var i = 0; i < 5; i++){
             var v0 = MK[i], v = r ? v0 + (s[i] - v0) * k : v0, h = (B - T) * v / 130, x = L + i * bw + bw * 0.15;
             c.fillStyle = r ? PAL[[0, 1, 3][p.ru]] : '#C3CBD5'; c.fillRect(x, B - h, bw * 0.7, h);
             tf(c, f(v, 0), x + bw * 0.35, B - h - 8, {align:'center', bold:true});
             tf(c, ['가장 가난', '', '중간', '', '가장 부유'][i], x + bw * 0.35, B + 22, {align:'center', color:'#4A5868'});
-            if (p.co === 0 && ((p.me === 0 && i === 4) || (p.me === 1 && i === 0))){ c.strokeStyle = PAL[6]; c.lineWidth = 3; c.strokeRect(x - 4, T - 6, bw * 0.7 + 8, B - T + 8); tf(c, '나', x + bw * 0.35, T + 14, {align:'center', bold:true, color:PAL[6]}); }
+            if (r && r.idx === i){ c.strokeStyle = PAL[6]; c.lineWidth = 3; c.strokeRect(x - 4, T - 6, bw * 0.7 + 8, B - T + 8); }
+            if (p.co === 0 && ((p.me === 0 && i === 4) || (p.me === 1 && i === 0))){ c.strokeStyle = PAL[6]; c.lineWidth = 3; c.strokeRect(x - 4, T - 6, bw * 0.7 + 8, B - T + 8); tf(c, '나', x + bw * 0.35, narrow ? B + 44 : T + 14, {align:'center', bold:true, color:PAL[6]}); }   /* 좁은 화면: 막대 값과 겹치지 않게 아래로 */
           }
           if (p.co === 1 && (!r || tau < 1)){ c.fillStyle = 'rgba(60,70,85,.55)'; c.fillRect(L, T - 10, R - L, B - T + 14); tf(c, '베일 — 내가 어느 자리에 태어날지 모름', W / 2, (T + B) / 2, {align:'center', bold:true, color:'#fff'}); }
           if (r && tau >= 1) tf(c, RS[p.ru] + ' · 가장 낮은 몫 ' + f(r.lo, 0) + ' · 평균 ' + f(r.av, 0), 16, H - 16, {bold:true});
@@ -477,16 +494,35 @@ var LAB = (function(){
         stats: function(p, r){
           var out = [['조건', CO[p.co]], ['나의 규칙', RU[p.ru], PAL[[0, 1, 3][p.ru]]], ['다섯 계층의 몫', r.s.join(' · ') + ' (가난 → 부유)']];
           out.push([p.co === 0 ? '내 자리의 몫' : '내 자리의 몫', p.co === 0 ? f(r.my, 0) + ' (' + ME[p.me] + ')' : '모름 — 최악이면 ' + f(r.lo, 0) + ', 평균 ' + f(r.av, 0)]);
+          if (r.idx != null){
+            out.push(['뽑힌 내 자리', POS[r.idx] + ' (' + r.luck + ') — 내 몫 ' + f(r.drawn, 0), PAL[6]]);
+            out.push(['이 자리에서 규칙마다 내 몫', RS[0] + ' ' + r.each[0] + ' · ' + RS[1] + ' ' + r.each[1] + ' · ' + RS[2] + ' ' + r.each[2], PAL[0]]);
+            out.push(['판정', r.verdict, p.ru === r.best ? PAL[1] : PAL[4]]);
+          }
           out.push(['자유지상주의(노직)의 저울', VIEW[p.ru][0], PAL[2]]);
           out.push(['롤스의 저울', VIEW[p.ru][1], PAL[1]]);
           out.push(['공동체주의의 저울', VIEW[p.ru][2], PAL[3]]);
           return out;
         },
-        columns: ['조건', '나의 처지', '고른 규칙', '가장 낮은 몫', '내 몫'],
-        record: function(p, r){ return {co:p.co, me:p.me, ru:p.ru, lo:r.lo, my:r.my}; },
-        row: function(d){ return [d.co ? 'B 베일' : 'A 앎', d.co ? '모름' : (d.me ? '가난' : '부유'), RS[d.ru], f(d.lo, 0), d.my == null ? '모름' : f(d.my, 0)]; },
+        columns: ['조건', '나의 처지', '고른 규칙', '가장 낮은 몫', '내 몫', '뽑힌 자리'],
+        record: function(p, r){ return {co:p.co, me:p.me, ru:p.ru, lo:r.lo, my:r.my, idx:r.idx, drawn:r.drawn, each:r.each, best:r.best}; },
+        row: function(d){ return [d.co ? 'B 베일' : 'A 앎', d.co ? '모름' : (d.me ? '가난' : '부유'), RS[d.ru], f(d.lo, 0), d.idx != null ? f(d.drawn, 0) : (d.my == null ? '모름' : f(d.my, 0)), d.idx != null ? POS[d.idx] : '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ds = rec.filter(function(d){ return d.idx != null; });
+          var dcard = '';
+          if (ds.length){
+            var win = ds.filter(function(d){ return d.ru === d.best; }).length;
+            var aRich = rec.filter(function(d){ return d.co === 0 && d.me === 0; }), aPoor = rec.filter(function(d){ return d.co === 0 && d.me === 1; });
+            function lastRu(a){ return a.length ? RS[a[a.length - 1].ru] : '아직 없음'; }
+            var bLast = rec.filter(function(d){ return d.co === 1; });
+            dcard = card('베일을 벗고 자리를 뽑아 보니', tableHTML(['고른 규칙', '뽑힌 자리', '내 몫', '이 자리에서 가장 유리한 규칙'],
+                ds.map(function(d){ return [RS[d.ru], POS[d.idx], f(d.drawn, 0), RS[d.best] + ' (' + d.each[d.best] + ')']; })) +
+              '<p class="ask">' + ds.length + '번 뽑아 내 규칙이 가장 유리했던 적은 ' + win + '번. ' +
+              '조건 A에서 부유한 처지로 고른 규칙은 「' + lastRu(aRich) + '」, 가난한 처지로 고른 규칙은 「' + lastRu(aPoor) + '」, ' +
+              '조건 B(베일)에서 고른 규칙은 「' + lastRu(bLast) + '」이었어요. 세 선택이 같았나요? ' +
+              '어느 자리에 뽑히든 견딜 수 있는 규칙을 고른다면, 그것이 무지의 베일이 하려는 일입니다.</p>');
+          }
+          box.innerHTML = '<div class="vgrid">' + dcard +
             card('조건별 내 선택 (이 기기 기록)', '<div id="vi1"></div><p class="ask">처지를 알 때와 모를 때 고른 규칙이 달라졌나요? 달라졌다면 무엇 때문인지, 같았다면 어떤 저울을 쓰고 있었는지 말해 보세요.</p>') +
             card('웹툰 속 가상 반(30명) 조건 B 결과', '<div id="vi2"></div><p class="ask">과제: 우리 학교나 지역에서 무언가를 나누는 사례(장학금·급식 순서·체육관 사용 시간 등)를 하나 골라 자유지상주의·롤스·공동체주의 입장에서 각각 어떻게 나눌지 세 문단으로 써 보세요. 어느 쪽이 옳은지는 쓰지 않아도 됩니다.</p>') + '</div>';
           var gs = [['A · 부유', function(d){ return d.co === 0 && d.me === 0; }], ['A · 가난', function(d){ return d.co === 0 && d.me === 1; }], ['B · 베일', function(d){ return d.co === 1; }]];
@@ -500,7 +536,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

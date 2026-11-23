@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,51 +443,77 @@ var LAB = (function(){
         {name:'오래가는 건강 문제가 생겼다', J:-15, hl:10, keep:0.5}
       ];
       var BASE = 60;
-      function val(e, t){ var E = EV[e]; return BASE + E.J * (E.keep + (1 - E.keep) * Math.pow(0.5, t / E.hl)); }
+      /* 사건마다 적어 둔 반감기·남는 효과를 아래 두 칸으로 바꿔 가상의 사람을 만들어 본다 */
+      function evOf(e, p){
+        var E = EV[e];
+        var hl = E.hl * (p && p.sp != null ? p.sp : 1);
+        var keep = Math.max(0, Math.min(0.9, E.keep + (p && p.kp != null ? p.kp : 0)));
+        return {name:E.name, J:E.J, hl:Math.max(0.3, hl), keep:keep, base:E,
+          tweaked:(Math.abs(hl - E.hl) > 1e-9 || Math.abs(keep - E.keep) > 1e-9)};
+      }
+      function valE(E, t){ return BASE + E.J * (E.keep + (1 - E.keep) * Math.pow(0.5, t / E.hl)); }
+      function val(e, t, p){ return valE(evOf(e, p), t); }
       return {
         sceneHeight: 440,
-        idle: '사건과 관찰 기간을 정한 뒤 <b>시간 흘려 보기</b>를 누르세요.',
-        shortHint: '같은 관찰 기간으로 네 사건을 모두 비교해 보세요.',
+        idle: '사건과 관찰 기간을 정한 뒤 <b>시간 흘려 보기</b>를 누르세요. 적응 속도와 남는 효과도 직접 바꿔 볼 수 있어요.',
+        shortHint: '같은 관찰 기간으로 네 사건을 비교하고, 한 사건은 적응 속도·남는 효과를 바꿔 가며 기록해 보세요.',
         params: [
           {key:'e', type:'seg', label:'삶의 사건', cols:2, value:0, options:EV.map(function(x){ return x.name; })},
-          {key:'m', type:'range', label:'관찰 기간', min:3, max:36, step:3, value:18, fmt:function(v){ return v + '개월'; }}
+          {key:'m', type:'range', label:'관찰 기간', min:3, max:36, step:3, value:18, fmt:function(v){ return v + '개월'; }},
+          {key:'sp', type:'range', label:'적응 속도 (반감기를 몇 배로)', min:0.25, max:3, step:0.25, value:1, fmt:function(v){ return f(v, 2) + ' 배' + (v < 1 ? ' (빨리 적응)' : v > 1 ? ' (천천히 적응)' : ''); }},
+          {key:'kp', type:'range', label:'남는 효과 더하기', min:-0.3, max:0.5, step:0.05, value:0, fmt:function(v){ return sgn(v * 100, 0) + ' %p'; },
+            note:'두 칸을 가운데(1배, 0 %p)에 두면 이 실험이 사건마다 적어 둔 값 그대로입니다. 칸을 움직여 나오는 곡선은 안녕감 = 기준 + 변화 × (남는 효과 + (1 − 남는 효과) × 0.5^(경과/반감기)) 로 계산한 <b>교육용 모형값</b>이며, 실제 사람의 수치가 아닙니다.'}
         ],
         compute: function(p){
-          var E = EV[p.e], now = val(p.e, p.m), peak = BASE + E.J, left = (now - BASE) / E.J;
-          return {E:E, now:now, peak:peak, left:left};
+          var E = evOf(p.e, p), now = valE(E, p.m), peak = BASE + E.J, left = (now - BASE) / E.J;
+          var E0 = EV[p.e], now0 = valE(evOf(p.e, null), p.m), left0 = (now0 - BASE) / E0.J;
+          return {E:E, E0:E0, now:now, peak:peak, left:left, now0:now0, left0:left0};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var nar = W < 520, px = 64, py = 20, pw = W - px - 20, ph = H - py - (nar ? 126 : 100), lx = nar ? 16 : px;
           var ax = plotBox(c, px, py, pw, ph, [0, 36, 6], [40, 80, 10], '사건 후 경과 (개월)', '안녕감 (가상)');
           seg(c, ax.X(0), ax.Y(BASE), ax.X(36), ax.Y(BASE), '#8C99A8', 2, [6, 4]);
           if (!r){ tfit(c, '실행하면 곡선이 그려져요', px, H - 16, {color:'#4A5868'}); return; }
-          var upto = p.m * Math.min(1, tau / 0.85);
+          var upto = p.m * Math.min(1, tau / 0.85), t;
+          if (r.E.tweaked){
+            c.strokeStyle = '#B9C3CE'; c.lineWidth = 2; c.setLineDash([6, 4]); c.beginPath();
+            c.moveTo(ax.X(0), ax.Y(BASE));
+            for (t = 0; t <= 36; t += 0.25) c.lineTo(ax.X(t), ax.Y(val(p.e, t, null)));
+            c.stroke(); c.setLineDash([]);
+          }
           c.strokeStyle = EV[p.e].J > 0 ? PAL[1] : PAL[4]; c.lineWidth = 3; c.beginPath();
           c.moveTo(ax.X(0), ax.Y(BASE));
-          for (var t = 0; t <= upto + 1e-9; t += 0.25) c.lineTo(ax.X(t), ax.Y(val(p.e, t)));
+          for (t = 0; t <= upto + 1e-9; t += 0.25) c.lineTo(ax.X(t), ax.Y(val(p.e, t, p)));
           c.stroke();
           seg(c, ax.X(p.m), py, ax.X(p.m), py + ph, PAL[7], 1.5, [3, 4]);
           if (tau >= 1){
             c.fillStyle = PAL[3]; c.beginPath(); c.arc(ax.X(p.m), ax.Y(r.now), 6, 0, Math.PI * 2); c.fill();
             tfit(c, p.m + '개월 뒤 ' + f(r.now, 1) + ' (기준 ' + BASE + ') · 남은 효과 ' + f(r.left * 100, 0) + '%', lx, H - 42, {bold:true});
-            tfit(c, r.left < 0.35 ? '대부분 적응함' : '영향이 비교적 오래 남음', lx, H - 16, {bold:true, color:r.left < 0.35 ? PAL[6] : PAL[0]});
+            tfit(c, (r.left < 0.35 ? '대부분 적응함' : '영향이 비교적 오래 남음') + (r.E.tweaked ? ' · 점선 = 바꾸기 전' : ''), lx, H - 16, {bold:true, color:r.left < 0.35 ? PAL[6] : PAL[0]});
           }
         },
         stats: function(p, r){
-          return [['사건', r.E.name], ['직후 변화 (가상)', sgn(r.E.J, 0) + ' → ' + (r.E.J > 0 ? '최고 ' : '최저 ') + f(r.peak, 0)], [p.m + '개월 뒤 안녕감 (가상)', f(r.now, 1) + ' (기준 ' + BASE + ')', PAL[3]],
+          var o = [['사건', r.E.name], ['직후 변화 (가상)', sgn(r.E.J, 0) + ' → ' + (r.E.J > 0 ? '최고 ' : '최저 ') + f(r.peak, 0)], [p.m + '개월 뒤 안녕감 (가상)', f(r.now, 1) + ' (기준 ' + BASE + ')', PAL[3]],
             ['남은 효과', f(r.left * 100, 0) + '%', r.left < 0.35 ? PAL[6] : PAL[0]],
-            ['보고된 경향', p.e === 1 ? '물질적 변화에는 빠르게 적응하는 경향' : p.e === 2 ? '관계의 질은 비교적 꾸준한 관련 — 단, 인과 방향은 양쪽일 수 있음' : p.e === 3 ? '건강 악화처럼 적응이 불완전한 사건도 보고됨' : '소득 효과는 낮은 소득 구간에서 특히 뚜렷하고, 증가분에는 적응이 일어나는 경향', PAL[6]]];
+            ['반감기 · 바닥값', f(r.E.hl, 1) + '개월 · ' + f(r.E.keep * 100, 0) + '%' + (r.E.tweaked ? ' (바꾼 값 — 교육용 모형)' : ''), PAL[5]]];
+          if (r.E.tweaked) o.push(['바꾸기 전과 견주면', '남은 효과 ' + f(r.left0 * 100, 0) + '% → ' + f(r.left * 100, 0) + '% · 안녕감 ' + f(r.now0, 1) + ' → ' + f(r.now, 1), PAL[7]]);
+          return o.concat([
+            ['보고된 경향', p.e === 1 ? '물질적 변화에는 빠르게 적응하는 경향' : p.e === 2 ? '관계의 질은 비교적 꾸준한 관련 — 단, 인과 방향은 양쪽일 수 있음' : p.e === 3 ? '건강 악화처럼 적응이 불완전한 사건도 보고됨' : '소득 효과는 낮은 소득 구간에서 특히 뚜렷하고, 증가분에는 적응이 일어나는 경향', PAL[6]]]);
         },
-        columns: ['사건', '기간', '안녕감(가상)', '남은 효과'],
-        record: function(p, r){ return {e:p.e, m:p.m, now:r.now, left:r.left}; },
-        row: function(d){ return [EV[d.e].name, d.m + '개월', f(d.now, 1), f(d.left * 100, 0) + '%']; },
+        columns: ['사건', '기간', '반감기', '바닥값', '안녕감(가상)', '남은 효과'],
+        record: function(p, r){ return {e:p.e, m:p.m, hl:r.E.hl, keep:r.E.keep, tw:r.E.tweaked, now:r.now, left:r.left}; },
+        row: function(d){ return [EV[d.e].name + (d.tw ? ' (바꿈)' : ''), d.m + '개월', f(d.hl, 1) + '개월', f(d.keep * 100, 0) + '%', f(d.now, 1), f(d.left * 100, 0) + '%']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('사건별 남은 효과 (모형)', '<div id="ps8a"></div><p class="ask">같은 기간에서 가장 빨리 적응한 사건과 가장 오래 남은 사건은? 관계와 안녕감의 상관을 "관계가 행복을 만든다"로 읽을 때 조심할 점은?</p>') +
             card('기록 모음', '<div id="ps8b"></div><p class="ask">과제: 2주간 하루의 기분과 함께 수면·활동·사람과 보낸 시간을 기록해 관계를 살피고, 이 기록으로 말할 수 있는 것(상관)과 말할 수 없는 것(인과)을 구분해 써 보세요.</p>') + '</div>';
-          var seen = {}; rec.forEach(function(d){ seen[d.e + '_' + d.m] = d; });
-          $('ps8a').innerHTML = hbars(Object.keys(seen).slice(-10).map(function(k){ var d = seen[k]; return {label:EV[d.e].name + ' · ' + d.m + '개월', v:Math.max(0, d.left * 100), color:EV[d.e].J > 0 ? PAL[1] : PAL[4], text:f(d.left * 100, 0) + '%'}; }), 100);
-          $('ps8b').innerHTML = tableHTML(['사건', '기간', '안녕감 (가상)'], rec.slice(-8).map(function(d){ return [EV[d.e].name, d.m + '개월', f(d.now, 1)]; }));
+          var seen = {}; rec.forEach(function(d){ seen[d.e + '_' + d.m + '_' + f(d.hl, 2) + '_' + f(d.keep, 2)] = d; });
+          $('ps8a').innerHTML = hbars(Object.keys(seen).slice(-10).map(function(k){ var d = seen[k]; return {label:EV[d.e].name + ' · ' + d.m + '개월' + (d.tw ? ' (바꿈)' : ''), v:Math.max(0, d.left * 100), color:EV[d.e].J > 0 ? PAL[1] : PAL[4], text:f(d.left * 100, 0) + '%'}; }), 100);
+          var tw = rec.filter(function(d){ return d.tw; });
+          var extra = tw.length
+            ? '<p class="msg">반감기를 키우면 곡선이 천천히 내려가고, 바닥값(남는 효과)을 올리면 곡선이 기준선으로 끝까지 돌아오지 않습니다. 둘은 <b>서로 다른 것</b>을 정합니다 — 속도와 도착점입니다.</p>'
+            : '<p class="msg">적응 속도와 남는 효과 칸을 움직여 같은 사건을 다시 기록해 보세요. 어느 칸이 곡선의 모양을 바꾸고, 어느 칸이 끝 높이를 바꾸는지 보입니다.</p>';
+          $('ps8b').innerHTML = tableHTML(['사건', '기간', '반감기', '바닥값', '안녕감 (가상)'], rec.slice(-8).map(function(d){ return [EV[d.e].name + (d.tw ? ' (바꿈)' : ''), d.m + '개월', f(d.hl, 1) + '개월', f(d.keep * 100, 0) + '%', f(d.now, 1)]; })) + extra;
         }
       };
     })();
@@ -494,7 +522,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

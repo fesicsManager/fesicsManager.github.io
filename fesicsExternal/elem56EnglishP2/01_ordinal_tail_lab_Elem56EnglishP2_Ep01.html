@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -307,6 +309,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -436,6 +445,10 @@ var LAB = (function(){
       function suf(n){ if (n >= 11 && n <= 13) return 'th'; var o = n % 10; return o === 1 ? 'st' : o === 2 ? 'nd' : o === 3 ? 'rd' : 'th'; }
       var TAIL = ['st', 'nd', 'rd', 'th'], TC = [PAL[0], PAL[1], PAL[6], '#9AA5B1'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
       function grp(n){ if (n >= 11 && n <= 13) return '11·12·13'; var o = n % 10; return o >= 1 && o <= 3 ? '끝 숫자 ' + o : '나머지'; }
+      /* 고른 꼬리가 붙는 날을 5월 달력에서 모두 세어 본다 — 11·12·13 예외를 스스로 걸러 내게 */
+      function daysWith(t){ var a = []; for (var n = 1; n <= 31; n++) if (suf(n) === t) a.push(n); return a; }
+      var CP = ['2개', '3개', '4개', '20개 넘음'];
+      function band(c){ return c === 2 ? 0 : c === 3 ? 1 : c === 4 ? 2 : 3; }
       function say(t){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = 0.85; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
       return {
         sceneHeight: 360,
@@ -445,12 +458,19 @@ var LAB = (function(){
           {key:'d', type:'range', label:'5월 며칠?', min:1, max:31, step:1, value:22, fmt:function(v){ return v + '일'; }},
           {key:'g', type:'seg', label:'예측: 숫자 뒤 꼬리는?', cols:4, value:3, options:TAIL,
             note:'뭉치는 "숫자 뒤에 th만 붙이면 끝!"이라고 했어요.'},
+          {key:'cp', type:'seg', label:'예측: 5월에 그 꼬리가 붙는 날은 몇 개?', cols:4, value:3, options:CP},
           {key:'snd', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
           var s = suf(p.d), w = word(p.d), ok = TAIL[p.g] === s;
           var played = p.snd === 0 ? say('May ' + w) : false;
-          return {s:s, w:w, ok:ok, mine:p.d + TAIL[p.g], right:p.d + s, grp:grp(p.d), played:played};
+          var picked = TAIL[p.g], ds = daysWith(picked), cb = band(ds.length), cok = cb === p.cp;
+          var why = picked === 'st' ? '1·21·31일 — 11일은 eleventh 라서 th 로 빠져요'
+            : picked === 'nd' ? '2·22일 — 12일은 twelfth 라서 th 로 빠져요'
+            : picked === 'rd' ? '3·23일 — 13일은 thirteenth 라서 th 로 빠져요'
+            : '나머지 모든 날 — 11·12·13일도 여기에 들어와요';
+          return {s:s, w:w, ok:ok, mine:p.d + TAIL[p.g], right:p.d + s, grp:grp(p.d), played:played,
+            picked:picked, ds:ds, cb:cb, cok:cok, why:why};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, cw = Math.min(46, (W - 40) / 7), ch = 32, x0 = (W - cw * 7) / 2, y0 = 34;
@@ -459,6 +479,7 @@ var LAB = (function(){
             var i = n - 1, x = x0 + (i % 7) * cw, y = y0 + Math.floor(i / 7) * ch, show = r && n / 31 <= k + 0.01;
             c.fillStyle = show ? TC[TAIL.indexOf(suf(n))] : '#F2F5F9'; c.fillRect(x + 2, y + 2, cw - 4, ch - 4);
             if (show && n >= 11 && n <= 13){ c.strokeStyle = PAL[4]; c.lineWidth = 2; c.strokeRect(x + 3, y + 3, cw - 6, ch - 6); }
+            if (r && suf(n) === TAIL[p.g]){ c.strokeStyle = '#1E2833'; c.lineWidth = 2; c.strokeRect(x + 5, y + 5, cw - 10, ch - 10); }
             if (n === p.d){ c.strokeStyle = '#1E2833'; c.lineWidth = 3; c.strokeRect(x + 1, y + 1, cw - 2, ch - 2); }
             txt(c, String(n), x + cw / 2, y + 22, {align:'center', color:show && suf(n) !== 'th' ? '#fff' : '#1E2833', bold:n === p.d});
           }
@@ -476,11 +497,15 @@ var LAB = (function(){
           return [['날짜', '5월 ' + p.d + '일'], ['내 예측', r.mine, r.ok ? PAL[1] : PAL[4]], ['바른 서수', r.right + ' (' + r.w + ')', PAL[0]],
             ['판정', r.ok ? '○ 맞았어요' : '✕ 꼬리가 달라요', r.ok ? PAL[1] : PAL[4]],
             ['규칙', r.grp === '11·12·13' ? '11·12·13은 끝 숫자와 상관없이 th (eleventh, twelfth, thirteenth)' : r.grp === '나머지' ? '말할 때 th로 끝나요' : r.grp + ' → ' + r.s + ' (' + r.w + '의 끝 두 글자)'],
+            ['-' + r.picked + ' 가 붙는 날', r.ds.length > 10 ? r.ds.length + '개 (너무 많아 적지 않아요)' : r.ds.join('일, ') + '일 — 모두 ' + r.ds.length + '개', PAL[0]],
+            ['왜 그 날들뿐일까', r.why],
+            ['개수 예측', CP[p.cp] + ' → 실제 ' + r.ds.length + '개' + (r.cok ? ' — 맞았어요' : ' — 다시 세어 보세요'), r.cok ? PAL[1] : PAL[4]],
             ['소리', p.snd === 1 ? '끔' : r.played ? '영어 음성으로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']];
         },
-        columns: ['날짜', '내 예측', '바른 서수', '판정'],
-        record: function(p, r){ return {d:p.d, g:p.g, s:r.s, ok:r.ok}; },
-        row: function(d){ return ['5월 ' + d.d + '일', d.d + TAIL[d.g], d.d + d.s, d.ok ? '○' : '✕']; },
+        columns: ['날짜', '내 예측', '바른 서수', '판정', '꼬리 개수'],
+        record: function(p, r){ return {d:p.d, g:p.g, s:r.s, ok:r.ok, cp:p.cp, cnt:r.ds.length, cok:r.cok}; },
+        row: function(d){ return ['5월 ' + d.d + '일', d.d + TAIL[d.g], d.d + d.s, d.ok ? '○' : '✕',
+          d.cnt == null ? '—' : (CP[d.cp] + ' / ' + d.cnt + '개 ' + (d.cok ? '○' : '✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('5월 달력 31일의 꼬리 세기', '<div id="ot1"></div><p class="ask">th가 가장 많지만, 끝 숫자가 1·2·3인 날은 어떤 꼬리였나요? 11·12·13은 왜 예외일까요? 소리 내어 말해 보세요.</p>') +
@@ -499,7 +524,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

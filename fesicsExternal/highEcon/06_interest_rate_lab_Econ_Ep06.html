@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -453,12 +455,20 @@ return {
     {key:'b', type:'range', label:'기준금리', min:0.5, max:5, step:0.25, value:1.25, fmt:function(v){ return f(v, 2) + ' %'; }},
     {key:'P', type:'seg', label:'대출 원금', cols:3, value:1, options:PRIN.map(function(v){ return (v / 10000) + '억 원'; })},
     {key:'y', type:'seg', label:'대출 기간', cols:3, value:2, options:YRS.map(function(v){ return v + '년'; }),
-      note:'대출 금리 = 기준금리 + 1.75 %p, 예금 금리 = 기준금리 + 0.5 %p로 두었습니다(교육용). 월 상환액은 원리금 균등 상환 기준입니다.'}
+      note:'대출 금리 = 기준금리 + 1.75 %p, 예금 금리 = 기준금리 + 0.5 %p로 두었습니다(교육용). 월 상환액은 원리금 균등 상환 기준입니다.'},
+    {key:'gb', type:'range', label:'먼저 짐작: 월 상환액을 그대로 두려면 몇 % 를 덜 빌려야 할까', min:0, max:50, step:5, value:10, fmt:function(v){ return v + ' %'; },
+      note:'기준금리 1.25 % 때의 월 상환액을 그대로 지키려면 원금을 얼마나 줄여야 하는지 먼저 짐작해 적고, 계산값과 맞혀 보세요.'}
   ],
   compute: function(p){
     var b = p.b, P = PRIN[p.P], y = YRS[p.y], lr = b + SPREAD, M = payment(P, lr, y), tot = M * y * 12 - P, dep = 10000 * (b + 0.5) / 100;
     var idx = 100 * Math.sqrt(3.5 / lr), M0 = payment(P, 1.25 + SPREAD, y);
-    return {b:b, P:P, y:y, lr:lr, M:M, tot:tot, dep:dep, idx:idx, dM:M - M0, dir:b > 1.25 ? '긴축 (돈이 비싸짐)' : b < 1.25 ? '완화 (돈이 싸짐)' : '기준 (1.25 %)'};
+    /* 같은 월 상환액 M0 를 지킬 수 있는 원금 — 금리가 오르면 빌릴 수 있는 돈이 줄어든다 */
+    var rr = lr / 100 / 12, nn = y * 12;
+    var Pkeep = rr === 0 ? M0 * nn : M0 * (1 - Math.pow(1 + rr, -nn)) / rr;
+    var cut = P - Pkeep, cutPct = cut / P * 100, hit = Math.abs(p.gb - cutPct) <= 3;
+    return {b:b, P:P, y:y, lr:lr, M:M, tot:tot, dep:dep, idx:idx, dM:M - M0, M0:M0,
+      Pkeep:Pkeep, cut:cut, cutPct:cutPct, gb:p.gb, hit:hit,
+      dir:b > 1.25 ? '긴축 (돈이 비싸짐)' : b < 1.25 ? '완화 (돈이 싸짐)' : '기준 (1.25 %)'};
   },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, n = 5, cols = W < 640 ? 3 : 5, bw = Math.min(150, (W - 20) / cols - 12), gap = (W - 20 - bw * cols) / Math.max(1, cols - 1), y0 = 40, rh = 100;
@@ -496,11 +506,14 @@ return {
   stats: function(p, r){
     return [['기준금리', f(r.b, 2) + ' % (' + r.dir + ')', PAL[0]], ['대출 금리 (기준 + 1.75 %p)', f(r.lr, 2) + ' %'], ['대출 조건', (r.P / 10000) + '억 원 · ' + r.y + '년'],
       ['월 상환액', Math.round(r.M).toLocaleString() + '만 원', PAL[4]], ['총이자 (' + r.y + '년)', Math.round(r.tot).toLocaleString() + '만 원'], ['기준금리 1.25 % 대비 월 상환액 변화', sgn(r.dM, 0) + '만 원'],
+      ['월 상환액을 그대로 두려면', '원금을 ' + Math.round(r.P / 10000 * 100) / 100 + '억 → ' + (Math.round(r.Pkeep / 100) / 100) + '억 원으로, 약 <b>' + f(r.cutPct, 1) + '%</b> 덜 빌려야 합니다', PAL[6]],
+      ['내 짐작 / 채점', r.gb + '% → ' + (r.hit ? '✅ 맞혔어요 (±3 %p 안)' : '❌ 틀렸어요 — 계산값은 ' + f(r.cutPct, 1) + '%'), r.hit ? PAL[1] : PAL[4]],
+      ['그래서 금리가 오르면', r.cutPct > 0 ? '같은 월 상환액으로 살 수 있는 집값이 ' + f(r.cutPct, 1) + '% 줄어듭니다 — 금리가 자산 가격을 누르는 통로입니다' : '기준 금리와 같아 줄일 것이 없습니다', PAL[3]],
       ['예금 1억 원의 1년 이자 (기준 + 0.5 %p)', f(r.dep, 0) + '만 원', PAL[1]], ['자산 가격 지수 (교육용, 3.5 % 대출 금리 = 100)', f(r.idx, 0)], ['방향', r.b > 1.25 ? '대출 ↓ 저축 ↑ 소비·투자 ↓ → 물가 ↓, 자산 가격 하락 압력' : r.b < 1.25 ? '대출 ↑ 저축 ↓ 소비·투자 ↑ → 물가 ↑, 자산 가격 상승 압력' : '기준']];
   },
-  columns: ['기준금리 (%)', '대출 금리 (%)', '원금 (억)', '기간 (년)', '월 상환 (만 원)', '총이자 (만 원)', '예금 이자 (만 원)', '자산 지수'],
-  record: function(p, r){ return {b:r.b, lr:r.lr, P:r.P, y:r.y, M:r.M, tot:r.tot, dep:r.dep, idx:r.idx}; },
-  row: function(d){ return [f(d.b, 2), f(d.lr, 2), d.P / 10000, d.y, Math.round(d.M).toLocaleString(), Math.round(d.tot).toLocaleString(), f(d.dep, 0), f(d.idx, 0)]; },
+  columns: ['기준금리 (%)', '대출 금리 (%)', '원금 (억)', '기간 (년)', '월 상환 (만 원)', '총이자 (만 원)', '덜 빌릴 비율', '내 짐작', '채점', '예금 이자 (만 원)', '자산 지수'],
+  record: function(p, r){ return {b:r.b, lr:r.lr, P:r.P, y:r.y, M:r.M, tot:r.tot, dep:r.dep, idx:r.idx, cutPct:r.cutPct, Pkeep:r.Pkeep, gb:r.gb, hit:r.hit}; },
+  row: function(d){ return [f(d.b, 2), f(d.lr, 2), d.P / 10000, d.y, Math.round(d.M).toLocaleString(), Math.round(d.tot).toLocaleString(), f(d.cutPct, 1) + ' %', d.gb + ' %', d.hit ? '✅' : '❌', f(d.dep, 0), f(d.idx, 0)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('기준금리와 월 상환액', '<canvas class="chart" id="ch1" role="img" aria-label="금리 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">기준금리 0.25 %p당 월 상환액은 얼마나 변하나요? 0.25 %p가 "소수점 장난"이 아닌 까닭을 총이자로 설명해 보세요.</p>') +
@@ -512,7 +525,14 @@ return {
     drawScatter($('ch1'), {xLabel:'기준금리 (%)', yLabel:'월 상환액 (만 원)', tightX:true, tightY:true, series:s1});
     $('ro1').innerHTML = r1.length ? r1.join('') : '<li>같은 대출 조건에서 기준금리만 바꿔 2번 이상 기록하세요.</li>';
     drawScatter($('ch2'), {xLabel:'기준금리 (%)', yLabel:'자산 가격 지수', tightX:true, tightY:true, series:[{color:PAL[6], pts:rec.map(function(d){ return {x:d.b, y:d.idx}; })}]});
-    $('ro2').innerHTML = '<li>지수 100 = 대출 금리 3.5 %일 때. 교육용 어림이며 실제 집값은 공급·소득·기대도 함께 작용합니다.</li>';
+    $('ro2').innerHTML = '<li>지수 100 = 대출 금리 3.5 %일 때. 교육용 어림이며 실제 집값은 공급·소득·기대도 함께 작용합니다.</li>'
+      + (function(){ var g2 = groupBy(rec, function(d){ return d.P + '/' + d.y; }), ks = Object.keys(g2);
+        var hit = rec.filter(function(d){ return d.hit; });
+        var lines = ks.map(function(k){ var a = g2[k].slice().sort(function(x, y2){ return x.b - y2.b; });
+          return '<li>' + (a[0].P / 10000) + '억 · ' + a[0].y + '년 — ' + a.map(function(d){ return f(d.b, 2) + '% → ' + f(d.cutPct, 1) + '% 덜'; }).join(' · ') + '</li>'; });
+        return '<li><b>같은 월 상환액을 지키려면</b> 얼마를 덜 빌려야 하나 — 짐작을 맞힌 기록 ' + hit.length + '개 / ' + rec.length + '개.</li>'
+          + lines.join('')
+          + '<li>기준금리가 1 %p 오를 때마다 빌릴 수 있는 돈이 대략 10 % 가까이 줄어듭니다. 금리가 집값을 누르는 것은 집이 싫어져서가 아니라 <b>같은 월급으로 빌릴 수 있는 돈이 줄기</b> 때문입니다.</li>'; })();
   }
 };
 })();
@@ -521,7 +541,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

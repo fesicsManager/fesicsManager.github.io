@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -307,6 +309,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -433,14 +442,25 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var DX = [0, 1, 2, 3], DY = [1, 3, 2, 4], NX = 4, NY = 5;
-      var DN = ['0차 (평균)', '1차 (직선)', '2차', '3차 (네 점 통과)'];
+      var DN = ['0차 (평균)', '1차 (직선)', '2차', '3차'];
+      /* 학습 자료의 점 개수와 잡음 크기도 바꿔, 자료가 많아지면 높은 차수가 괜찮아지는지 따져 본다
+         ※ 참 함수 y = 0.8x + 1.3 에 정해진 잡음을 더해 만든 교육용 모형 자료 */
+      var NPS = [4, 6, 8], NPN = ['4개', '6개', '8개'];
+      var NZS = [0.4, 1, 2], NZN = ['작게 (×0.4)', '보통 (×1)', '크게 (×2)'];
+      var NOISE = [-0.3, 0.9, -0.9, 0.3, 0.6, -0.6, 0.45, -0.45];
+      function trueY(x){ return 0.8 * x + 1.3; }
+      function dataOf(p){
+        var n = NPS[p.np == null ? 0 : p.np], s = NZS[p.nz == null ? 1 : p.nz], X = [], Y = [], i;
+        for (i = 0; i < n; i++){ var x = 3 * i / (n - 1); X.push(x); Y.push(trueY(x) + s * NOISE[i % NOISE.length]); }
+        return {X:X, Y:Y, n:n, s:s};
+      }
       function solve(A, b){ var n = b.length, M = A.map(function(r, i){ return r.concat([b[i]]); }), i, j, k;
         for (i = 0; i < n; i++){ var pv = i; for (j = i + 1; j < n; j++) if (Math.abs(M[j][i]) > Math.abs(M[pv][i])) pv = j; var t = M[i]; M[i] = M[pv]; M[pv] = t;
           for (j = i + 1; j < n; j++){ var fct = M[j][i] / M[i][i]; for (k = i; k <= n; k++) M[j][k] -= fct * M[i][k]; } }
         var x = []; for (i = n - 1; i >= 0; i--){ var s = M[i][n]; for (k = i + 1; k < n; k++) s -= M[i][k] * x[k]; x[i] = s / M[i][i]; } return x; }
-      function fit(d){ var n = d + 1, A = [], b = [], i, j;
-        for (i = 0; i < n; i++){ A.push([]); for (j = 0; j < n; j++){ var s = 0; DX.forEach(function(x){ s += Math.pow(x, i + j); }); A[i].push(s); }
-          var t = 0; DX.forEach(function(x, q){ t += Math.pow(x, i) * DY[q]; }); b.push(t); }
+      function fit(d, XX, YY){ XX = XX || DX; YY = YY || DY; var n = d + 1, A = [], b = [], i, j;
+        for (i = 0; i < n; i++){ A.push([]); for (j = 0; j < n; j++){ var s = 0; XX.forEach(function(x){ s += Math.pow(x, i + j); }); A[i].push(s); }
+          var t = 0; XX.forEach(function(x, q){ t += Math.pow(x, i) * YY[q]; }); b.push(t); }
         return solve(A, b).map(function(v){ return Math.abs(v - Math.round(v * 1000) / 1000) < 1e-9 ? Math.round(v * 1000) / 1000 : v; }); }
       function ev(co, x){ var s = 0; co.forEach(function(c0, i){ s += c0 * Math.pow(x, i); }); return s; }
       function poly(co){ var t = []; for (var i = co.length - 1; i >= 0; i--){ var v = co[i]; if (Math.abs(v) < 1e-9) continue; var s = f(Math.abs(v), Math.abs(v * 100 - Math.round(v * 100)) < 1e-6 ? (Math.abs(v * 10 - Math.round(v * 10)) < 1e-6 ? (Math.abs(v - Math.round(v)) < 1e-6 ? 0 : 1) : 2) : 3);
@@ -452,46 +472,65 @@ var LAB = (function(){
         shortHint: '0차부터 3차까지 차례로 맞춰 학습 MSE와 새 자료 오차를 기록해 보세요. 학습 오차가 가장 작은 모델이 새 자료에서도 가장 좋았나요?',
         params: [
           {key:'d', type:'seg', label:'다항식 차수 (최소제곱으로 맞춤)', cols:4, value:1, options:DN,
-            note:'학습 자료 (0, 1), (1, 3), (2, 2), (3, 4) · 새 자료 x = 4일 때 실제 y = 5'}
+            note:'참 함수는 y = 0.8x + 1.3 · 새 자료 x = 4일 때 실제 y = 5'},
+          {key:'np', type:'seg', label:'학습 자료의 점 개수', cols:3, value:0, options:NPN},
+          {key:'nz', type:'seg', label:'잡음 크기', cols:3, value:1, options:NZN}
         ],
         compute: function(p){
-          var co = fit(p.d), pr = DX.map(function(x){ return ev(co, x); }), e = DY.map(function(y, i){ return y - pr[i]; });
-          var mse = e.reduce(function(s, x){ return s + x * x; }, 0) / 4, y4 = ev(co, NX), y5 = ev(co, 5);
-          return {co:co, pr:pr, e:e, mse:mse < 1e-12 ? 0 : mse, y4:y4, err4:NY - y4, y5:y5};
+          var D0 = dataOf(p);
+          var co = fit(p.d, D0.X, D0.Y), pr = D0.X.map(function(x){ return ev(co, x); }), e = D0.Y.map(function(y, i){ return y - pr[i]; });
+          var mse = e.reduce(function(s, x){ return s + x * x; }, 0) / D0.n, y4 = ev(co, NX), y5 = ev(co, 5);
+          /* 같은 차수에서 점 개수만 바꿔 보면 새 자료 오차가 어떻게 되나 */
+          var byN = NPS.map(function(nn, i){ var dd = dataOf({np:i, nz:p.nz}); var cc = fit(p.d, dd.X, dd.Y); return Math.abs(NY - ev(cc, NX)); });
+          var better = byN[byN.length - 1] < byN[0] - 1e-9;
+          return {co:co, pr:pr, e:e, mse:mse < 1e-12 ? 0 : mse, y4:y4, err4:NY - y4, y5:y5,
+            D0:D0, np:p.np, nz:p.nz, byN:byN, better:better,
+            npMsg:NPS.map(function(nn, i){ return nn + '개 → |오차| ' + f(byN[i], 2); }).join(' · '),
+            verdict:p.d <= 1 ? '낮은 차수는 점이 몇 개든 크게 흔들리지 않아요'
+              : better ? '자료를 늘리면 ' + DN[p.d] + ' 의 새 자료 오차가 ' + f(byN[0], 2) + ' → ' + f(byN[byN.length - 1], 2) + ' 로 줄어요 — 자료가 많으면 높은 차수도 덜 휩니다'
+              : '자료를 늘려도 ' + DN[p.d] + ' 의 새 자료 오차가 줄지 않았어요 (' + f(byN[0], 2) + ' → ' + f(byN[byN.length - 1], 2) + ')'};
         },
         draw: function(c, W, H, p, r, tau){
-          var co = r ? r.co : fit(p.d), bx = W >= 620 ? 80 : 62, bw = W - bx - 24, k = r ? Math.min(tau / 0.7, 1) : 0, i;
+          var DD = dataOf(p);
+          var co = r ? r.co : fit(p.d, DD.X, DD.Y), bx = W >= 620 ? 80 : 62, bw = W - bx - 24, k = r ? Math.min(tau / 0.7, 1) : 0, i;
           var P = plotBox(c, bx, 16, bw, H - 110, [0, 5, 1], [0, 16, 4], 'x', 'y');
           seg(c, P.X(3), P.Y(0), P.X(3), P.Y(16), '#8C99A8', 1.5, [5, 4]);
           if (W >= 520) txt(c, '학습 범위', P.X(1.5), P.Y(15), {align:'center', color:'#4A5868'});
           if (r){ c.save(); c.beginPath(); c.rect(bx, 16, bw, H - 110); c.clip(); c.strokeStyle = PAL[0]; c.lineWidth = 3; c.beginPath();
             var xe = 5 * k; for (i = 0; i <= 100; i++){ var xx = xe * i / 100, yy = ev(co, xx); if (i === 0) c.moveTo(P.X(xx), P.Y(yy)); else c.lineTo(P.X(xx), P.Y(yy)); } c.stroke(); c.restore(); }
-          for (i = 0; i < 4; i++){ c.fillStyle = '#26313D'; c.beginPath(); c.arc(P.X(DX[i]), P.Y(DY[i]), 6, 0, Math.PI * 2); c.fill(); }
+          for (i = 0; i < DD.n; i++){ c.fillStyle = '#26313D'; c.beginPath(); c.arc(P.X(DD.X[i]), P.Y(DD.Y[i]), 6, 0, Math.PI * 2); c.fill(); }
           c.fillStyle = PAL[4]; c.beginPath(); c.arc(P.X(NX), P.Y(NY), 7, 0, Math.PI * 2); c.fill();
           if (r && tau >= 1){ var yp = Math.min(r.y4, 16); seg(c, P.X(NX) + 10, P.Y(NY), P.X(NX) + 10, P.Y(yp), PAL[4], 3);
-            txt(c, 'ŷ(4) = ' + f(r.y4, 2), Math.min(P.X(NX) - 10, W - 140), Math.max(P.Y(yp) - 10, 34), {align:'right', bold:true, color:PAL[0]}); }
-          if (r && tau >= 1) txt(c, '학습 MSE ' + f(r.mse, 3) + ' · 새 자료 오차 ' + sgn(r.err4, 2), 16, H - 14, {bold:true, color:Math.abs(r.err4) > 2 ? PAL[4] : PAL[1], max:W - 22});
+            var lx = Math.min(P.X(NX) - 10, W - 140), lal = 'right';
+            if (lx - 96 < bx){ lx = bx + 8; lal = 'left'; }   /* 좁은 화면: 눈금 숫자와 겹치지 않게 그래프 안 왼쪽에 */
+            txtFit(c, 'ŷ(4) = ' + f(r.y4, 2), lx, Math.min(Math.max(P.Y(yp) - 10, 34), P.Y(0) - 14), {align:lal, bold:true, color:PAL[0]}, bw - 20); }
+          if (r && tau >= 1) txtFit(c, '학습 MSE ' + f(r.mse, 3) + ' · 새 자료 오차 ' + sgn(r.err4, 2), 16, H - 14, {bold:true, color:Math.abs(r.err4) > 2 ? PAL[4] : PAL[1]}, W - 32);
           else txt(c, r ? '곡선 그리는 중…' : DN[p.d], 16, H - 14, {bold:true});
         },
         stats: function(p, r){
           return [['모델', DN[p.d] + ': ' + poly(r.co)],
-            ['학습 자료 예측 (x = 0~3)', r.pr.map(function(x){ return f(x, 2); }).join(', ')],
+            ['학습 자료', r.D0.n + '개 · 잡음 ' + NZN[r.nz] + ' — ' + r.D0.X.map(function(x, i){ return '(' + f(x, 1) + ', ' + f(r.D0.Y[i], 1) + ')'; }).join(' ')],
+            ['점 개수를 바꿔 보면 (같은 차수)', r.npMsg, PAL[6]],
+            ['판정', r.verdict, r.better ? PAL[1] : '#4A5868'],
+            ['학습 자료 예측', r.pr.map(function(x){ return f(x, 2); }).join(', ')],
             ['학습 오차', r.e.map(function(x){ return sgn(x, 2); }).join(', ')],
             ['학습 MSE', f(r.mse, 3), PAL[1]],
             ['새 자료 x = 4 예측 (실제 5)', f(r.y4, 2) + ' → 오차 ' + sgn(r.err4, 2), Math.abs(r.err4) > 2 ? PAL[4] : PAL[0]],
-            ['x = 5까지 가면', f(r.y5, 2) + ' — 자료에서 멀어질수록 차수 높은 모델의 휨이 커짐', PAL[6]]].concat(p.d === 2 ? [['참고', '이 네 점에서는 최소제곱 2차식의 x² 계수가 0이라 직선과 같아집니다', PAL[7]]] : []);
+            ['x = 5까지 가면', f(r.y5, 2) + ' — 자료에서 멀어질수록 차수 높은 모델의 휨이 커짐', PAL[6]],
+            ['※', '학습 자료는 y = 0.8x + 1.3 에 정해진 잡음을 더해 만든 교육용 모형 자료입니다.']];
         },
-        columns: ['차수', '학습 MSE', 'ŷ(4)', '새 자료 오차', 'ŷ(5)'],
-        record: function(p, r){ return {d:p.d, mse:r.mse, y4:r.y4, e4:r.err4, y5:r.y5}; },
-        row: function(d){ return [DN[d.d], f(d.mse, 3), f(d.y4, 2), sgn(d.e4, 2), f(d.y5, 2)]; },
+        columns: ['차수', '점 개수', '잡음', '학습 MSE', 'ŷ(4)', '새 자료 오차'],
+        record: function(p, r){ return {d:p.d, np:r.np, nz:r.nz, mse:r.mse, y4:r.y4, e4:r.err4, y5:r.y5}; },
+        row: function(d){ return [DN[d.d], NPN[d.np == null ? 0 : d.np], NZN[d.nz == null ? 1 : d.nz], f(d.mse, 3), f(d.y4, 2), sgn(d.e4, 2)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('차수별 학습 오차 vs 새 자료 오차', '<div id="of1"></div><p class="ask">차수를 올릴수록 학습 MSE는 줄었나요? 새 자료 오차가 가장 작은 차수는 무엇이었나요?</p>') +
             card('웹툰 #4 학습 오차와 새 자료 오차', '<div id="of2"></div><p class="ask">과제: 자료 다섯 개를 직접 만들어 넷은 학습, 하나는 새 자료로 나누고, 직선과 네 점을 모두 지나는 3차 함수의 학습 오차와 새 자료 오차를 비교해 보세요.</p>') + '</div>';
           var seen = {}, items = [];
-          rec.forEach(function(d){ if (seen[d.d]) return; seen[d.d] = 1;
-            items.push({label:DN[d.d] + ' · 학습 MSE', v:d.mse, color:PAL[1], text:f(d.mse, 3)});
-            items.push({label:DN[d.d] + ' · 새 자료 |오차|', v:Math.abs(d.e4), color:PAL[4], text:f(Math.abs(d.e4), 2)}); });
+          rec.forEach(function(d){ var key = d.d + '|' + (d.np || 0) + '|' + (d.nz == null ? 1 : d.nz); if (seen[key]) return; seen[key] = 1;
+            var lb = DN[d.d] + ' · ' + NPN[d.np == null ? 0 : d.np];
+            items.push({label:lb + ' 학습 MSE', v:d.mse, color:PAL[1], text:f(d.mse, 3)});
+            items.push({label:lb + ' 새 자료 |오차|', v:Math.abs(d.e4), color:PAL[4], text:f(Math.abs(d.e4), 2)}); });
           $('of1').innerHTML = hbars(items, 10) + '<p class="msg">막대는 10을 최대로 그렸습니다.</p>';
           $('of2').innerHTML = tableHTML(['x', '실제 y', '직선 ŷ', '직선 오차', '3차 ŷ', '3차 오차'], [[0, 1, 1.3, '−0.3', 1, 0], [1, 3, 2.1, 0.9, 3, 0], [2, 2, 2.9, '−0.9', 2, 0], [3, 4, 3.7, 0.3, 4, 0], ['<b>학습 MSE</b>', '', '', '<b>0.45</b>', '', '<b>0</b>'], ['4 (새 자료)', 5, '<b>4.5</b>', 0.5, '<b>15</b>', '−10']]) +
             '<p class="msg">3차: 4³ − 4.5 × 4² + 5.5 × 4 + 1 = 15 · 직선: 0.8 × 4 + 1.3 = 4.5</p>';
@@ -503,7 +542,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

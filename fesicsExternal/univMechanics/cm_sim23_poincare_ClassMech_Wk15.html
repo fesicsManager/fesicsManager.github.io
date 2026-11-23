@@ -115,7 +115,8 @@ th{background:var(--soft);font-size:12.5px}
 <header class="top">
   <div class="eyebrow">고전역학 전공 트랙 · 15주차 시뮬</div>
   <h1>푸앵카레 단면</h1>
-  <p>4차원 위상공간을 평면 하나로 압축해서 봅니다. 규칙과 카오스가 어떻게 섞여 있는지 드러납니다.</p>
+  <p>4차원 위상공간을 평면 하나로 압축해서 봅니다. <b>같은 에너지에서도</b> 어디서 출발하느냐에 따라
+     규칙과 카오스가 갈립니다 — 궤도를 하나 찍어 먼저 짐작하고, 이웃 궤도와 벌어지는 속도로 채점해 보세요.</p>
 </header>
 
 <section>
@@ -163,6 +164,26 @@ th{background:var(--soft);font-size:12.5px}
     <button id="clear">지우기</button>
   </div>
 
+  <div class="row">
+    <label>① 시험 궤도</label>
+    <button id="arm" type="button">단면을 눌러 시험 궤도 찍기</button>
+  </div>
+  <div class="row">
+    <label>② 내 짐작</label>
+    <button id="gReg" type="button">규칙 (토러스)</button>
+    <button id="gCha" type="button">카오스</button>
+    <button id="gGo" type="button">③ 채점</button>
+  </div>
+  <div class="note" id="tverd">
+    <b>시험 궤도 찍기</b>를 누르고 단면 안의 한 점을 누르세요. 그 자리에서 출발하는 궤도와,
+    거의 똑같은 자리에서 출발하는 <b>이웃 궤도</b>를 함께 적분합니다.
+    규칙이면 둘의 거리가 시간에 <b>비례해서만</b> 벌어지고, 카오스면 <b>지수적으로</b> 벌어집니다.
+  </div>
+
+  <table id="tlog">
+    <tr><th>E</th><th>출발점 (y, p_y)</th><th>내 짐작</th><th>벌어짐 지수 λ</th><th>적분 결과</th><th>채점</th></tr>
+  </table>
+
   <div class="readout">
     <div class="big" id="verdict">—</div>
     <div class="kv">
@@ -172,6 +193,8 @@ th{background:var(--soft);font-size:12.5px}
       <span>찍힌 점</span><span id="oP">—</span>
       <span>적분 시간 t</span><span id="oT">—</span>
       <span>에너지 보존 오차</span><span id="oErr">—</span>
+      <span>시험 궤도 출발점</span><span id="oTs">—</span>
+      <span>이웃과 벌어짐 λ</span><span id="oLam">—</span>
     </div>
   </div>
 
@@ -183,6 +206,14 @@ th{background:var(--soft);font-size:12.5px}
   <div class="note" id="note">
     낮은 에너지에서는 점들이 <b>닫힌 곡선</b>을 그립니다. 각 곡선이 하나의 토러스를 자른 자국입니다.
     에너지를 올려 보세요. 곡선들 사이에서 <b>점이 흩뿌려지는 영역</b>이 번지기 시작합니다.
+  </div>
+
+  <div class="note">
+    <b>에너지만으로는 판정할 수 없습니다.</b> E = 1/8 로 두고 두 자리를 각각 시험 궤도로 찍어 보세요 —
+    원점 근처 $(y, p_y) \approx (0,\,0)$ 은 λ 가 거의 0 이고(규칙),
+    $(0,\,0.35)$ 쯤은 λ 가 0.08 안팎으로 자랍니다(카오스).
+    같은 에너지, 같은 방정식인데 <b>출발점만으로 결론이 갈립니다.</b>
+    E = 0.16 에서도 $y \approx 0.4$ 근처에는 λ 가 0에 가까운 <b>규칙 섬</b>이 남아 있습니다.
   </div>
 
   <table>
@@ -221,6 +252,10 @@ function step(s, dt){
 /* ===== 상태 ===== */
 let E = 0.083, playing = true;
 let orbits = [], pts = [], T = 0, maxErr = 0;
+/* 시험 궤도: 이웃 궤도와 벌어지는 속도(최대 리아푸노프 지수)를 베네틴 방식으로 잰다 */
+let arming = false, test = null, PRED = null, tlog = [];
+const DELTA = 1e-8;
+const dist4 = (a,b)=> Math.hypot(a.x-b.x, a.y-b.y, a.px-b.px, a.py-b.py);
 const COLORS = ['#7cf29b','#5b8dd6','#ff9a52','#d67ad6','#f2e06a','#6ae0d6','#ff7a7a','#a8d95f'];
 
 function pyMax(y){                       // 단면 허용 영역
@@ -235,6 +270,7 @@ function makeOrbit(y0, py0, ci){
 }
 function seed(){
   orbits = []; pts = []; T = 0; maxErr = 0;
+  test = null; PRED = null; paintPred();
   const ys = [-0.28, -0.12, 0.0, 0.12, 0.26, 0.40, 0.52];
   let ci = 0;
   ys.forEach(y0=>{
@@ -290,6 +326,12 @@ function drawSection(){
     sx2.fillStyle = COLORS[p.c];
     sx2.fillRect(SX(p.y) - 1, SY(p.py) - 1, 2.2, 2.2);
   });
+
+  // 시험 궤도의 출발점 — 노란 고리로만 표시(글자 없음)
+  if(test){
+    sx2.strokeStyle = '#ffd34d'; sx2.lineWidth = 2;
+    sx2.beginPath(); sx2.arc(SX(test.y0), SY(test.p0), 7, 0, Math.PI*2); sx2.stroke();
+  }
 
   sx2.fillStyle = '#7f8c99'; sx2.font = '11px ui-monospace,monospace';
   sx2.textAlign = 'center';
@@ -357,6 +399,23 @@ function advance(){
     if(err > maxErr) maxErr = err;
   });
   T += DT*SUB;
+
+  // 시험 궤도의 이웃을 같은 시간만큼 밀고, 거리를 다시 DELTA 로 줄이며 ln(배율)을 쌓는다
+  if(test && !test.done){
+    if(test.o.dead){ test.done = true; test.escaped = true; }
+    else {
+      for(let k=0;k<SUB;k++) test.tw = step(test.tw, DT);
+      test.T += DT*SUB;
+      const d = dist4(test.o.s, test.tw);
+      if(d > 0 && isFinite(d)){
+        test.sum += Math.log(d/DELTA);
+        const f = DELTA/d, a = test.o.s;
+        test.tw = { x:a.x + (test.tw.x - a.x)*f, y:a.y + (test.tw.y - a.y)*f,
+                    px:a.px + (test.tw.px - a.px)*f, py:a.py + (test.tw.py - a.py)*f };
+      }
+      test.lam = test.T > 0 ? test.sum/test.T : 0;
+    }
+  }
 }
 
 function refresh(){
@@ -366,6 +425,10 @@ function refresh(){
   el('oP').textContent = pts.length;
   el('oT').textContent = T.toFixed(1);
   el('oErr').textContent = maxErr.toExponential(2);
+  el('oTs').textContent = test ? '(' + test.y0.toFixed(3) + ', ' + test.p0.toFixed(3) + ')' : '아직 없음';
+  el('oLam').textContent = !test ? '—'
+    : test.escaped ? '탈출'
+    : test.lam.toFixed(4) + '   (t = ' + test.T.toFixed(0) + ')';
 
   let v, note;
   if(E < 0.06){
@@ -391,6 +454,88 @@ function loop(){
   requestAnimationFrame(loop);
 }
 
+/* ===== 시험 궤도 · 짐작 · 채점 ===== */
+function paintPred(){
+  const a = el('gReg'), b = el('gCha');
+  if(a) a.className = PRED === 'reg' ? 'primary' : '';
+  if(b) b.className = PRED === 'cha' ? 'primary' : '';
+}
+function renderTlog(){
+  const tb = el('tlog'); if(!tb) return;
+  let h = '<tr><th>E</th><th>출발점 (y, p_y)</th><th>내 짐작</th><th>벌어짐 지수 λ</th><th>적분 결과</th><th>채점</th></tr>';
+  tlog.forEach(r=>{
+    h += '<tr><td class="num">' + r.E.toFixed(3) + '</td><td class="num">(' + r.y0.toFixed(3) + ', ' + r.p0.toFixed(3) + ')</td>' +
+         '<td>' + (r.pred === 'reg' ? '규칙' : '카오스') + '</td>' +
+         '<td class="num">' + r.lam.toFixed(4) + '</td>' +
+         '<td>' + r.truth + '</td><td>' + (r.ok ? '○ 맞음' : '✕ 틀림') + '</td></tr>';
+  });
+  tb.innerHTML = h;
+}
+function makeTest(y0, py0){
+  const o = makeOrbit(y0, py0, orbits.length % COLORS.length);
+  if(!o) return false;
+  orbits.push(o);
+  test = { o:o, tw:{ x:o.s.x, y:o.s.y, px:o.s.px, py:o.s.py + DELTA },
+           y0:y0, p0:py0, sum:0, T:0, lam:0, done:false, escaped:false, E:E };
+  PRED = null; paintPred();
+  el('tverd').innerHTML = '시험 궤도를 (' + y0.toFixed(3) + ', ' + py0.toFixed(3) + ') 에 찍었습니다. ' +
+    '<b>규칙</b> 인지 <b>카오스</b> 인지 짐작을 고른 뒤 <b>채점</b>을 누르세요. ' +
+    '적분 시간이 t = 150 을 넘을 때까지 기다리면 판정이 또렷해집니다.';
+  return true;
+}
+function gradeTest(){
+  const v = el('tverd');
+  if(!test){ v.innerHTML = '<b>먼저 시험 궤도를 찍으세요.</b> 위의 \u2018시험 궤도 찍기\u2019 를 누르고 단면 안을 누르면 됩니다.'; return; }
+  if(PRED === null){ v.innerHTML = '<b>먼저 짐작을 고르세요.</b> 규칙일까요, 카오스일까요?'; return; }
+  if(test.escaped){
+    v.innerHTML = '이 궤도는 골짜기를 <b>탈출</b>해 버려서 규칙·카오스를 가릴 수 없습니다. 에너지를 낮추거나 다른 자리를 찍어 보세요.';
+    return;
+  }
+  if(test.T < 150){
+    v.innerHTML = '아직 적분 시간이 t = ' + test.T.toFixed(0) + ' 뿐입니다(λ = ' + test.lam.toFixed(4) + ').' +
+      ' 규칙 궤도의 λ 는 시간이 갈수록 0 으로 내려가므로, <b>t = 150 이 넘은 뒤</b> 채점하세요.';
+    return;
+  }
+  const lam = test.lam;
+  let truth, cls;
+  if(lam > 0.02){ truth = '카오스'; cls = 'cha'; }
+  else if(lam < 0.01){ truth = '규칙 (토러스)'; cls = 'reg'; }
+  else { truth = '애매'; cls = null; }
+  if(cls === null){
+    v.innerHTML = 'λ = ' + lam.toFixed(4) + ' 로 <b>경계에 걸쳐 있습니다.</b> 규칙 영역과 카오스 영역이 맞닿은 자리이거나, ' +
+      '아직 덜 수렴한 것입니다. 조금 더 돌린 뒤 다시 채점하거나 조금 떨어진 자리를 찍어 보세요.';
+    return;
+  }
+  const ok = PRED === cls;
+  test.done = true;
+  tlog.push({ E:test.E, y0:test.y0, p0:test.p0, pred:PRED, lam:lam, truth:truth, ok:ok });
+  renderTlog();
+
+  const how = cls === 'cha'
+    ? '이웃 궤도와의 거리가 $e^{\\lambda t}$ 로 벌어졌습니다. 1/λ ≈ ' + (1/lam).toFixed(0) +
+      ' 만큼의 시간이 지나면 차이가 e배가 되므로, 출발점을 아무리 정밀하게 알아도 긴 시간 뒤는 예측할 수 없습니다.'
+    : '이웃 궤도와의 거리가 지수적으로 자라지 않고 <b>시간에 비례하는 정도</b>로만 벌어졌습니다. 토러스가 살아 있어 궤도가 그 표면에 묶여 있다는 뜻입니다.';
+
+  const sameE = tlog.filter(r=>Math.abs(r.E - test.E) < 1e-9);
+  const kinds = new Set(sameE.map(r=>r.truth));
+  const tail = kinds.size >= 2
+    ? ' <b>같은 에너지 E = ' + test.E.toFixed(3) + ' 에서 규칙과 카오스를 모두 찾았습니다</b> — 결론을 가른 것은 에너지가 아니라 <b>출발점</b>이었습니다.'
+    : ' 같은 에너지에서 <b>반대 결과</b>가 나오는 자리도 찾아보세요. E = 1/8 이라면 (0, 0) 과 (0, 0.35) 를 견주면 됩니다.';
+
+  v.innerHTML = (ok ? '<b>\u25cb 맞았습니다.</b> ' : '<b>\u2715 틀렸습니다.</b> ') +
+    '(' + test.y0.toFixed(3) + ', ' + test.p0.toFixed(3) + ') 에서 출발한 궤도는 <b>' + truth + '</b> 입니다 (λ = ' +
+    lam.toFixed(4) + ', t = ' + test.T.toFixed(0) + '). ' + how + tail;
+  if(window.MathJax && window.MathJax.typesetPromise) window.MathJax.typesetPromise([v]).catch(()=>{});
+}
+if(el('arm')) el('arm').addEventListener('click', e=>{
+  arming = !arming;
+  e.target.className = arming ? 'primary' : '';
+  e.target.textContent = arming ? '단면을 누르세요 (취소: 다시 누름)' : '단면을 눌러 시험 궤도 찍기';
+});
+if(el('gReg')) el('gReg').addEventListener('click', ()=>{ PRED = 'reg'; paintPred(); });
+if(el('gCha')) el('gCha').addEventListener('click', ()=>{ PRED = 'cha'; paintPred(); });
+if(el('gGo')) el('gGo').addEventListener('click', gradeTest);
+
 /* ===== 조작 ===== */
 el('sE').addEventListener('input', e=>{
   E = parseFloat(e.target.value);
@@ -411,6 +556,17 @@ el('clear').addEventListener('click', ()=>{ pts = []; refresh(); });
 sc.addEventListener('pointerdown', ev=>{
   const r = sc.getBoundingClientRect(), k = sc.width/r.width;
   const y0 = IY((ev.clientX - r.left)*k), py0 = IP((ev.clientY - r.top)*k);
+  if(arming){
+    if(makeTest(y0, py0)){
+      arming = false;
+      const b = el('arm');
+      if(b){ b.className = ''; b.textContent = '단면을 눌러 시험 궤도 찍기'; }
+    } else {
+      el('tverd').innerHTML = '그 자리는 <b>허용 영역 밖</b>입니다(빨간 경계 안쪽을 누르세요). 다시 눌러 보세요.';
+    }
+    refresh();
+    return;
+  }
   const o = makeOrbit(y0, py0, orbits.length % COLORS.length);
   if(o){ orbits.push(o); refresh(); }
 });

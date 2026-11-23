@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,6 +438,20 @@ var LAB = (function(){
         {n:'조사 C', who:'학부모 500명', when:'학기 중', q:'“자녀가 책을 읽나”', res:67, ck:['✕ 당사자가 아닌 부모의 추정', '○ 학기 중', '△ 기준이 모호']}
       ];
       var BASE = [4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10];
+      /* ② 내가 짠 조사 — 조건에 따라 독서율이 얼마로 나올지 셈하는 교육용 모형값.
+         누구에게 묻느냐가 바탕을 정하고, 방학 중이면 조금 오르고, 문항이 모호하면 더 오른다. */
+      var WHO = [{n:'도서관 이용자 400명', base:88, ck:'✕ 도서관에 온 사람만 — 표본 편향'},
+        {n:'전국 중·고생 3,000명', base:45, ck:'○ 당사자, 넓은 표본'},
+        {n:'학부모 500명', base:65, ck:'✕ 당사자가 아닌 부모의 추정'},
+        {n:'우리 반 학생 30명', base:50, ck:'△ 당사자지만 표본이 너무 작음'}];
+      var WHEN2 = [{n:'학기 중', d:0, ck:'○ 학기 중'}, {n:'방학 중', d:4, ck:'△ 방학 중'}];
+      var WHAT = [{n:'“책을 읽나”', d:12, ck:'△ ‘책’의 범위가 모호'},
+        {n:'“교과서 외 책을 한 달에 1권 이상 읽나”', d:0, ck:'○ 기준이 분명'}];
+      function mkSurvey(p){
+        var w = WHO[p.who], t = WHEN2[p.when], q = WHAT[p.what];
+        return {n:'내가 짠 조사', who:w.n, when:t.n, q:q.n, mine:true,
+          res:Math.max(0, Math.min(100, Math.round(w.base + t.d + q.d))), ck:[w.ck, t.ck, q.ck]};
+      }
       function median(a){ var s = a.slice().sort(function(x, y){ return x - y; }), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
       return {
         sceneHeight: 420,
@@ -444,12 +460,27 @@ var LAB = (function(){
         params: [
           {key:'m', type:'seg', label:'점검 항목', cols:3, value:0, options:MD},
           {key:'ax', type:'range', label:'① 세로축 시작값', min:0, max:81, step:1, value:80, fmt:function(v){ return v + '%'; }},
-          {key:'sv', type:'seg', label:'② 조사', cols:3, value:0, options:SV.map(function(s){ return s.n + ' · ' + s.who; })},
+          {key:'sv', type:'seg', label:'② 조사', cols:3, value:0, options:SV.map(function(s){ return s.n + ' · ' + s.who; }).concat(['내가 짠 조사 (아래 세 칸)'])},
+          {key:'who', type:'seg', label:'② 내가 짠 조사 — 누구에게', cols:2, value:1, options:WHO.map(function(x){ return x.n; })},
+          {key:'when', type:'seg', label:'② 언제', cols:2, value:0, options:WHEN2.map(function(x){ return x.n; })},
+          {key:'what', type:'seg', label:'② 무엇을', cols:1, value:1, options:WHAT.map(function(x){ return x.n; })},
+          {key:'pr', type:'range', label:'② 먼저 예측: 독서율이 몇 %로 나올까?', min:0, max:100, step:5, value:0, fmt:function(v){ return v === 0 ? '예측 안 함' : v + '%'; }},
           {key:'out', type:'seg', label:'③ 용돈 자료', cols:2, value:1, options:['19명만', '100만 원 받는 1명 포함 (20명)']}
         ],
         compute: function(p){
           if (p.m === 0){ var vis = (84 - p.ax) / (82 - p.ax); return {m:0, vis:vis, real:84 / 82, ax:p.ax}; }
-          if (p.m === 1){ var s = SV[p.sv]; return {m:1, s:s, bad:s.ck.filter(function(x){ return x.charAt(0) === '✕'; }).length}; }
+          if (p.m === 1){
+            var s = p.sv === 3 ? mkSurvey(p) : SV[p.sv];
+            var o1 = {m:1, s:s, mine:!!s.mine, bad:s.ck.filter(function(x){ return x.charAt(0) === '✕'; }).length,
+              warn:s.ck.filter(function(x){ return x.charAt(0) === '△'; }).length};
+            if (s.mine && p.pr > 0){
+              var dd = Math.abs(p.pr - s.res);
+              o1.pr = p.pr;
+              o1.grade = dd <= 5 ? '맞음 ✓' : (dd <= 12 ? '가까움' : (dd <= 30 ? '빗나감' : '크게 빗나감 ✕'));
+              o1.gmsg = o1.grade + ' — 실제 ' + s.res + '% (내 예측 ' + p.pr + '%)';
+            }
+            return o1;
+          }
           var a = p.out ? BASE.concat([100]) : BASE.slice();
           return {m:2, a:a, mean:mean(a), med:median(a), n:a.length};
         },
@@ -471,7 +502,7 @@ var LAB = (function(){
             if (r && tau > 0.7 && W < 480){ var vs = '막대 길이 ' + f(r.vis, 2) + '배 · 실제 ' + f(r.real, 3) + '배'; c.font = '700 18px ' + FONT; var vw = c.measureText(vs).width, vk = Math.min(1, (W - 16) / vw); c.save(); c.translate(W - 8, 6); c.scale(vk, vk); txt(c, vs, 0, 0, {align:'right', bold:true, color:r.vis > 1.5 ? PAL[4] : PAL[1], base:'top'}); c.restore(); }
             else if (r && tau > 0.7) txt(c, '막대 길이 ' + f(r.vis, 2) + '배 · 실제 ' + f(r.real, 3) + '배', W - 30, 20, {align:'right', bold:true, color:r.vis > 1.5 ? PAL[4] : PAL[1], base:'top'});
           } else if (p.m === 1){
-            var s = SV[p.sv];
+            var s = (r && r.s) ? r.s : (p.sv === 3 ? mkSurvey(p) : SV[p.sv]);
             txt(c, s.n + ' — ' + s.who, 20, 34, {bold:true});
             var bw2 = W - 40; c.fillStyle = '#E6EBF1'; c.fillRect(20, 50, bw2, 28); c.fillStyle = PAL[5]; c.fillRect(20, 50, bw2 * s.res / 100 * k, 28);
             txt(c, '결과 ' + s.res + '%', 28, 70, {bold:true, color:'#fff'});
@@ -499,23 +530,31 @@ var LAB = (function(){
           if (r.m === 0) return [['세로축 시작', p.ax + '%'], ['막대 길이로 보이는 배율', f(r.vis, 2) + '배', r.vis > 1.5 ? PAL[4] : PAL[1]], ['실제 배율 (84 ÷ 82)', f(r.real, 3) + '배', PAL[1]],
             ['점검', r.vis > 1.5 ? '축을 잘라 차이를 부풀린 그래프 — 축 시작값을 꼭 확인하세요' : p.ax <= 10 ? '축이 0 근처라 길이 비율이 실제와 가까워요' : '축이 ' + p.ax + '%에서 시작해 차이가 실제(약 1.02배)보다 커 보여요 — 축 시작값을 확인하세요']];
           if (r.m === 1) return [['조사', r.s.n + ' — ' + r.s.who + ', ' + r.s.when], ['문항', r.s.q], ['결과', r.s.res + '%', PAL[5]],
-            ['점검 결과', r.s.ck.join(' / '), r.bad ? PAL[4] : PAL[1]], ['판단', r.bad ? '문제 항목 ' + r.bad + '개 — 이 숫자만으로 ‘청소년 독서율’이라고 인용하면 안 돼요' : '표본·시기·문항이 분명해 인용하기에 가장 알맞아요']];
+            ['점검 결과', r.s.ck.join(' / '), r.bad ? PAL[4] : PAL[1]],
+            ['판단', r.bad ? '문제 항목 ' + r.bad + '개 — 이 숫자만으로 ‘청소년 독서율’이라고 인용하면 안 돼요' : (r.warn ? '걸리는 항목 ' + r.warn + '개 — 숫자를 쓰려면 조건을 함께 밝혀야 해요' : '표본·시기·문항이 분명해 인용하기에 가장 알맞아요')]].concat(
+            r.pr ? [['내 예측 채점', r.gmsg, /맞음/.test(r.grade) ? PAL[1] : PAL[4]]] : []).concat(
+            r.mine ? [['조건을 바꾸면', '누구에게 묻는지가 바탕을 정하고, 문항이 모호하면 ' + WHAT[0].d + '%p쯤 더 높게, 방학 중이면 ' + WHEN2[1].d + '%p쯤 더 높게 나와요 (교육용 모형값)', PAL[7]]] : []);
           return [['인원', r.n + '명'], ['평균', f(r.mean, 2) + '만 원', PAL[4]], ['중앙값', f(r.med, 1) + '만 원', PAL[1]],
             ['판단', r.n === 20 ? '한 명 때문에 평균이 ' + f(r.mean - 7, 2) + '만 원 올랐지만 중앙값은 그대로예요' : '치우친 값이 없어 평균과 중앙값이 같아요']];
         },
         columns: ['점검', '조건', '핵심 결과'],
         record: function(p, r){
           if (r.m === 0) return {m:0, ax:p.ax, vis:r.vis};
-          if (r.m === 1) return {m:1, sv:p.sv, res:r.s.res, bad:r.bad};
+          if (r.m === 1) return {m:1, sv:p.sv, res:r.s.res, bad:r.bad, mine:r.mine, who:p.who, when:p.when, what:p.what, pr:r.pr || 0, grade:r.grade || ''};
           return {m:2, n:r.n, mean:r.mean, med:r.med};
         },
         row: function(d){
           if (d.m === 0) return ['① 축', '시작 ' + d.ax + '%', '보이는 배율 ' + f(d.vis, 2) + '배'];
-          if (d.m === 1) return ['② 표본', SV[d.sv].n, d.res + '% · 문제 ' + d.bad + '개'];
+          if (d.m === 1) return ['② 표본', d.mine ? '내가 짠 조사 (' + WHO[d.who].n + ' · ' + WHEN2[d.when].n + ')' : SV[d.sv].n, d.res + '% · 문제 ' + d.bad + '개' + (d.pr ? ' · 예측 ' + d.pr + '% ' + d.grade : '')];
           return ['③ 평균', d.n + '명', '평균 ' + f(d.mean, 2) + ' · 중앙값 ' + f(d.med, 1)];
         },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = rec.filter(function(d){ return d.m === 1 && d.mine; });
+          var mcard = !ms.length ? '' : card('② 내가 짠 조사 — 조건이 숫자를 바꾼다', tableHTML(['누구에게', '언제', '무엇을', '내 예측', '나온 값', '문제 항목'],
+              ms.map(function(d){ return [WHO[d.who].n, WHEN2[d.when].n, WHAT[d.what].n, d.pr ? d.pr + '%' : '—', d.res + '%', d.bad + '개']; })) +
+            '<p class="ask">문항만 “책을 읽나”로 바꾸면 독서율이 몇 %p 올라가나요? 묻는 대상만 도서관 이용자로 바꾸면요? ' +
+            '같은 ‘청소년 독서율’이라는 말로 40%대와 90%대를 모두 만들 수 있다면, 숫자를 볼 때 무엇을 함께 물어야 할까요?</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('① 세로축 시작값과 보이는 배율', '<canvas class="chart" id="st1"></canvas><p class="ask">실제 배율(약 1.02배, 초록 선)과 막대로 보이는 배율이 크게 벌어지는 것은 시작값이 몇일 때부터인가요?</p>') +
             card('② 표본 점검 · ③ 평균 점검', '<div id="st2"></div><p class="ask">과제: 통계를 인용한 기사 하나를 골라 표본·시기·문항·표현 방식 네 항목을 점검하고, 원자료를 찾아 기사가 생략한 정보를 하나 찾아 적어 보세요.</p>') + '</div>';
           var pts = rec.filter(function(d){ return d.m === 0; }).map(function(d){ return {x:d.ax, y:d.vis}; });
@@ -533,7 +572,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

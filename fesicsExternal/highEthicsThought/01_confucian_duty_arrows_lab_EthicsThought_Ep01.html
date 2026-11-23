@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -450,15 +452,20 @@ var LAB = (function(){
       var RD = ['원전으로 읽기', '후대 제도에서 강조된 형태'];
       return {
         sceneHeight: 430,
-        idle: '개념과 읽는 방식을 고른 뒤 <b>이 방식으로 읽기</b>를 누르세요.',
-        shortHint: '한 개념을 원전과 제도 두 방식으로 모두 읽어 보세요.',
+        idle: '개념과 읽는 방식을 고르고 <b>두 방향의 화살표 수를 먼저 예측</b>한 뒤 <b>이 방식으로 읽기</b>를 누르세요.',
+        shortHint: '한 개념을 원전과 제도 두 방식으로 모두 읽고, 그때마다 화살표 수를 먼저 예측해 보세요.',
         params: [
           {key:'c', type:'seg', label:'유교 개념', cols:4, value:0, options:CN.map(function(x){ return x.n; })},
-          {key:'r', type:'seg', label:'읽는 방식', cols:2, value:0, options:RD}
+          {key:'r', type:'seg', label:'읽는 방식', cols:2, value:0, options:RD},
+          {key:'gu', type:'range', label:'먼저 예측 — 아래에서 위로 가는 의무가 몇 개일까요', min:0, max:3, step:1, value:1, fmt:function(v){ return v + '개'; }},
+          {key:'gd', type:'range', label:'먼저 예측 — 위에서 아래로 가는 의무가 몇 개일까요', min:0, max:3, step:1, value:1, fmt:function(v){ return v + '개'; },
+            note:'누르기 전에 두 방향의 화살표 수를 짐작해 보세요. 0 개도 답이 될 수 있습니다 — 한쪽 방향이 통째로 사라지는 경우가 이 실험의 핵심입니다.'}
         ],
         compute: function(p){
           var cn = CN[p.c], m = p.r === 0 ? cn.o : cn.l;
-          return {cn:cn, m:m, down:m.down.length, up:m.up.length};
+          var up = m.up.length, down = m.down.length;
+          return {cn:cn, m:m, down:down, up:up, gu:p.gu, gd:p.gd,
+            hitU:(p.gu === up), hitD:(p.gd === down), hits:((p.gu === up ? 1 : 0) + (p.gd === down ? 1 : 0))};
         },
         draw: function(c, W, H, p, r, tau){
           var cn = CN[p.c], m = r ? r.m : {down:[], up:[], self:false}, k = r ? Math.min(tau / 0.7, 1) : 0;
@@ -473,16 +480,20 @@ var LAB = (function(){
           if (m.self){ c.strokeStyle = PAL[1]; c.lineWidth = 4; c.beginPath(); c.arc(cx + 100, ty - 4, 18, 0, Math.PI * 1.7); c.stroke(); txt(c, p.r === 0 ? '내용(인)' : '수양', cx + 100, ty - 30, {align:'center', color:PAL[1], bold:true}); }
           c.globalAlpha = 1;
           txt(c, cn.n + ' · ' + RD[p.r] + (r ? '' : ' (읽기 전)'), 16, H - 12, {color:'#4A5868'});
+          if (r && tau >= 1) txt(c, '내 예측 ↑' + r.gu + (r.hitU ? '⭕' : '❌') + ' ↓' + r.gd + (r.hitD ? '⭕' : '❌'), W - 16, H - 12,
+            {align:'right', bold:true, color:r.hits === 2 ? PAL[1] : PAL[6]});
         },
         stats: function(p, r){
           return [['개념 · 읽는 방식', r.cn.n + ' · ' + RD[p.r]], ['원전 구절 (요지)', r.cn.src, PAL[3]],
             ['이 방식에서의 의미', r.m.mean, p.r === 0 ? PAL[1] : PAL[2]],
             ['의무 화살표', '아래→위 ' + r.up + '개(' + (r.m.up.join(', ') || '없음') + ') · 위→아래 ' + r.down + '개(' + (r.m.down.join(', ') || '없음') + ')', PAL[0]],
+            ['내 예측 채점', '아래→위 ' + r.gu + '개' + (r.hitU ? ' ⭕' : ' ❌ (실제 ' + r.up + '개)') + ' · 위→아래 ' + r.gd + '개' + (r.hitD ? ' ⭕' : ' ❌ (실제 ' + r.down + '개)'),
+              r.hits === 2 ? PAL[1] : PAL[6]],
             ['함께 볼 사실', '원전에도 위계적 요소는 있어요 — 공자도 신분 질서 자체를 부정하지는 않았습니다.', PAL[7]]];
         },
-        columns: ['개념', '읽는 방식', '아래→위', '위→아래'],
-        record: function(p, r){ return {c:p.c, r:p.r, up:r.up, down:r.down}; },
-        row: function(d){ return [CN[d.c].n, d.r === 0 ? '원전' : '제도', d.up + '개', d.down + '개']; },
+        columns: ['개념', '읽는 방식', '아래→위', '위→아래', '내 예측', '맞힘'],
+        record: function(p, r){ return {c:p.c, r:p.r, up:r.up, down:r.down, gu:r.gu, gd:r.gd, hits:r.hits}; },
+        row: function(d){ return [CN[d.c].n, d.r === 0 ? '원전' : '제도', d.up + '개', d.down + '개', '↑' + d.gu + ' ↓' + d.gd, d.hits + '/2']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('원전 vs 제도 — 의무 화살표', '<div id="yv1"></div><p class="ask">원전에서 쌍방이던 의무가 제도에서는 어느 쪽 의무로 좁아졌나요? "통치에 편한 부분만 강조된다"는 말과 연결해 보세요.</p>') +
@@ -491,7 +502,10 @@ var LAB = (function(){
           [0, 1].forEach(function(rd){ var a = rec.filter(function(d){ return d.r === rd; }); if (!a.length) return;
             it.push({label:(rd ? '제도' : '원전') + ' · 아래→위', v:mean(a.map(function(d){ return d.up; })), color:PAL[0], text:f(mean(a.map(function(d){ return d.up; })), 1) + '개'});
             it.push({label:(rd ? '제도' : '원전') + ' · 위→아래', v:mean(a.map(function(d){ return d.down; })), color:PAL[6], text:f(mean(a.map(function(d){ return d.down; })), 1) + '개'}); });
-          $('yv1').innerHTML = hbars(it, 2) + '<p class="msg">읽은 개념들의 평균 화살표 수입니다.</p>';
+          var tot = rec.reduce(function(a, d){ return a + d.hits; }, 0);
+          var gone = rec.filter(function(d){ return d.r === 1 && d.down === 0; }).length;
+          $('yv1').innerHTML = hbars(it, 2) + '<p class="msg">읽은 개념들의 평균 화살표 수입니다. 내 예측은 <b>' + tot + ' / ' + rec.length * 2 + '</b> 맞았어요.' +
+            (gone ? ' 제도 쪽에서 <b>위→아래 화살표가 0개</b>가 된 기록이 ' + gone + '건 있습니다 — 윗사람이 질 의무가 통째로 사라진 자리입니다.' : '') + '</p>';
           var rows = [];
           CN.forEach(function(cn, i){ if (!rec.some(function(d){ return d.c === i; })) return; rows.push([cn.n, cn.o.mean, cn.l.mean]); });
           $('yv2').innerHTML = tableHTML(['개념', '원전', '후대 제도'], rows);
@@ -503,7 +517,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

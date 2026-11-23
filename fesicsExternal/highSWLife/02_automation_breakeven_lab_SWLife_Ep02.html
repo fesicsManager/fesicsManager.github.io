@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -469,7 +471,7 @@ var LAB = (function anonymous(
       var FR = [{n:'주 1회', f:1}, {n:'주 5회 (매일)', f:5}, {n:'1년에 1회', f:1 / 52}];
       var t = 15, m = 1, XMAX = 60;
       return {
-        sceneHeight:function(w){ return w < 560 ? 460 : 420; },
+        sceneHeight:function(w){ return w < 560 ? 495 : 420; },
         idle:'조건을 고른 뒤 <b>주별로 쌓아 보기</b>를 누르세요.',
         shortHint:'기본값(주 1회·360분·1개 반)에서 확인할 주를 25와 26으로 바꿔 보고, 빈도를 주 5회·1년에 1회로도 바꿔 보세요.',
         params:[
@@ -488,21 +490,24 @@ var LAB = (function anonymous(
           var fr = FR[p.fq].f, k = p.k === 0 ? 1 : 3;
           function hand(n){ return t * fr * k * n; } function auto(n){ return p.C + m * k * n; }
           var ymax = Math.max(hand(XMAX), auto(XMAX)), ax = axisFrom(0, ymax);
-          var o = plotBox(c, 74, 40, W - 100, H - 120, [0, XMAX, W < 560 ? 20 : 10], [0, ax.hi, ax.step], '경과 주', '누적 시간 (분)');
+          /* 좁은 화면: 설명 글을 두 줄로 두고 그래프를 그만큼 내린다 */
+          var narrow = W < 560, py = narrow ? 62 : 40, phh = H - 120 - (narrow ? 22 : 0);
+          var o = plotBox(c, 74, py, W - 100, phh, [0, XMAX, W < 560 ? 20 : 10], [0, ax.hi, ax.step], '경과 주', '누적 시간 (분)');
           var kk = r ? ease(tau / 0.85) : 0, nEnd = XMAX * kk;
-          seg(c, o.X(20), 40, o.X(20), H - 80, '#B9C4D0', 1.5, [4, 4]); T(c, '한 학기 ≈ 20주', o.X(20) + 4, 56, {size:13, color:'#6B7887'});
+          seg(c, o.X(20), py, o.X(20), py + phh, '#B9C4D0', 1.5, [4, 4]); T(c, '한 학기 ≈ 20주', o.X(20) + 4, py + 16, {size:13, color:'#6B7887'});
           if (r){
             [[hand, PAL[2]], [auto, PAL[0]]].forEach(function(L){
               c.strokeStyle = L[1]; c.lineWidth = 3; c.beginPath(); c.moveTo(o.X(0), o.Y(L[0](0))); c.lineTo(o.X(nEnd), o.Y(L[0](nEnd))); c.stroke(); });
             if (kk >= 1){
               if (r.be != null && r.be <= XMAX){ c.fillStyle = PAL[1]; c.beginPath(); c.arc(o.X(r.be), o.Y(auto(r.be)), 7, 0, Math.PI * 2); c.fill();
                 T(c, r.be + '주째부터 자동화 이득', Math.max(6, Math.min(o.X(r.be) + 8, W - 200)), o.Y(auto(r.be)) - 12, {bold:true, size:15, color:PAL[1], max:Math.min(190, W - 12)}); }   /* 좁은 화면에서 왼쪽 끝 밖으로 나가지 않게 */
-              seg(c, o.X(p.w), 40, o.X(p.w), H - 80, PAL[3], 2, [6, 4]);
+              seg(c, o.X(p.w), py, o.X(p.w), py + phh, PAL[3], 2, [6, 4]);
               c.fillStyle = PAL[2]; c.beginPath(); c.arc(o.X(p.w), o.Y(r.hand), 5, 0, Math.PI * 2); c.fill();
               c.fillStyle = PAL[0]; c.beginPath(); c.arc(o.X(p.w), o.Y(r.auto), 5, 0, Math.PI * 2); c.fill();
             }
           }
-          T(c, '— 손으로', 16, 24, {bold:true, size:15, color:PAL[2]}); T(c, '— 자동화 (제작 ' + p.C + '분 + 매주 ' + m * k + '분)', 110, 24, {bold:true, size:15, color:PAL[0], max:W - 126});
+          T(c, '— 손으로', 16, 24, {bold:true, size:15, color:PAL[2]});
+          T(c, '— 자동화 (제작 ' + p.C + '분 + 매주 ' + m * k + '분)', narrow ? 16 : 110, narrow ? 46 : 24, {bold:true, size:15, color:PAL[0], max:narrow ? W - 32 : W - 126});
           var msg = !r ? '아직 쌓지 않았어요' : kk < 1 ? '쌓는 중…' : p.w + '주: 손 ' + f(r.hand, 0) + '분 · 자동화 ' + f(r.auto, 0) + '분 → ' + (r.win ? '자동화가 적음' : r.tie ? '같음' : '손이 적음') + (r.be == null ? ' (회수 불가)' : '');
           T(c, msg, 16, H - 12, {bold:true, size:16, color:r && kk >= 1 ? (r.win ? PAL[1] : PAL[4]) : '#8C99A8', max:W - 32});
         },
@@ -538,7 +543,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

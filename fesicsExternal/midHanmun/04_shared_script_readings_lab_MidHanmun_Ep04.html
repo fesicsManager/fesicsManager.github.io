@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -479,38 +481,75 @@ var LAB = (function anonymous(
       ];
       var RG = [{k:'ko', nm:'한국', note:'한자음 (훈과 음)'}, {k:'ja', nm:'일본', note:'음독 · 훈독'}, {k:'zh', nm:'중국', note:'표준어 병음'}, {k:'vi', nm:'베트남', note:'한월음'}];
       function form(g, i){ return i === 1 && g.jf ? g.jf : i === 2 && g.zf ? g.zf : g.ch; }
+      /* 낱자 하나만 쓰거나, 같은 구절을 네 지역 읽기로 나란히 만들어 본다 */
+      var PH = [
+        {n:'고른 글자 하나', ix:null},
+        {n:'學生 (배우는 사람)', ix:[6, 5]},
+        {n:'山水 (산과 물)', ix:[1, 3]},
+        {n:'人生 (사람의 삶)', ix:[2, 5]}
+      ];
+      var MO = ['2마디', '3마디', '4마디', '5마디', '6마디'];
+      function one(g, k){
+        var s = g[k];
+        if (k === 'ko') return s.split(' (')[0];
+        if (k === 'ja') return s.split(' · ')[0];
+        return s;
+      }
+      function beats(g, k){ return k === 'ja' ? 2 : 1; }   /* 일본 음독은 대개 두 마디 */
+      function readPhrase(p, ri){
+        var k = RG[ri].k, ix = PH[p.s].ix || [p.g], out = [], b = 0;
+        ix.forEach(function(i){ out.push(one(G[i], k)); b += beats(G[i], k); });
+        return {txt:k === 'ko' || k === 'ja' ? out.join('') : out.join(' '), beats:b,
+          chars:ix.map(function(i){ return form(G[i], ri); }).join(''), mean:ix.map(function(i){ return G[i].mean; }).join('+')};
+      }
       return {
         sceneHeight: 400,
         idle: '글자와 지역을 고른 뒤 <b>이곳에서 읽어 보기</b>를 누르세요.',
         shortHint: '한 글자를 네 지역에서 모두 읽어 보고, 다른 글자로도 해 보세요.',
         params: [
           {key:'g', type:'seg', label:'글자', cols:4, value:0, options:G.map(function(x){ return '<b style="font-size:1.2em">' + x.ch + '</b>'; })},
-          {key:'rg', type:'seg', label:'읽는 곳', cols:4, value:0, options:RG.map(function(x){ return x.nm; })}
+          {key:'rg', type:'seg', label:'읽는 곳', cols:4, value:0, options:RG.map(function(x){ return x.nm; })},
+          {key:'s', type:'seg', label:'읽을 거리', cols:2, value:0, options:PH.map(function(x){ return x.n; })},
+          {key:'all', type:'seg', label:'보여 줄 곳', cols:2, value:0, options:['고른 곳만', '네 곳 나란히']},
+          {key:'b', type:'seg', label:'먼저 짐작 — 이곳에서 읽으면 소리 마디가 몇 개일까', cols:5, value:0, options:MO,
+            note:'같은 글자를 네 지역 읽기로 나란히 만들어 견주어 보세요. 소리 마디 수는 뜻이 같은 글자라도 읽기 길이가 다르다는 것을 보여 줍니다.'}
         ],
-        compute: function(p){ var g = G[p.g], rg = RG[p.rg]; return {g:g, rg:rg, rd:g[rg.k], fm:form(g, p.rg)}; },
+        compute: function(p){
+          var g = G[p.g], rg = RG[p.rg], ph = readPhrase(p, p.rg);
+          var all = RG.map(function(x, i){ var q = readPhrase(p, i); return {nm:x.nm, txt:q.txt, beats:q.beats, chars:q.chars}; });
+          return {g:g, rg:rg, rd:ph.txt, fm:ph.chars, ph:ph, all:all,
+            bOk:(p.b + 2) === ph.beats, bMine:MO[p.b]};
+        },
         draw: function(c, W, H, p, r, tau){
           var g = G[p.g], cx = W / 2, cy = H / 2 - 10, S = Math.min(120, W * 0.28);
+          var chs = (PH[p.s].ix || [p.g]).map(function(i){ return G[i].ch; }).join('');
+          var mns = (PH[p.s].ix || [p.g]).map(function(i){ return G[i].mean; }).join('+');
           rbox(c, cx - S * 0.6, cy - S * 0.62, S * 1.2, S * 1.2, '#FFFFFF', '#26313D', 3);
-          T(c, g.ch, cx, cy + S * 0.36, {size:S, align:'center'});
-          T(c, '뜻: ' + g.mean, cx, cy + S * 0.62 + 26, {size:16, bold:true, align:'center', color:'#4A5868'});
+          T(c, chs, cx, cy + S * 0.36, {size:S, align:'center', max:S * 1.1});
+          T(c, '뜻: ' + mns, cx, cy + S * 0.62 + 26, {size:16, bold:true, align:'center', color:'#4A5868', max:W - 24});
           var pos = [[0.02, 0.06], [0.52, 0.06], [0.02, 0.72], [0.52, 0.72]], bw = W * 0.46, bh = 80;
           for (var i = 0; i < 4; i++){
-            var x = W * pos[i][0], y = H * pos[i][1], on = r && i === p.rg, k = on ? ease(tau / 0.5) : 0;
+            var sel = i === p.rg, on = !!r && (sel || p.all === 1), k = on ? ease(tau / 0.5) : 0;
+            var x = W * pos[i][0], y = H * pos[i][1];
             if (y > H * 0.5) y = H - bh - 10;
-            rbox(c, x, y, bw, bh, on ? '#EAF1FA' : '#F3F6FA', on ? PAL[0] : '#D4DCE5', on ? 3 : 1);
-            T(c, RG[i].nm + (form(g, i) !== g.ch ? ' · 자형 ' + form(g, i) : ''), x + 12, y + 24, {size:15, bold:true, color:on ? PAL[0] : '#4A5868', max:bw - 20});
-            if (on){ c.globalAlpha = k; T(c, r.rd, x + 12, y + 58, {size:20, bold:true, max:bw - 20}); c.globalAlpha = 1; }
+            rbox(c, x, y, bw, bh, sel && r ? '#EAF1FA' : '#F3F6FA', sel && r ? PAL[0] : '#D4DCE5', sel && r ? 3 : 1);
+            var q = r ? r.all[i] : null;
+            T(c, RG[i].nm + (q && q.chars !== chs ? ' · 자형 ' + q.chars : ''), x + 12, y + 24, {size:15, bold:true, color:sel && r ? PAL[0] : '#4A5868', max:bw - 20});
+            if (on){ c.globalAlpha = k; T(c, q.txt + ' (' + q.beats + '마디)', x + 12, y + 58, {size:18, bold:true, max:bw - 20}); c.globalAlpha = 1; }
             else T(c, '?', x + 12, y + 58, {size:20, color:'#A8B4C2'});
           }
         },
         stats: function(p, r){
-          return [['글자', r.g.ch + (r.fm !== r.g.ch ? ' (이곳의 자형: ' + r.fm + ')' : '') + ' — 뜻: ' + r.g.mean, PAL[0]],
-            ['읽는 곳', r.rg.nm + ' · ' + r.rg.note], ['읽기', r.rd, PAL[1]],
-            ['한국 한자음과 비교', r.g.ko, PAL[3]]];
+          return [['읽을 거리', PH[p.s].n + (r.fm !== (PH[p.s].ix || [p.g]).map(function(i){ return G[i].ch; }).join('') ? ' (이곳의 자형: ' + r.fm + ')' : ''), PAL[0]],
+            ['읽는 곳', r.rg.nm + ' · ' + r.rg.note], ['읽기', r.rd + ' — 소리 마디 ' + r.ph.beats + '개', PAL[1]],
+            ['나의 짐작', r.bMine + (r.bOk ? ' — 맞았어요' : ' — 빗나갔어요 (' + r.ph.beats + '마디)'), r.bOk ? PAL[1] : PAL[6]],
+            ['네 곳 나란히', r.all.map(function(a){ return a.nm + ' ' + a.txt + '(' + a.beats + ')'; }).join(' · '), PAL[3]],
+            ['한국 한자음과 비교', r.all[0].txt + ' — 글자는 같고 소리만 다릅니다', PAL[3]]];
         },
-        columns: ['글자', '읽는 곳', '읽기'],
-        record: function(p, r){ return {g:p.g, rg:p.rg}; },
-        row: function(d){ return [G[d.g].ch, RG[d.rg].nm, G[d.g][RG[d.rg].k]]; },
+        columns: ['읽을 거리', '읽는 곳', '읽기', '마디', '짐작'],
+        record: function(p, r){ return {g:p.g, rg:p.rg, s:p.s, rd:r.rd, beats:r.ph.beats, chars:r.fm, bOk:r.bOk,
+          all:r.all.map(function(a){ return a.txt + '(' + a.beats + ')'; })}; },
+        row: function(d){ return [d.chars, RG[d.rg].nm, d.rd, d.beats + '마디', d.bOk ? '○' : '×']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 열어 본 읽기 표', '<div id="mh4a"></div><p class="ask">글자와 뜻이 같은데 소리가 다른 것을 확인했나요? 한국·베트남 한자음이 서로 비슷한 글자를 찾아보세요.</p>') +
@@ -521,7 +560,13 @@ var LAB = (function anonymous(
             if (!RG.some(function(x, j){ return seen[i + ',' + j]; })) return;
             rows.push([g.ch].concat(RG.map(function(x, j){ return seen[i + ',' + j] ? g[x.k] : '·'; })));
           });
-          $('mh4a').innerHTML = tableHTML(['글자', '한국', '일본', '중국', '베트남'], rows) + '<p class="msg">열어 본 칸 ' + Object.keys(seen).length + ' / 32</p>';
+          var ps = {}, prows = [];
+          rec.forEach(function(d){ var kk = d.s + '_' + d.g; if (ps[kk]) return; ps[kk] = 1; prows.push([d.chars].concat(d.all)); });
+          var hit = rec.filter(function(d){ return d.bOk; }).length;
+          $('mh4a').innerHTML = tableHTML(['글자', '한국', '일본', '중국', '베트남'], rows) + '<p class="msg">열어 본 칸 ' + Object.keys(seen).length + ' / 32</p>' +
+            (prows.length ? '<p class="msg">같은 글자를 네 곳 읽기로 나란히 (괄호는 소리 마디 수)</p>' +
+              tableHTML(['글자', '한국', '일본', '중국', '베트남'], prows) +
+              '<p class="msg">마디 수 짐작 적중 ' + hit + ' / ' + rec.length + '회 — 일본 음독은 대개 두 마디라 길어집니다.</p>' : '');
           $('mh4b').innerHTML = tableHTML(['방식', '내용', '예'], [['구결', '한문 사이에 우리말 조사·어미를 표시', '경전 읽기'], ['이두', '우리말 어순·문법 요소를 한자로 표기', '관청 문서'],
             ['향찰', '우리말을 한자의 음과 뜻으로 적음', '향가'], ['언해', '한문을 한글로 번역', '두시언해, 소학언해']]);
         }
@@ -533,7 +578,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

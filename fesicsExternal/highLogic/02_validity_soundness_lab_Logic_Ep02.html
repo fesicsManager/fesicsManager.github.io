@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -459,21 +461,43 @@ var LAB = (function(){
       }
       function tcol(t){ return t === 1 ? ['#E7F5EE', PAL[1]] : t === 0 ? ['#FBEAEA', PAL[4]] : ['#EEF1F4', PAL[7]]; }
       function verdictOf(a){ var all = a.pt[0] === 1 && a.pt[1] === 1; return a.valid ? (all ? 0 : 1) : 2; }
+      /* 같은 모양에 낱말을 바꿔 끼우기 — 타당한 논증은 전제를 참으로 고치면 건전해지고,
+         부당한 논증은 전제를 모두 참으로 해도 결론이 거짓인 반례가 나온다 */
+      var FX = ['원래 논증', '전제를 참으로 고치거나 같은 모양에 반례 넣기'];
+      var FIX = [
+        {p:['모든 새는 알을 낳는다', '펭귄은 새다'], c:'펭귄은 알을 낳는다', pt:[1, 1], ct:1, note:'거짓 전제를 참인 전제로 고치니 건전한 논증이 되었어요.'},
+        null,
+        {p:['모든 고양이는 동물이다', '모든 동물은 생물이다'], c:'모든 고양이는 생물이다', pt:[1, 1], ct:1, note:'거짓 전제를 참으로 고치니 건전해졌어요.'},
+        {p:['모든 로봇은 전기로 움직인다', '뭉치는 로봇이다'], c:'뭉치는 전기로 움직인다', pt:[1, 1], ct:1, note:'거짓 전제를 참으로 고치니 건전해졌어요.'},
+        {p:['모든 개는 동물이다', '모든 푸들은 동물이다'], c:'어떤 푸들도 개가 아니다', pt:[1, 1], ct:0,
+          cx:'낱말만 바꿔 끼웠더니 전제는 둘 다 참인데 결론이 거짓이 되었어요 — 이것이 반례예요.', note:'전제가 모두 참, 결론은 거짓 — 이 모양이 부당하다는 증거입니다.'},
+        {p:['모든 개는 동물이다', '모든 참새는 동물이다'], c:'모든 참새는 개다', pt:[1, 1], ct:0,
+          cx:'낱말을 바꿔도 전제는 참, 결론은 거짓 — 모양 자체가 부당해요.', note:'전제가 모두 참, 결론은 거짓 — 반례입니다.'},
+        {p:['비가 오면 땅이 젖는다', '땅이 젖어 있다 (호스로 물을 뿌렸다)'], c:'비가 왔다', pt:[1, 1], ct:0,
+          cx:'전제는 둘 다 참인데 결론은 거짓 — 후건 긍정이 부당하다는 반례예요.', note:'전제가 모두 참, 결론은 거짓 — 반례입니다.'}
+      ];
+      function effA(p){
+        var a = A[p.a], fx = FIX[p.a];
+        if (!p.fx || !fx) return a;
+        return {name:a.name + ' (바꿔 끼움)', p:fx.p, c:fx.c, valid:a.valid, pt:fx.pt, ct:fx.ct, cx:fx.cx || a.cx, note:fx.note, fixed:true};
+      }
       return {
         sceneHeight: 460,
         idle: '논증과 나의 판정을 고른 뒤 <b>논증 검사하기</b>를 누르세요.',
         shortHint: '결론이 참인 논증과 거짓인 논증, 타당한 것과 부당한 것을 섞어 4개 이상 기록하세요.',
         params: [
           {key:'a', type:'seg', label:'예시 논증', cols:2, value:0, options:A.map(function(x){ return x.name + ' — ' + x.c; })},
+          {key:'fx', type:'seg', label:'낱말 바꿔 끼우기', cols:2, value:0, options:FX},
           {key:'v', type:'seg', label:'나의 판정', cols:3, value:1, options:V,
-            note:'먼저 "전제가 모두 참이라면 결론이 반드시 참인가?"만 묻고, 그다음 전제가 실제로 참인지 보세요.'}
+            note:'먼저 "전제가 모두 참이라면 결론이 반드시 참인가?"만 묻고, 그다음 전제가 실제로 참인지 보세요. 바꿔 끼우면, 타당한 논증은 건전해지고 부당한 논증은 ‘전제 참·결론 거짓’인 반례가 됩니다.'}
         ],
         compute: function(p){
-          var a = A[p.a], ans = verdictOf(a);
-          return {a:a, ans:ans, ok:p.v === ans, all:a.pt[0] === 1 && a.pt[1] === 1};
+          var a = effA(p), ans = verdictOf(a), base = A[p.a];
+          return {a:a, base:base, fx:p.fx, ans:ans, baseAns:verdictOf(base), ok:p.v === ans,
+            all:a.pt[0] === 1 && a.pt[1] === 1, counter:a.pt[0] === 1 && a.pt[1] === 1 && a.ct === 0 && !a.valid};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var a = A[p.a], k = r ? tau : 0, show = !!r;
+          var a = r ? r.a : effA(p), k = r ? tau : 0, show = !!r;
           for (var i = 0; i < 2; i++){
             var y = 16 + i * 70, col = show && k > 0.15 + i * 0.1 ? tcol(a.pt[i]) : ['#F7F9FC', '#C9D3DE'];
             c.fillStyle = col[0]; c.fillRect(20, y, W - 40, 60); c.strokeStyle = col[1]; c.lineWidth = 2; c.strokeRect(20, y, W - 40, 60);
@@ -497,18 +521,27 @@ var LAB = (function(){
           if (!show) tfit(c, '실행하면 참거짓과 구조가 표시돼요', 20, H - 16, {color:'#4A5868'});
         },
         stats: function(p, r){
-          var a = r.a;
-          return [['논증', a.p[0] + ' / ' + a.p[1] + ' → ' + a.c], ['구조', a.valid ? '타당' : '부당', a.valid ? PAL[0] : PAL[4]],
+          var a = r.a, out = [['논증', a.p[0] + ' / ' + a.p[1] + ' → ' + a.c], ['구조', a.valid ? '타당' : '부당', a.valid ? PAL[0] : PAL[4]],
             ['전제의 실제 참거짓', TV[a.pt[0]] + ', ' + TV[a.pt[1]]], ['결론의 실제 참거짓', TV[a.ct]],
             ['올바른 판정', V[r.ans], PAL[3]], ['나의 판정', V[p.v] + (r.ok ? ' — 일치' : ' — 다름'), r.ok ? PAL[1] : PAL[4]]];
+          if (r.fx && a.fixed){
+            out.push(['바꿔 끼운 뒤', V[r.baseAns] + ' → ' + V[r.ans], PAL[6]]);
+            out.push(['읽기', a.note]);
+            if (r.counter) out.push(['반례 만들기 성공', '전제는 모두 참인데 결론이 거짓 — 이 모양이 부당하다는 증거입니다', PAL[4]]);
+          } else if (FIX[p.a]){
+            out.push(['바꿔 끼우면', A[p.a].valid ? '거짓 전제를 참으로 고쳐 건전한 논증을 만들 수 있어요' : '전제는 모두 참인데 결론이 거짓인 반례를 만들 수 있어요', PAL[6]]);
+          } else out.push(['바꿔 끼우기', '이 논증은 이미 전제가 모두 참이고 건전해요']);
+          return out;
         },
-        columns: ['논증', '구조', '전제', '결론', '판정', '나의 판정 일치'],
-        record: function(p, r){ return {a:p.a, v:p.v, ok:r.ok}; },
-        row: function(d){ var a = A[d.a]; return [a.name, a.valid ? '타당' : '부당', a.pt[0] && a.pt[1] ? '모두 참' : '거짓 포함', TV[a.ct], V[verdictOf(a)], d.ok ? '예' : '아니오']; },
+        columns: ['논증', '바꿔 끼움', '구조', '전제', '결론', '판정', '나의 판정 일치'],
+        record: function(p, r){ return {a:p.a, v:p.v, fx:p.fx, ok:r.ok, pt:r.a.pt.slice(), ct:r.a.ct, ans:r.ans, counter:r.counter}; },
+        row: function(d){ var a = A[d.a], pt = d.pt || a.pt, ct = d.ct != null ? d.ct : a.ct;
+          return [a.name, d.fx ? '예' : '—', a.valid ? '타당' : '부당', pt[0] === 1 && pt[1] === 1 ? '모두 참' : '거짓 포함', TV[ct], V[d.ans != null ? d.ans : verdictOf(a)], d.ok ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('구조 × 전제 × 결론 표 채우기', '<div id="lg2a"></div><p class="ask">결론이 참인데 부당한 논증(4행)이 왜 가장 위험할까요? 결론에 동의하면서 논증을 비판하는 문장을 하나 써 보세요.</p>') +
-            card('나의 판정 정확도', '<div id="lg2b"></div><p class="ask">과제: 타당하지만 건전하지 않은 논증과, 부당하지만 결론이 참인 논증을 각각 직접 만들어 보세요.</p>') + '</div>';
+            card('나의 판정 정확도', '<div id="lg2b"></div><p class="ask">과제: 타당하지만 건전하지 않은 논증과, 부당하지만 결론이 참인 논증을 각각 직접 만들어 보세요.</p>') +
+            card('내가 만든 반례', '<div id="lg2c"></div><p class="ask">‘전제는 모두 참, 결론은 거짓’을 한 번이라도 만들었다면, 그 모양이 왜 부당한지 한 문장으로 적어 보세요.</p>') + '</div>';
           var ROWS = [['타당', '모두 참', '참', '건전한 논증'], ['타당', '거짓 포함', '거짓', '타당하나 건전하지 않음'], ['타당', '거짓 포함', '참', '타당하나 건전하지 않음(결론은 우연히 참)'],
             ['부당', '모두 참', '참', '나쁜 논증(결론만 맞음)'], ['부당', '모두 참', '거짓', '나쁜 논증'], ['부당', '모두 참', '알 수 없음', '나쁜 논증']];
           var rows = ROWS.map(function(R){
@@ -523,6 +556,14 @@ var LAB = (function(){
             return {label:vn, v:ok, color:PAL[i], text:g.length ? f(ok, 0) + '% (' + g.length + '회)' : '기록 없음'};
           });
           $('lg2b').innerHTML = hbars(items, 100);
+          var seen = {}, rows2 = [];
+          rec.forEach(function(d){ if (!d.fx || !FIX[d.a] || seen[d.a]) return; seen[d.a] = 1; var fx = FIX[d.a];
+            rows2.push([A[d.a].name, A[d.a].valid ? '타당' : '부당', fx.p[0] + ' / ' + fx.p[1], fx.c,
+              fx.pt[0] === 1 && fx.pt[1] === 1 ? '모두 참' : '거짓 포함', TV[fx.ct], d.counter ? '반례 ✓' : '—']); });
+          $('lg2c').innerHTML = rows2.length
+            ? tableHTML(['원래 논증', '구조', '바꿔 끼운 전제', '결론', '전제', '결론 참거짓', '반례'], rows2) +
+              '<p class="msg">부당한 모양에서는 전제를 모두 참으로 해도 결론이 거짓이 될 수 있습니다. 그것이 반례입니다.</p>'
+            : '<p class="msg">‘낱말 바꿔 끼우기’로도 검사해 보세요. 부당한 논증에서는 전제가 모두 참인데 결론이 거짓인 반례가 나옵니다.</p>';
         }
       };
     })();
@@ -531,7 +572,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

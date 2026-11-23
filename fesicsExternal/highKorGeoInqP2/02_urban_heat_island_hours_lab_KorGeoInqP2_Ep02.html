@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>도심의 더위는 한낮에 가장 심한가</h1>
-    <p>맑고 바람이 약한 여름날, <b>도심</b>과 <b>교외</b>의 시간대별 기온을 비교합니다. 시각을 고르면 그때까지의 기온 곡선과 두 지점의 기온 차가 나오고, 열대야(25°C) 기준선과 비교해요. 오른쪽에서는 포장·건물 비율이 다른 <b>세 동네의 밤 0시 기온</b>도 비교합니다.<br><span style="font-size:.9em;color:#a86825">※ 기온 표와 동네 값은 모두 가상 관측 예시입니다.</span></p>
+    <p>맑고 바람이 약한 여름날, <b>도심</b>과 <b>교외</b>의 시간대별 기온을 비교합니다. 시각을 고르면 그때까지의 기온 곡선과 두 지점의 기온 차가 나오고, 열대야(25°C) 기준선과 비교해요. 오른쪽에서는 포장·건물 비율이 다른 <b>세 동네의 밤 0시 기온</b>도 비교합니다.<br><span style="font-size:.9em;color:#a86825">※ 기온 표와 동네 값은 모두 가상 관측 예시입니다.</span><br><span style="font-size:.9em;color:#a86825">※ <b>내 동네를 만들어 밤 기온 셈하기</b>를 켜면 포장 비율·바람·구름으로 열섬 세기를 셈해 줘요. 교육용 모형값이에요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -300,9 +301,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -314,7 +316,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -439,18 +441,40 @@ var LAB = (function(){
       var HR = [6, 9, 12, 15, 18, 21, 24], CI = [27.0, 29.0, 32.0, 33.5, 31.0, 29.5, 28.5], SU = [23.0, 27.0, 31.0, 32.5, 28.0, 25.0, 24.0];
       var NB = [{n:'상가 밀집지', pav:90, t:29.0}, {n:'아파트 단지', pav:70, t:27.5}, {n:'하천 공원 옆', pav:40, t:25.5}];
       function nightMin(a){ return Math.min(a[4], a[5], a[6], a[0], a[1]); }
+      var WIND = [{n:'바람 거의 없음', k:1.0}, {n:'바람 보통 (3m/s)', k:0.6}, {n:'바람 셈 (6m/s)', k:0.3}];
+      var SKY = [{n:'맑음', k:1.0}, {n:'흐림', k:0.45}];
+      /* 포장 비율·바람·구름으로 밤 0시 도심 기온을 셈하는 교육용 모형.
+         교외 밤 0시를 24.0°C로 두고, 열섬 세기 = 0.055 × 포장 비율(%) × 바람 몫 × 구름 몫.
+         바람이 섞어 주고 구름이 낮의 열을 덜 쌓이게 하면 열섬이 약해진다. */
+      function myNight(pav, wi, sk){
+        var I = 0.055 * pav * WIND[wi].k * SKY[sk].k;
+        return {I:I, t:24.0 + I};
+      }
       return {
         sceneHeight: function(w){ return w < 600 ? 440 : 420; },
         idle: '시각과 동네를 고른 뒤 <b>시각 따라가기</b>를 누르세요.',
         shortHint: '12시·15시와 21시·24시를 꼭 기록해 한낮과 밤의 기온 차를 비교하세요. 동네 세 곳도 모두 골라 보세요.',
         params: [
           {key:'h', type:'seg', label:'시각', cols:4, value:3, options:HR.map(function(v){ return (v < 10 ? '0' : '') + v + '시'; })},
-          {key:'nb', type:'seg', label:'밤 0시 동네 비교 (도심 안)', cols:3, value:0, options:NB.map(function(x){ return x.n; })}
+          {key:'nb', type:'seg', label:'밤 0시 동네 비교 (도심 안)', cols:3, value:0, options:NB.map(function(x){ return x.n; })},
+          {key:'c', type:'seg', label:'내 동네를 만들어 밤 기온 셈하기', cols:1, value:0, options:['안 함(위 세 동네 그대로)', '아래 눈금으로 내 동네 더하기'],
+            note:'켜면 포장 비율·바람·구름을 내가 정해 밤 0시 기온을 셈해요. 열섬이 사라지는 조건도 있어요.'},
+          {key:'pv', type:'range', label:'포장·건물 비율', min:0, max:100, step:10, value:70, fmt:function(v){ return v + '% (녹지·수면 ' + (100 - v) + '%)'; }},
+          {key:'wi', type:'seg', label:'바람', cols:3, value:0, options:WIND.map(function(x){ return x.n; })},
+          {key:'sk', type:'seg', label:'하늘', cols:2, value:0, options:SKY.map(function(x){ return x.n; })}
         ],
         compute: function(p){
           var gap = CI[p.h] - SU[p.h], maxI = 0;
           for (var i = 1; i < 7; i++) if (CI[i] - SU[i] > CI[maxI] - SU[maxI]) maxI = i;
-          return {h:HR[p.h], ci:CI[p.h], su:SU[p.h], gap:gap, maxH:HR[maxI], maxGap:CI[maxI] - SU[maxI], cMin:nightMin(CI), sMin:nightMin(SU), nb:NB[p.nb]};
+          var out = {h:HR[p.h], ci:CI[p.h], su:SU[p.h], gap:gap, maxH:HR[maxI], maxGap:CI[maxI] - SU[maxI], cMin:nightMin(CI), sMin:nightMin(SU), nb:NB[p.nb]};
+          if (p.c === 1){
+            var my = myNight(p.pv, p.wi, p.sk);
+            var mynb = {n:'내 동네', pav:p.pv, t:my.t};
+            out.mine = true; out.my = my; out.mynb = mynb; out.pv = p.pv; out.wi = p.wi; out.sk = p.sk;
+            out.nbs = NB.concat([mynb]); out.selIdx = 3; out.nb = mynb;
+            out.trop = my.t >= 25;
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){
           var narrow = W < 600, gx0 = 60, gx1 = narrow ? W - 16 : W * 0.68, gy0 = 30, gy1 = narrow ? H * 0.58 : H - 60;
@@ -468,21 +492,29 @@ var LAB = (function(){
           });
           if (r && tau > 0.7){
             var xi = X(p.h); seg(c, xi, Y(CI[p.h]), xi, Y(SU[p.h]), '#26313D', 5);
-            txt(c, '차 ' + f(r.gap, 1) + '°C', xi + (p.h > 4 ? -8 : 8), Y(CI[p.h]) - 10, {align:p.h > 4 ? 'right' : 'left', bold:true});
+            // 좁은 화면: 차이 글을 아래쪽 선 밑으로 내려 범례와 겹치지 않게
+            txt(c, '차 ' + f(r.gap, 1) + '°C', xi + (p.h > 4 ? -8 : 8), narrow ? Math.min(Y(SU[p.h]) + 24, gy1 - 8) : Y(CI[p.h]) - 10, {align:p.h > 4 ? 'right' : 'left', bold:true, size:narrow ? 14 : 18});
           }
           txt(c, '도심', gx0 + 6, gy0 + 20, {bold:true, color:PAL[4]}); txt(c, '교외', gx0 + 60, gy0 + 20, {bold:true, color:PAL[1]});
-          var nx0 = narrow ? 20 : W * 0.74, nx1 = W - 16, ny0 = narrow ? gy1 + 46 : 40, ny1 = H - 30, bw = (nx1 - nx0) / 3;
+          var nx0 = narrow ? 20 : W * 0.74, nx1 = W - 16, ny0 = narrow ? gy1 + 46 : 40, ny1 = H - 30;
+          var NBS = (r && r.nbs) ? r.nbs : NB, selIdx = (r && r.selIdx != null) ? r.selIdx : p.nb, bw = (nx1 - nx0) / NBS.length;
           txt(c, '밤 0시 동네 기온', nx0, ny0 + 4, {bold:true, color:'#4A5868'});
-          NB.forEach(function(nb, i){
-            var bx = nx0 + bw * i + 8, top = ny0 + 20, hgt = ny1 - top - 24, sel = i === p.nb;
-            var fh = hgt * (nb.t - 24) / 6 * (r ? Math.min(1, tau / 0.7) : 1);
-            c.fillStyle = '#EEF2F6'; c.fillRect(bx, top, bw - 16, hgt);
-            c.fillStyle = sel ? PAL[4] : '#E7A79F'; c.fillRect(bx, top + hgt - fh, bw - 16, fh);
+          NBS.forEach(function(nb, i){
+            var bx = nx0 + bw * i + 8, top = ny0 + 20, hgt = ny1 - top - 24, sel = i === selIdx;
+            var fh = hgt * Math.max(0, Math.min(1, (nb.t - 24) / 6)) * (r ? Math.min(1, tau / 0.7) : 1);
+            c.fillStyle = '#EEF2F6'; c.fillRect(bx, top, Math.max(10, bw - 16), hgt);
+            c.fillStyle = sel ? PAL[4] : '#E7A79F'; c.fillRect(bx, top + hgt - fh, Math.max(10, bw - 16), fh);
             txt(c, f(nb.t, 1), bx + (bw - 16) / 2, top + hgt - fh - 6, {align:'center', bold:sel});
             txt(c, '포장' + nb.pav, bx + (bw - 16) / 2, ny1, {align:'center', color:'#4A5868', bold:sel});
           });
         },
         stats: function(p, r){
+          if (r.mine) return [[r.h + '시 기온 (표 값)', '도심 ' + f(r.ci, 1) + '°C · 교외 ' + f(r.su, 1) + '°C'],
+            ['내 동네 조건', '포장 ' + r.pv + '% · ' + WIND[r.wi].n + ' · ' + SKY[r.sk].n, PAL[6]],
+            ['열섬 세기 (셈한 값)', f(r.my.I, 2) + '°C = 0.055 × ' + r.pv + ' × ' + f(WIND[r.wi].k, 2) + ' × ' + f(SKY[r.sk].k, 2), PAL[0]],
+            ['내 동네 밤 0시 기온', '교외 24.0°C + ' + f(r.my.I, 2) + '°C = ' + f(r.my.t, 1) + '°C', PAL[4]],
+            ['판정', r.my.I < 1 ? '열섬이 거의 사라졌어요 — 바람·구름이 섞어 줬어요' : (r.trop ? '열대야(25°C 이상)예요 — 밤에도 더워요' : '열섬은 있지만 열대야는 아니에요'), r.my.I < 1 ? PAL[1] : PAL[4]],
+            ['자료', '교육용 모형값 (열섬 세기 = 0.055 × 포장 % × 바람 몫 × 구름 몫)', PAL[7]]];
           return [[r.h + '시 기온', '도심 ' + f(r.ci, 1) + '°C · 교외 ' + f(r.su, 1) + '°C'],
             ['기온 차 (도심 − 교외)', f(r.gap, 1) + '°C' + (r.h >= 12 && r.h <= 15 ? ' — 한낮에는 작음' : (r.h >= 21 || r.h === 6 ? ' — 밤·새벽에 큼' : '')), PAL[4]],
             ['하루 중 기온 차가 가장 큰 시각', r.maxH + '시 (' + f(r.maxGap, 1) + '°C) — 21시·24시가 같음', PAL[0]],
@@ -490,10 +522,14 @@ var LAB = (function(){
             [r.nb.n + ' (포장·건물 ' + r.nb.pav + '%, 녹지·수면 ' + (100 - r.nb.pav) + '%)', '밤 0시 ' + f(r.nb.t, 1) + '°C', PAL[6]]];
         },
         columns: ['시각', '도심', '교외', '기온 차', '동네', '동네 0시'],
-        record: function(p, r){ return {h:p.h, nb:p.nb, gap:r.gap}; },
-        row: function(d){ return [HR[d.h] + '시', f(CI[d.h], 1) + '°C', f(SU[d.h], 1) + '°C', f(d.gap, 1) + '°C', NB[d.nb].n, f(NB[d.nb].t, 1) + '°C']; },
+        record: function(p, r){ if (r.mine) return {mine:true, h:p.h, gap:r.gap, pv:r.pv, wi:r.wi, sk:r.sk, I:r.my.I, t:r.my.t, trop:r.trop}; return {h:p.h, nb:p.nb, gap:r.gap}; },
+        row: function(d){ if (d.mine) return [HR[d.h] + '시', f(CI[d.h], 1) + '°C', f(SU[d.h], 1) + '°C', f(d.gap, 1) + '°C', '내 동네 포장 ' + d.pv + '% · ' + WIND[d.wi].n + ' · ' + SKY[d.sk].n, f(d.t, 1) + '°C' + (d.trop ? ' (열대야)' : '')]; return [HR[d.h] + '시', f(CI[d.h], 1) + '°C', f(SU[d.h], 1) + '°C', f(d.gap, 1) + '°C', NB[d.nb].n, f(NB[d.nb].t, 1) + '°C']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = rec.filter(function(d){ return d.mine; });
+          var mcard = !ms.length ? '' : card('내가 만든 동네의 밤 0시 기온', tableHTML(['포장', '바람', '하늘', '열섬 세기', '밤 0시', '열대야'],
+              ms.map(function(d){ return [d.pv + '%', WIND[d.wi].n, SKY[d.sk].n, f(d.I, 2) + '°C', f(d.t, 1) + '°C', d.trop ? '○' : '✕']; })) +
+            '<p class="ask">포장 비율을 그대로 두고 바람만 세게 하면 열섬이 어떻게 되나요? 흐린 날은요? 열섬을 거의 없애는 조건을 찾아보세요 — 열섬은 늘 같은 세기로 있는 것이 아니에요.</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('시각별 기온 차 (기록한 시각)', '<div id="hi1"></div><p class="ask">한낮(12·15시)과 밤(21·24시)의 기온 차를 비교해 보세요. 왜 해가 진 뒤에 차이가 더 커지나요?</p>') +
             card('포장 비율과 밤 0시 기온 (가상 동네)', '<canvas class="chart" id="hi2"></canvas><p class="ask">과제: 맑고 바람 약한 날, 학교 운동장·주차장·숲 그늘 세 곳에서 같은 높이의 그늘 기온을 15시와 21시에 재어 표로 비교해 보세요. 어른과 함께 다니고, 밤 측정은 안전한 장소에서만 하세요.</p>') + '</div>';
           var seen = {}, items = [];
@@ -509,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,7 +446,18 @@ var LAB = (function(){
       var MEET = ['거의 없음/없음', '가끔·담당자', '많음'];
       var PLAN = ['가안 (임대 300호)', '나안 (공원·주차장)', '다안 (임대 150호+공원)'], PS = ['가', '나', '다'];
       var HOW = ['모든 이해관계자', '회의에 많이 나오는 집단만', '회의에 거의 안 나오는 집단만'];
-      function leg(c, items, x, y){ c.font = '18px ' + FONT; items.forEach(function(it){ c.fillStyle = it[1]; c.fillRect(x, y - 13, 14, 14); txt(c, it[0], x + 19, y, {color:'#4A5868'}); x += 19 + c.measureText(it[0]).width + 14; }); }
+      /* 좁은 화면: 설명이 한 줄에 다 안 들어가면 줄을 나누고, 마지막 줄이 원래 자리에 오게 위로 올린다 */
+      function leg(c, items, x, y){
+        c.font = '18px ' + FONT;
+        var x0 = x, CW = (c.canvas && c.canvas.clientWidth) || 1e9, cx = x0, rows = 1, i, w;
+        for (i = 0; i < items.length; i++){ w = c.measureText(items[i][0]).width;
+          if (cx > x0 && cx + 19 + w + 4 > CW){ cx = x0; rows++; }
+          cx += 19 + w + 14; }
+        y -= (rows - 1) * 22; cx = x0;
+        items.forEach(function(it){ var w2 = c.measureText(it[0]).width;
+          if (cx > x0 && cx + 19 + w2 + 4 > CW){ cx = x0; y += 22; }
+          c.fillStyle = it[1]; c.fillRect(cx, y - 13, 14, 14); txt(c, it[0], cx + 19, y, {color:'#4A5868'}); cx += 19 + w2 + 14; });
+      }
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       function inc(h, st){ return h === 0 || (h === 1 && st.meet === 2) || (h === 2 && st.meet === 0); }
       function score(pi, h, w){ var t = 0; S.forEach(function(st, i){ if (inc(h, st)) t += st.v[pi] * (i === 0 ? w : 1); }); return t; }
@@ -480,7 +493,8 @@ var LAB = (function(){
             c.globalAlpha = 1;
           });
           if (r){
-            for (var q = 0; q < 3; q++) tf(c, '합 ' + f(r.sc[q], r.sc[q] % 0.5 ? 2 : r.sc[q] % 1 ? 1 : 0), 12 + lw + q * cw + cw / 2, H - 44, {align:'center', bold:true, color:r.top.indexOf(q) >= 0 ? PAL[3] : '#4A5868'}, cw - 6);
+            var sumY = W < 560 ? H - 74 : H - 44;   /* 좁은 화면: 아래 설명이 두 줄이 되므로 합계를 올린다 */
+            for (var q = 0; q < 3; q++) tf(c, '합 ' + f(r.sc[q], r.sc[q] % 0.5 ? 2 : r.sc[q] % 1 ? 1 : 0), 12 + lw + q * cw + cw / 2, sumY, {align:'center', bold:true, color:r.top.indexOf(q) >= 0 ? PAL[3] : '#4A5868'}, cw - 6);
             leg(c, [['참석 많음', PAL[0]], ['가끔', '#A9BCD6'], ['거의 없음', '#E1E7EE']], 12, H - 12);
           }
         },
@@ -515,7 +529,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

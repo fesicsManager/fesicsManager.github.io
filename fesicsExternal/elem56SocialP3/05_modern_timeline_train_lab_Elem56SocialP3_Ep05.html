@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -442,7 +444,10 @@ var LAB = (function(){
         {n:'경인선 기차', y:1899, life:'먼 길(노량진~제물포)을 빨리 오감', c:PAL[4]}
       ];
       var PG = ['1870~1890년대', '1900~1940년대', '1950~1960년대', '1970년대 이후'];
-      var TR = [{n:'걸어서 (어른 걸음)', s:'걸어서', min:495, txt:'약 8시간'}, {n:'1899년 기차', s:'1899년 기차', min:100, txt:'약 1시간 40분'}];
+      /* 속도는 어림한 교육용 모형값 — 걸린 시간은 거리 ÷ 속도로 그때그때 계산한다 */
+      var TR = [{n:'걸어서 (어른 걸음, 약 4km/h)', s:'걸어서', v:4}, {n:'1899년 기차 (약 20km/h)', s:'1899년 기차', v:20}, {n:'오늘날 기차 (약 100km/h)', s:'오늘날 기차', v:100}];
+      function mins(d, v){ return Math.round(d / v * 60); }
+      function tstr(m){ var h = Math.floor(m / 60), mm = m % 60; if (!h) return mm + '분'; return h + '시간' + (mm ? ' ' + mm + '분' : ''); }
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function era(y){ return y < 1900 ? 0 : y < 1950 ? 1 : y < 1970 ? 2 : 3; }
       function nowY(){ var y = new Date().getFullYear(); return y > 2025 ? y : 2026; }
@@ -453,11 +458,16 @@ var LAB = (function(){
         params: [
           {key:'cd', type:'seg', label:'근대 문물 카드', cols:4, value:3, options:CD.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'예측: 이 카드는 언제쯤?', cols:4, value:3, options:PG, note:'전쟁이 끝나고 한참 뒤에 생긴 요즘 물건일까요?'},
-          {key:'tr', type:'seg', label:'노량진 → 제물포 (약 33km) 가는 방법', cols:2, value:0, options:TR.map(function(x){ return x.n; })}
+          {key:'tr', type:'seg', label:'가는 방법', cols:3, value:0, options:TR.map(function(x){ return x.n; })},
+          {key:'dist', type:'range', label:'갈 거리', min:5, max:300, step:5, value:33, fmt:function(x){ return x + 'km'; }, note:'노량진 → 제물포는 약 33km 예요. 거리를 바꿔 "걸어서는 못 다녀오지만 기차로는 다녀올 수 있는" 거리를 찾아보세요.'}
         ],
         compute: function(p){
           var cd = CD[p.cd], e = era(cd.y), ny = nowY();
-          return {cd:cd, e:e, ok:p.g === e, before45:1945 - cd.y, ago:ny - cd.y, tr:TR[p.tr], ny:ny};
+          var tr = TR[p.tr], d = p.dist, m = mins(d, tr.v), walk = mins(d, TR[0].v);
+          /* 하루에 다녀오기 = 가고 오는 시간이 깨어 움직이는 8시간 안에 들어오나 */
+          var day = (2 * m <= 480);
+          return {cd:cd, e:e, ok:p.g === e, before45:1945 - cd.y, ago:ny - cd.y, tr:tr, ny:ny,
+            dist:d, min:m, walk:walk, saved:walk - m, times:(m ? walk / m : 0), day:day};
         },
         draw: function(c, W, H, p, r, tau){
           var narrow = W < 560, x0 = 24, x1 = W - 24, Y0 = 1870, Y1 = r ? r.ny : 2026, ty = 120;
@@ -476,7 +486,7 @@ var LAB = (function(){
           });
           var cd = CD[p.cd];
           if (r){
-            var k = Math.min(1, tau / 0.5), cy = 30 + (ty - 52) * k;
+            var k = Math.min(1, tau / 0.5), cy = 30 + (ty - 52) * k * (narrow ? 0.35 : 1);
             c.fillStyle = cd.c; c.fillRect(X(cd.y) - 6, ty - 6, 12, 12);
             seg(c, X(cd.y), cy + 22, X(cd.y), ty - 6, cd.c, 2);
             var tw = narrow ? 120 : 160, bx = Math.max(6, Math.min(W - tw - 6, X(cd.y) - tw / 2));
@@ -484,13 +494,13 @@ var LAB = (function(){
             T(c, cd.y + '년 ' + cd.n, bx + tw / 2, cy + 13, narrow ? 12 : 14, cd.c, 'center', true);
           } else T(c, '카드: ' + cd.n, 20, 34, narrow ? 13 : 15, '#4A5868', 'left', true);
           var by = 220, bw = W - 40;
-          T(c, '노량진 → 제물포 약 33km', 20, by - 14, narrow ? 12 : 14, '#1E2833', 'left', true);
+          T(c, '갈 거리 약 ' + p.dist + 'km', 20, by - 14, narrow ? 12 : 14, '#1E2833', 'left', true);
           TR.forEach(function(t, i){
-            var y = by + i * 40, sel = i === p.tr, w = bw * t.min / 495;
+            var y = by + i * 36, sel = i === p.tr, mm = mins(p.dist, t.v), w = bw * mm / Math.max(1, mins(p.dist, TR[0].v));
             c.fillStyle = '#EEF2F6'; c.fillRect(20, y, bw, 26);
             var kk = r && sel ? Math.min(1, Math.max(0, (tau - 0.4) / 0.5)) : (r ? 1 : 0);
             c.globalAlpha = sel ? 1 : 0.35; c.fillStyle = i ? PAL[4] : PAL[2]; c.fillRect(20, y, w * kk, 26); c.globalAlpha = 1;
-            T(c, t.s + ' ' + t.txt, 26, y + 18, narrow ? 12 : 14, kk > 0.3 && w > 140 ? '#fff' : '#1E2833', 'left', sel);
+            T(c, t.s + ' ' + tstr(mm), 26, y + 18, narrow ? 11 : 14, kk > 0.3 && w > 140 ? '#fff' : '#1E2833', 'left', sel);
           });
           if (r && tau >= 0.9){
             T(c, r.ok ? '○ 예측이 맞았어요 — ' + PG[r.e] : '✕ 예측과 달라요 — ' + PG[r.e], 20, H - 36, narrow ? 13 : 16, r.ok ? PAL[1] : PAL[4], 'left', true);
@@ -501,11 +511,14 @@ var LAB = (function(){
           return [['카드', r.cd.y + '년 ' + r.cd.n, r.cd.c], ['달라진 생활', r.cd.life],
             ['광복(1945년)보다', r.before45 + '년 앞서요', PAL[0]], ['지금부터', '약 ' + r.ago + '년 전'],
             ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕ (' + PG[r.e] + ')'), r.ok ? PAL[1] : PAL[4]],
-            ['노량진 → 제물포 (약 33km)', r.tr.s + ' ' + r.tr.txt + ' (어림)', PAL[6]]];
+            ['갈 거리', '약 ' + r.dist + 'km'],
+            ['이 방법으로 걸린 시간', r.tr.s + ' ' + tstr(r.min) + ' (어림)', PAL[6]],
+            ['걸어서 가면', tstr(r.walk) + ' → ' + tstr(r.saved) + ' 아낌 (약 ' + f(r.times, 1) + '배 빠름)', PAL[0]],
+            ['하루에 다녀올 수 있나 (가고 오기 8시간 안)', r.day ? '✅ 다녀올 수 있어요' : '❌ 하루엔 못 다녀와요 — 가고 오기 ' + tstr(2 * r.min), r.day ? PAL[1] : PAL[4]]];
         },
-        columns: ['카드', '해', '내 예측', '가는 방법', '걸린 시간'],
-        record: function(p, r){ return {cd:p.cd, ok:r.ok, tr:p.tr}; },
-        row: function(d){ return [CD[d.cd].n, CD[d.cd].y + '년', d.ok ? '○' : '✕', TR[d.tr].s, TR[d.tr].txt]; },
+        columns: ['카드', '해', '내 예측', '거리', '가는 방법', '걸린 시간', '하루에 다녀오기'],
+        record: function(p, r){ return {cd:p.cd, ok:r.ok, tr:p.tr, dist:r.dist, min:r.min, walk:r.walk, saved:r.saved, day:r.day}; },
+        row: function(d){ return [CD[d.cd].n, CD[d.cd].y + '년', d.ok ? '○' : '✕', d.dist + 'km', TR[d.tr].s, tstr(d.min), d.day ? '✅' : '❌']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('연표에 붙인 근대 문물', '<div id="mt1"></div><p class="ask">붙인 카드는 모두 언제쯤이었나요? 전등과 기차는 "전쟁 끝나고 한참 뒤에 생긴 요즘 물건"이 맞나요?</p>') +
@@ -514,8 +527,13 @@ var LAB = (function(){
           rec.forEach(function(d){ seen[d.cd] = 1; });
           CD.forEach(function(cd, i){ if (seen[i]) rows.push([cd.y + '년', cd.n, cd.life, (1945 - cd.y) + '년 앞']); });
           $('mt1').innerHTML = tableHTML(['해', '들어온 것', '달라진 생활', '광복보다'], rows) + (rows.length < 4 ? '<p class="msg">아직 붙이지 않은 카드가 있어요.</p>' : '');
-          var items = TR.map(function(t, i){ return {label:t.s, v:t.min, color:i ? PAL[4] : PAL[2], text:t.txt}; });
-          $('mt2').innerHTML = hbars(items, 495) + '<p class="msg">기차는 걸어서 가는 시간의 약 5분의 1로 갔어요(어림).</p>';
+          var dd = rec[rec.length - 1].dist;
+          var items = TR.map(function(t, i){ var m = mins(dd, t.v); return {label:t.s, v:m, color:i ? PAL[4] : PAL[2], text:tstr(m)}; });
+          $('mt2').innerHTML = hbars(items, mins(dd, TR[0].v)) + '<p class="msg">마지막으로 잰 거리 ' + dd + 'km 로 그렸어요. 1899년 기차는 걸어서 가는 시간의 약 ' + f(TR[1].v / TR[0].v, 0) + '분의 1 로 줄여 줬어요(어림).</p>'
+            + (function(){ var byD = {}; rec.forEach(function(d){ byD[d.dist + 'km · ' + TR[d.tr].s] = d; });
+              var ks = Object.keys(byD); if (ks.length < 2) return '<p class="msg">거리와 가는 방법을 바꿔 가며 재 보세요. 같은 거리라도 방법에 따라 <b>하루에 다녀올 수 있는지</b>가 갈립니다.</p>';
+              var yes = rec.filter(function(d){ return d.day; }), no = rec.filter(function(d){ return !d.day; });
+              return '<p class="msg">잰 것: ' + ks.map(function(x){ return x + ' → ' + tstr(byD[x].min) + (byD[x].day ? ' ✅' : ' ❌'); }).join(' · ') + '. 하루에 다녀올 수 있었던 기록 ' + yes.length + '개 · 못 다녀온 기록 ' + no.length + '개. 걸어서는 ' + 16 + 'km 쯤까지, 1899년 기차로는 ' + 80 + 'km 쯤까지가 하루 길이었습니다 — 기차가 바꾼 것은 속도만이 아니라 <b>하루에 닿을 수 있는 거리</b>였습니다. (속도는 교육용 어림값)</p>'; })();
         }
       };
     })();
@@ -524,7 +542,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

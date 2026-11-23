@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>엘니뇨와 라니냐 (ENSO) | 고2 지구과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -400,6 +402,7 @@ return {
   },
   draw: function(c, W, H, p, r, tau){
     var ph = PH[p.ph], cc = calc(p.ph), k = r ? Math.min(tau / 0.8, 1) : 0;
+    var narrow = W < 560;
     var x0 = 16, y0 = 78, w = W - 32, h = 220;
     // 바다 단면
     c.fillStyle = '#BFE0F5'; c.fillRect(x0, y0, w, 26);
@@ -410,11 +413,11 @@ return {
     c.lineTo(x0 + w, y0 + 26); c.closePath(); c.fill();
     txt(c, '서태평양', x0 + 6, y0 - 34, {bold:true}); txt(c, '동태평양', x0 + w - 6, y0 - 34, {bold:true, align:'right'});
     txt(c, '온난수층 ' + cc.thermoW + ' m', x0 + 6, y0 + 60, {color:'#123'});
-    txt(c, '온난수층 ' + cc.thermoE + ' m', x0 + w - 6, y0 + 60, {color:'#fff', align:'right'});
+    txt(c, '온난수층 ' + cc.thermoE + ' m', x0 + w - 6, y0 + (narrow ? 90 : 60), {color:'#fff', align:'right'});
     // 무역풍
     var aw = 30 + 60 * ph.w;
     arrow(c, x0 + w - 30, y0 - 12, x0 + w - 30 - aw, y0 - 12, '#1E2833', 3);
-    txt(c, '무역풍: ' + ph.sub, x0 + w / 2, y0 - 34, {align:'center', bold:true});
+    txt(c, '무역풍: ' + ph.sub, x0 + w / 2, narrow ? y0 + 20 : y0 - 34, {align:'center', bold:true});
     // 용승
     if (p.st === 0 && ph.w > 0.5){ for (var u = 0; u < 3; u++) arrow(c, x0 + w - 60 + u * 16, y0 + 90, x0 + w - 60 + u * 16, y0 + 40, '#7CF0B0', 2); }
     // 상승 기류 (비구름)
@@ -427,13 +430,17 @@ return {
     c.fillStyle = '#C8463D'; c.beginPath(); c.arc(sx, y0 + 12, 7, 0, Math.PI * 2); c.fill();
     meter(c, W - 200, y0 + h + 20, 190, (r ? f(r.T, 1) : '--') + ' ℃');
     // SOI 막대
-    var by = y0 + h + 78, bx = 130, bw = W - bx - 150, zero = bx + bw / 2;
-    txt(c, '남방진동 지수', 12, by + 16, {bold:true}); txt(c, '(SOI)', 12, by + 40, {color:'#4A5868'});
-    seg(c, zero, by, zero, by + 32, '#8C99A8', 1.5);
+    var by = y0 + h + 78;
+    /* 좁은 화면에서는 이름표를 막대 위로 올리고 막대를 전체 폭으로 */
+    var bx = narrow ? 16 : 130, bw = narrow ? W - 32 : W - 130 - 150, zero = bx + bw / 2;
+    if (narrow) txt(c, '남방진동 지수 (SOI)', 12, by - 6, {bold:true});
+    else { txt(c, '남방진동 지수', 12, by + 16, {bold:true}); txt(c, '(SOI)', 12, by + 40, {color:'#4A5868'}); }
+    var by2 = narrow ? by + 10 : by;
+    seg(c, zero, by2, zero, by2 + 32, '#8C99A8', 1.5);
     var bwid = cc.soi / 20 * (bw / 2) * k;
-    c.fillStyle = cc.soi >= 0 ? '#2B5FA3' : '#C8463D'; c.fillRect(Math.min(zero, zero + bwid), by + 4, Math.abs(bwid), 24);
-    txt(c, sgn(cc.soi, 1), zero + bwid + (bwid >= 0 ? 8 : -8), by + 16, {base:'middle', align:bwid >= 0 ? 'left' : 'right'});
-    txt(c, '라니냐 +', bx, by + 52, {color:'#2B5FA3'}); txt(c, '엘니뇨 −', bx + bw, by + 52, {color:'#C8463D', align:'right'});
+    c.fillStyle = cc.soi >= 0 ? '#2B5FA3' : '#C8463D'; c.fillRect(Math.min(zero, zero + bwid), by2 + 4, Math.abs(bwid), 24);
+    txt(c, sgn(cc.soi, 1), zero + bwid + (bwid >= 0 ? 8 : -8), by2 + 16, {base:'middle', align:bwid >= 0 ? 'left' : 'right'});
+    txt(c, '라니냐 +', bx, by2 + 52, {color:'#2B5FA3'}); txt(c, '엘니뇨 −', bx + bw, by2 + 52, {color:'#C8463D', align:'right'});
   },
   stats: function(p, r){
     return [['해수면 수온', f(r.T, 1) + ' ℃ (평상시보다 ' + sgn(r.d, 1) + ' ℃)', PAL[4]], ['온난수층 깊이', r.th + ' m'],
@@ -467,7 +474,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

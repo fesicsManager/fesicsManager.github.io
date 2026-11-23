@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -465,6 +467,7 @@ var LAB = (function(){
         return [{x:0.3, y:0, w:t[0], h:1}, {x:0.7, y:0, w:t[1], h:1}, {x:0, y:0.35, w:1, h:t[2]}, {x:0, y:0.75, w:1, h:t[3]}].map(function(q){ q.c = col(p.ct, 'line'); return q; });
       }
       function lumOf(c3){ return (0.299 * c3[0] + 0.587 * c3[1] + 0.114 * c3[2]) / 255; }
+      var MYW = ['안정', '긴장', '강한 긴장', '답답함', '힘이 빠짐', '잘 모르겠다'];
       function rgb(c3){ return 'rgb(' + c3.join(',') + ')'; }
       return {
         sceneHeight: 440,
@@ -475,7 +478,9 @@ var LAB = (function(){
           {key:'rat', type:'seg', label:'빨강 : 파랑 면적 비율', cols:3, value:0, options:RAT.map(function(x){ return x.name; })},
           {key:'ln', type:'seg', label:'선', cols:2, value:0, options:LN},
           {key:'sp', type:'seg', label:'여백', cols:2, value:0, options:SP},
-          {key:'ct', type:'seg', label:'색 대비', cols:2, value:0, options:CT}
+          {key:'ct', type:'seg', label:'색 대비', cols:2, value:0, options:CT},
+          {key:'my', type:'seg', label:'내가 느낀 인상 (정답 없음)', cols:3, value:5, options:MYW,
+            note:'치우침·채움·대비 수치를 먼저 보고, 내가 느낀 말을 골라 보세요. 수치에서 나온 말과 표의 말과 나란히 견줍니다.'}
         ],
         compute: function(p){
           var all = shapes(p).concat(lines(p)), sw = 0, sx = 0, sy = 0;
@@ -483,7 +488,18 @@ var LAB = (function(){
           var gx = sx / sw, gy = sy / sw, off = Math.hypot(gx - 0.5, gy - 0.5) / 0.5 * 100;
           var im = [IM.pos[p.pos], IM.rat[p.rat], IM.ln[p.ln], IM.sp[p.sp], IM.ct[p.ct]];
           var red = Math.hypot(POS[p.pos].x - 0.5, POS[p.pos].y - 0.5) / 0.5 * 100;
-          return {gx:gx, gy:gy, off:off, red:red, im:im};
+          /* 인상 말을 표에서 꺼내 오지 않고, 그린 그림의 수치에서 셈해 본다 */
+          var area = 0, lums = [];
+          shapes(p).forEach(function(q){ area += q.w * q.h; lums.push(lumOf(q.c)); });
+          var cont = Math.max.apply(null, lums) - Math.min.apply(null, lums);
+          var num = [off < 12 ? '안정' : off < 25 ? '긴장' : '강한 긴장'];
+          if (area > 0.7) num.push('답답함');
+          if (cont < 0.35) num.push('힘이 빠짐');
+          var myW = MYW[p.my], know = myW !== '잘 모르겠다';
+          var agreeNum = know && num.indexOf(myW) >= 0;
+          var agreeTab = know && im.some(function(t){ return t.indexOf(myW) >= 0; });
+          return {gx:gx, gy:gy, off:off, red:red, im:im,
+            area:area, cont:cont, num:num, my:p.my, myW:myW, know:know, agreeNum:agreeNum, agreeTab:agreeTab};
         },
         draw: function(c, W, H, p, r, tau){
           var S = Math.min(W - 40, H - 70, 380), x0 = (W - S) / 2, y0 = 16, k = r ? Math.min(tau / 0.7, 1) : 1;
@@ -506,19 +522,40 @@ var LAB = (function(){
         stats: function(p, r){
           return [['배치', POS[p.pos].name + ' · ' + RAT[p.rat].name + ' · ' + LN[p.ln] + ' · ' + SP[p.sp] + ' · ' + CT[p.ct]],
             ['빨간 사각형의 중심 이탈', f(r.red, 0) + '% — 클수록 긴장', PAL[4]], ['전체 무게중심 치우침 (지표)', f(r.off, 0) + '%' + (r.red > 50 && r.off < 12 ? ' — 파랑이 반대편에서 균형을 되찾음' : r.off > 25 ? ' — 한쪽으로 쏠림' : ''), r.off > 25 ? PAL[6] : PAL[1]],
-            ['위치가 주는 인상', r.im[0], PAL[0]], ['면적 비율이 주는 인상', r.im[1], PAL[0]], ['선이 주는 인상', r.im[2]], ['여백·대비', r.im[3] + ' · ' + r.im[4], PAL[3]]];
+            ['화면을 채운 비율 (계산)', f(r.area * 100, 0) + '%' + (r.area > 0.7 ? ' — 빈 곳이 거의 없음' : ''), PAL[3]],
+            ['가장 밝은 색과 어두운 색의 차 (계산)', f(r.cont, 2) + (r.cont < 0.35 ? ' — 차이가 작음' : ''), PAL[3]],
+            ['수치에서 나온 말', r.num.join(' · '), PAL[6]],
+            ['내가 느낀 말', r.know ? r.myW + (r.agreeNum ? ' — 수치와 같은 쪽' : ' — 수치와 다른 쪽') : '아직 고르지 않음', r.agreeNum ? PAL[1] : PAL[6]],
+            ['웹툰 표의 말', r.im[0] + ' · ' + r.im[1] + ' · ' + r.im[3] + (r.know ? (r.agreeTab ? ' → 내 말과 같은 쪽' : ' → 내 말과 다른 쪽') : ''), PAL[0]],
+            ['※ 인상에는 정답이 없습니다', '수치는 치우침·채움·대비를 재어 준 것뿐입니다. 다르게 느꼈다면 그 까닭을 적는 것이 감상입니다'],
+            ['선이 주는 인상 (표)', r.im[2]]];
         },
-        columns: ['위치', '면적비', '선', '여백', '대비', '치우침', '인상'],
-        record: function(p, r){ return {pos:p.pos, rat:p.rat, ln:p.ln, sp:p.sp, ct:p.ct, off:r.off, red:r.red, im:r.im}; },
-        row: function(d){ return [POS[d.pos].name, RAT[d.rat].name, d.ln ? '변화' : '균일', d.sp ? '없음' : '있음', d.ct ? '낮음' : '높음', f(d.off, 0) + '%', d.im[0] + '·' + d.im[1]]; },
+        columns: ['위치', '면적비', '선', '여백', '대비', '치우침', '채움', '수치의 말', '내 말'],
+        record: function(p, r){ return {pos:p.pos, rat:p.rat, ln:p.ln, sp:p.sp, ct:p.ct, off:r.off, red:r.red, im:r.im,
+          area:r.area, cont:r.cont, num:r.num, my:r.my, myW:r.myW, an:r.agreeNum, at:r.agreeTab}; },
+        row: function(d){ return [POS[d.pos].name, RAT[d.rat].name, d.ln ? '변화' : '균일', d.sp ? '없음' : '있음', d.ct ? '낮음' : '높음',
+          f(d.off, 0) + '%', d.area == null ? '−' : f(d.area * 100, 0) + '%',
+          d.num ? d.num.join('·') : '−', d.myW || '−']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('빨강 위치 · 파랑 면적별 무게중심 치우침', '<div id="ab1"></div><p class="ask">빨강이 모서리로 갈수록 긴장이 커지지만, 반대편 파랑이 크면(1 : 1) 전체 균형은 오히려 맞았나요? 파랑을 줄이면(9 : 1) 어떻게 되었나요?</p>') +
+            card('수치의 말 · 내 말 · 표의 말', '<div id="ab3"></div><p class="ask">수치와 다르게 느낀 배치가 있었나요? 그렇다면 그 까닭을 한 문장으로 적어 보세요. 인상은 표에서 꺼내 오는 것이 아니라 <b>내가 적고 근거를 대는 것</b>입니다.</p>') +
             card('조건 하나씩 바꾼 인상 비교', '<div id="ab2"></div><p class="ask">과제: 추상 작품 하나를 골라 해설 없이 본 인상을 먼저 쓰고, 제작 배경을 조사한 뒤의 인상을 다시 써서 비교해 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.pos + '_' + d.rat; }), items = [];
           POS.forEach(function(q, i){ RAT.forEach(function(ra, j){ var gg = g[i + '_' + j]; if (!gg) return; var m = mean(gg.map(function(d){ return d.off; })); items.push({label:q.name + ' · ' + ra.name, v:m, color:PAL[i], text:f(m, 0) + '%'}); }); });
           $('ab1').innerHTML = hbars(items, 100);
           $('ab2').innerHTML = tableHTML(['조건', '인상'], rec.slice(-6).map(function(d){ return [POS[d.pos].name + ' · ' + RAT[d.rat].name + ' · ' + (d.ln ? '선 변화' : '선 균일') + ' · ' + (d.sp ? '여백 없음' : '여백') + ' · ' + (d.ct ? '저대비' : '고대비'), d.im.join(', ')]; }));
+          (function(){
+            var gr = rec.filter(function(d){ return d.num; });
+            if (!gr.length){ $('ab3').innerHTML = '<p class="msg">인상 말을 고르고 배치를 바꾸면 여기에서 나란히 견줘 줍니다.</p>'; return; }
+            var known = gr.filter(function(d){ return d.myW && d.myW !== '잘 모르겠다'; });
+            var sameN = known.filter(function(d){ return d.an; }).length;
+            $('ab3').innerHTML = tableHTML(['배치', '치우침', '채움', '수치의 말', '내 말', '수치와'],
+              gr.slice(-8).map(function(d){ return [POS[d.pos].name + '·' + RAT[d.rat].name, f(d.off, 0) + '%', f(d.area * 100, 0) + '%',
+                d.num.join('·'), d.myW || '−', d.myW && d.myW !== '잘 모르겠다' ? (d.an ? '같은 쪽' : '다른 쪽') : '−']; }), 'wrap') +
+              (known.length ? '<p class="msg">내 말이 수치에서 나온 말과 같았던 것은 <b>' + sameN + ' / ' + known.length + '</b>번입니다. 다른 쪽이 틀린 것이 아닙니다 — 수치는 치우침·채움·대비만 재니까요.</p>'
+                            : '<p class="msg">인상 말을 골라 보세요. 수치가 가리키는 말과 내가 느낀 말을 나란히 놓고 볼 수 있습니다.</p>');
+          })();
         }
       };
     })();
@@ -527,7 +564,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

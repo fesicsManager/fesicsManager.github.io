@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -449,6 +451,10 @@ var SUB = [
   {name:'구리', fm:'Cu', M:63.55, rho:8.96, col:'#C8793A'}
 ];
 function col(i){ return PAL[i % PAL.length]; }
+/* 거꾸로 맞히기: 목표 입자 수를 주고 몇 g 을 달아야 할지 먼저 적게 한다.
+   '목표 없음'이 기본값이라 예전 결과가 그대로 나온다. */
+var TG = [{n:'목표 없음', s:'—', N:0}, {n:'1.20 × 10²³ 개', s:'1.20', N:1.20e23},
+  {n:'3.01 × 10²³ 개', s:'3.01', N:3.01e23}, {n:'6.02 × 10²³ 개', s:'6.02', N:6.02e23}];
 return {
   sceneHeight: 330,
   idle: '물질과 덜어 낼 몰수를 정한 뒤 <b>달아 보기</b>를 누르세요.',
@@ -456,11 +462,19 @@ return {
   params: [
     {key:'s', type:'seg', label:'물질', cols:3, value:0, options:SUB.map(function(s){ return s.name + '<small>' + s.fm + '</small>'; }),
       note:'몰질량과 밀도는 표준 참고 자료의 값입니다.'},
-    {key:'n', type:'range', label:'덜어 낼 양', min:0.1, max:1.0, step:0.1, value:0.5, fmt:function(v){ return f(v, 1) + ' mol'; }}
+    {key:'n', type:'range', label:'덜어 낼 양', min:0.1, max:1.0, step:0.1, value:0.5, fmt:function(v){ return f(v, 1) + ' mol'; }},
+    {key:'tg', type:'seg', label:'거꾸로 맞히기 — 목표 입자 수', cols:2, value:0, options:TG.map(function(x){ return x.n; })},
+    {key:'g', type:'range', label:'내 답 — 몇 g 을 달아야 할까 (0 = 아직 안 적음)', min:0, max:360, step:0.5, value:0, fmt:function(v){ return v ? f(v, 1) + ' g' : '아직 안 적음'; }}
   ],
   compute: function(p){
     var s = SUB[p.s], m = Math.round(p.n * s.M * 100) / 100, V = Math.round(m / s.rho * 10) / 10;
-    return {m:m, V:V, N:p.n * NA};
+    /* 목표 입자 수를 고르면, 필요한 몰수와 질량을 계산해 내 답과 견준다 */
+    var tg = TG[p.tg || 0], need = null, err = null, near = null, g = p.g || 0;
+    if (tg.N){
+      need = Math.round(tg.N / NA * s.M * 100) / 100;
+      if (g){ err = Math.abs(g - need); near = err <= Math.max(0.5, need * 0.05); }
+    }
+    return {m:m, V:V, N:p.n * NA, tg:tg, need:need, myG:g, err:err, near:near, needMol:tg.N ? tg.N / NA : null};
   },
   draw: function(c, W, H, p, r, tau){
     var s = SUB[p.s], k = r ? Math.min(tau / 0.8, 1) : 0, bx = 30, by = 240, bw = Math.min(200, W * 0.45);
@@ -486,17 +500,28 @@ return {
     }
   },
   stats: function(p, r){
-    return [['덜어 낸 양', f(p.n, 1) + ' mol'], ['저울 눈금', f(r.m, 2) + ' g', PAL[0]], ['부피', f(r.V, 1) + ' mL'], ['입자 수', f(r.N / 1e23, 2) + ' × 10²³ 개', PAL[1]]];
+    var s = [['덜어 낸 양', f(p.n, 1) + ' mol'], ['저울 눈금', f(r.m, 2) + ' g', PAL[0]], ['부피', f(r.V, 1) + ' mL'], ['입자 수', f(r.N / 1e23, 2) + ' × 10²³ 개', PAL[1]]];
+    if (r.need !== null){
+      s.push(['목표 입자 수', r.tg.n, PAL[3]]);
+      s.push(['필요한 몰수', f(r.needMol, 3) + ' mol = 목표 입자 수 ÷ 6.022 × 10²³']);
+      s.push(['내 답', r.myG ? f(r.myG, 1) + ' g' : '아직 적지 않았어요 — 슬라이더로 적어 보세요.', r.myG ? PAL[6] : null]);
+      s.push(['달아야 하는 질량', f(r.need, 2) + ' g = 필요한 몰수 × 몰질량 ' + f(SUB[p.s].M, 2), PAL[1]]);
+      s.push(['채점', !r.myG ? '—' : (r.near ? '맞혔어요! 차이 ' + f(r.err, 2) + ' g' : '빗나갔어요. 차이 ' + f(r.err, 2) + ' g'),
+        !r.myG ? null : (r.near ? PAL[1] : PAL[4])]);
+    }
+    return s;
   },
-  columns: ['물질', '몰 (mol)', '질량 (g)', '부피 (mL)', '입자 수 (× 10²³)'],
-  record: function(p, r){ return {s:p.s, n:p.n, m:r.m, V:r.V, N:r.N}; },
-  row: function(d){ return [dot(col(d.s)) + SUB[d.s].name, f(d.n, 1), f(d.m, 2), f(d.V, 1), f(d.N / 1e23, 2)]; },
+  columns: ['물질', '몰 (mol)', '질량 (g)', '부피 (mL)', '입자 수 (× 10²³)', '목표', '내 답', '채점'],
+  record: function(p, r){ return {s:p.s, n:p.n, m:r.m, V:r.V, N:r.N, tg:p.tg || 0, need:r.need, myG:r.myG, err:r.err, near:r.near}; },
+  row: function(d){ return [dot(col(d.s)) + SUB[d.s].name, f(d.n, 1), f(d.m, 2), f(d.V, 1), f(d.N / 1e23, 2),
+    TG[d.tg || 0].s, d.myG ? f(d.myG, 1) + ' g' : '—', d.need === null || !d.myG ? '—' : (d.near ? '○ ' + f(d.err, 2) + ' g' : '✕ ' + f(d.err, 2) + ' g')]; },
   verify: function(rec, box){
     var used = SUB.map(function(s, i){ return i; }).filter(function(i){ return rec.some(function(d){ return d.s === i; }); });
     var ser = function(fy){ return used.map(function(i){ return {color:col(i), pts:rec.filter(function(d){ return d.s === i; }).map(function(d){ return {x:d.n, y:fy(d)}; })}; }); };
     box.innerHTML = legend(used.map(function(i){ return {color:col(i), label:SUB[i].name}; })) + '<div class="vgrid">' +
       card('몰수와 질량', '<canvas class="chart" id="ch1" role="img" aria-label="몰: 입자를 세는 묶음 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">물질마다 기울기가 다른 까닭은 무엇일까요? 기울기를 화학식의 원자량 합과 비교해 보세요.</p>') +
       card('몰수와 입자 수', '<canvas class="chart" id="ch2" role="img" aria-label="몰: 입자를 세는 묶음 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">질량은 물질마다 다른데 입자 수는 어떤가요?</p>') +
+      card('거꾸로 맞히기 채점 (내가 적은 답으로 계산)', '<div id="ch4"></div><p class="ask">같은 목표 입자 수인데도 물질마다 달아야 하는 질량이 달랐나요? 그 차이를 만든 것은 무엇인가요?</p>') +
       card('몰수와 부피', '<canvas class="chart" id="ch3" role="img" aria-label="몰: 입자를 세는 묶음 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro3"></ul><p class="ask">1몰의 부피는 물질마다 같나요? 고체와 액체의 부피는 무엇에 따라 달라질까요?</p>') + '</div>';
     var sl = function(fy, unit, dig){ return used.map(function(i){
       var g = rec.filter(function(d){ return d.s === i; });
@@ -509,6 +534,13 @@ return {
     $('ro2').innerHTML = '<li>모든 기록: 입자 수 ÷ 몰수 평균 <b>' + f(mean(rec.map(function(d){ return d.N / d.n; })) / 1e23, 3) + ' × 10²³ /mol</b></li>';
     drawScatter($('ch3'), {xLabel:'몰수 (mol)', yLabel:'부피 (mL)', series:ser(function(d){ return d.V; })});
     $('ro3').innerHTML = sl(function(d){ return d.V; }, 'mL/mol', 1);
+    var mine = rec.filter(function(x){ return x.need !== null && x.myG; });
+    var rows4 = mine.map(function(x){ return [SUB[x.s].name, TG[x.tg].s + ' × 10²³', f(x.myG, 1) + ' g', f(x.need, 2) + ' g',
+      x.near ? '맞힘' : '빗나감']; });
+    var hits = mine.filter(function(x){ return x.near; }).length;
+    $('ch4').innerHTML = (rows4.length ? tableHTML(['물질', '목표 입자 수', '내 답', '달아야 할 질량', '채점'], rows4)
+        + '<p class="msg">' + mine.length + '번 가운데 <b>' + hits + '번</b> 맞혔어요.</p>'
+      : '<p class="msg">조작에서 "목표 입자 수"를 고르고 "내 답"을 먼저 적은 뒤 달아 보세요. 그 채점은 내가 적은 값으로 계산합니다.</p>');
   }
 };
 })();
@@ -517,7 +549,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

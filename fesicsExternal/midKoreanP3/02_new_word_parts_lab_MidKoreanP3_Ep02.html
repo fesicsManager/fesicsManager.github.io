@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -467,27 +469,31 @@ var LAB = (function anonymous(
 
 return (function(){
       var NW = [
-        {w:'눈치게임', p:[['눈치', ''], ['게임', '']], m:0, orig:4, cnt:18, how:'두 말 붙이기'},
-        {w:'맛집', p:[['맛', ''], ['집', '']], m:0, orig:2, cnt:19, how:'두 말 붙이기'},
-        {w:'혼밥', p:[['혼', '자'], ['밥', '']], m:2, orig:3, cnt:15, how:'앞 말 줄여 붙이기'},
-        {w:'먹방', p:[['먹', '다'], ['방', '송']], m:2, orig:4, cnt:14, how:'두 말의 일부만 붙이기'},
-        {w:'헛걸음', p:[['헛-', ''], ['걸음', '']], m:1, orig:3, cnt:20, how:'덧붙는 조각 붙이기'}
+        {w:'눈치게임', p:[['눈치', ''], ['게임', '']], m:0, orig:4, cnt:18, cnt2:19, how:'두 말 붙이기'},
+        {w:'맛집', p:[['맛', ''], ['집', '']], m:0, orig:2, cnt:19, cnt2:20, how:'두 말 붙이기'},
+        {w:'혼밥', p:[['혼', '자'], ['밥', '']], m:2, orig:3, cnt:15, cnt2:20, how:'앞 말 줄여 붙이기'},
+        {w:'먹방', p:[['먹', '다'], ['방', '송']], m:2, orig:4, cnt:14, cnt2:20, how:'두 말의 일부만 붙이기'},
+        {w:'헛걸음', p:[['헛-', ''], ['걸음', '']], m:1, orig:3, cnt:20, cnt2:20, how:'덧붙는 조각 붙이기'}
       ];
       var M = ['합성 (두 말 붙이기)', '파생 (덧붙는 조각)', '줄임 (일부만 떼어 붙이기)'];
       var MS = ['합성', '파생', '줄임'];
+      var HR = ['처음 듣는 사람 20명', '그 말이 쓰이는 자리를 아는 사람 20명'];
+      var HRS = ['처음 듣는 사람', '아는 사람'];
+      function cntOf(n, g){ return g ? n.cnt2 : n.cnt; }
       function kept(n){ return n.w.replace('-', '').length / n.orig; }
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 560 ? 452 : 420; },
         idle: '새말, 나의 분류, 짐작할 사람 수 예상을 고른 뒤 <b>조각으로 쪼개 보기</b>를 누르세요.',
         shortHint: '다섯 새말을 모두 쪼개 보세요. 만드는 방법에 따라 짐작한 사람 수가 어떻게 달라지나요?',
         params: [
           {key:'n', type:'seg', label:'새말', cols:3, value:2, options:NW.map(function(x){ return x.w; })},
           {key:'m', type:'seg', label:'나의 분류 — 만드는 방법', cols:3, value:0, options:M},
-          {key:'e', type:'range', label:'나의 예상 — 처음 듣는 20명 중 뜻을 짐작할 사람', min:0, max:20, step:1, value:10, fmt:function(v){ return v + '명'; }}
+          {key:'g', type:'seg', label:'뜻을 짐작해 볼 사람 (교육용 모형값)', cols:2, value:0, options:HR, note:'※ 짐작한 사람 수는 실제 조사가 아니라 교육용 모형값이에요. 같은 새말도 듣는 사람이 바뀌면 달라집니다.'},
+          {key:'e', type:'range', label:'나의 예상 — 20명 중 뜻을 짐작할 사람', min:0, max:20, step:1, value:10, fmt:function(v){ return v + '명'; }}
         ],
         compute: function(p){
-          var n = NW[p.n], ok = p.m === n.m, kr = kept(n), err = Math.abs(p.e - n.cnt);
-          return {n:n, ok:ok, kr:kr, err:err, parts:n.p.map(function(x){ return x[0] + (x[1] ? '(' + x[1] + ')' : ''); }).join(' + ')};
+          var n = NW[p.n], ok = p.m === n.m, kr = kept(n), cnt = cntOf(n, p.g), err = Math.abs(p.e - cnt);
+          return {n:n, ok:ok, kr:kr, cnt:cnt, gap:n.cnt2 - n.cnt, err:err, parts:n.p.map(function(x){ return x[0] + (x[1] ? '(' + x[1] + ')' : ''); }).join(' + ')};
         },
         draw: function(c, W, H, p, r, tau){
           var n = NW[p.n];
@@ -509,8 +515,8 @@ return (function(){
           pbar(c, 20, y2 + 42, Math.min(W - 40, 300), 14, kept(n), kept(n) < 1 ? PAL[4] : PAL[1]);
           c.globalAlpha = 1;
           var d = ph(tau, 0.55, 0.95), y3 = y2 + 92;
-          tx(c, '처음 듣고 뜻을 짐작한 연구원', 20, y3, {color:'#4A5868'});
-          var k = Math.round(n.cnt * d);
+          tx(c, HRS[p.g] + ' 가운데 뜻을 짐작한 사람', 20, y3, {color:'#4A5868'});
+          var k = Math.round(cntOf(n, p.g) * d);
           var hh = crowd(c, 24, y3 + 28, Math.min(W - 48, 10 * 23), 20, k, PAL[1], '#CBD3DD', 18);
           tx(c, k + '명 / 20명 (내 예상 ' + p.e + '명)', 20, y3 + 28 + hh + 10, {bold:true, color:PAL[1]});
           if (tau > 0.9) mark(c, W - 50, 40, 26, r.ok ? '○' : '×', r.ok ? PAL[1] : PAL[4], ph(tau, 0.9, 1));
@@ -519,22 +525,24 @@ return (function(){
           return [['새말', r.n.w], ['조각', r.parts], ['만드는 방법', r.n.how + ' (' + MS[r.n.m] + ')', PAL[3]],
             ['나의 분류', MS[p.m] + (r.ok ? ' — 맞았어요' : ' — 다시 쪼개 보세요'), r.ok ? PAL[1] : PAL[4]],
             ['남은 글자 비율', f(r.kr * 100, 0) + '% (' + r.n.w.replace('-', '').length + ' ÷ ' + r.n.orig + ')'],
-            ['뜻을 짐작한 연구원', r.n.cnt + '명 / 20명 — 내 예상 ' + p.e + '명 (차이 ' + r.err + '명)', PAL[1]]];
+            ['뜻을 짐작한 사람', r.cnt + '명 / 20명 (' + HRS[p.g] + ') — 내 예상 ' + p.e + '명 (차이 ' + r.err + '명)', PAL[1]],
+            ['듣는 사람을 바꾸면', r.gap === 0 ? '처음 듣는 사람도 거의 다 짐작해서 더 늘 자리가 없어요' : '아는 사람으로 바꾸면 ' + r.gap + '명 더 짐작해요 — 줄여 붙인 말일수록 그 차이가 커요', r.gap >= 5 ? PAL[4] : PAL[3]]];
         },
-        columns: ['새말', '나의 분류', '실제 방법', '짐작', '내 예상'],
-        record: function(p, r){ return {n:p.n, m:p.m, ok:r.ok, e:p.e}; },
-        row: function(d){ return [NW[d.n].w, MS[d.m], MS[NW[d.n].m], NW[d.n].cnt + '/20', d.e + '명']; },
+        columns: ['새말', '나의 분류', '실제 방법', '듣는 사람', '짐작', '내 예상'],
+        record: function(p, r){ return {n:p.n, m:p.m, g:p.g, ok:r.ok, e:p.e}; },
+        row: function(d){ return [NW[d.n].w, MS[d.m], MS[NW[d.n].m], HRS[d.g || 0], cntOf(NW[d.n], d.g) + '/20', d.e + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('새말별 — 뜻을 짐작한 연구원 (20명 중)', '<div id="mq2a"></div><p class="ask">줄여 붙인 말과 그대로 붙인 말 가운데 어느 쪽이 짐작하기 어려웠나요? ‘남은 글자 비율’과 함께 까닭을 설명해 보세요.</p>') +
-            card('만드는 방법별 평균과 나의 분류', '<div id="mq2b"></div><p class="ask">과제: 요즘 자주 듣는 새말 다섯 개를 모아 조각과 만드는 방법(합성·파생·줄임)을 표로 정리하고, 그 말을 처음 듣는 어른 한 분께 뜻을 짐작해 보시게 한 뒤 맞히셨는지 적어 보세요.</p>') + '</div>';
+            card('새말별 — 처음 듣는 사람 20명 중 짐작한 사람', '<div id="mq2a"></div><p class="ask">줄여 붙인 말과 그대로 붙인 말 가운데 어느 쪽이 짐작하기 어려웠나요? ‘남은 글자 비율’과 함께 까닭을 설명해 보세요.</p>') +
+            card('듣는 사람이 바뀌면 — 방법별 평균', '<div id="mq2b"></div><p class="ask">줄임말은 ‘아는 사람’으로 바꿀 때 가장 많이 늘었어요. 왜 그럴까요? 과제: 요즘 자주 듣는 새말 다섯 개를 모아 조각과 만드는 방법(합성·파생·줄임)을 표로 정리하고, 그 말을 처음 듣는 어른 한 분께 뜻을 짐작해 보시게 한 뒤 맞히셨는지 적어 보세요.</p>') + '</div>';
           var items = NW.map(function(n, i){ var tried = rec.some(function(d){ return d.n === i; });
             return {label:n.w + ' (' + MS[n.m] + ', ' + f(kept(n) * 100, 0) + '%)', v:n.cnt, color:tried ? (n.m === 2 ? PAL[4] : PAL[1]) : '#CBD3DD', text:n.cnt + '명' + (tried ? '' : ' (아직)')}; });
           $('mq2a').innerHTML = hbars(items, 20);
           var rows = [0, 1, 2].map(function(m){ var g = NW.filter(function(n){ return n.m === m; });
-            return [MS[m], g.map(function(n){ return n.w; }).join(', '), f(mean(g.map(function(n){ return n.cnt; })), 1) + '명']; });
+            return [MS[m], g.map(function(n){ return n.w; }).join(', '), f(mean(g.map(function(n){ return n.cnt; })), 1) + '명', f(mean(g.map(function(n){ return n.cnt2; })), 1) + '명', '+' + f(mean(g.map(function(n){ return n.cnt2 - n.cnt; })), 1) + '명']; });
           var ok = rec.filter(function(d){ return d.ok; }).length;
-          $('mq2b').innerHTML = tableHTML(['방법', '새말', '평균 짐작'], rows) + '<p class="msg">나의 분류가 맞은 기록: ' + ok + ' / ' + rec.length + '회</p>';
+          var tried2 = rec.filter(function(d){ return d.g === 1; }).length;
+          $('mq2b').innerHTML = tableHTML(['방법', '새말', '처음 듣는 사람', '아는 사람', '늘어난 수'], rows) + '<p class="msg">나의 분류가 맞은 기록: ' + ok + ' / ' + rec.length + '회' + (tried2 ? '' : ' · ‘아는 사람’으로도 재 보면 줄임말의 차이가 가장 크다는 것을 볼 수 있어요.') + '</p>';
         }
       };
     })();
@@ -544,7 +552,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -112,7 +112,9 @@ tbody tr:nth-child(even){background:#fafcff}
 <option>재료 준비</option><option>손질</option><option>조리</option><option>담기</option><option>정리</option><option>실수로 다시 하기</option>
 </select></div>
 <div class="ctrl"><label for="tm">걸린 시간 <span class="val" id="vT">5</span>분</label><input type="range" id="tm" min="1" max="30" step="1" value="5"></div>
-<div class="ctrl"><label for="way">오늘의 방식</label><select id="way"><option>준비를 먼저 끝내고 시작</option><option>하면서 준비</option></select></div></div>
+<div class="ctrl"><label for="way">오늘의 방식</label><select id="way"><option>준비를 먼저 끝내고 시작</option><option>하면서 준비</option></select></div>
+<div class="ctrl"><label for="pred2">짐작 — 준비를 먼저 끝내면 전체 시간이</label>
+<select id="pred2"><option>줄 것</option><option>비슷할 것</option><option>늘 것</option></select></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">띠에 붙이기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -148,6 +150,16 @@ var step=document.getElementById('step'),tm=document.getElementById('tm'),way=do
 tm.oninput=function(){document.getElementById('vT').textContent=tm.value;};
 var SS=['재료 준비','손질','조리','담기','정리','실수로 다시 하기'];
 var SC=['#6ab98a','#4aa3c7','#f0903a','#9a7cd8','#7a86a8','#e05c6e'];
+var pred2=document.getElementById('pred2');
+function ways(){
+  var A={t:0,r:0},B={t:0,r:0};
+  for(var i=0;i<band.length;i++){
+    var g=band[i].w==='준비를 먼저 끝내고 시작'?A:B;
+    g.t+=band[i].t;
+    if(band[i].s==='실수로 다시 하기')g.r+=band[i].t;
+  }
+  return {A:A,B:B};
+}
 function draw(prog){
   c.clearRect(0,0,cvv.width,cvv.height);
   var tot=0;for(var i=0;i<band.length;i++)tot+=band[i].t;
@@ -179,7 +191,7 @@ function draw(prog){
   c.fillText('다시 한 시간 '+redo+'분',cvv.width/2,cvv.height-22);
 }
 return {
-  columns:['단계','시간(분)','방식'],
+  columns:['단계','시간(분)','방식','짐작'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='단계와 실제로 잰 시간을 넣고 <b>띠에 붙이기</b>를 눌러 보세요.';},
   run:function(done){
@@ -187,11 +199,20 @@ return {
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/20,1));
       if(t>=20){clearInterval(iv);
         var tot=0;for(var i=0;i<band.length;i++)tot+=band[i].t;
-        out.innerHTML='지금까지 <b>'+tot+'분</b>. 단계를 모두 붙이면 띠가 하나의 실습이 됩니다.';
+        var W=ways(),msg='지금까지 <b>'+tot+'분</b>. 단계를 모두 붙이면 띠가 하나의 실습이 됩니다.';
+        msg+='<br>준비 먼저 <b>'+W.A.t+'분</b>(다시 하기 '+W.A.r+'분) / 하면서 준비 <b>'+W.B.t+'분</b>(다시 하기 '+W.B.r+'분)';
+        if(W.A.t&&W.B.t){
+          var real=W.A.t<W.B.t?'줄 것':(W.A.t>W.B.t?'늘 것':'비슷할 것');
+          msg+='<br>실제로는 준비를 먼저 끝냈을 때 전체 시간이 <b>'+real+'</b>으로 나왔습니다 · 내 짐작 '+pred2.value+' — '+
+               (real===pred2.value?'<b>맞혔습니다.</b>':'<b>빗나갔습니다.</b>');
+        }else{
+          msg+='<br>두 방식을 모두 붙이면 짐작을 채점해 줍니다.';
+        }
+        out.innerHTML=msg;
         done();}},30);
   },
   record:function(){
-    return {cells:[step.value,tm.value,way.value],raw:{s:step.value,t:Number(tm.value),w:way.value}};
+    return {cells:[step.value,tm.value,way.value,pred2.value],raw:{s:step.value,t:Number(tm.value),w:way.value,p:pred2.value}};
   },
   verify:function(rs){
     var A={tot:0,prep:0,redo:0},B={tot:0,prep:0,redo:0};
@@ -211,7 +232,13 @@ return {
       '<div class="barwrap"><div class="bar" style="width:'+pct(B.prep,B.tot)+'%;background:#f0903a"></div></div></div>';
     h+='<div><h3>읽어 내기</h3>';
     if(A.tot&&B.tot){
-      h+='<p style="font-size:1.03rem;line-height:1.85">두 방식에서 <b>다시 하기</b>에 쓴 시간은 각각 '+A.redo+'분과 '+B.redo+'분이었습니다. '+
+      var real2=A.tot<B.tot?'줄 것':(A.tot>B.tot?'늘 것':'비슷할 것');
+      var pc={},pm='',pn=-1;
+      for(var q=0;q<rs.length;q++){var pv=rs[q].raw.p; if(!pv)continue; pc[pv]=(pc[pv]||0)+1;}
+      for(var k5 in pc){if(pc[k5]>pn){pn=pc[k5];pm=k5;}}
+      h+='<p style="font-size:1.03rem;line-height:1.85">전체 시간은 준비 먼저 <b>'+A.tot+'분</b>, 하면서 준비 <b>'+B.tot+'분</b>이었습니다 — 준비를 먼저 끝내면 전체 시간이 <b>'+real2+'</b>으로 나왔습니다.'+
+         (pm?' 내가 가장 많이 고른 짐작은 '+pm+'이었으니 '+(pm===real2?'<b>맞혔습니다.</b>':'<b>빗나갔습니다.</b>'):'')+'</p>'+
+         '<p style="font-size:1.03rem;line-height:1.85">두 방식에서 <b>다시 하기</b>에 쓴 시간은 각각 '+A.redo+'분과 '+B.redo+'분이었습니다. '+
          '준비에 쓴 시간은 사라진 것일까요, 다른 곳에서 돌아온 것일까요?</p>';
     }else{
       h+='<p style="font-size:1.03rem;line-height:1.85">두 가지 방식을 모두 기록하면 직접 비교해 줍니다.</p>';

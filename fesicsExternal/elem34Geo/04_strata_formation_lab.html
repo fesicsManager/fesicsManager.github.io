@@ -247,20 +247,24 @@ tbody tr:nth-child(even){background:#f7faf9;}
       <div class="explore-grid">
         <div class="canvas-panel">
           <canvas id="strataCanvas" width="400" height="340" role="img" aria-label="지층이 쌓이다 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
-          <div class="note" id="n4">몇 번 부을지 정하고 퇴적물을 부어보세요.</div>
+          <div class="note" id="n4">몇 번 부을지와 알갱이 비율·물살을 정하고 퇴적물을 부어보세요.</div>
           <div class="control-block">
             <div class="control-label">퇴적물을 부을 횟수: <span class="slider-val" id="pv">3</span> 번</div>
             <input type="range" id="ps" min="1" max="6" step="1" value="3" aria-label="퇴적물을 부을 횟수">
+            <div class="control-label">섞을 알갱이 비율</div>
+            <div class="btn-row" id="mRow"><button class="btn-choice" data-v="0">자갈 많이</button><button class="btn-choice active" data-v="1">고루 섞음</button><button class="btn-choice" data-v="2">진흙 많이</button></div>
+            <div class="control-label">물의 흐름</div>
+            <div class="btn-row" id="fRow"><button class="btn-choice active" data-v="0">잔잔한 물</button><button class="btn-choice" data-v="1">센 물살</button></div>
             <button class="btn-main" id="go4">물속에 퇴적물 붓기 ▶</button>
-            <div class="result-box" id="r4">횟수를 정하고 실험 버튼을 눌러보세요.</div>
+            <div class="result-box" id="r4">횟수·비율·물살을 정하고 실험 버튼을 눌러보세요.</div>
           </div>
         </div>
         <div class="data-panel">
           <div class="table-title">쌓인 층 기록 (<span class="mono" id="c4">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>부은 순서</th><th>쌓인 알갱이</th><th>아래에서 몇 번째</th></tr></thead>
-              <tbody id="t4"><tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>부은 순서</th><th>섞은 비율 · 물살</th><th>쌓인 알갱이</th><th>아래에서 몇 번째</th></tr></thead>
+              <tbody id="t4"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box warm" style="margin-top:14px;">
@@ -661,11 +665,25 @@ const KINDS=[
  {name:'모래',       base:'#e0c99a', grain:3.0, gap:1.8},
  {name:'고운 진흙',  base:'#7a6250', grain:1.0, gap:0.4}
 ];
+/* 섞은 비율과 물살에 따라 층의 두께와 알갱이 짜임이 달라진다 — 비율은 교육용 모형값.
+   센 물살에서는 고운 진흙이 가라앉지 못하고 멀리 떠내려가므로 층이 얇고 거칠어진다. */
+const MIXN=['자갈 많이','고루 섞음','진흙 많이'];
+const MIXR=[[0.60,0.30,0.10],[0.34,0.33,0.33],[0.10,0.30,0.60]];
+const FLOWN=['잔잔한 물','센 물살'];
+let mIdx=1, fIdx=0;
+function ratios(){
+  const a=MIXR[mIdx].slice();
+  if(fIdx===1) a[2]*=0.25;                 /* 고운 진흙은 센 물살에 멀리 떠내려감 */
+  const keep=a[0]+a[1]+a[2];
+  return {r:a, keep:keep, n:a.map(v=>v/keep)};
+}
 let pours=3, records=[];
 const canvas=document.getElementById('strataCanvas'), ctx=canvas.getContext('2d');
 const W=400,H=340, TL=70, TR=330, TT=52, TB=306;
 let running=false, shown=0, grains=[];
-const LAYER_H=34;
+let LAYER_H=34;
+function syncLH(){ LAYER_H=Math.max(12, Math.round(34*ratios().keep)); }
+syncLH();
 
 function scene(p){
   const t=performance.now();
@@ -693,12 +711,13 @@ function scene(p){
     if(hh<=0.5) continue;
     const y1=TB-2-i*LAYER_H, y0=y1-hh;
     /* 한 층 안에서 아래는 굵고 위는 고운 알갱이 (점이층리) */
-    KINDS.forEach((k,ki)=>{
-      const seg=hh/3;
-      const sy=y1-seg*(ki+1);
-      if(seg<0.5) return;
+    const nr=ratios().n; let acc=0;
+    for(let ki=0;ki<KINDS.length;ki++){
+      const k=KINDS[ki], seg=hh*nr[ki], sy=y1-hh*acc-seg;
+      acc+=nr[ki];
+      if(seg<0.5) continue;
       soilPatch(ctx, TL+3, sy, TR-TL-6, seg+1, k.base, k.grain, k.gap, i*7+ki+1);
-    });
+    }
     ctx.strokeStyle='rgba(90,80,60,0.55)'; ctx.lineWidth=1.6;
     ctx.beginPath(); ctx.moveTo(TL+3,y0); ctx.lineTo(TR-3,y0); ctx.stroke();
     if(full) label(ctx, TL+22, y1-LAYER_H/2, (i+1), '#f6f2e6', 19);
@@ -707,7 +726,8 @@ function scene(p){
   /* 가라앉는 알갱이 */
   if(running){
     if(Math.random()<0.9){
-      const ki=Math.floor(Math.random()*3);
+      const nr2=ratios().n, rr=Math.random();
+      const ki = rr<nr2[0] ? 0 : rr<nr2[0]+nr2[1] ? 1 : 2;
       grains.push({x:TL+20+Math.random()*(TR-TL-40), y:TT+4, ki:ki,
                    v:(ki===0?150:ki===1?95:55)+Math.random()*20});
     }
@@ -739,7 +759,7 @@ function scene(p){
   });
 
   capsule(ctx, 200, 24, (!running && p>=1) ? pours+'번 모두 부음' : done+' / '+pours+' 번째 붓는 중',   /* 다 끝났는데 '붓는 중'으로 남지 않게 */ 'rgba(23,50,56,0.9)', '#fff', 20);
-  capsule(ctx, 200, H-14, '먼저 부은 것이 아래에 깔린다', 'rgba(255,255,255,0.96)', '#173238', 19);
+  capsule(ctx, 200, H-14, fIdx===1 ? '센 물살 — 진흙이 멀리 떠내려감' : '먼저 부은 것이 아래에 깔린다', 'rgba(255,255,255,0.96)', '#173238', 19);
 }
 function loop(){ if(!running) scene(shown); requestAnimationFrame(loop); }
 requestAnimationFrame(loop);
@@ -749,25 +769,43 @@ document.getElementById('ps').addEventListener('input',e=>{
   const r=document.getElementById('r4'); r.className='result-box'; r.innerHTML='횟수를 정하고 실험 버튼을 눌러보세요.';
   NOTE('n4','몇 번 부을지 정하고 퇴적물을 부어보세요.');
 });
+function bindCond(rowId, set){
+  document.querySelectorAll('#'+rowId+' .btn-choice').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('#'+rowId+' .btn-choice').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active'); set(parseInt(b.dataset.v)); syncLH(); shown=0; grains=[];
+      const r=document.getElementById('r4'); r.className='result-box'; r.innerHTML='횟수·비율·물살을 정하고 실험 버튼을 눌러보세요.';
+      NOTE('n4','몇 번 부을지와 알갱이 비율·물살을 정하고 퇴적물을 부어보세요.');
+    });
+  });
+}
+bindCond('mRow', v=>{ mIdx=v; });
+bindCond('fRow', v=>{ fIdx=v; });
 document.getElementById('go4').addEventListener('click',()=>{
   const btn=document.getElementById('go4'); running=true; records=[];
   NOTE('n4','무거운 알갱이부터 가라앉는 중입니다. 한 층 안에서 아래위 알갱이 크기를 보세요.');
   runAnim(btn, canvas, 900+pours*700, (p)=>{ shown=p; scene(p); }, ()=>{
     running=false;
     records=[];
-    for(let i=0;i<pours;i++) records.push({order:i+1, pos:i+1, kind:'아래 자갈 → 위 진흙'});
+    const q=ratios(), cond=MIXN[mIdx]+' · '+FLOWN[fIdx];
+    const pct=q.n.map(v=>Math.round(v*100));
+    const kindTxt='자갈 '+pct[0]+'% · 모래 '+pct[1]+'% · 진흙 '+pct[2]+'%';
+    const thick=(LAYER_H/34*1.0).toFixed(2);
+    for(let i=0;i<pours;i++) records.push({order:i+1, pos:i+1, cond:cond, kind:kindTxt, th:thick});
     renderTable();
     const r=document.getElementById('r4'); r.className='result-box ok';
-    r.innerHTML='<span class="big-val">'+pours+'개</span>의 층이 쌓였습니다';
-    NOTE('n4','<b>'+pours+'번</b> 부었더니 층이 '+pours+'개 생겼습니다. 1번째로 부은 것이 <b>맨 아래</b>, 마지막에 부은 것이 <b>맨 위</b>에 있어요. 한 층 안에서도 아래는 굵은 자갈, 위는 고운 진흙입니다.');
+    r.innerHTML='<span class="big-val">'+pours+'개</span>의 층이 쌓였습니다 · '+cond+'<br>'+
+      '한 층의 짜임: '+kindTxt+' · 층 두께 '+thick+'배 <span style="font-size:.85em;color:#a86825">(교육용 모형값)</span>';
+    NOTE('n4','<b>'+pours+'번</b> 부었더니 층이 '+pours+'개 생겼습니다. 1번째로 부은 것이 <b>맨 아래</b>, 마지막에 부은 것이 <b>맨 위</b>예요.'+
+      (fIdx===1 ? ' 센 물살에서는 <b>고운 진흙이 가라앉지 못하고 멀리 떠내려가</b> 층이 얇고 거칠어집니다.' : ' 한 층 안에서도 아래는 굵은 자갈, 위는 고운 진흙입니다.'));
     afterRecord();
   });
 });
 function renderTable(){
   document.getElementById('c4').textContent=records.length;
   const tb=document.getElementById('t4');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+r.order+'번째로 부음</td><td class="kr" style="font-size:.9rem;">'+r.kind+'</td><td>'+r.pos+'번째</td></tr>').join('');
+  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+r.order+'번째로 부음</td><td class="kr" style="font-size:.85rem;">'+r.cond+'</td><td class="kr" style="font-size:.85rem;">'+r.kind+'</td><td>'+r.pos+'번째</td></tr>').join('');
 }
 countFn=()=>records.length;
 function renderVerify(){
@@ -780,7 +818,9 @@ function renderVerify(){
     '<div class="mini-row"><span>아래에서 '+r.pos+'번째 층</span><span>'+r.order+'번째로 부은 것</span></div>').join('');
   document.getElementById('ins4').innerHTML='<div class="insight-box">'+
     '<b>부은 순서와 쌓인 순서가 정확히 같습니다.</b> 1번째로 부은 것이 아래에서 1번째, 마지막이 맨 위예요.<br>'+
-    '그래서 자연의 지층을 보면 <b>아래층일수록 먼저 쌓인 옛날 것</b>이라는 걸 알 수 있습니다.</div>';
+    '그래서 자연의 지층을 보면 <b>아래층일수록 먼저 쌓인 옛날 것</b>이라는 걸 알 수 있습니다.<br>'+
+    '이번 조건: <b>'+(records[0]?records[0].cond:'')+'</b> — 한 층의 짜임 '+(records[0]?records[0].kind:'')+', 층 두께 '+(records[0]?records[0].th:'')+'배.<br>'+
+    '쌓이는 <b>차례</b>는 늘 같지만, 섞은 비율과 물살에 따라 <b>층의 두께와 알갱이 짜임</b>이 달라집니다. (교육용 모형값)</div>';
 }
 document.querySelectorAll('[data-q="rel"]').forEach(b=>{
   b.addEventListener('click',()=>{

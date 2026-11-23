@@ -151,12 +151,16 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="속도 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="t">시각 t (×0.2) <b><span id="t_v">5.0</span></b></label><input type="range" id="t" min="0" max="30" step="1" value="5" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">🚗 시간을 흘려보내기</button></div>
+      <div class="ctl"><label>어떤 운동으로 해 볼까</label>
+<label><input type="radio" name="mo" value="A" checked> A. x = t³/3 − 2t² + 3t</label>
+<label><input type="radio" name="mo" value="B"> B. x = t²/2 − 3t</label>
+<label><input type="radio" name="mo" value="C"> C. x = −t⁴/16 + 0.75t³ − 2.875t² + 3.75t</label></div>
+<div class="ctl"><label for="t">시각 t (×0.2) <b><span id="t_v">5.0</span></b></label><input type="range" id="t" min="0" max="30" step="1" value="5" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">🚗 시간을 흘려보내기</button></div>
       <div class="readout" id="readout"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>시각 t</th><th>위치 x</th><th>속도 v</th><th>가속도 a</th><th>방향</th><th>속도 0 인가</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>운동</th><th>시각 t</th><th>위치 x</th><th>속도 v</th><th>가속도 a</th><th>방향</th><th>속도 0 인가</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,14 +239,22 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function x(t){return t*t*t/3-2*t*t+3*t;}
-function vf(t){return t*t-4*t+3;}
-function af(t){return 2*t-4;}
-function st(){var t=v('t')/5;
+/* 위치 함수를 바꾸면 v 의 부호가 바뀌는 횟수(= 방향 전환 횟수)가 달라진다 */
+var MO=[
+  {k:'A', n:'x = t³/3 − 2t² + 3t', x:function(t){return t*t*t/3-2*t*t+3*t;}, v:function(t){return t*t-4*t+3;}, a:function(t){return 2*t-4;}, z:[1,3]},
+  {k:'B', n:'x = t²/2 − 3t', x:function(t){return t*t/2-3*t;}, v:function(t){return t-3;}, a:function(t){return 1;}, z:[3]},
+  {k:'C', n:'x = −t⁴/16 + 0.75t³ − 2.875t² + 3.75t', x:function(t){return -t*t*t*t/16+0.75*t*t*t-2.875*t*t+3.75*t;}, v:function(t){return (-t*t*t+9*t*t-23*t+15)/4;}, a:function(t){return (-3*t*t+18*t-23)/4;}, z:[1,3,5]}
+];
+function cm(){var k=rv('mo')||'A';for(var i=0;i<MO.length;i++)if(MO[i].k===k)return MO[i];return MO[0];}
+function x(t){return cm().x(t);}
+function vf(t){return cm().v(t);}
+function af(t){return cm().a(t);}
+function st(){var t=v('t')/5, M=cm();
 var V=vf(t),A=af(t);
 var dir=(Math.abs(V)<0.02)?'멈춤':(V>0?'양의 방향 →':'← 음의 방향');
 var speed=(V*A>0)?'빨라짐':((V*A<0)?'느려짐':'—');
-return{t:t,x:x(t),v:V,a:A,dir:dir,speed:speed,stop:(Math.abs(V)<0.05)};}
+return{t:t,x:x(t),v:V,a:A,dir:dir,speed:speed,stop:(Math.abs(V)<0.05),M:M,
+  turns:M.z.length, zTxt:'t = '+M.z.join(' · ')+' 에서 v = 0 (방향 전환 '+M.z.length+'번)'};}
 function draw(){clr();var o=st();
 var pl=plot(0,6,-4,6,46);axes(pl,'t','값');
 function cv(fn,col,wd){ctx.strokeStyle=col;ctx.lineWidth=wd;ctx.beginPath();var first=true;
@@ -253,7 +265,7 @@ ctx.stroke();}
 cv(x,'#7aa2ff',3);
 cv(vf,'#5ee0c8',2.6);
 cv(af,'#ffb86b',2);
-[1,3].forEach(function(tz){
+o.M.z.forEach(function(tz){
 ctx.strokeStyle='rgba(255,122,138,.5)';ctx.lineWidth=1.5;ctx.setLineDash([4,4]);
 ctx.beginPath();ctx.moveTo(pl.X(tz),pl.Y(-4));ctx.lineTo(pl.X(tz),pl.Y(6));ctx.stroke();ctx.setLineDash([]);
 label('v = 0',pl.X(tz),H-128,'#ff7a8a',11);});
@@ -266,25 +278,28 @@ label('가속도 a',132,26,'#ffb86b',13,'left');
 panel(24,H-114,W-48,98);
 label('t = '+nf(o.t,1)+' :   x = '+nf(o.x,3)+'    v = '+nf(o.v,3)+'    a = '+nf(o.a,3),W/2,H-86,'#c8d5ef',15);
 label('운동 방향 :  '+o.dir+'      속력 :  '+o.speed,W/2,H-56,o.stop?'#ff7a8a':'#5ee0c8',16);
-label(o.stop?'지금 멈춰 있습니다 — 앞뒤로 v 의 부호가 바뀌면 방향 전환':'v 의 부호가 방향을 말합니다',
-W/2,H-24,'#9db0d4',13);
-ro(kv('x',nf(o.x,3))+' &nbsp;'+kv('v',nf(o.v,3))+' &nbsp;'+kv('a',nf(o.a,3))+'<br>'+
-kv('방향',o.dir)+' &nbsp;'+kv('속력',o.speed));}
+label(o.zTxt,W/2,H-24,'#9db0d4',13);
+ro(kv('운동',o.M.k+'. '+o.M.n)+'<br>'+kv('x',nf(o.x,3))+' &nbsp;'+kv('v',nf(o.v,3))+' &nbsp;'+kv('a',nf(o.a,3))+'<br>'+
+kv('방향',o.dir)+' &nbsp;'+kv('속력',o.speed)+'<br>'+kv('방향 전환',o.turns+'번 ('+o.zTxt+')'));}
 function record(){var o=st();
-return{cells:[nf(o.t,1),nf(o.x,3),nf(o.v,3),nf(o.a,3),o.dir,o.stop?'✅':'—'],
-t:o.t,x:o.x,v:o.v,a:o.a,stop:o.stop,pos:(o.v>0)};}
+return{cells:[o.M.k,nf(o.t,1),nf(o.x,3),nf(o.v,3),nf(o.a,3),o.dir,o.stop?'✅':'—'],
+k:o.M.k,turns:o.turns,t:o.t,x:o.x,v:o.v,a:o.a,stop:o.stop,pos:(o.v>0)};}
 function analyze(){var stops=rows.filter(function(r){return r.stop;}).length;
 var pos=rows.filter(function(r){return r.v>0;}).length;
 var neg=rows.filter(function(r){return r.v<0;}).length;
-var t='<table><thead><tr><th>t</th><th>x</th><th>v</th><th>a</th><th>방향</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>'+nf(r.t,1)+'</td><td>'+nf(r.x,2)+'</td>'+
+var t='<table><thead><tr><th>운동</th><th>t</th><th>x</th><th>v</th><th>a</th><th>방향</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+r.k+'</td><td>'+nf(r.t,1)+'</td><td>'+nf(r.x,2)+'</td>'+
 '<td class="'+(r.v>0?'ok':'no')+'">'+nf(r.v,2)+'</td><td>'+nf(r.a,2)+'</td>'+
 '<td>'+(r.stop?'멈춤':(r.v>0?'→':'←'))+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 방향이 바뀐다</h4>'+t+
-'<p class="note">양의 방향 '+pos+'개 · 음의 방향 '+neg+'개 · 멈춤 '+stops+'개. 이 운동은 t = 1 과 t = 3 에서 속도가 0 이 됩니다.</p></div>'+
-'<div class="card"><h4>2. 세 그래프의 관계</h4>'+
+'<p class="note">양의 방향 '+pos+'개 · 음의 방향 '+neg+'개 · 멈춤 '+stops+'개.</p></div>'+
+'<div class="card"><h4>2. 위치 함수를 바꾸면 방향 전환 횟수가 달라진다</h4>'+
+'<p class="note">'+MO.filter(function(M){return rows.some(function(r){return r.k===M.k;});}).map(function(M){return M.k+'. '+M.n+' → v = 0 인 시각 t = '+M.z.join(' · ')+' (방향 전환 '+M.z.length+'번)';}).join('<br>')+'</p>'+
+'<p class="note">B 는 v = t − 3 이라 한 번만 돌아서고, C 는 v 가 세 번 0 이 되어 세 번 돌아섭니다. '+
+'방향 전환 횟수는 <b>v 의 부호가 바뀌는 횟수</b>이고, 그것은 위치 함수의 차수와 모양에 달려 있습니다.</p></div>'+
+'<div class="card"><h4>3. 세 그래프의 관계</h4>'+
 '<p class="note">x 를 미분하면 v, v 를 미분하면 a. <b>v 의 부호</b>가 방향을, <b>v 와 a 의 부호 관계</b>가 빨라지는지 느려지는지를 말합니다(같으면 빨라짐).</p>'+
 '<p class="note">v = 0 이라고 반드시 방향이 바뀌는 것은 아닙니다. 앞뒤로 <b>부호가 바뀌어야</b> 실제로 돌아섭니다.</p>'+
 '<p class="note">위치의 변화량(변위)과 실제 이동 거리는 다릅니다. 되돌아온 구간이 있으면 이동 거리가 더 깁니다 — 이건 적분에서 다시 다룹니다.</p></div></div>';}

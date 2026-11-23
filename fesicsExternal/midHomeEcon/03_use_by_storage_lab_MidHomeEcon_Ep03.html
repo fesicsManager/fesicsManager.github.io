@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -442,7 +444,7 @@ var LAB = (function(){
       function grow(s, h){ return s === 0 ? Math.min(0.08, 0.02 + h * 0.0025) : Math.min(1, 0.02 * Math.pow(2, h / 4.3)); }
       function look(s, h){ var i = s === 0 ? 0 : Math.round(h / 6); return {w:WATER[i], sf:SURF[i], i:i}; }
       return {
-        sceneHeight: 380,
+        sceneHeight: function(w){ return w < 560 ? 480 : 380; },
         idle: '보관 방법·남은 소비기한·시간을 고른 뒤 <b>두고 지켜보기</b>를 누르세요.',
         shortHint: '"6일 남음 · 24시간"에서 냉장과 여름 실온을 비교한 뒤, 여름 실온을 6시간으로 줄여 보세요. 겉모습이 멀쩡해도 판정은 어떻게 되나요?',
         params: [
@@ -457,18 +459,20 @@ var LAB = (function(){
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var h = r ? r.h * Math.min(1, tau / 0.85) : 0, L = look(p.s, r ? Math.round(h / 6) * 6 : 0), g = grow(p.s, h);
-          var bx = 20, by = 70, bw = Math.min(220, W * 0.42), bh = 170;
+          /* 좁은 화면: 오른쪽 자리가 모자라 글이 겹치므로 설명과 보관 칸을 아래로 내린다 */
+          var narrow = W < 560;
+          var bx = 20, by = 70, bw = narrow ? W * 0.5 : Math.min(220, W * 0.42), bh = 170;
           c.fillStyle = 'rgba(200,215,230,.5)'; c.fillRect(bx, by, bw, bh); c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.strokeRect(bx, by, bw, bh);
           var cloud = [0, 0, 0.25, 0.45, 0.7][L.i]; c.fillStyle = 'rgba(235,232,215,' + cloud + ')'; c.fillRect(bx + 2, by + 30, bw - 4, bh - 32);
           c.fillStyle = '#FBF7EC'; c.fillRect(bx + bw * 0.18, by + 55, bw * 0.64, bh - 75); c.strokeStyle = '#D8CFB4'; c.strokeRect(bx + bw * 0.18, by + 55, bw * 0.64, bh - 75);
           if (L.i >= 3){ c.strokeStyle = 'rgba(150,170,110,.8)'; c.lineWidth = 2; for (var q = 0; q < L.i; q++){ c.beginPath(); c.moveTo(bx + bw * 0.22 + q * 18, by + 70); c.quadraticCurveTo(bx + bw * 0.3 + q * 18, by + 90, bx + bw * 0.24 + q * 18, by + 110); c.stroke(); } }
-          tfit(c, '물: ' + L.w, bx, by + bh + 26, {color:'#26313D'}); tfit(c, '겉면: ' + L.sf, bx, by + bh + 50, {color:'#26313D'});
-          var mx = bx + bw + 24, mw = Math.max(26, Math.min(60, W - mx - 140)), mh = 170;
+          tfit(c, '물: ' + L.w, bx, by + bh + (narrow ? 56 : 26), {color:'#26313D'}); tfit(c, '겉면: ' + L.sf, bx, by + bh + (narrow ? 80 : 50), {color:'#26313D'});
+          var mx = narrow ? bx + bw + 14 : bx + bw + 24, mw = narrow ? 34 : Math.max(26, Math.min(60, W - mx - 140)), mh = 170;
           c.fillStyle = '#E6EBF1'; c.fillRect(mx, by, mw, mh); c.fillStyle = g > 0.4 ? PAL[4] : g > 0.12 ? '#D9A21B' : PAL[1]; c.fillRect(mx, by + mh - mh * g, mw, mh * g);
           tfit(c, '미생물', mx + mw / 2, by + mh + 26, {align:'center', color:'#4A5868'});
-          var lx = mx + mw + 16;
-          c.fillStyle = '#FFF8E6'; c.fillRect(lx, by, W - lx - 16, 110); c.strokeStyle = '#D9A21B'; c.strokeRect(lx, by, W - lx - 16, 110);
-          tfit(c, DL[p.d].s, lx + 8, by + 30, {bold:true, color:DL[p.d].ok ? '#26313D' : PAL[4]}); tfit(c, '0~10℃ 냉장', lx + 8, by + 60, {color:'#4A5868'}); tfit(c, S[p.s].s, lx + 8, by + 90, {bold:true, color:p.s === 0 ? PAL[1] : PAL[4]});
+          var lx = narrow ? 20 : mx + mw + 16, ly = narrow ? by + bh + 100 : by, lwid = narrow ? W - 40 : W - lx - 16;
+          c.fillStyle = '#FFF8E6'; c.fillRect(lx, ly, lwid, 110); c.strokeStyle = '#D9A21B'; c.strokeRect(lx, ly, lwid, 110);
+          tfit(c, DL[p.d].s, lx + 8, ly + 30, {bold:true, color:DL[p.d].ok ? '#26313D' : PAL[4]}); tfit(c, '0~10℃ 냉장', lx + 8, ly + 60, {color:'#4A5868'}); tfit(c, S[p.s].s, lx + 8, ly + 90, {bold:true, color:p.s === 0 ? PAL[1] : PAL[4]});
           tfit(c, (r ? Math.round(h) : 0) + '시간째', 20, 34, {bold:true});
           if (r && tau >= 1) tfit(c, r.eat ? '먹어도 됨' : '먹지 않고 버림', W - 16, 34, {align:'right', bold:true, color:r.eat ? PAL[1] : PAL[4]});
         },
@@ -498,7 +502,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

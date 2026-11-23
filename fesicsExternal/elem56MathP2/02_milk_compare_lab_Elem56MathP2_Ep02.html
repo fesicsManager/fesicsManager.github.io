@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,7 +436,7 @@ var LAB = (function(){
       var PR = [{fn:3, fd:8, ds:'0.4', dn:4, dd:10}, {fn:1, fd:3, ds:'0.3', dn:3, dd:10}, {fn:3, fd:4, ds:'0.7', dn:7, dd:10}, {fn:2, fd:5, ds:'0.45', dn:45, dd:100}];
       var MT = ['소수로 바꾸기', '분모가 1000인 분수로', '통분하기', '수직선에 놓기'];
       var ORD = ['', '첫째', '둘째', '셋째', '넷째', '다섯째', '여섯째', '일곱째', '여덟째', '아홉째'];
-      var PG = ['① 꼴이 달라서 견줄 수 없다', '② 0.4 L 우유', '③ 3/8 L 우유', '④ 둘은 같다'];
+      var PG = ['① 꼴이 달라서 견줄 수 없다', '② 소수 쪽이 더 많다', '③ 분수 쪽이 더 많다', '④ 둘은 같다'];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function gcd(a, b){ while (b){ var t = a % b; a = b; b = t; } return a; }
       function red(n, d){ var g = gcd(n, d); return [n / g, d / g]; }
@@ -455,7 +457,10 @@ var LAB = (function(){
           P.ds + ' = ' + D[0] + '/' + D[1] + ' · 통분하면 ' + a + '/' + L + ' ' + cmp + ' ' + b + '/' + L,
           fs + ': ' + P.fd + '칸 중 ' + ORD[P.fn] + ' 눈금 · ' + P.ds + ': ' + (P.dd === 10 ? '10칸 중 ' + ORD[P.dn] + ' 눈금' : '0.4와 0.5 사이 한가운데') + ' → 오른쪽에 있는 수: ' + (cmp === '<' ? P.ds : fs)
         ];
-        return {P:P, cmp:cmp, big:cmp === '<' ? P.ds : fs, diff:df[0] + '/' + df[1], lines:lines, can:[true, th, true, true], fs:fs};
+        if (!dec.exact) lines[0] += ' (소수로 딱 떨어지지 않아 어림이에요 — 자리를 몇 개까지 쓰느냐에 따라 가려지는 정도가 달라져요)';
+        return {P:P, cmp:cmp, big:cmp === '<' ? P.ds : fs, diff:df[0] + '/' + df[1], lines:lines,
+          can:[dec.exact, th, true, true], exact:dec.exact, fs:fs,
+          cor:cmp === '<' ? 1 : cmp === '>' ? 2 : 3};
       }
       return {
         sceneHeight: function(w){ return w < 560 ? 400 : 330; },
@@ -465,10 +470,10 @@ var LAB = (function(){
         params: [
           {key:'k', type:'seg', label:'견줄 두 수 (L)', cols:4, value:0, options:PR.map(function(P){ return P.fn + '/' + P.fd + ' 와 ' + P.ds; })},
           {key:'m', type:'seg', label:'같은 꼴로 바꾸는 방법', cols:2, value:0, options:MT},
-          {key:'g', type:'seg', label:'예측: 3/8 L 우유와 0.4 L 우유 중에서 더 많이 든 것은?', cols:2, value:0, options:PG,
-            note:'뭉치는 "꼴이 다르면 비교 금지! ①"이라고 했어요.'}
+          {key:'g', type:'seg', label:'예측: 고른 두 수 가운데 더 많이 든 것은?', cols:2, value:0, options:PG,
+            note:'뭉치는 "꼴이 다르면 비교 금지! ①"이라고 했어요. 두 수를 바꿔 가며 예측해 보세요 — 1/3 과 0.3 처럼 소수로 딱 떨어지지 않는 짝도 있어요.'}
         ],
-        compute: function(p){ var S = solve(p.k); S.m = p.m; S.ok = p.g === 1; return S; },
+        compute: function(p){ var S = solve(p.k); S.m = p.m; S.g = p.g; S.ok = (p.g === S.cor); return S; },
         draw: function(c, W, H, p, r, tau){
           var nar = W < 560, P = PR[p.k], x0 = 30, x1 = W - 30, y = 104, X = function(v){ return x0 + (x1 - x0) * v; };
           T(c, P.fn + '/' + P.fd + ' L 와 ' + P.ds + ' L', 20, 26, nar ? 16 : 19, '#1E2833', 'left', true);
@@ -495,20 +500,24 @@ var LAB = (function(){
               ty += 4 * lh + 6;
             }
             T(c, '더 큰 수: ' + r.big + ' L · 차이 ' + r.diff + ' L', 20, ty, nar ? 13 : 16, '#1E2833', 'left', true);
-            T(c, r.ok ? '○ 예측이 맞았어요 — 0.4 L가 1/40 L 더 많아요' : '✕ 예측과 달라요 — 3/8 = 0.375 < 0.4', 20, ty + 24, nar ? 12 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
+            T(c, (r.ok ? '○ 예측이 맞았어요 — ' : '✕ 예측과 달라요 — ') + '더 많은 쪽은 ' + r.big + ' L (차이 ' + r.diff + ' L)', 20, ty + 24, nar ? 12 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
           return [['견준 두 수', r.fs + ' L 와 ' + r.P.ds + ' L'], ['방법', MT[r.m]], ['바꾼 결과', r.lines[r.m], r.can[r.m] ? PAL[0] : PAL[4]],
+            ['이 방법으로 가려지나', r.can[r.m] ? '딱 가려집니다' : '이 방법으로는 딱 가릴 수 없어요 — 다른 방법을 써야 해요', r.can[r.m] ? PAL[1] : PAL[4]],
             ['더 큰 수', r.big + ' L', PAL[1]], ['차이', r.diff + ' L'],
-            ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
+            ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕ 정답은 ' + PG[r.cor]), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['두 수', '방법', '결과', '더 큰 수'],
-        record: function(p, r){ return {k:p.k, m:p.m, g:p.g}; },
-        row: function(d){ var S = solve(d.k); return [S.fs + ' 와 ' + S.P.ds, MT[d.m], S.can[d.m] ? S.fs + ' ' + S.cmp + ' ' + S.P.ds : '바꿀 수 없음', S.big]; },
+        columns: ['두 수', '방법', '결과', '더 큰 수', '내 예측', '맞힘'],
+        record: function(p, r){ return {k:p.k, m:p.m, g:p.g, ok:r.ok, cor:r.cor}; },
+        row: function(d){ var S = solve(d.k); return [S.fs + ' 와 ' + S.P.ds, MT[d.m],
+          S.can[d.m] ? S.fs + ' ' + S.cmp + ' ' + S.P.ds : '이 방법으로는 못 가림', S.big,
+          d.g == null ? '−' : PG[d.g].slice(0, 2), d.ok == null ? '−' : (d.ok ? '○' : '×')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('3/8 과 0.4 를 네 방법으로', '<div id="mc1"></div><p class="ask">어느 방법으로 바꾸어도 결과가 같았나요? 차이 1/40 L는 왜 눈으로는 알기 어려울까요?</p>') +
+            card('방법마다 가려지는 정도', '<div id="mc3"></div><p class="ask">1/3 처럼 소수로 딱 떨어지지 않는 수는 어느 방법으로 가려야 했나요? "꼴이 다르면 견줄 수 없다"는 말이 왜 틀렸는지 한 문장으로 적어 보세요.</p>') +
             card('다른 두 수도 견주기', '<div id="mc2"></div><p class="ask">과제: 집에 있는 음료·우유·과자 봉지에서 양이 분수나 소수로 적힌 것을 찾아보세요. 못 찾으면 3/4과 0.7, 2/5와 0.45를 같은 꼴로 바꾸어 어느 쪽이 큰지 견주어 보세요.</p>') + '</div>';
           var S = solve(0), done = {};
           rec.filter(function(d){ return d.k === 0; }).forEach(function(d){ done[d.m] = 1; });
@@ -517,6 +526,17 @@ var LAB = (function(){
           var rows = [];
           [1, 2, 3].forEach(function(k){ if (rec.some(function(d){ return d.k === k; })){ var Q = solve(k); rows.push([Q.fs + ' 와 ' + Q.P.ds, Q.lines[2].split('통분하면 ')[1], Q.big, Q.diff]); } });
           $('mc2').innerHTML = rows.length ? tableHTML(['두 수', '통분', '더 큰 수', '차이'], rows) + '<p class="msg">1/3처럼 소수로 딱 떨어지지 않으면 소수를 분수로 바꾸어 통분하면 돼요.</p>' : '<p class="msg">아직 다른 두 수를 견주어 보지 않았어요.</p>';
+          (function(){
+            var ks = {}, hit = 0, tot = 0;
+            rec.forEach(function(d){ ks[d.k] = 1; if (d.ok != null){ tot++; if (d.ok) hit++; } });
+            var rows3 = Object.keys(ks).map(function(k){
+              var Q = solve(+k);
+              return [Q.fs + ' 와 ' + Q.P.ds, Q.can[0] ? '○' : '× (어림만)', Q.can[1] ? '○' : '×', '○', '○', Q.big];
+            });
+            $('mc3').innerHTML = '<p>예측 채점 <b>' + hit + ' / ' + tot + '</b></p>' +
+              tableHTML(['두 수', '소수로', '분모 1000', '통분', '수직선', '더 큰 수'], rows3, 'wrap') +
+              '<p class="msg">같은 두 수라도 <b>방법에 따라</b> 딱 가려지기도 하고 어림만 되기도 해요. 그래도 어느 방법으로든 <b>같은 꼴로 바꾸면 견줄 수 있습니다</b>.</p>';
+          })();
         }
       };
     })();
@@ -525,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

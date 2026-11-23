@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>등가 원리와 중력 시간 지연 | 고3 역학과 에너지</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -381,7 +383,7 @@ function rates(P){
   return {r:r, v:v, grav:grav, spec:spec, rel:(grav + spec) - base, day:((grav + spec) - base) * 86400 * 1e6};
 }
 return {
-  sceneHeight: 460,
+  sceneHeight: function (w){ return w < 560 ? 640 : 460; },
   idle: '시계를 놓을 곳과 승강기 상황을 정한 뒤 <b>하루 재기</b>를 누르세요. 지표면 시계와 얼마나 어긋나는지 봅니다.',
   shortHint: '자유 탐구 탭에서 높이가 다른 곳을 여러 군데 기록하세요.',
   params: [
@@ -398,6 +400,7 @@ return {
     return {P:P, R:R, L:L, felt:felt, msg:liftMsg, day:Math.round(R.day * 100) / 100};
   },
   draw: function(c, W, H, p, r, tau){
+    var narrow = W < 560;
     // 왼쪽: 높이 그림
     var gx = 70, gy0 = 40, gy1 = 240, R = r ? r.R : rates(PLACE[p.p]);
     c.fillStyle = '#EAF2F8'; c.fillRect(20, gy0, 110, gy1 - gy0);
@@ -408,7 +411,8 @@ return {
     c.fillStyle = '#C8463D'; c.beginPath(); c.arc(gx, cyq, 9, 0, Math.PI * 2); c.fill();
     txt(c, PLACE[p.p].name.split(' ')[0], 24, cyq - 14, {bold:true});   /* 점 위에 써서 오른쪽 승강기와 안 겹치게 */
     // 오른쪽: 승강기
-    var lx = 162, lw = 96, ly = gy0 + 10, lh = 140;
+    /* 좁은 화면에서는 승강기를 높이 그림 오른쪽이 아니라 아래에 둔다 */
+    var lx = narrow ? 20 : 162, lw = narrow ? 110 : 96, ly = narrow ? 262 : gy0 + 10, lh = narrow ? 110 : 140;
     c.strokeStyle = '#5B6776'; c.lineWidth = 2; c.strokeRect(lx, ly, lw, lh);
     c.fillStyle = '#F2B544'; c.fillRect(lx + lw / 2 - 8, ly + lh - 40, 16, 34);
     var L = LIFT[p.l];
@@ -418,7 +422,7 @@ return {
     txt(c, '승강기에서 느끼는 무게', lx, ly + lh + 56, {color:'#4A5868'});
     txt(c, r ? f(r.felt, 1) + ' m/s²' : '−', lx, ly + lh + 82, {bold:true});
     // 아래: 시간 차이
-    var by = 306;
+    var by = narrow ? 480 : 306;
     txt(c, '지표면 시계와 비교 (하루 = 86,400초)', 12, by, {bold:true});
     if (!r){ txt(c, '재면 나타납니다', 12, by + 30, {color:'#4A5868'}); return; }
     var k = Math.min(tau / 0.9, 1);
@@ -471,7 +475,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

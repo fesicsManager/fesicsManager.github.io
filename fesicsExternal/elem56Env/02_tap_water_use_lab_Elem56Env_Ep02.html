@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -446,39 +448,78 @@ function hbars(items, max){
 var LAB = (function(){
 
 var BRUSH = [{name:'물 틀어 놓고 3분', l:36}, {name:'컵에 받아서', l:0.5}];
-function calc(bi, shower, fam){ var brush = BRUSH[bi].l * 3, sh = shower * 10, per = brush + sh, all = per * fam; return {bn:BRUSH[bi].name, brush:brush, shower:shower, sh:sh, per:per, fam:fam, all:all, buckets:all / 12, year:all * 365, other:per - (BRUSH[0].l * 3 + sh)}; }
+var GUESS = ['양치 고치기', '샤워 줄이기', '비슷할 것'];
+var WIN = ['양치 고치기', '샤워 줄이기', '비슷'];
+function calc(bi, shower, fam, cutMin, gi){
+  var brush = BRUSH[bi].l * 3, sh = shower * 10, per = brush + sh, all = per * fam;
+  cutMin = cutMin || 0; gi = gi || 0;
+  var brushSave = bi === 0 ? (BRUSH[0].l - BRUSH[1].l) * 3 : 0;   /* 컵 양치로 바꿔서 줄어드는 양 */
+  var cut = Math.min(cutMin, shower);                             /* 샤워 시간보다 더 줄일 수는 없다 */
+  var showerSave = cut * 10;
+  var win = Math.abs(brushSave - showerSave) < 0.01 ? 2 : (brushSave > showerSave ? 0 : 1);
+  return {bn:BRUSH[bi].name, brush:brush, shower:shower, sh:sh, per:per, fam:fam, all:all,
+          buckets:all / 12, year:all * 365, other:per - (BRUSH[0].l * 3 + sh),
+          bi:bi, cutMin:cutMin, cut:cut, brushSave:brushSave, showerSave:showerSave,
+          win:win, wn:WIN[win], gi:gi, gn:GUESS[gi], ok:win === gi,
+          bothSave:(brushSave + showerSave) * fam};
+}
 return {
-  sceneHeight: function(w){ return w < 480 ? 420 : 380; },
-  idle: '양치 방법·샤워 시간·가족 수를 정하고 <b>물 받아 보기</b>를 누르세요.',
-  shortHint: '자유 탐구 탭에서 양치 방법을 바꿔서, 샤워 시간을 바꿔서 기록해 보세요.',
+  sceneHeight: function(w){ return w < 480 ? 500 : 380; },
+  idle: '양치 방법·샤워 시간·가족 수를 정하고, <b>샤워를 몇 분 줄일지</b>와 <b>내 짐작</b>을 골라 <b>물 받아 보기</b>를 누르세요. 짐작이 맞았는지 바로 채점해 줍니다.',
+  shortHint: '자유 탐구 탭에서 샤워를 줄이는 시간을 1분·5분·15분으로 바꿔 가며, 어느 쪽이 더 많이 줄이는지 기록해 보세요.',
   params: [
     {key:'b', type:'seg', label:'양치할 때', cols:2, value:0, options:BRUSH.map(function(x){ return x.name; })},
     {key:'s', type:'range', label:'샤워 시간', min:0, max:20, step:1, value:10, fmt:function(v){ return v + '분'; }},
     {key:'f', type:'range', label:'가족 수', min:1, max:6, step:1, value:4, fmt:function(v){ return v + '명'; },
-      note:'양치는 하루 3번. 수도꼭지는 1분에 12 L, 샤워는 1분에 10 L가 나와요. 양동이 하나 = 12 L.'}
+      note:'양치는 하루 3번. 수도꼭지는 1분에 12 L, 샤워는 1분에 10 L가 나와요. 양동이 하나 = 12 L.'},
+    {key:'k', type:'range', label:'샤워를 몇 분 줄여 볼까', min:0, max:15, step:1, value:0, fmt:function(v){ return v + '분'; },
+      note:'샤워 1분 = 10 L, 양치를 컵으로 바꾸면 하루 106.5 L. 두 값은 교육용 모형값이에요.'},
+    {key:'g', type:'seg', label:'먼저 짐작! 어느 쪽이 더 많이 줄까', cols:3, value:0, options:GUESS}
   ],
-  compute: function(p){ return calc(p.b, p.s, p.f); },
+  compute: function(p){ return calc(p.b, p.s, p.f, p.k, p.g); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.b, p.s, p.f), n = Math.round(C.buckets * k), cols = Math.floor((W - 40) / 36), maxShow = cols * 5;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.b, p.s, p.f, p.k, p.g), n = Math.round(C.buckets * k), cols = Math.floor((W - 40) / 36), maxShow = cols * 5;
     txt(c, '🚰', 30, 44, {align:'center'}); c.strokeStyle = '#5B8FD6'; c.lineWidth = 4; if (r && k < 1){ c.beginPath(); c.moveTo(30, 50); c.lineTo(30, 90); c.stroke(); }
     for (var i = 0; i < Math.min(n, maxShow); i++){ var x = 60 + (i % cols) * 36, y = 70 + Math.floor(i / cols) * 40; c.fillStyle = '#5B8FD6'; c.fillRect(x, y + 8, 28, 26); c.strokeStyle = '#2B5FA3'; c.lineWidth = 2; c.strokeRect(x, y + 8, 28, 26); c.beginPath(); c.arc(x + 14, y + 8, 12, Math.PI, 0); c.stroke(); }
-    if (n > maxShow) txt(c, '… 양동이 ' + n + '개!', 60, 70 + 5 * 40 + 10, {bold:true, color:'#C8463D'});
     /* 좁은 화면: 아래 두 문장을 띄어쓰기에서 나누어 위로 쌓음 */
-    var n2 = txtW(c, r ? '1년이면 ' + f(C.year / 1000, 0) + '톤 (25톤짜리 작은 수영장 ' + f(C.year / 1000 / 25, 0) + '개)' : '', 12, H - 14, {color:'#4A5868'}, W - 24, 22, true);
-    txtW(c, r ? '우리 가족 하루 ' + f(C.all, 0) + ' L = 양동이 ' + n + '개' : '', 12, H - 40 - (n2 - 1) * 22, {bold:true}, W - 24, 22, true);
+    var n2 = txtW(c, r ? '1년이면 ' + f(C.year / 1000, 0) + '톤 (25톤짜리 작은 수영장 ' + f(C.year / 1000 / 25, 0) + '개) · 더 많이 줄이는 쪽은 ' + C.wn
+                       : '내 짐작: ' + C.gn + ' (샤워는 ' + C.cutMin + '분 줄이기)', 12, H - 14, {color:'#4A5868'}, W - 24, 22, true);
+    var y2 = H - 40 - (n2 - 1) * 22;
+    var n3 = txtW(c, r ? '우리 가족 하루 ' + f(C.all, 0) + ' L = 양동이 ' + n + '개'
+              : '지금 고른 것: ' + C.bn + ' · 샤워 ' + C.shower + '분 · ' + C.fam + '명', 12, y2, {bold:true}, W - 24, 22, true);
+    /* 양동이가 넘칠 때 띄우는 알림은 아래 글 묶음 위로만 올라오게 (좁은 화면 글자 겹침 막기) */
+    if (n > maxShow) txt(c, '… 양동이 ' + n + '개!', 60, Math.min(70 + 5 * 40 + 10, y2 - (n3 - 1) * 22 - 20), {bold:true, color:'#C8463D'});
   },
   stats: function(p, r){
-    return [['양치 · 샤워 · 가족', r.bn + ' · ' + r.shower + '분 · ' + r.fam + '명'], ['한 사람 양치 (하루 3번)', f(r.brush, 1) + ' L', r.brush > 10 ? PAL[4] : PAL[1]], ['한 사람 샤워', f(r.sh, 0) + ' L', r.sh > 60 ? PAL[4] : PAL[1]], ['한 사람 양치 + 샤워', f(r.per, 1) + ' L (다른 물 사용은 뺀 값)', PAL[0]], ['가족 하루', f(r.all, 0) + ' L (양동이 ' + f(r.buckets, 0) + '개)', PAL[0]], ['컵 양치 + 샤워 5분이면', f((1.5 + 50) * r.fam, 0) + ' L — ' + f(r.all - (1.5 + 50) * r.fam, 0) + ' L 절약', PAL[1]]];
+    return [['양치 · 샤워 · 가족', r.bn + ' · ' + r.shower + '분 · ' + r.fam + '명'], ['한 사람 양치 (하루 3번)', f(r.brush, 1) + ' L', r.brush > 10 ? PAL[4] : PAL[1]], ['한 사람 샤워', f(r.sh, 0) + ' L', r.sh > 60 ? PAL[4] : PAL[1]], ['한 사람 양치 + 샤워', f(r.per, 1) + ' L (다른 물 사용은 뺀 값)', PAL[0]], ['가족 하루', f(r.all, 0) + ' L (양동이 ' + f(r.buckets, 0) + '개)', PAL[0]], ['컵 양치 + 샤워 5분이면', f((1.5 + 50) * r.fam, 0) + ' L — ' + f(r.all - (1.5 + 50) * r.fam, 0) + ' L 절약', PAL[1]],
+      ['양치 고치기로 줄어드는 양', f(r.brushSave, 1) + ' L / 사람·하루' + (r.bi === 1 ? ' (이미 컵 양치라 더 줄일 것이 없어요)' : ''), PAL[1]],
+      ['샤워 ' + r.cut + '분 줄이기로 줄어드는 양', f(r.showerSave, 0) + ' L / 사람·하루', PAL[1]],
+      ['더 많이 줄이는 쪽', r.wn, PAL[0]],
+      ['내 짐작 (' + r.gn + ')', r.ok ? '맞았어요!' : '아니었어요 — 답은 ' + r.wn, r.ok ? PAL[1] : PAL[4]]];
   },
-  columns: ['양치', '샤워 (분)', '가족', '1인 (L)', '가족 (L)', '양동이'],
-  record: function(p, r){ return {b:p.b, shower:r.shower, fam:r.fam, per:r.per, all:r.all, buckets:r.buckets}; },
-  row: function(d){ return [BRUSH[d.b].name.split(' ')[0], d.shower, d.fam, f(d.per, 1), f(d.all, 0), f(d.buckets, 0)]; },
+  columns: ['양치', '샤워 (분)', '몇 분 줄임', '양치 절약 (L)', '샤워 절약 (L)', '이긴 쪽', '짐작'],
+  record: function(p, r){ return {b:p.b, shower:r.shower, fam:r.fam, per:r.per, all:r.all, buckets:r.buckets,
+    cut:r.cut, brushSave:r.brushSave, showerSave:r.showerSave, win:r.win, wn:r.wn, gn:r.gn, ok:r.ok}; },
+  row: function(d){ return [BRUSH[d.b].name.split(' ')[0], d.shower, d.cut + '분', f(d.brushSave, 1), f(d.showerSave, 0), d.wn, d.ok ? '맞음' : '틀림']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('양치 방법과 물', '<div id="ro1"></div><p class="ask">틀어 놓기와 컵 양치는 몇 배 차이인가요? 샤워 1분을 줄이면 몇 L가 줄어요?</p>') +
+      card('내 짐작은 몇 번 맞았나', '<div id="ro3"></div><div id="ro4"></div>') +
       card('물의 여행', '<div id="ro2"></div><p class="ask">수돗물은 어디서 와서 어디로 갈까요? 집 수도 계량기를 아침·저녁 읽어 하루 사용량을 재 보세요.</p>') + '</div>';
     $('ro1').innerHTML = hbars(rec.map(function(d){ return {label:BRUSH[d.b].name + ' / 샤워 ' + d.shower + '분', v:d.per, color:d.per > 100 ? PAL[4] : PAL[1], text:f(d.per, 0) + ' L'}; }), Math.max.apply(null, rec.map(function(d){ return d.per; })) || 1);
     $('ro2').innerHTML = tableHTML(['순서', '어디', '무슨 일'], [['1', '강·댐', '물을 모아요'], ['2', '정수장', '거르고 소독해서 깨끗하게'], ['3', '수도관', '집까지 보내요'], ['4', '우리 집', '양치·샤워·설거지'], ['5', '하수 처리장', '더러운 물을 깨끗하게'], ['6', '다시 강', '물의 여행이 계속돼요']]);
+    /* 짐작 채점표 — 샤워를 몇 분 줄이느냐에 따라 이기는 쪽이 바뀐다 */
+    $('ro3').innerHTML = tableHTML(['샤워를 줄인 시간', '양치 고치기 (L)', '샤워 줄이기 (L)', '이긴 쪽', '내 짐작'],
+      rec.map(function(d){ return [d.cut + '분', f(d.brushSave, 1), f(d.showerSave, 0), d.wn, (d.gn || '') + (d.ok ? ' ✔' : ' ✘')]; }), 'center');
+    var hit = rec.filter(function(d){ return d.ok; }).length;
+    var kinds = {}; rec.forEach(function(d){ kinds[d.win] = 1; });
+    var flip = Object.keys(kinds).length > 1;
+    $('ro4').innerHTML = '<p class="ask">짐작은 ' + rec.length + '번 중 <b>' + hit + '번</b> 맞았어요. '
+      + (flip
+          ? '기록을 보면 <b>이기는 쪽이 바뀌었습니다</b> — 샤워를 조금 줄일 때는 양치 고치기가 이기고, 많이 줄일 때는 샤워 줄이기가 이겨요. '
+            + '그러니 "무엇이 더 낫다"는 말은 <b>얼마나 줄이느냐</b>를 함께 말해야 뜻이 통합니다.'
+          : '아직 이긴 쪽이 한 가지네요. 샤워를 줄이는 시간을 <b>11분 이상</b>으로(샤워 시간도 그만큼 길게) 바꿔서 다시 재 보세요. 순서가 뒤집히는 지점을 찾을 수 있어요.')
+      + '</p><p class="note">※ 샤워 1분 10 L, 컵 양치로 바꿀 때 하루 106.5 L는 <b>교육용 모형값</b>이에요. 수도꼭지 세기와 습관에 따라 달라져요.</p>';
   }
 };
 })();
@@ -487,7 +528,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

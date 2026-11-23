@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -306,6 +308,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -443,6 +452,15 @@ var LAB = (function(){
         return EXP[EXP.length - 1][1];
       }
       function isBase(y){ return EXP.some(function(q){ return q[0] === y; }); }
+      /* 겹을 하나 빼면 성장이 얼마나 주저앉을까 — 겹마다 몫을 둔 교육용 모형 */
+      var SHARE = [0.45, 0.25, 0.25, 0.05];
+      var DROP = ['빼지 않음'].concat(LY.map(function(x){ return x.n + ' 빼기'; }));
+      var L0 = Math.log(EXP[0][1]) / Math.LN10;
+      function exDrop(y, di){
+        if (!di) return ex(y);
+        var s = SHARE[di - 1];
+        return Math.pow(10, L0 + (Math.log(ex(y)) / Math.LN10 - L0) * (1 - s));
+      }
       function money(v){ return v < 1 ? '약 ' + f(v * 10000, 0) + '만 달러' : v < 100 ? '약 ' + f(v, v < 10 ? 1 : 0) + '억 달러' : '약 ' + f(v, 0) + '억 달러'; }
       return {
         sceneHeight: 440,
@@ -450,11 +468,19 @@ var LAB = (function(){
         shortHint: '네 겹을 모두 한 번씩, 1970년·1977년·1987년 같은 연도로 4번 이상 기록하세요.',
         params: [
           {key:'y', type:'range', label:'연도', min:1960, max:1990, step:1, value:1977, fmt:function(v){ return v + '년'; }},
-          {key:'l', type:'seg', label:'겹칠 기록', cols:4, value:1, options:LY.map(function(x){ return x.n; })}
+          {key:'l', type:'seg', label:'겹칠 기록', cols:4, value:1, options:LY.map(function(x){ return x.n; })},
+          {key:'d', type:'seg', label:'겹을 하나 빼 보기 (모형)', cols:5, value:0, options:DROP}
         ],
         compute: function(p){
           var v = ex(p.y), L = LY[p.l], evs = L.ev.filter(function(e){ return e[0] <= p.y; });
-          return {v:v, mult:v / EXP[0][1], L:L, evs:evs, base:isBase(p.y)};
+          var vd = exDrop(p.y, p.d), drops = SHARE.map(function(s, i){ return v - exDrop(p.y, i + 1); });
+          var worst = 0; drops.forEach(function(x, i){ if (x > drops[worst]) worst = i; });
+          return {v:v, vd:vd, mult:v / EXP[0][1], multd:vd / EXP[0][1], L:L, evs:evs, base:isBase(p.y),
+            d:p.d, drops:drops, worst:worst,
+            dropMsg:p.d === 0 ? '겹을 빼지 않은 실제 곡선이에요'
+              : '「' + LY[p.d - 1].n + '」 을 빼면 ' + money(v) + ' → ' + money(vd) + ' 로 주저앉아요 (1960년 대비 ' + f(v / EXP[0][1], 0) + '배 → ' + f(vd / EXP[0][1], 0) + '배)',
+            dropList:LY.map(function(x, i){ return x.s + ' −' + money(drops[i]); }).join(' · '),
+            worstMsg:'가장 크게 주저앉게 하는 겹은 「' + LY[worst].n + '」 입니다 — 다만 이 몫은 교육용 모형값이에요'};
         },
         draw: function(c, W, H, p, r, tau){
           var L = LY[p.l], gx = 70, gy = 20, gw = W - gx - 20, gh = H - 130;
@@ -464,26 +490,39 @@ var LAB = (function(){
           c.strokeStyle = PAL[1]; c.lineWidth = 3.5; c.beginPath();
           for (var y = 1960; y <= yEnd + 0.001; y += 0.5){ var X = ax.X(y), Y = ax.Y(Math.log(ex(y)) / Math.LN10); if (y === 1960) c.moveTo(X, Y); else c.lineTo(X, Y); }
           c.stroke();
+          if (p.d){   /* 겹을 뺀 모형 곡선 */
+            c.strokeStyle = PAL[4]; c.lineWidth = 2.5; c.setLineDash([6, 5]); c.beginPath();
+            for (var y2 = 1960; y2 <= yEnd + 0.001; y2 += 0.5){ var X2 = ax.X(y2), Y2 = ax.Y(Math.log(exDrop(y2, p.d)) / Math.LN10); if (y2 === 1960) c.moveTo(X2, Y2); else c.lineTo(X2, Y2); }
+            c.stroke(); c.setLineDash([]);
+          }
           var last = L.ev.filter(function(e){ return e[0] <= yEnd; }).pop();
           txt(c, Math.round(yEnd) + '년 수출 ' + money(ex(yEnd)) + (isBase(Math.round(yEnd)) ? '' : ' (보간 추정)'), 10, H - 60, {bold:true, color:PAL[1]});
           if (last) txt(c, last[0] + ' ' + (W < 560 ? last[1].slice(0, 14) + '…' : last[1]), 10, H - 32, {color:L.col, bold:true});
-          txt(c, '겹: ' + L.n, 10, H - 8, {color:'#4A5868'});
+          txtFit(c, p.d ? '겹: ' + L.n + ' · ' + LY[p.d - 1].n + ' 뺀 모형 ' + money(exDrop(yEnd, p.d)) : '겹: ' + L.n, 10, H - 8, {color:'#4A5868'}, W - 20);
         },
         stats: function(p, r){
           var list = r.evs.map(function(e){ return e[0] + ' ' + e[1]; }).join('<br>') || '이 연도까지 해당 기록 없음';
           return [['연도', p.y + '년'], ['수출액 (대략)', money(r.v) + (r.base ? ' — 기준 연도 통계의 대략값' : ' — 보간 추정치 (실제 통계 아님)'), PAL[1]], ['1960년 대비', '약 ' + f(r.mult, r.mult < 10 ? 1 : 0) + '배', PAL[1]],
-            [r.L.n + ' 기록 (' + r.evs.length + '개)', list, r.L.col]];
+            [r.L.n + ' 기록 (' + r.evs.length + '개)', list, r.L.col],
+            ['겹을 빼 보면', r.dropMsg, r.d ? PAL[4] : '#4A5868'],
+            ['겹마다 빼 본 결과', r.dropList, PAL[6]],
+            ['어느 겹이 가장 큰가', r.worstMsg, PAL[3]],
+            ['※', '겹마다의 몫(정책 0.45 · 교육 0.25 · 노동 0.25 · 민주화 0.05)은 성장을 쪼개 보기 위한 교육용 모형값입니다.']];
         },
-        columns: ['연도', '겹', '수출액', '1960년 대비', '기록 수'],
-        record: function(p, r){ return {y:p.y, l:p.l, v:r.v, mult:r.mult, n:r.evs.length}; },
-        row: function(d){ return [d.y + '년', LY[d.l].s, money(d.v) + (isBase(d.y) ? '' : ' (보간)'), '×' + f(d.mult, d.mult < 10 ? 1 : 0), d.n + '개']; },
+        columns: ['연도', '겹', '수출액', '1960년 대비', '뺀 겹', '뺐을 때'],
+        record: function(p, r){ return {y:p.y, l:p.l, v:r.v, vd:r.vd, mult:r.mult, multd:r.multd, n:r.evs.length, d:r.d}; },
+        row: function(d){ return [d.y + '년', LY[d.l].s, money(d.v) + (isBase(d.y) ? '' : ' (보간)'), '×' + f(d.mult, d.mult < 10 ? 1 : 0),
+          d.d ? LY[d.d - 1].s : '없음', d.d ? money(d.vd) + ' (×' + f(d.multd, d.multd < 10 ? 1 : 0) + ')' : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록한 연도의 수출액', '<canvas class="chart" id="hr1"></canvas>' + legend([{color:PAL[1], label:'내 기록'}, {color:PAL[7], label:'기준 연도(대략)'}]) + '<p class="ask">1970~1977년 사이 수출은 몇 배가 되었나요? 같은 시기 노동 겹에는 어떤 기록이 있었나요?</p>') +
             card('겹별로 본 성장의 설명', '<div id="hr2"></div><p class="ask">과제: 1960~1990년 연표 위에 수출액 그래프와 민주화 사건(4·19, 5·18, 6월 항쟁)을 함께 그리고, 두 축이 서로 어떻게 영향을 주었는지 화살표로 표시해 보세요. 전태일의 기록에서 근로기준법 조항 하나를 찾아 당시 현실과 비교해 보세요.</p>') + '</div>';
           drawScatter($('hr1'), {series:[{color:PAL[7], hollow:true, pts:EXP.map(function(q){ return {x:q[0] - 1960, y:q[1]}; })}, {color:PAL[1], pts:rec.map(function(d){ return {x:d.y - 1960, y:d.v}; })}], xLabel:'1960년 이후 햇수', yLabel:'수출액 (억 달러)', xHi:30, xStep:5});
           var tried = {}; rec.forEach(function(d){ tried[d.l] = 1; });
-          $('hr2').innerHTML = tableHTML(['겹', '1990년까지 기록', '확인'], LY.map(function(L, i){ return [L.n, L.ev.length + '개 — ' + L.ev.map(function(e){ return e[0]; }).join(', '), tried[i] ? '✓' : '—']; }));
+          $('hr2').innerHTML = tableHTML(['겹', '1990년까지 기록', '확인', '1990년에 이 겹을 빼면'], LY.map(function(L, i){
+            return [L.n, L.ev.length + '개 — ' + L.ev.map(function(e){ return e[0]; }).join(', '), tried[i] ? '✓' : '—',
+              money(exDrop(1990, i + 1)) + ' (실제 ' + money(ex(1990)) + ')']; })) +
+            '<p class="note">겹을 뺀 값은 겹마다 몫을 정해 계산한 교육용 모형값입니다.</p>';
         }
       };
     })();
@@ -492,7 +531,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

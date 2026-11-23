@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -305,9 +306,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -466,7 +468,7 @@ var A0 = 596, PPMC = 2.13, TAU = 30, BIO0 = 550, KEEP = 0.2, C0 = 640;   // KEEP
 var EMIT = [0, 5, 10, 15];
 var FOR = [{n:'숲 10 % 늘림', k:1.1}, {n:'그대로', k:1.0}, {n:'숲 20 % 벰', k:0.8}];
 return {
-  sceneHeight: function(w){ return w < 480 ? 500 : 470; },   /* 좁은 화면은 결과 글이 여러 줄이라 더 높게 */
+  sceneHeight: function(w){ return w < 480 ? 640 : 470; },   /* 좁은 화면은 상자를 한 열로 쌓고 결과 글도 여러 줄이라 더 높게 */
   minRec: 4,
   idle: '화석 연료 사용량과 숲의 변화, 흘려보낼 햇수를 정하고 <b>시간 보내기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 배출량과 햇수를 바꿔 가며 기록하세요.',
@@ -504,6 +506,22 @@ return {
       {n:'생물권 (숲·흙)', v:BIO0 + (r ? (r.bio - r.bioLoss) * tau : 0), col:'#2E9E78', unit:'GtC'},
       {n:'지권 (화석 연료)', v:4000 - (r ? r.fossil * tau : 0), col:'#A8702F', unit:'GtC'}
     ];
+    var nar = W < 480;
+    if (nar){
+      /* 240px 안팎에서는 네 상자를 한 줄로 늘어놓으면 이름이 겹치므로 한 열로 쌓는다 (261122) */
+      boxes.forEach(function(b, i){
+        var y = oy + i * 56;
+        c.fillStyle = '#F7F9FC'; c.fillRect(12, y, W - 24, 46);
+        c.strokeStyle = b.col; c.lineWidth = 2; c.strokeRect(12, y, W - 24, 46);
+        var nm = b.n.split(' (');
+        txt(c, nm[0], 20, y + 20, {color:b.col, bold:true, size:16});
+        txt(c, '(' + nm[1], 20, y + 38, {color:b.col, size:12});
+        txt(c, Math.round(b.v).toLocaleString(), W - 20, y + 22, {align:'right', bold:true});
+        txt(c, b.unit, W - 20, y + 40, {align:'right', color:'#4A5868', size:13});
+        if (i < 3) arrow(c, W / 2, y + 46, W / 2, y + 54, '#8C99A8', 2);
+      });
+      txt(c, '태우면 지권 → 기권', W / 2, oy + 4 * 56 + 20, {align:'center', color:'#C8463D', bold:true});
+    } else {
     boxes.forEach(function(b, i){
       var x = 30 + i * (bw + gap);
       c.fillStyle = '#F7F9FC'; c.fillRect(x, oy, bw, 120);
@@ -517,13 +535,13 @@ return {
     });
     arrow(c, 30 + 3 * (bw + gap) + bw / 2, oy + 128, 30 + bw / 2, oy + 128, '#C8463D', 2.5);
     txt(c, '태우면 지권 → 기권', W / 2, oy + 152, {align:'center', color:'#C8463D', bold:true});
-    var nar = W < 480;
+    }
     if (!r){
       if (nar) wrapT(c, '화석 연료를 태우면 오랫동안 갇혀 있던 탄소가 대기로 나와요.', 12, H - 41, W - 24, 23, {color:'#4A5868'});   /* 좁은 화면: 두 줄 */
       else txt(c, '화석 연료를 태우면 오랫동안 갇혀 있던 탄소가 대기로 나와요.', 30, H - 18, {color:'#4A5868'});
       return;
     }
-    var yy = oy + 198;
+    var yy = nar ? oy + 278 : oy + 198;   /* 한 열로 쌓은 상자 아래 */
     if (nar){   /* 좁은 화면: 긴 결과 글을 띄어쓰기에서 나눠 씀 */
       txt(c, Math.round(r.yr * tau) + '년 경과 · 대기 ' + f(r.ppm0 + (r.ppm - r.ppm0) * tau, 0) + ' ppm', 12, yy, {bold:true, color:'#3A8FB7'});
       if (tau < 1) return;
@@ -600,7 +618,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,23 +479,45 @@ return (function(){
         {n:'E. D와 같은 문장, 출처 없음', s:'가로수는 더위와 집중 호우 두 가지 문제를 함께 누그러뜨린다', q:false, src:false, skel:1, j:0, why:'생각을 빌리고 밝히지 않음'}
       ];
       var J = ['표절', '표절 의심', '정당한 인용'], JC = [PAL[4], PAL[6], PAL[1]];
+      var ONOFF2 = ['원래대로', '켜기', '끄기'];
+      /* 판정은 미리 적힌 값이 아니라 세 가지로 셈한다 —
+         ① 원문 뼈대를 얼마나 그대로 따랐나(뼈대 대응 어절) ② 따옴표가 있나 ③ 출처를 밝혔나 */
+      function judge(skel, q, src){
+        if (skel >= 14) return q ? (src ? 2 : 1) : 0;
+        if (skel >= 10) return src ? 1 : 0;
+        return src ? 2 : 0;
+      }
+      function whyOf(skel, q, src, j){
+        if (j === 2) return skel >= 14 ? '정당한 직접 인용 — 따옴표와 출처로 어디까지가 남의 표현인지 드러남' : '정당한 간접 인용 — 생각을 자기 말로 재구성하고 출처를 밝힘';
+        if (j === 1) return skel >= 14 ? '따옴표는 있으나 출처가 없음 — 누구의 표현인지 확인할 수 없음' : '낱말만 바꾸고 원문 순서·구조를 그대로 씀';
+        return skel >= 10 ? (src ? '남의 표현을 따옴표 없이 자기 문장처럼 씀' : '남의 표현을 따옴표도 출처도 없이 씀') : '생각을 빌리고 밝히지 않음';
+      }
       function tok(s){ return s.replace(/[“”"‘’'…,.]/g, ' ').split(/\s+/).filter(function(w){ return w; }); }
       var OT = tok(ORIG);
       function longest(a, b){ var best = 0, bi = -1, bj = -1; for (var i = 0; i < a.length; i++) for (var j = 0; j < b.length; j++){ var k = 0; while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++; if (k > best){ best = k; bi = i; bj = j; } } return {n:best, i:bi, j:bj}; }
       return {
-        sceneHeight: function(w){ return w < 420 ? 680 : 460; },
+        sceneHeight: function(w){ return w < 420 ? 820 : 460; },
         idle: '학생 문장과 나의 판정을 고른 뒤 <b>원문과 맞대어 보기</b>를 누르세요.',
         shortHint: '다섯 문장을 모두 맞대어 보세요. 연속 일치가 짧은데도 정직하지 않은 문장은 어느 것인가요?',
         params: [
           {key:'s', type:'seg', label:'학생 문장', cols:1, value:2, options:ST.map(function(x){ return x.n; })},
-          {key:'j', type:'seg', label:'나의 판정', cols:3, value:0, options:J}
+          {key:'j', type:'seg', label:'나의 판정', cols:3, value:0, options:J},
+          {key:'q2', type:'seg', label:'따옴표를 켜고 끄기', cols:3, value:0, options:ONOFF2,
+            note:'같은 문장에서 따옴표만 켜거나 끄면 판정이 어디서 바뀌나요?'},
+          {key:'s2', type:'seg', label:'출처를 켜고 끄기', cols:3, value:0, options:ONOFF2,
+            note:'출처만 켜거나 꺼 보세요. 따옴표와 출처 가운데 무엇이 판정을 가르나요?'}
         ],
         compute: function(p){
-          var x = ST[p.s], t = tok(x.s), L = longest(OT, t), same = t.map(function(w){ return OT.indexOf(w) >= 0; });
-          return {x:x, t:t, L:L, same:same, ok:p.j === x.j};
+          var b = ST[p.s], t = tok(b.s), L = longest(OT, t), same = t.map(function(w){ return OT.indexOf(w) >= 0; });
+          var q = p.q2 === 0 ? b.q : p.q2 === 1, src = p.s2 === 0 ? b.src : p.s2 === 1;
+          var jj = judge(b.skel, q, src);
+          var x = {n:b.n, s:b.s, q:q, src:src, skel:b.skel, j:jj, why:whyOf(b.skel, q, src, jj)};
+          var moved = p.q2 > 0 || p.s2 > 0;
+          return {x:x, t:t, L:L, same:same, ok:p.j === jj, moved:moved, base:b,
+            change:moved ? (jj === b.j ? '바꿔도 판정은 그대로예요' : '판정이 「' + J[b.j] + '」에서 「' + J[jj] + '」로 바뀌었어요') : ''};
         },
         draw: function(c, W, H, p, r, tau){
-          var x = ST[p.s];
+          var x = (r && r.x) ? r.x : ST[p.s];
           function row(arr, y, hi, rng, label, col){
             tx(c, label, 20, y, {size:14, color:'#4A5868', bold:true}); y += 10;
             var items = arr.map(function(w, i){ var on = hi && hi[i], inR = rng && i >= rng[0] && i < rng[0] + rng[1]; return {s:w, fill:on ? (inR ? '#2E9E78' : '#9FD3C0') : '#EEF3FA', col:on ? '#fff' : '#26313D'}; });
@@ -507,24 +531,35 @@ return (function(){
           y = row(st, y, showR ? r.same : null, showR ? [r.L.j, r.L.n * ph(tau, 0.3, 0.6) | 0] : null, '학생 문장' + (x.q ? ' — 따옴표 있음' : ''));
           if (!r){ tx(c, '나의 판정: ' + J[p.j], 20, H - 18, {color:'#4A5868'}); return; }
           if (tau > 0.6){ c.globalAlpha = ph(tau, 0.6, 0.85);
-            var y2 = Math.min(y, H - (W < 520 ? 170 : 110));
+            var y2 = W < 520 ? y : Math.min(y, H - 110);   /* 좁은 화면: 어절 띠 아래로 내려 겹치지 않게 */
             var nc = W < 520 ? 2 : 4, cw = (W - 40) / nc;
             [['연속 일치', r.L.n + '어절'], ['따옴표', x.q ? '○' : '✕'], ['출처', x.src ? '○' : '✕'], ['뼈대 대응', x.skel + '/15']].forEach(function(q, i){
               var cx = 20 + (i % nc) * cw, cy = y2 + Math.floor(i / nc) * 60; rbox(c, cx + 2, cy, cw - 4, 54, '#F7F9FC', '#C9D3DE'); tx(c, q[0], cx + cw / 2, cy + 20, {size:13, align:'center', color:'#4A5868'}); tx(c, q[1], cx + cw / 2, cy + 45, {size:18, align:'center', bold:true}); });
             y2 += W < 520 ? 60 : 0;
             c.globalAlpha = 1; }
-          if (tau > 0.85){ var y3 = Math.min(y, H - (W < 520 ? 170 : 110)) + (W < 520 ? 120 : 60) + 22; tx(c, '판정: ' + J[x.j], 20, y3 + 10, {bold:true, size:20, color:JC[x.j]}); mark(c, W - 44, y3, 24, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4]); }
+          if (tau > 0.85){ var y3 = (W < 520 ? y : Math.min(y, H - 110)) + (W < 520 ? 120 : 60) + 22; tx(c, '판정: ' + J[x.j], 20, y3 + 10, {bold:true, size:20, color:JC[x.j]}); mark(c, W - 44, y3, 24, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4]); }
         },
         stats: function(p, r){
-          return [['학생 문장', r.x.s.length > 60 ? r.x.n : r.x.s], ['연속 일치(최대)', r.L.n + '어절' + (r.L.n ? ' — “' + r.t.slice(r.L.j, r.L.j + Math.min(r.L.n, 4)).join(' ') + (r.L.n > 4 ? ' …' : '') + '”' : ''), PAL[1]],
+          return [].concat(
+            r.moved ? [['따옴표 · 출처를 바꿈', (r.x.q ? '따옴표 ○' : '따옴표 ✕') + ' / ' + (r.x.src ? '출처 ○' : '출처 ✕') + ' (원래는 ' + (r.base.q ? '○' : '✕') + ' / ' + (r.base.src ? '○' : '✕') + ')', PAL[3]],
+              ['판정이 바뀌었나', r.change, r.x.j === r.base.j ? PAL[7] : PAL[4]]] : [],
+            [['학생 문장', r.x.s.length > 60 ? r.x.n : r.x.s], ['연속 일치(최대)', r.L.n + '어절' + (r.L.n ? ' — “' + r.t.slice(r.L.j, r.L.j + Math.min(r.L.n, 4)).join(' ') + (r.L.n > 4 ? ' …' : '') + '”' : ''), PAL[1]],
             ['따옴표 / 출처', (r.x.q ? '○' : '✕') + ' / ' + (r.x.src ? '○' : '✕')], ['원문 뼈대 대응(순서대로)', r.x.skel + ' / 15 어절'],
-            ['판정 (웹툰)', J[r.x.j] + ' — ' + r.x.why, JC[r.x.j]], ['나의 판정', J[p.j] + (r.ok ? ' — 같아요' : ' — 달라요'), r.ok ? PAL[1] : PAL[4]]];
+            ['판정 (뼈대 대응 · 따옴표 · 출처로 셈함)', J[r.x.j] + ' — ' + r.x.why, JC[r.x.j]],
+            ['나의 판정', J[p.j] + (r.ok ? ' — 같아요' : ' — 달라요'), r.ok ? PAL[1] : PAL[4]]]);
         },
-        columns: ['문장', '연속 일치', '따옴표', '출처', '판정', '나의 판정'],
-        record: function(p, r){ return {s:p.s, n:r.L.n, j:p.j, ok:r.ok}; },
-        row: function(d){ var x = ST[d.s]; return [x.n.charAt(0), d.n + '어절', x.q ? '○' : '✕', x.src ? '○' : '✕', J[x.j], J[d.j]]; },
+        columns: ['문장', '연속 일치', '따옴표', '출처', '판정', '나의 판정', '바꿈'],
+        record: function(p, r){ return {s:p.s, n:r.L.n, j:p.j, ok:r.ok, q:r.x.q, src:r.x.src, jj:r.x.j, moved:r.moved, skel:r.x.skel}; },
+        row: function(d){ var x = ST[d.s]; return [x.n.charAt(0), d.n + '어절', d.q ? '○' : '✕', d.src ? '○' : '✕', J[d.jj != null ? d.jj : x.j], J[d.j], d.moved ? '바꿈' : '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = {}; rec.forEach(function(d){ if (d.moved) ms[d.s + '_' + (d.q ? 1 : 0) + '_' + (d.src ? 1 : 0)] = d; });
+          var mk = Object.keys(ms);
+          var mcard = !mk.length ? '' : card('따옴표·출처를 켜고 끄면 판정이 어디서 바뀌나', tableHTML(['문장', '뼈대 대응', '따옴표', '출처', '판정'],
+              mk.map(function(k){ var d = ms[k]; return [ST[d.s].n.charAt(0), d.skel + '/15', d.q ? '○' : '✕', d.src ? '○' : '✕', J[d.jj]]; })) +
+            '<p class="ask">원문을 거의 그대로 옮긴 문장(A·B)에서는 <b>따옴표</b>가 판정을 가르고, 자기 말로 다시 쓴 문장(D·E)에서는 <b>출처</b>가 판정을 가릅니다. ' +
+            '낱말만 바꾼 문장(C)은 따옴표를 켜도 정당한 인용이 되지 않는 까닭은 무엇인가요? ' +
+            '판정은 연속 일치 어절 수 하나로 정해지지 않습니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('다섯 문장 — 연속 일치 vs 판정', '<div id="hk4a"></div><p class="ask">C는 연속 일치가 3어절뿐인데 표절 의심, E는 똑같은 어절이 거의 없는데 표절이에요. ‘표현’과 ‘생각’이라는 말로 두 경우를 설명해 보세요.</p>') +
             card('나의 판정 적중', '<div id="hk4b"></div><p class="ask">과제: 자료 한 단락을 골라 직접 인용 한 번, 간접 인용 한 번으로 써 보세요. 그리고 원문과 맞대어 연속 일치 어절을 세고, C처럼 낱말만 바꾼 문장이 남아 있지 않은지 점검해 보세요.</p>') + '</div>';
           $('hk4a').innerHTML = hbars(ST.map(function(x){ var n = longest(OT, tok(x.s)).n; return {label:x.n.charAt(0) + ' · ' + J[x.j], v:n, color:JC[x.j], text:n + '어절'}; }), 15);
@@ -539,7 +574,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

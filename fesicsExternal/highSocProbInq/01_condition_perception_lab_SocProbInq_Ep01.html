@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -435,7 +437,24 @@ var LAB = (function(){
       var Y = [{y:2010, pm:30, news:120, sev:25}, {y:2013, pm:28, news:900, sev:55}, {y:2016, pm:26, news:2400, sev:78}, {y:2019, pm:24, news:2000, sev:80}];
       var STD = [{name:'옛 권고 기준 10㎍/㎥', short:'기준 10', v:10}, {name:'2021년 권고 기준 5㎍/㎥', short:'기준 5', v:5}];
       function cm(n){ return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-      function leg(c, items, x, y){ c.font = '18px ' + FONT; items.forEach(function(it){ c.fillStyle = it[1]; c.fillRect(x, y - 13, 14, 14); txt(c, it[0], x + 19, y, {color:'#4A5868'}); x += 19 + c.measureText(it[0]).width + 14; }); }
+      /* 교육용 모형값 — ‘심각하다’ 응답을 보도 수로 설명해 보는 모형.
+         인식 = 8 + 92 × (1 − e^(−민감도 × 보도수/1000)) + 큰 사건 효과
+         조건(농도)은 식에 들어가지 않는다. 그래서 농도가 내려가도 인식이 올라갈 수 있다. */
+      function modelSev(news, b, ev){
+        var v = 8 + 92 * (1 - Math.exp(-b * news / 1000)) + (ev || 0);
+        if (!isFinite(v)) v = 0;
+        return Math.max(0, Math.min(100, v));
+      }
+      function fitAll(b, ev, yi){
+        var s = 0, out = [];
+        Y.forEach(function(d, i){ var m = modelSev(d.news, b, i === yi ? ev : 0); out.push(m); s += Math.abs(m - d.sev); });
+        return {ms:out, mae:s / Y.length};
+      }
+      /* 좁은 화면: 설명이 한 줄에 다 안 들어가면 다음 줄로 내린다 */
+      function leg(c, items, x, y){ c.font = '18px ' + FONT; var x0 = x, CW = (c.canvas && c.canvas.clientWidth) || 1e9;
+        items.forEach(function(it){ var w = c.measureText(it[0]).width;
+          if (x > x0 && x + 19 + w + 4 > CW){ x = x0; y += 24; }
+          c.fillStyle = it[1]; c.fillRect(x, y - 13, 14, 14); txt(c, it[0], x + 19, y, {color:'#4A5868'}); x += 19 + w + 14; }); }
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       return {
         sceneHeight: function(w){ return w < 480 ? 454 : 430; },
@@ -444,14 +463,22 @@ var LAB = (function(){
         params: [
           {key:'y', type:'seg', label:'연도 (가상 도시)', cols:4, value:0, options:Y.map(function(x){ return x.y + '년'; })},
           {key:'s', type:'seg', label:'재는 잣대 (세계보건기구 연평균 권고 기준)', cols:2, value:0, options:STD.map(function(x){ return x.name; }),
-            note:'조건(농도)은 그대로인데 잣대만 바꾸면 ‘얼마나 나쁜가’의 읽힘이 어떻게 달라지는지 보세요.'}
+            note:'조건(농도)은 그대로인데 잣대만 바꾸면 ‘얼마나 나쁜가’의 읽힘이 어떻게 달라지는지 보세요.'},
+          {key:'b', type:'range', label:'보도 1,000건이 ‘심각’ 응답을 올리는 정도 (민감도)', min:0.1, max:1.5, step:0.05, value:0.65, fmt:function(v){ return f(v, 2); }},
+          {key:'ev', type:'range', label:'이 연도에 큰 사건 한 건이 더 올리는 정도 (%p)', min:0, max:30, step:5, value:0, fmt:function(v){ return v + ' %p'; },
+            note:'두 값으로 인식을 <b>보도 수만으로</b> 계산해 보는 모형이에요(농도는 식에 넣지 않습니다). 조사값과 얼마나 맞는지 판정해 줍니다 — 교육용 모형값.'}
         ],
         compute: function(p){
           var d = Y[p.y], s = STD[p.s];
           var change = (Y[0].pm - d.pm) / Y[0].pm * 100, mult = d.pm / s.v;
           var cond = mult > 1, perc = d.sev >= 50;
           var type = cond && perc ? '조건 + 인식 → 사회문제로 다뤄짐' : cond ? '조건은 있으나 인식이 낮음 → ‘원래 그런 일’로 취급되기 쉬움' : perc ? '인식은 크나 조건은 기준 이내 → 조건을 다시 확인' : '조건·인식 모두 낮음';
-          return {d:d, s:s, change:change, mult:mult, cond:cond, perc:perc, type:type};
+          var ft = fitAll(p.b, p.ev, p.y);
+          var fitv = ft.mae <= 5 ? '꽤 맞음' : ft.mae <= 12 ? '대체로 비슷' : '어긋남';
+          var mTrend = ft.ms[3] - ft.ms[0], cTrend = Y[3].pm - Y[0].pm;
+          return {d:d, s:s, change:change, mult:mult, cond:cond, perc:perc, type:type,
+            ms:ft.ms, my:ft.ms[p.y], mae:ft.mae, fitv:fitv, err:ft.ms[p.y] - d.sev,
+            apart:(mTrend > 0 && cTrend < 0)};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(1, tau / 0.8) : 0, n = p.y + 1, s = STD[p.s];
@@ -465,6 +492,13 @@ var LAB = (function(){
             c.fillStyle = i === p.y && r ? PAL[2] : '#D9C3A6'; c.fillRect(gx + gw * 0.12, top + bh - h1, gw * 0.32, h1);
             c.fillStyle = i === p.y && r ? PAL[0] : '#A9BCD6'; c.fillRect(gx + gw * 0.52, top + bh - h2, gw * 0.32, h2);
             if (r && i <= p.y){ tf(c, String(d.pm), gx + gw * 0.28, top + bh - h1 - 6, {align:'center', color:PAL[2]}); tf(c, d.sev + '%', gx + gw * 0.68, top + bh - h2 - 6, {align:'center', color:PAL[0]}, gw * 0.45); }
+            /* 내 모형이 계산한 인식 — 검은 가로줄 (글자는 결과 칸에) */
+            if (r && r.ms){
+              var my = Math.max(0, Math.min(100, r.ms[i])), hm = bh * my / 100 * kk;
+              var ym = Math.max(top, Math.min(top + bh, top + bh - hm));
+              c.strokeStyle = '#26313D'; c.lineWidth = 2.5; c.setLineDash([5, 4]);
+              c.beginPath(); c.moveTo(gx + gw * 0.48, ym); c.lineTo(gx + gw * 0.88, ym); c.stroke(); c.setLineDash([]);
+            }
             tf(c, String(d.y), gx + gw / 2, top + bh + 22, {align:'center', bold:i === p.y}, gw - 4);
           }
           var sy = top + bh - bh * s.v / 35;
@@ -481,20 +515,33 @@ var LAB = (function(){
           return [['연도', r.d.y + '년 (가상 도시)'], ['객관적 조건 — 농도', r.d.pm + '㎍/㎥ · 2010년보다 ' + f(r.change, 0) + '% 낮음', PAL[2]],
             ['잣대로 읽은 조건', r.s.name + '의 ' + f(r.mult, 1) + '배', PAL[4]],
             ['주관적 인식', '“심각한 문제다” ' + r.d.sev + '% · 관련 보도 ' + cm(r.d.news) + '건', PAL[0]],
-            ['조건과 인식의 조합', r.type, PAL[3]]];
+            ['조건과 인식의 조합', r.type, PAL[3]],
+            ['내 모형이 계산한 인식 (검은 가로줄)', f(r.my, 0) + '% — 조사값과 ' + sgn(r.err, 0) + '%p 차이 (교육용 모형값)', Math.abs(r.err) <= 5 ? PAL[1] : PAL[6]],
+            ['네 연도 평균 오차', f(r.mae, 1) + '%p — ' + r.fitv + '. 민감도와 큰 사건 값을 움직여 더 줄여 보세요.', r.mae <= 5 ? PAL[1] : r.mae <= 12 ? PAL[6] : PAL[4]],
+            ['모형이 말해 주는 것', '이 모형에는 <b>농도가 들어가지 않습니다</b>. 그런데도 조사값과 비슷해집니다' +
+              (r.apart ? ' — 게다가 농도는 내려가는데 모형의 인식은 올라갑니다. 인식이 조건과 따로 움직인다는 뜻이에요.' : '.') +
+              ' 그렇다고 “보도가 인식을 만든다”고 단정할 수는 없어요. 맞는 모형이 여러 개일 수 있으니까요.', PAL[3]]];
         },
-        columns: ['연도', '잣대', '농도', '배수', '“심각” 응답', '보도 수'],
-        record: function(p, r){ return {y:p.y, s:p.s, mult:r.mult}; },
-        row: function(d){ var x = Y[d.y]; return [x.y, STD[d.s].short, x.pm, f(d.mult, 1) + '배', x.sev + '%', cm(x.news)]; },
+        columns: ['연도', '잣대', '농도', '배수', '“심각” 조사', '내 모형', '보도 수'],
+        record: function(p, r){ return {y:p.y, s:p.s, mult:r.mult, b:p.b, ev:p.ev, my:r.my, mae:r.mae, err:r.err}; },
+        row: function(d){ var x = Y[d.y]; return [x.y, STD[d.s].short, x.pm, f(d.mult, 1) + '배', x.sev + '%', f(d.my, 0) + '%', cm(x.news)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('조건과 인식이 같은 방향으로 움직였나', '<canvas class="chart" id="cp1"></canvas>' + legend([{label:'농도(㎍/㎥)', color:PAL[2]}, {label:'“심각” 응답 ÷ 2 (%)', color:PAL[0]}]) + '<p class="ask">농도는 낮아지는데 인식은 높아졌다면, 인식이 바뀐 이유 후보를 세 가지 적어 보세요. 이 표만으로 어느 이유인지 가릴 수 있나요?</p>') +
-            card('같은 농도, 다른 잣대', '<div id="cp2"></div><p class="ask">과제: 사회 현상 하나를 골라 조건을 보여 주는 통계와 인식을 보여 주는 자료(설문·보도 수)를 같은 기간으로 찾아 나란히 표로 그려 보세요. 출처는 공식 기관으로.</p>') + '</div>';
-          var seen = groupBy(rec, function(d){ return d.y; }), a = [], b = [];
+            card('조건과 인식이 같은 방향으로 움직였나', '<canvas class="chart" id="cp1"></canvas>' + legend([{label:'농도(㎍/㎥)', color:PAL[2]}, {label:'“심각” 조사값 ÷ 2 (%)', color:PAL[0]}, {label:'내 모형 ÷ 2 (%)', color:'#26313D'}]) + '<p class="ask">농도는 낮아지는데 인식은 높아졌다면, 인식이 바뀐 이유 후보를 세 가지 적어 보세요. 이 표만으로 어느 이유인지 가릴 수 있나요?</p>') +
+            card('같은 농도, 다른 잣대 · 내 모형은 조사값과 얼마나 맞나', '<div id="cp2"></div><p class="ask">과제: 사회 현상 하나를 골라 조건을 보여 주는 통계와 인식을 보여 주는 자료(설문·보도 수)를 같은 기간으로 찾아 나란히 표로 그려 보세요. 출처는 공식 기관으로.</p>') + '</div>';
+          var seen = groupBy(rec, function(d){ return d.y; }), a = [], b = [], mm = [];
+          var lastRec = rec[rec.length - 1];
           Object.keys(seen).forEach(function(k){ var x = Y[+k]; a.push({x:x.y, y:x.pm}); b.push({x:x.y, y:x.sev / 2}); });
-          drawScatter($('cp1'), {series:[{color:PAL[2], pts:a}, {color:PAL[0], pts:b, hollow:true}], tightX:true, xLabel:'연도', yLabel:'값'});
+          Y.forEach(function(x, i){ mm.push({x:x.y, y:modelSev(x.news, lastRec.b, i === lastRec.y ? lastRec.ev : 0) / 2}); });
+          drawScatter($('cp1'), {series:[{color:PAL[2], pts:a}, {color:PAL[0], pts:b, hollow:true}, {color:'#26313D', pts:mm, hollow:true}], tightX:true, xLabel:'연도', yLabel:'값'});
           var rows = rec.map(function(d){ var x = Y[d.y]; return [x.y + '년', x.pm + '㎍/㎥', STD[d.s].short, f(d.mult, 1) + '배']; });
-          $('cp2').innerHTML = tableHTML(['연도', '농도', '잣대', '권고치 대비'], rows.slice(-8)) + (distinct(rec.map(function(d){ return d.s; })) < 2 ? '<p class="msg">잣대 두 가지를 모두 써 보세요.</p>' : '');
+          var best = null; rec.forEach(function(d){ if (best === null || d.mae < best.mae) best = d; });
+          $('cp2').innerHTML = tableHTML(['연도', '농도', '잣대', '권고치 대비'], rows.slice(-8)) + (distinct(rec.map(function(d){ return d.s; })) < 2 ? '<p class="msg">잣대 두 가지를 모두 써 보세요.</p>' : '') +
+            tableHTML(['연도', '보도 수', '“심각” 조사값', '내 모형 (마지막 설정)', '차이'],
+              Y.map(function(x, i){ var m = modelSev(x.news, lastRec.b, i === lastRec.y ? lastRec.ev : 0);
+                return [x.y + '년', cm(x.news), x.sev + '%', f(m, 0) + '%', sgn(m - x.sev, 0) + '%p']; })) +
+            '<p class="ask">검은 동그라미(가운데 빈 것)가 내 모형이에요. 가장 잘 맞은 설정은 민감도 ' + f(best.b, 2) + ' · 큰 사건 ' + best.ev + '%p로 평균 오차 ' + f(best.mae, 1) +
+            '%p였어요. 이 모형에는 <b>농도가 들어 있지 않습니다</b> — 그런데도 맞는다는 것은 인식이 조건과 <b>따로</b> 움직일 수 있다는 뜻이에요. 다만 잘 맞는 모형이 여러 개일 수 있으니, 보도 말고 어떤 것이 인식을 올렸을지 후보를 더 적어 보세요.</p>';
         }
       };
     })();
@@ -503,7 +550,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -258,6 +258,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">낙하 높이: <span class="slider-val" id="hVal">20</span> m</div>
             <input type="range" id="hSlider" min="5" max="50" step="5" value="20" aria-label="낙하 높이">
+            <div class="control-label">제동 구간 길이: <span class="slider-val" id="bVal">3</span> m</div>
+            <input type="range" id="bSlider" min="1" max="10" step="1" value="3" aria-label="제동 구간 길이">
             <button class="btn-main" id="runBtn">탑승 캡슐 떨어뜨리기 ▶</button>
             <div class="result-box" id="result">높이를 정하고 떨어뜨리면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -266,8 +268,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>높이(m)</th><th>낙하 시간(초)</th><th>도달 속력(m/s)</th><th>속력²÷높이</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>높이(m)</th><th>낙하 시간(초)</th><th>도달 속력(m/s)</th><th>속력²÷높이</th><th>제동 구간(m)</th><th>받는 힘(g의 몇 배)</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -512,19 +514,31 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 var G=9.8, HMAX=50;
 function fallTime(h){ return Math.sqrt(2*h/G); }
 function hitSpeed(h){ return Math.sqrt(2*G*h); }
+/* 제동 구간에서 고르게 멈춘다고 보면 a = v² ÷ (2 × 제동 길이).
+   몸이 느끼는 힘은 그 가속도를 g 로 나눈 값(몇 배) 이다. 교육용 모형값. */
+function brakeA(h,b){ var v=hitSpeed(h); return v*v/(2*b); }
+function gForce(h,b){ return brakeA(h,b)/G; }
 
-var setH=20, records=[], busy=false, revealed=false, phase='ready', drop=0, brake=0;
+var setH=20, setB=3, records=[], busy=false, revealed=false, phase='ready', drop=0, brake=0;
 var canvas=document.getElementById('rCanvas'), ctx=canvas.getContext('2d');
 var TOP=54, GND=328, TX=214;
 function yOfH(h){ return GND-(GND-TOP)*(h/HMAX); }
 
-document.getElementById('hSlider').addEventListener('input',function(e){
-  setH=parseInt(e.target.value,10);
-  document.getElementById('hVal').textContent=setH;
+function resetRun(){
   phase='ready'; drop=0; brake=0; revealed=false;
   document.getElementById('result').className='result-box';
   document.getElementById('result').innerHTML='높이를 정하고 떨어뜨리면 결과가 표에 자동으로 기록됩니다.';
   draw();
+}
+document.getElementById('hSlider').addEventListener('input',function(e){
+  setH=parseInt(e.target.value,10);
+  document.getElementById('hVal').textContent=setH;
+  resetRun();
+});
+document.getElementById('bSlider').addEventListener('input',function(e){
+  setB=parseInt(e.target.value,10);
+  document.getElementById('bVal').textContent=setB;
+  resetRun();
 });
 
 function drawCapsule(y, shake){
@@ -622,14 +636,17 @@ function draw(){
 
   ctx.fillStyle='#e9f1f0'; ctx.fillRect(0,336,440,84);
   if(revealed){
-    ctx.fillStyle='#173238'; ctx.font="700 23px 'Noto Sans KR',sans-serif";
-    ctx.fillText(setH+'m → '+t.toFixed(2)+'초 만에 '+vmax.toFixed(1)+' m/s', 220, 364);
-    ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
-    ctx.fillText('√(2×9.8×'+setH+') = '+vmax.toFixed(1)+' m/s ('+(vmax*3.6).toFixed(0)+' km/h)', 220, 390);
+    ctx.fillStyle='#173238'; ctx.font="700 22px 'Noto Sans KR',sans-serif";
+    ctx.fillText(setH+'m → '+t.toFixed(2)+'초 만에 '+vmax.toFixed(1)+' m/s', 220, 360);
+    ctx.fillStyle='#4a636a'; ctx.font="600 18px 'IBM Plex Mono',monospace";
+    ctx.fillText('√(2×9.8×'+setH+') = '+vmax.toFixed(1)+' m/s ('+(vmax*3.6).toFixed(0)+' km/h)', 220, 384);
+    var bs='제동 '+setB+'m → 받는 힘 약 '+gForce(setH,setB).toFixed(1)+'배 g', bw=ctx.measureText(bs).width;
+    ctx.fillStyle=(gForce(setH,setB)>6)?'#c1443c':'#22707c'; ctx.font="700 18px 'Noto Sans KR',sans-serif";
+    ctx.fillText(bs, 220, 410);
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
-    ctx.fillText('"탑승 캡슐 떨어뜨리기"를 눌러보세요', 220, 368);
-    ctx.fillText('설정한 높이: '+setH+'m', 220, 396);
+    ctx.fillText('"탑승 캡슐 떨어뜨리기"를 눌러보세요', 220, 364);
+    ctx.fillText('높이 '+setH+'m · 제동 구간 '+setB+'m', 220, 392);
   }
   ctx.textAlign='left';
 }
@@ -638,13 +655,13 @@ draw();
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return r.h===setH; })){
-    notify('이미 측정한 높이예요. 다른 높이를 골라보세요.');
+  if(records.some(function(r){ return r.h===setH && r.b===setB; })){
+    notify('이미 측정한 조합이에요. 높이나 제동 구간을 바꿔보세요.');
     return;
   }
   busy=true; revealed=false; drop=0; brake=0; phase='fall';
   var btn=this; btn.disabled=true;
-  lockInputs('#hSlider', true);
+  lockInputs('#hSlider,#bSlider', true);
   var t=fallTime(setH);
   var dur=t*700;                       /* 실제 시간에 비례, 느리게 재생 */
   var t0=performance.now();
@@ -664,12 +681,13 @@ document.getElementById('runBtn').addEventListener('click', function(){
     else{
       phase='done'; revealed=true; draw();
       btn.disabled=false; busy=false;
-      lockInputs('#hSlider', false);
-      records.push({h:setH, t:t, v:hitSpeed(setH)});
+      lockInputs('#hSlider,#bSlider', false);
+      records.push({h:setH, t:t, v:hitSpeed(setH), b:setB, gf:gForce(setH,setB)});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
-      box.innerHTML='낙하 '+t.toFixed(2)+'초 · 도달 속력 <span class="big-val">'+hitSpeed(setH).toFixed(1)+' m/s</span> '
+      box.innerHTML='낙하 '+t.toFixed(2)+'초 · 도달 속력 <span class="big-val">'+hitSpeed(setH).toFixed(1)+' m/s</span> · 받는 힘 <span class="big-val">'
+        +gForce(setH,setB).toFixed(1)+'배 g</span> '
         +'<span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
       maybeToast(records.length);
     }
@@ -680,11 +698,11 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  var s=records.slice().sort(function(a,b){ return a.h-b.h; });
+  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  var s=records.slice().sort(function(a,b){ return (a.h-b.h)||(a.b-b.b); });
   tb.innerHTML=s.map(function(r,i){
     return '<tr><td>'+(i+1)+'</td><td>'+r.h+'</td><td>'+r.t.toFixed(2)+'</td><td>'+r.v.toFixed(1)+'</td>'
-      +'<td>'+((r.v*r.v)/r.h).toFixed(2)+'</td></tr>';
+      +'<td>'+((r.v*r.v)/r.h).toFixed(2)+'</td><td>'+r.b+'</td><td>'+r.gf.toFixed(1)+'</td></tr>';
   }).join('');
 }
 
@@ -721,7 +739,31 @@ function renderValidation(){
     }).join('')
     + '<div class="insight-box">자동 분석: <b>속력의 제곱 ÷ 높이</b>가 항상 <span class="mono">'+avg.toFixed(2)
     + '</span>로 일정합니다. 이 값은 <span class="mono">2g = 19.6</span>이에요. '
-    + '즉 <b>v² = 2gh</b>이므로 속력은 높이의 <b>제곱근</b>에 비례합니다. 높이를 4배로 올려야 속력이 2배가 됩니다.</div>';
+    + '즉 <b>v² = 2gh</b>이므로 속력은 높이의 <b>제곱근</b>에 비례합니다. 높이를 4배로 올려야 속력이 2배가 됩니다.</div>'
+    + (function(){
+        var byH={};
+        s.forEach(function(r){ (byH[r.h]=byH[r.h]||[]).push(r); });
+        var multi=Object.keys(byH).filter(function(k){ return byH[k].length>=2; });
+        var rows=s.map(function(r){
+          return '<div class="mini-row"><span>'+r.h+'m 에서 제동 '+r.b+'m</span><span class="mono">속력 '+r.v.toFixed(1)
+            +' m/s · 받는 힘 '+r.gf.toFixed(1)+'배 g</span></div>';
+        }).join('');
+        var note;
+        if(multi.length){
+          var g0=byH[multi[0]].slice().sort(function(a,b){ return a.b-b.b; });
+          note='같은 높이 '+multi[0]+'m 에서 제동 구간만 '+g0.map(function(r){return r.b+'m';}).join(' · ')
+            +' 로 바꿔 보니, <b>도달 속력은 '+g0[0].v.toFixed(1)+' m/s 로 똑같은데 받는 힘은 '
+            +g0.map(function(r){return r.gf.toFixed(1)+'배';}).join(' → ')+'</b> 로 달라졌습니다. '
+            +'<b>속력과 힘은 따로 움직입니다</b> — 높이가 속력을 정하고, 제동 구간 길이가 힘을 정해요.';
+        } else {
+          note='같은 높이에서 <b>제동 구간만 바꿔</b> 두 번 재 보세요. 도달 속력은 그대로인데 받는 힘만 달라집니다.';
+        }
+        var safe=s.filter(function(r){ return r.gf<=6; }).length;
+        return rows+'<div class="insight-box">자동 분석: '+note
+          +' 사람이 짧은 시간 견딜 수 있는 힘은 대개 <b>6배 g 안쪽</b>으로 봅니다(교육용 어림값). '
+          +'지금 기록 '+s.length+'개 가운데 '+safe+'개가 그 안에 들었어요. 그래서 놀이기구는 <b>제동 구간을 길게</b> 만듭니다. '
+          +'(받는 힘 = 속력² ÷ (2 × 제동 길이) ÷ g, 고르게 멈춘다고 본 모형값)</div>';
+      })();
 }
 
 document.getElementById('predictBtn').addEventListener('click', function(){

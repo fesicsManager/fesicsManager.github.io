@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>13주차 · 작용기 — 분자량이 비슷해도 끓는점이 100 °C 넘게 다른 까닭</h1>
-    <p>분자량이 44~64 g/mol로 비슷한 화합물 아홉 가지를 골라 <b>끓는점 구간을 먼저 예측</b>하고 실제 값을 확인합니다. 작용기가 만드는 <b>수소 결합</b>과 <b>쌍극자</b>가 끓는점을 얼마나 바꾸는지 보세요.<br><span style="font-size:.9em;color:#a86825">※ 끓는점은 1 atm 문헌값(°C)을 반올림한 값입니다.</span></p>
+    <p>분자량이 44~64 g/mol로 비슷한 화합물 아홉 가지를 골라 <b>끓는점 구간을 먼저 예측</b>하고 실제 값을 확인합니다. 또 분자량이 비슷한 <b>두 묶음(약 44~46 / 약 60~64 g/mol)</b>에서 작용기 순서가 그대로인지, 어디서 깨지는지 견줍니다.<br><span style="font-size:.9em;color:#a86825">※ 끓는점은 1 atm 문헌값(°C)을 반올림한 값입니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -310,8 +312,8 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -408,13 +410,17 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var tkR = -1e9;
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke();
+    var tkS = f(v, decOf(xr[2])), tkW = c.measureText(tkS).width / 2;
+    if (X(v) - tkW > tkR + 4){ c.fillText(tkS, X(v), y + h + 6); tkR = X(v) + tkW; } }
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
   if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
   if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
-  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; var xlCx = x + w / 2, xlCv = c.canvas.width / (c.getTransform().a || 1);
+  c.fillText(xLabel, xlCx, y + h + 30, Math.max(60, 2 * Math.min(xlCx, xlCv - xlCx) - 8));
   c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
   c.textBaseline = 'alphabetic';
   return {X:X, Y:Y};
@@ -446,15 +452,32 @@ var LAB = (function(){
       var HB = ['분산력 (무극성)', '쌍극자 · 수소 결합 받개만', '수소 결합 주개 + 받개', '수소 결합 이합체'];
       var GS = [{name:'0 °C 미만', lo:-60, hi:0}, {name:'0~50 °C', lo:0, hi:50}, {name:'50~100 °C', lo:50, hi:100}, {name:'100 °C 이상', lo:100, hi:130}];
       function bin(bp){ return bp < 0 ? 0 : bp < 50 ? 1 : bp < 100 ? 2 : 3; }
+      /* 분자량이 비슷한 두 묶음. 작용기 순서가 묶음을 바꿔도 그대로인지 견준다 */
+      var GRP = [{name:'묶음 A · 약 44~46 g/mol', idx:[0, 1, 3, 4, 6]}, {name:'묶음 B · 약 60~64 g/mol', idx:[2, 5, 7, 8]}];
+      function orderOf(s){ return GRP[s].idx.slice().sort(function(a, b){ return CP[a].bp - CP[b].bp; }); }
+      function violOf(s){
+        var o = orderOf(s), v = [];
+        for (var i = 1; i < o.length; i++) if (CP[o[i]].hb < CP[o[i - 1]].hb)
+          v.push(CP[o[i]].n + '(' + HB[CP[o[i]].hb] + ', ' + f(CP[o[i]].bp, 1) + ' °C)이 ' + CP[o[i - 1]].n + '(' + HB[CP[o[i - 1]].hb] + ', ' + f(CP[o[i - 1]].bp, 1) + ' °C)보다 높음');
+        return v;
+      }
       return {
         sceneHeight: 400,
-        idle: '화합물과 끓는점 예측 구간을 고른 뒤 <b>끓는점 확인</b>을 누르세요.',
-        shortHint: '작용기가 다른 화합물을 네 가지 이상 기록하세요. 에탄올과 다이메틸에터(같은 분자식)는 꼭 비교하세요.',
+        idle: '화합물·끓는점 예측 구간·견줄 묶음을 고른 뒤 <b>끓는점 확인</b>을 누르세요.',
+        shortHint: '작용기가 다른 화합물을 네 가지 이상 기록하세요. 에탄올과 다이메틸에터(같은 분자식)는 꼭 비교하고, 묶음 A와 B에서 작용기 순서가 그대로인지도 보세요.',
         params: [
           {key:'x', type:'seg', label:'화합물', cols:3, value:6, options:CP.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'나의 끓는점 예측', cols:4, value:1, options:GS.map(function(x){ return x.name; })}
+          {key:'g', type:'seg', label:'나의 끓는점 예측', cols:4, value:1, options:GS.map(function(x){ return x.name; })},
+          {key:'set', type:'seg', label:'작용기 순서를 볼 묶음 (분자량이 비슷한 것끼리)', cols:2, value:0, options:GRP.map(function(x){ return x.name; }),
+            note:'분자량이 비슷한 묶음 안에서 작용기 순서를 봅니다. 묶음을 바꾸면 \'수소 결합이 세면 끓는점도 높다\'가 그대로인지 달라지는지 확인하세요.'}
         ],
-        compute: function(p){ var x = CP[p.x]; return {x:x, ok:bin(x.bp) === p.g, guess:GS[p.g].name}; },
+        compute: function(p){
+          var x = CP[p.x], ord = orderOf(p.set), viol = violOf(p.set);
+          return {x:x, ok:bin(x.bp) === p.g, guess:GS[p.g].name,
+            set:p.set, grp:GRP[p.set].name, ord:ord, viol:viol,
+            inSet:GRP[p.set].idx.indexOf(p.x) >= 0,
+            ordTxt:ord.map(function(i){ return CP[i].g; }).join(' < ')};
+        },
         draw: function(c, W, H, p, r, tau){
           var x = CP[p.x], sx = 40, sw = W - 80, sy = H * 0.62, X = function(v){ return sx + (v + 60) / 190 * sw; };
           txt(c, x.fm, W / 2, 60, {align:'center', bold:true});
@@ -465,7 +488,7 @@ var LAB = (function(){
           else if (r) txt(c, '일시적 쌍극자(분산력)만', W / 2, cy, {align:'center', color:PAL[7]});
           var gg = GS[p.g]; c.fillStyle = 'rgba(118,87,179,.18)'; c.fillRect(X(gg.lo), sy - 24, X(gg.hi) - X(gg.lo), 48);
           seg(c, sx, sy, sx + sw, sy, '#8C99A8', 2);
-          [-50, 0, 50, 100].forEach(function(v){ seg(c, X(v), sy - 6, X(v), sy + 6, '#8C99A8', 2); txt(c, v + (W < 520 && v === 100 ? ' °C' : ''), X(v), sy + 30, {align:'center', color:'#4A5868'}); });
+          [-50, 0, 50, 100].forEach(function(v){ seg(c, X(v), sy - 6, X(v), sy + 6, '#8C99A8', 2); txt(c, v + (W < 520 && v === 100 ? ' °C' : ''), X(v), sy + 30, {align:'center', color:'#4A5868', fs:W < 520 ? 13 : 18}); });
           if (W >= 520) txt(c, '°C', sx + sw, sy + 30, {align:'right', color:'#4A5868'});
           if (r){ var v = -60 + (x.bp + 60) * Math.min(tau / 0.9, 1); seg(c, X(v), sy - 34, X(v), sy + 12, PAL[4], 4); txt(c, f(v, 1) + ' °C', X(v), sy - 42, {align:'center', bold:true, color:PAL[4]});
             if (tau >= 1){
@@ -477,17 +500,29 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['화합물 · 작용기', r.x.n + ' (' + r.x.fm + ') · ' + r.x.g], ['몰질량', f(r.x.M, 2) + ' g/mol'], ['끓는점', f(r.x.bp, 1) + ' °C', PAL[4]],
-            ['주된 분자 사이 힘', r.x.fl || HB[r.x.hb], PAL[r.x.hb >= 2 ? 0 : 3]], ['물에 대한 용해', r.x.sol], ['나의 예측', r.guess + ' — ' + (r.ok ? '적중' : '빗나감'), r.ok ? PAL[1] : PAL[4]]];
+            ['주된 분자 사이 힘', r.x.fl || HB[r.x.hb], PAL[r.x.hb >= 2 ? 0 : 3]], ['물에 대한 용해', r.x.sol], ['나의 예측', r.guess + ' — ' + (r.ok ? '적중' : '빗나감'), r.ok ? PAL[1] : PAL[4]],
+            [r.grp + ' 의 끓는점 순서', r.ordTxt + (r.inSet ? '' : ' (고른 화합물은 이 묶음에 없습니다)'), PAL[3]],
+            ['수소 결합이 세면 끓는점도 높은가?', r.viol.length ? '이 묶음에서는 깨집니다 — ' + r.viol.join(' / ') : '이 묶음에서는 지켜집니다', r.viol.length ? PAL[4] : PAL[1]]];
         },
-        columns: ['화합물', '작용기', 'M (g/mol)', '끓는점 (°C)', '예측'],
-        record: function(p, r){ return {x:p.x, ok:r.ok}; },
-        row: function(d){ var x = CP[d.x]; return [x.n, x.g, f(x.M, 1), f(x.bp, 1), d.ok ? '적중' : '빗나감']; },
+        columns: ['화합물', '작용기', 'M (g/mol)', '끓는점 (°C)', '예측', '본 묶음', '순서 지켜짐?'],
+        record: function(p, r){ return {x:p.x, ok:r.ok, set:r.set, nviol:r.viol.length}; },
+        row: function(d){ var x = CP[d.x]; return [x.n, x.g, f(x.M, 1), f(x.bp, 1), d.ok ? '적중' : '빗나감',
+          d.set ? 'B' : 'A', d.nviol ? '깨짐' : '지켜짐']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('끓는점 대 몰질량 (분자 사이 힘별)', '<canvas class="chart" id="g13a"></canvas>' + legend(HB.map(function(h, i){ return {label:h, color:[PAL[7], PAL[3], PAL[0], PAL[4]][i]}; })) + '<p class="ask">몰질량이 거의 같은데 끓는점이 크게 갈리는 점들을 찾아 작용기로 설명해 보세요.</p>') +
+            card('두 묶음에서 작용기 순서 견주기', '<div id="g13c"></div><p class="ask">분자량이 비슷한 묶음을 바꿨을 때 작용기 순서가 그대로였나요? 어긋난 자리에서는 무엇이 더 크게 작용했을까요(쌍극자 세기, 사슬 길이, 수소 결합 한 개당 세기)?</p>') +
             card('기록한 화합물 비교', '<div id="g13b"></div><p class="ask">과제: 에탄올과 다이메틸에터는 분자식이 C₂H₆O로 같습니다. 끓는점 차이(약 102 °C)를 수소 결합으로 설명하고, 아세트산과 폼산메틸(둘 다 C₂H₄O₂)도 같은 방식으로 비교하세요.</p>') + '</div>';
           var cols = [PAL[7], PAL[3], PAL[0], PAL[4]], seen = groupBy(rec, function(d){ return d.x; });
           drawScatter($('g13a'), {series:cols.map(function(cl, h){ return {color:cl, pts:Object.keys(seen).map(Number).filter(function(i){ return CP[i].hb === h; }).map(function(i){ return {x:CP[i].M, y:CP[i].bp}; })}; }), xLabel:'몰질량 (g/mol)', yLabel:'끓는점 (°C)', tightX:true});
+          var g13rows = [0, 1].map(function(s){
+            var o = orderOf(s), v = violOf(s);
+            return [GRP[s].name, o.map(function(i){ return CP[i].g + ' ' + f(CP[i].bp, 1); }).join(' < '), v.length ? '깨짐' : '지켜짐'];
+          });
+          var sawB = rec.some(function(d){ return d.set === 1; }), sawA = rec.some(function(d){ return d.set === 0; });
+          $('g13c').innerHTML = tableHTML(['묶음', '끓는점 낮은 쪽부터 (작용기 · °C)', '수소 결합 순서'], g13rows) +
+            '<p class="msg">' + (sawA && sawB ? '두 묶음을 모두 봤어요. ' : '묶음 A와 B를 모두 한 번씩 골라 기록해 보세요. ') +
+            '묶음 B(약 60~64 g/mol)에서는 할로젠화물 &lt; 에스터 &lt; 알코올 &lt; 카복실산으로 수소 결합이 셀수록 끓는점이 높습니다. 그런데 묶음 A에서는 <b>아세트알데하이드(받개만, 20.2 °C)가 에틸아민(주개+받개, 16.6 °C)보다 높아</b> 순서가 깨집니다. N−H 수소 결합은 O−H보다 약하고, C=O의 쌍극자가 크기 때문입니다.</p>';
           var items = Object.keys(seen).map(Number).sort(function(a, b){ return CP[a].bp - CP[b].bp; }).map(function(i){ var a = seen[i]; return {label:CP[i].n, v:CP[i].bp + 60, color:cols[CP[i].hb], text:f(CP[i].bp, 1) + ' °C · 예측 ' + a.filter(function(d){ return d.ok; }).length + '/' + a.length}; });
           $('g13b').innerHTML = hbars(items, 180) + '<p class="note">막대는 −60 °C를 0으로 둔 길이입니다.</p>';
         }
@@ -498,7 +533,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

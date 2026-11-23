@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -476,7 +478,7 @@ return (function(){
       var ASK = ['입장만 주고받기', '처음 5분 ‘왜 필요해?’ 묻기'];
       var MK = function(v){ return v >= 1 ? '○' : v > 0 ? '△' : '✕'; };
       return {
-        sceneHeight: 450,
+        sceneHeight: function (w){ return w < 420 ? 560 : 450; },
         idle: '협상 방식과 합의안을 고른 뒤 <b>이 합의안으로 협상하기</b>를 누르세요.',
         shortHint: '입장만 주고받을 때 고를 수 있는 안과, 이유를 물은 뒤 생기는 안을 비교해 보세요.',
         params: [
@@ -490,18 +492,19 @@ return (function(){
           return {o:o, band:band, ch:ch, tot:band + ch, d:d};
         },
         draw: function(c, W, H, p, r, tau){
-          var o = OPT[p.o], cw = (W - 60) / 2;
-          tx(c, '밴드부', 20 + cw / 2, 30, {bold:true, align:'center', color:PAL[0]}); tx(c, '합창부', 40 + cw * 1.5, 30, {bold:true, align:'center', color:PAL[3]});
+          var o = OPT[p.o], cw = (W - 60) / 2, nar = cw < 150;
+          // 좁은 화면: 네 칸을 한 줄씩 전체 폭으로 (칸이 좁아 글이 한 글자씩 끊기던 것을 막음)
+          if (!nar){ tx(c, '밴드부', 20 + cw / 2, 30, {bold:true, align:'center', color:PAL[0]}); tx(c, '합창부', 40 + cw * 1.5, 30, {bold:true, align:'center', color:PAL[3]}); }
           var showI = p.q === 1;
           IN.forEach(function(it, i){
-            var nar = cw < 150;
-            var x = it.w === '밴드' ? 20 : 40 + cw, y = 44 + (i % 2) * (nar ? 72 : 64), v = r ? o.cov[i] : -1, a = r ? ph(tau, 0.2 + i * 0.1, 0.5 + i * 0.1) : 0;
+            var x = nar ? 20 : (it.w === '밴드' ? 20 : 40 + cw), bwid = nar ? W - 40 : cw, bht = nar ? 58 : 54;
+            var y = nar ? 24 + i * 64 : 44 + (i % 2) * 64, v = r ? o.cov[i] : -1, a = r ? ph(tau, 0.2 + i * 0.1, 0.5 + i * 0.1) : 0;
             var fill = v < 0 || a < 0.5 ? '#EEF3FA' : v >= 1 ? '#D8F0E5' : v > 0 ? '#FFF1D6' : '#E9EDF2';
-            rbox(c, x, y, cw, nar ? 66 : 54, fill, '#C9D3DE');
-            wrapT(c, showI ? it.t : '(이유를 묻지 않아 모름)', x + (nar ? 8 : 12), y + (nar ? 17 : 24), nar ? cw - 46 : cw - 60, nar ? 14 : 18, {size:nar ? 12 : 14, bold:showI, color:showI ? '#26313D' : '#8C99A8'});
-            if (r && a >= 0.5) tx(c, MK(v), x + cw - 22, y + 36, {bold:true, size:26, align:'center', color:v >= 1 ? PAL[1] : v > 0 ? PAL[6] : '#8C99A8'});
+            rbox(c, x, y, bwid, bht, fill, '#C9D3DE');
+            wrapT(c, (nar ? (it.w === '밴드' ? '밴드부 · ' : '합창부 · ') : '') + (showI ? it.t : '(이유를 묻지 않아 모름)'), x + 12, y + (nar ? 20 : 24), bwid - (nar ? 56 : 60), nar ? 16 : 18, {size:nar ? 12 : 14, bold:showI, color:showI ? '#26313D' : '#8C99A8'});
+            if (r && a >= 0.5) tx(c, MK(v), x + bwid - 22, y + (nar ? 34 : 36), {bold:true, size:26, align:'center', color:v >= 1 ? PAL[1] : v > 0 ? PAL[6] : '#8C99A8'});
           });
-          var y0 = cw < 150 ? 196 : 186; rbox(c, 20, y0, W - 40, 66, '#26313D');
+          var y0 = nar ? 24 + IN.length * 64 + 6 : 186; rbox(c, 20, y0, W - 40, 66, '#26313D');
           wrapT(c, '합의안: ' + o.n, 32, y0 + 24, W - 64, 20, {size:15, bold:true, color:'#fff'});
           if (!r){ tx(c, '방식: ' + ASK[p.q], 20, H - 18, {color:'#4A5868'}); return; }
           var b = ph(tau, 0.6, 0.95), y1 = y0 + 96;
@@ -537,7 +540,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

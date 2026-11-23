@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,6 +443,15 @@ var LAB = (function(){
         {n:'훈민정음을 펴낸 때 (1446년)', s:'훈민정음', y:580, col:'#2B5FA3'},
         {n:'고인돌을 세운 때', s:'고인돌', y:3000, col:'#A8702F'}
       ];
+      /* 네 번째 자리에 무엇을 놓을지 내가 고른다 — 놓는 것에 따라 알맞은 눈금이 달라진다 */
+      var FOURTH = [
+        {n:'고인돌을 세운 때', s:'고인돌', y:3000, col:'#A8702F'},
+        {n:'임진왜란 (1592년)', s:'임진왜란', y:430, col:'#C8463D'},
+        {n:'공룡이 살던 때', s:'공룡', y:66000000, col:'#5C6B7A'},
+        {n:'내가 태어난 때 (8년 전)', s:'내 나이', y:8, col:'#2E9E78'}
+      ];
+      var FN = ['고인돌', '임진왜란', '공룡', '내 나이'];
+      function items(i4){ var a = IT.slice(); a[3] = FOURTH[i4]; return a; }
       var SC = [{n:'1cm = 1년', k:1}, {n:'1cm = 10년', k:10}, {n:'1cm = 100년', k:100}];
       var ROOM = 800;
       function len(cm){ return cm >= 100 ? f(cm / 100, cm % 100 ? 1 : 0) + 'm' : (cm < 1 ? f(cm, 1) : f(cm, cm % 1 ? 1 : 0)) + 'cm'; }
@@ -450,13 +461,17 @@ var LAB = (function(){
         shortHint: '같은 네 가지를 눈금 세 가지로 모두 놓아 보세요. 고인돌이 교실 안에 들어오는 눈금은 무엇인가요?',
         params: [
           {key:'s', type:'seg', label:'연표 눈금', cols:3, value:1, options:SC.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'나의 짐작 — 오늘에서 가장 먼 것은?', cols:2, value:1, options:IT.map(function(x, i){ return ['①', '②', '③', '④'][i] + ' ' + x.n; }),
-            note:'뭉치는 "흑백이니까 ②가 제일 옛날"이라고 했어요.'}
+          {key:'g', type:'seg', label:'나의 짐작 — 오늘에서 가장 먼 것은?', cols:2, value:1, options:IT.map(function(x, i){ return ['①', '②', '③', '④'][i] + ' ' + (i === 3 ? '네 번째로 고른 것' : x.n); }),
+            note:'뭉치는 "흑백이니까 ②가 제일 옛날"이라고 했어요.'},
+          {key:'i4', type:'seg', label:'④ 자리에 놓을 일', cols:2, value:0, options:FOURTH.map(function(x){ return x.n; }),
+            note:'놓는 것을 바꾸면 "가장 먼 것"도, 네 가지를 한눈에 담는 눈금도 달라져요. 공룡을 놓으면 어떤 눈금으로도 교실에 담기지 않아요. ※ 연 수는 교육용 어림값이에요.'}
         ],
         compute: function(p){
-          var k = SC[p.s].k, cms = IT.map(function(x){ return x.y / k; });
+          var k = SC[p.s].k, L = items(p.i4), cms = L.map(function(x){ return x.y / k; });
           var out = cms.filter(function(c){ return c > ROOM; }).length;
-          return {k:k, cms:cms, ok:p.g === 3, out:out};
+          var far = 0; L.forEach(function(x, i){ if (x.y > L[far].y) far = i; });
+          var vd = out === 0 ? '이 눈금은 네 가지를 한눈에 담아요' : '이 눈금으로는 ' + out + '가지가 띠 밖으로 나가요';
+          return {k:k, L:L, cms:cms, far:far, ok:p.g === far, out:out, vd:vd, i4:p.i4};
         },
         draw: function(c, W, H, p, r, tau){
           var x0 = 24, x1 = W - 24, by = H * 0.62, span = x1 - x0, k = SC[p.s].k;
@@ -471,13 +486,13 @@ var LAB = (function(){
             var a = Math.max(0, Math.min(1, (tau - i * 0.18) / 0.3)); if (a <= 0) continue;
             var cm = r.cms[i] * a, inside = cm <= ROOM, x = inside ? x1 - span * cm / ROOM : x0;
             var lx = Math.max(x0 + 40, Math.min(x1 - 60, x)), ly = rows[i];
-            c.fillStyle = IT[i].col; c.beginPath(); c.arc(x, by, inside ? 8 : 6, 0, Math.PI * 2); c.fill();
-            seg(c, x, by - 10, lx, ly + 6, IT[i].col, 1.5, [3, 3]);
-            var lab = IT[i].s + ' ' + len(r.cms[i]);
-            txt(c, lab, lx, ly, {align:x < W / 2 ? 'left' : 'right', bold:true, color:IT[i].col});
+            c.fillStyle = r.L[i].col; c.beginPath(); c.arc(x, by, inside ? 8 : 6, 0, Math.PI * 2); c.fill();
+            seg(c, x, by - 10, lx, ly + 6, r.L[i].col, 1.5, [3, 3]);
+            var lab = r.L[i].s + ' ' + len(r.cms[i]);
+            txt(c, lab, lx, ly, {align:x < W / 2 ? 'left' : 'right', bold:true, color:r.L[i].col});
             if (!inside && a >= 1) arrow(c, x0 + 30, by + 62, x0 + 2, by + 62, PAL[4], 3);
           }
-          var msg = r.out ? '고인돌은 띠 밖으로 ' + len(r.cms[3] - ROOM) + ' 더 가요!' : '네 가지 모두 교실 안에 들어와요';
+          var msg = r.out ? r.L[r.far].s + '은 띠 밖으로 ' + len(Math.max(0, r.cms[r.far] - ROOM)) + ' 더 가요!' : '네 가지 모두 교실 안에 들어와요';
           if (tau >= 0.9){
             var mx = x0 + 40, mf = 18; c.font = '700 18px ' + FONT;
             if (mx + c.measureText(msg).width > W - 6){ mx = x0; while (mf > 11 && mx + c.measureText(msg).width > W - 6){ mf--; c.font = '700 ' + mf + 'px ' + FONT; } }   /* 좁은 화면: 왼쪽으로 붙이고 필요하면 글자 줄임 */
@@ -485,22 +500,25 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          var s = IT.map(function(x, i){ return [x.s + ' (약 ' + (x.y >= 1000 ? f(x.y, 0).replace(/(\d)(\d{3})$/, '$1,$2') : x.y) + '년 전)', len(r.cms[i]), x.col]; });
-          return [['눈금', SC[p.s].n]].concat(s).concat([
-            ['가장 먼 것', '고인돌 — 할머니 사진의 약 50배 거리', PAL[2]],
-            ['나의 짐작', IT[p.g].s + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
-            ['교실(약 8m) 안에?', r.out ? '고인돌이 띠 밖으로 나가요' : '모두 들어와요']]);
+          var s = r.L.map(function(x, i){ return [x.s + ' (약 ' + (x.y >= 1000 ? f(x.y, 0).replace(/(\d)(\d{3})$/, '$1,$2') : x.y) + '년 전)', len(r.cms[i]), x.col]; });
+          return [['눈금', SC[p.s].n], ['④ 자리', FOURTH[r.i4].n]].concat(s).concat([
+            ['가장 먼 것', r.L[r.far].s + ' — 할머니 사진의 약 ' + f(r.L[r.far].y / 60, r.L[r.far].y / 60 < 10 ? 1 : 0) + '배 거리', PAL[2]],
+            ['나의 짐작', r.L[p.g].s + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['교실(약 8m) 안에?', r.out ? r.out + '가지가 띠 밖으로 나가요' : '모두 들어와요'],
+            ['판정', r.vd, r.out ? PAL[4] : PAL[1]]]);
         },
-        columns: ['눈금', '나의 짐작', '맞음', '할머니 사진', '고인돌'],
-        record: function(p, r){ return {s:p.s, g:p.g, ok:r.ok, h:r.cms[1], d:r.cms[3]}; },
-        row: function(d){ return [SC[d.s].n, IT[d.g].s, d.ok ? '○' : '✕', len(d.h), len(d.d)]; },
+        columns: ['눈금', '④ 자리', '나의 짐작', '맞음', '할머니 사진', '④ 길이', '띠 밖'],
+        record: function(p, r){ return {s:p.s, g:p.g, i4:r.i4, ok:r.ok, h:r.cms[1], d:r.cms[3], out:r.out}; },
+        row: function(d){ return [SC[d.s].n, FN[d.i4], items(d.i4)[d.g].s, d.ok ? '○' : '✕', len(d.h), len(d.d), d.out ? d.out + '가지' : '없음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('눈금별 띠 위 길이', '<div id="tl1"></div><p class="ask">할머니 사진과 고인돌은 띠 위에서 몇 배나 떨어져 있나요? 흑백 사진이 "제일 옛날"처럼 보인 까닭은 무엇일까요?</p>') +
             card('나의 짐작', '<div id="tl2"></div><p class="ask">과제: 가족 사진이나 물건 다섯 가지가 언제 것인지 여쭤 보고, 1cm = 1년인 종이 띠 연표에 순서대로 붙여 보세요. 내가 태어난 해도 꼭 표시하세요.</p>') + '</div>';
           var seen = {}, rows = [];
-          rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; var k = SC[d.s].k; rows.push([SC[d.s].n].concat(IT.map(function(x){ return len(x.y / k); }))); });
-          $('tl1').innerHTML = tableHTML(['눈금'].concat(IT.map(function(x){ return x.s; })), rows) + (rows.length < 3 ? '<p class="msg">눈금 세 가지를 모두 해 보세요.</p>' : '');
+          rec.forEach(function(d){ var key = d.s + '|' + d.i4; if (seen[key]) return; seen[key] = 1; var k = SC[d.s].k;
+            rows.push([SC[d.s].n, FN[d.i4]].concat(items(d.i4).map(function(x){ return len(x.y / k); })).concat([d.out ? d.out + '가지' : '모두 들어옴'])); });
+          $('tl1').innerHTML = tableHTML(['눈금', '④ 자리', '①', '②', '③', '④', '띠 밖'], rows)
+            + '<p class="msg">④ 자리에 무엇을 놓느냐에 따라 알맞은 눈금이 달라져요. 공룡은 어떤 눈금으로도 교실에 담기지 않아요.</p>';
           var g = groupBy(rec, function(d){ return d.g; }), items = [];
           Object.keys(g).forEach(function(key){ items.push({label:IT[key].s, v:g[key].length, color:IT[key].col, text:g[key].length + '번' + (+key === 3 ? ' (정답)' : '')}); });
           $('tl2').innerHTML = hbars(items, rec.length);
@@ -512,7 +530,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

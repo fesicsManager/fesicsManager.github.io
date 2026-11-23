@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -493,7 +495,7 @@ var LAB = (function anonymous(
       ];
       var WHO = ['친구에게', '처음 연락하는 선생님께'], MK = ['✕', '△', '○'], MC = [PAL[4], PAL[6], PAL[1]];
       return {
-        sceneHeight:function(w){ return w < 500 ? 470 : 420; },
+        sceneHeight:function(w){ return w < 500 ? 570 : 420; },
         idle:'문장과 듣는 사람을 고른 뒤 <b>이 문장으로 부탁하기</b>를 누르세요.',
         shortHint:'다섯 문장을 친구와 선생님 모두에게 해 보세요(열 칸). 두 사람에게 모두 ○인 문장은 무엇인가요?',
         params:[
@@ -504,24 +506,37 @@ var LAB = (function anonymous(
         draw:function(c, W, H, p, r, tau){
           var k = r ? ease(tau / 0.8) : 0, lw = W < 500 ? W - 36 : Math.min(W * 0.55, 330), sh = 36;
           T(c, '문장 모양의 계단', 18, 24, {size:14, bold:true, color:'#4A5868'});
+          // 좁은 화면: 여러 줄로 나뉘는 계단은 그만큼 키워서 아래 글과 겹치지 않게
+          var sy = 36;
           S.forEach(function(x, i){
-            var y = 36 + i * (sh + 6), x0 = 18 + i * 10, on = i === p.s;
-            rbox(c, x0, y, lw - i * 10, sh, on ? '#E8EEF8' : '#F7F9FC', on ? PAL[0] : '#D5DCE5', on ? 2.5 : 1);
+            var y = sy, x0 = 18 + i * 10, on = i === p.s;
             var lt = (i + 1) + '. ' + x.s, lmax = lw - i * 10 - 18; c.font = (on ? '700 ' : '') + '11px ' + FONT;
-            if (c.measureText(lt).width > lmax) wrap(c, lt, x0 + 10, y + 15, lmax, 14, {size:12, bold:on, color:on ? PAL[0] : '#4A5868'});
+            var many = c.measureText(lt).width > lmax;
+            var nl = many ? wrap(c, lt, x0 + 10, 0, lmax, 14, {size:12, bold:on, measure:true}) : 1;
+            var h = Math.max(sh, 10 + nl * 14 + 6);
+            rbox(c, x0, y, lw - i * 10, h, on ? '#E8EEF8' : '#F7F9FC', on ? PAL[0] : '#D5DCE5', on ? 2.5 : 1);
+            if (many) wrap(c, lt, x0 + 10, y + 15, lmax, 14, {size:12, bold:on, color:on ? PAL[0] : '#4A5868'});
             else T(c, lt, x0 + 10, y + 23, {size:13, bold:on, color:on ? PAL[0] : '#4A5868', max:lmax});
+            sy += h + 6;
           });
-          var gy = 36 + 5 * (sh + 6) + 10;
+          var gy = sy + 10;
           T(c, '↓ 질문 모양 · 상대가 거절할 여지 커짐', 18, gy, {size:12, color:'#8C99A8'});
           var rx = W < 500 ? 18 : lw + 40, ry = W < 500 ? gy + 30 : 50, rw = W < 500 ? W - 36 : W - lw - 58;
-          person(c, rx + 30, ry + 60, p.w ? PAL[3] : PAL[6], 1.2);
-          T(c, WHO[p.w], rx + 64, ry + 46, {size:15, bold:true, color:'#1E2833', max:W < 500 ? rw - 108 : rw - 70});
+          // 오른쪽 칸이 좁을 때(240·560px)는 이름을 두 줄로 쓰고 표시를 아래로 내린다
+          var tight = rw < 240;
+          if (tight){
+            person(c, rx + 20, ry + 50, p.w ? PAL[3] : PAL[6], 1.0);
+            wrap(c, WHO[p.w], rx + 46, ry + 36, rw - 70, 18, {size:14, bold:true, color:'#1E2833'});
+          } else {
+            person(c, rx + 30, ry + 60, p.w ? PAL[3] : PAL[6], 1.2);
+            T(c, WHO[p.w], rx + 64, ry + 46, {size:15, bold:true, color:'#1E2833', max:rw - 70});
+          }
           if (r && k > 0.4){
             rbox(c, rx, ry + 80, rw, 70, '#FFFFFF', '#C9D3DF', 1.5);
             wrap(c, '"' + r.react + '"', rx + 10, ry + 104, rw - 20, 20, {size:14, color:'#1E2833'});
           }
           if (r && k >= 1){
-            T(c, MK[r.m], rx + rw - 20, ry + 50, {size:34, bold:true, align:'center', color:MC[r.m]});
+            T(c, MK[r.m], rx + rw - (tight ? 18 : 20), ry + (tight ? 66 : 50), {size:tight ? 30 : 34, bold:true, align:'center', color:MC[r.m]});
             T(c, '문장 모양: ' + r.x.shape, rx, ry + 176, {size:14, bold:true, color:PAL[0], max:rw});
           }
         },
@@ -547,7 +562,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

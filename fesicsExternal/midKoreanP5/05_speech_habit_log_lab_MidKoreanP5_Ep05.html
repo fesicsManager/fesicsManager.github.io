@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -238,6 +239,7 @@ tbody tr:hover{background:#F5F8FB}
 <p>나의 말은 내가 속한 무리의 말과 이어져 있어요. 유행어를 쓰지 말라는 것이 아니라, <b>알고 고를 수 있게</b> 되자는 거예요.</p>
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
 · 예상·녹음 횟수와 맞힌 사람 수는 제로 랩의 가상 조사값이에요.<br>
+· 녹음 시간을 줄이면 센 횟수는 ‘하루치(8시간) 횟수 × 녹음 시간 ÷ 8’로 계산해요. <b>교육용 모형값</b>이라 실제 말버릇이 시간마다 고르다고 본 거예요.<br>
 · 실제로 기록할 때는 녹음 전에 함께 있는 사람들에게 알리고 허락을 받아야 해요.</div>
 </div>
 </section>
@@ -252,7 +254,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="내 말버릇은 내가 제일 잘 아나 실험 장면"></canvas>
-          <p class="note">위 막대는 뭉치의 예상, 그 아래 빗금 묶음(5개씩)은 녹음에서 센 실제 횟수입니다. 아래 말풍선은 뭉치의 보고, 사람 10명 중 색이 칠해진 사람은 무슨 일이 있었는지 맞힌 연구원이에요.</p>
+          <p class="note">위 막대는 뭉치의 하루 예상, 그 아래 빗금 묶음(5개씩)은 고른 녹음 시간 동안 센 횟수입니다. 아래 말풍선은 뭉치의 보고, 사람 10명 중 색이 칠해진 사람은 무슨 일이 있었는지 맞힌 연구원이에요.</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -295,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -467,15 +470,24 @@ var LAB = (function anonymous(
 
 return (function(){
       var WD = [
-        {k:'‘대박’', pre:5, rec:47, cmp:'9.4배 (아홉 배 넘게)'},
-        {k:'‘그냥’', pre:3, rec:22, cmp:'약 7.3배'},
-        {k:'‘아 몰라’', pre:0, rec:9, cmp:'예상 0번 → 9번'},
-        {k:'‘고마워’·‘미안해’', pre:10, rec:2, cmp:'예상의 5분의 1'}
+        {k:'‘대박’', pre:5, rec:47},
+        {k:'‘그냥’', pre:3, rec:22},
+        {k:'‘아 몰라’', pre:0, rec:9},
+        {k:'‘고마워’·‘미안해’', pre:10, rec:2}
       ];
       var RP = [
         {k:'A 대박으로 보고', s:'“결과도 대박, 색깔도 대박이었어요.”', ok:1, col:PAL[4]},
         {k:'B 자세히 보고', s:'“용액이 30초 만에 보라색으로 바뀌었고, 거품이 비커 위로 넘쳤어요.”', ok:9, col:PAL[1]}
       ];
+      var GUESS = ['예상보다 많을 것', '예상보다 적을 것'];
+      /* 센 횟수 — 교육용 모형값: 하루치(8시간) 횟수를 녹음 시간에 비례해 나눈다 */
+      function cnt(w, h){ return Math.round(w.rec * h / 8); }
+      function cmpTxt(w, k){
+        if (w.pre === 0) return '예상 0번 → ' + k + '번';
+        if (k === 0) return '예상 ' + w.pre + '번 → 0번';
+        var q = k / w.pre;
+        return q >= 1 ? '예상의 ' + q.toFixed(1) + '배' : '예상의 ' + (1 / q).toFixed(1) + '분의 1';
+      }
       function tally(c, x, y, n, mw, col){
         var gw = 30, per = Math.max(1, Math.floor(mw / gw)), g = Math.ceil(n / 5);
         for (var i = 0; i < n; i++){
@@ -487,22 +499,24 @@ return (function(){
       }
       return {
         sceneHeight: 460,
-        idle: '세어 볼 말과 보고한 말을 고른 뒤 <b>녹음 세고 보고하기</b>를 누르세요.',
-        shortHint: '네 가지 말을 모두 세어 보고, 두 가지 보고도 모두 해 보세요. 예상과 가장 크게 어긋난 말은 무엇인가요?',
+        idle: '세어 볼 말 · 녹음 시간 · 보고한 말 · 나의 짐작을 고른 뒤 <b>녹음 세고 보고하기</b>를 누르세요.',
+        shortHint: '녹음 시간을 1시간부터 8시간까지 바꿔 가며 네 가지 말을 세어 보세요. 몇 시간쯤 세어야 예상이 뒤집히나요?',
         params: [
           {key:'w', type:'seg', label:'하루 녹음에서 세어 볼 말', cols:2, value:0, options:WD.map(function(x){ return x.k; })},
-          {key:'r', type:'seg', label:'같은 실험 결과를 보고한 말', cols:2, value:0, options:RP.map(function(x){ return x.k; })}
+          {key:'h', type:'range', label:'녹음한 시간 (8시간이 하루치)', min:1, max:8, step:1, value:8, fmt:function(v){ return v + '시간'; }},
+          {key:'r', type:'seg', label:'같은 실험 결과를 보고한 말', cols:2, value:0, options:RP.map(function(x){ return x.k; })},
+          {key:'g', type:'seg', label:'나의 짐작 — 센 횟수는 하루 예상보다', cols:2, value:0, options:GUESS}
         ],
-        compute: function(p){ var w = WD[p.w], rp = RP[p.r]; return {w:w, rp:rp, over:w.rec > w.pre}; },
+        compute: function(p){ var w = WD[p.w], rp = RP[p.r], k = cnt(w, p.h), over = k > w.pre; return {w:w, rp:rp, k:k, over:over, cmp:cmpTxt(w, k), right:(p.g === 0) === over}; },
         draw: function(c, W, H, p, r, tau){
           var w = WD[p.w], rp = RP[p.r], sm = W < 520, mw = W - 40, sc = mw / 50;
           tx(c, w.k + ' — 뭉치의 예상 ' + w.pre + '번', 20, 26, {bold:true, size:15, color:PAL[0]});
           pbar(c, 20, 34, mw, 12, w.pre / 50, PAL[0]);
-          var a = r ? ph(tau, 0, 0.55) : 0, k = Math.round(w.rec * a);
-          tx(c, '하루 녹음 기록 ' + (r ? k + '번' : '?'), 20, 76, {bold:true, size:15, color:PAL[4]});
+          var a = r ? ph(tau, 0, 0.55) : 0, k = Math.round(cnt(w, p.h) * a);
+          tx(c, p.h + '시간 녹음 기록 ' + (r ? k + '번' : '?'), 20, 76, {bold:true, size:15, color:PAL[4]});
           var th = r ? tally(c, 22, 88, k, mw, PAL[4]) : 30;
           var y1 = 88 + Math.max(th, 30) + 16;
-          if (r && tau > 0.55){ c.globalAlpha = ph(tau, 0.55, 0.7); tx(c, '→ ' + w.cmp, 20, y1, {bold:true, size:16, color:w.over ? PAL[4] : PAL[6]}); c.globalAlpha = 1; }
+          if (r && tau > 0.55){ c.globalAlpha = ph(tau, 0.55, 0.7); tx(c, '→ ' + r.cmp, 20, y1, {bold:true, size:16, color:r.over ? PAL[4] : PAL[6]}); c.globalAlpha = 1; }
           var y2 = y1 + 22;
           rbox(c, 20, y2, W - 40, sm ? 74 : 56, '#F4F6F9', '#DDE3EA');
           wrapT(c, '뭉치: ' + rp.s, 32, y2 + 24, W - 64, 22, {size:sm ? 14 : 15});
@@ -513,23 +527,27 @@ return (function(){
           crowd(c, 24, y3 + 26, Math.min(W - 48, 10 * 25), 10, kk, rp.col, '#CBD3DD', 18);
         },
         stats: function(p, r){
-          return [['세어 본 말', r.w.k], ['뭉치가 예상한 횟수', r.w.pre + '번', PAL[0]], ['하루 녹음 기록', r.w.rec + '번', PAL[4]], ['비교', r.w.cmp, r.over ? PAL[4] : PAL[6]],
+          return [['세어 본 말', r.w.k], ['뭉치가 예상한 하루 횟수', r.w.pre + '번', PAL[0]], [p.h + '시간 녹음 기록', r.k + '번 (하루치 ' + r.w.rec + '번)', PAL[4]], ['비교', r.cmp, r.over ? PAL[4] : PAL[6]],
+            ['나의 짐작', GUESS[p.g] + (r.right ? ' — 맞았어요' : ' — 빗나갔어요'), r.right ? PAL[1] : PAL[6]],
             ['보고한 말', r.rp.s], ['무슨 일이 있었는지 맞힌 연구원', r.rp.ok + ' / 10명', r.rp.col],
-            ['네 말 합계', '예상 18번 → 녹음 80번 (‘고마워’·‘미안해’만 예상보다 적음)', '#4A5868']];
+            ['짧게 세면', '녹음 시간을 줄이면 센 횟수가 하루 예상보다 적어 보여요. 표본이 작으면 결론이 뒤집힙니다.', '#4A5868']];
         },
-        columns: ['말', '예상', '녹음', '비교', '보고', '맞힌 사람'],
-        record: function(p, r){ return {w:p.w, r:p.r}; },
-        row: function(d){ var w = WD[d.w], rp = RP[d.r]; return [w.k, w.pre + '번', w.rec + '번', w.cmp, rp.k.slice(0, 1), rp.ok + '/10']; },
+        columns: ['말', '녹음 시간', '예상', '센 횟수', '비교', '짐작'],
+        record: function(p, r){ return {w:p.w, r:p.r, h:p.h, k:r.k, cmp:r.cmp, right:r.right}; },
+        row: function(d){ var w = WD[d.w]; return [w.k, d.h + '시간', w.pre + '번', d.k + '번', d.cmp, d.right ? '맞음' : '빗나감']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('예상한 횟수 vs 하루 녹음 기록', '<div id="mk5_5a"></div><p class="ask">‘대박’은 예상보다 아홉 배 넘게 많았고, ‘고마워’·‘미안해’는 예상의 5분의 1이었어요. ‘내 말은 내가 제일 잘 안다’는 뭉치의 말을 이 표로 바로잡아 보세요.</p>') +
             card('같은 결과, 두 가지 보고', '<div id="mk5_5b"></div><p class="ask">과제: 하루 동안 내가 자주 쓴 말 세 가지를 기록하고 횟수를 세어 보세요. 그 말 대신 쓸 수 있는 구체적인 말을 하나씩 정하고, 일주일 뒤 다시 세어 비교해 보세요.</p>') + '</div>';
           var seenW = function(i){ return rec.some(function(d){ return d.w === i; }); }, seenR = function(i){ return rec.some(function(d){ return d.r === i; }); }, items = [];
           WD.forEach(function(w, i){
-            items.push({label:w.k + ' · 예상', v:w.pre, color:seenW(i) ? PAL[0] : '#DDE3EA', text:w.pre + '번'});
-            items.push({label:w.k + ' · 녹음', v:w.rec, color:seenW(i) ? PAL[4] : '#CBD3DD', text:w.rec + '번' + (seenW(i) ? '' : ' (아직)')});
+            var mine = rec.filter(function(d){ return d.w === i; });
+            var best = mine.length ? mine.reduce(function(a, b){ return b.h > a.h ? b : a; }) : null;
+            items.push({label:w.k + ' · 하루 예상', v:w.pre, color:seenW(i) ? PAL[0] : '#DDE3EA', text:w.pre + '번'});
+            items.push({label:w.k + ' · 센 횟수' + (best ? ' (' + best.h + '시간)' : ''), v:best ? best.k : w.rec, color:seenW(i) ? PAL[4] : '#CBD3DD', text:best ? best.k + '번' : w.rec + '번 (아직)'});
           });
-          $('mk5_5a').innerHTML = hbars(items, 50);
+          $('mk5_5a').innerHTML = hbars(items, 50) +
+            '<p class="msg">짐작이 맞은 기록: ' + rec.filter(function(d){ return d.right; }).length + ' / ' + rec.length + '회. 녹음 시간이 짧을수록 센 횟수가 적어 예상이 맞아 보여요.</p>';
           $('mk5_5b').innerHTML = tableHTML(['보고한 말', '맞힌 사람 (10명 중)', '해 봄'], RP.map(function(x, i){ return [x.s, x.ok + '명', seenR(i) ? '✔' : '']; })) +
             '<p class="msg">세 물음: 내가 실제로 자주 쓰는 말은? · 그 말은 어떤 나를 보여 주나? · 그 말 때문에 내가 놓치는 것은?</p>';
         }
@@ -541,7 +559,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

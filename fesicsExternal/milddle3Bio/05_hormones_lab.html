@@ -258,6 +258,10 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">검사받을 사람</div>
             <div class="btn-row" id="caseRow"></div>
+            <div class="control-label">먹은 양(탄수화물): <span class="slider-val" id="mealVal">50</span> g</div>
+            <input type="range" id="mealSlider" min="10" max="100" step="10" value="50" aria-label="먹은 양">
+            <div class="control-label">인슐린 주사량: <span class="slider-val" id="shotVal">0</span> 단위</div>
+            <input type="range" id="shotSlider" min="0" max="10" step="1" value="0" aria-label="인슐린 주사량">
             <button class="btn-main" id="runBtn">식사 후 3시간 동안 혈당 재기 ▶</button>
             <div class="result-box" id="result">사람을 고르고 실행하면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -266,8 +270,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">검사 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>대상</th><th>공복(mg/dL)</th><th>최고(mg/dL)</th><th>2시간 후</th><th>판정</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>대상</th><th>먹은 양(g)</th><th>주사(단위)</th><th>최고(mg/dL)</th><th>2시간 후</th><th>판정</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -517,6 +521,15 @@ var CASES=[
   {k:'dm',     n:'당뇨병 환자',       base:140, peak:265, t2:235, ins:0.2,  c:'#c1443c'},
   {k:'treat',  n:'당뇨병 + 인슐린 주사', base:120, peak:175, t2:130, ins:0.8, c:'#8a6fb0'}
 ];
+var meal=50, shot=0;
+/* 교육용 모형값: 먹은 탄수화물이 50g 보다 많으면 오르는 폭도 그만큼 커지고,
+   인슐린 주사 1단위마다 인슐린 작용이 0.08 씩 늘어 혈당이 더 빨리 내려온다 */
+function curCase(){
+  var B=CASES[cIdx];
+  return {k:B.k, n:B.n, c:B.c, base:B.base,
+    peak:B.base+(B.peak-B.base)*(meal/50),
+    ins:B.ins+shot*0.08};
+}
 function glucoseAt(C,t){        /* t: 시간(h), 0~3 */
   if(t<=0) return C.base;
   var rise=C.peak-C.base;
@@ -556,7 +569,7 @@ CASES.forEach(function(c,i){
 });
 
 function draw(){
-  var C=CASES[cIdx];
+  var C=curCase();
   ctx.clearRect(0,0,440,420);
   ctx.fillStyle='#f7fbfa'; ctx.fillRect(0,0,440,336);
 
@@ -640,12 +653,30 @@ function draw(){
 }
 draw();
 
+document.getElementById('mealSlider').addEventListener('input',function(e){
+  if(busy) return;
+  meal=parseInt(e.target.value,10);
+  document.getElementById('mealVal').textContent=meal;
+  now=0; revealed=false;
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='먹은 양과 주사량을 정하고 실행하면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+});
+document.getElementById('shotSlider').addEventListener('input',function(e){
+  if(busy) return;
+  shot=parseInt(e.target.value,10);
+  document.getElementById('shotVal').textContent=shot;
+  now=0; revealed=false;
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='먹은 양과 주사량을 정하고 실행하면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+});
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  var C=CASES[cIdx];
-  if(records.some(function(r){ return r.k===C.k; })){
-    notify('이미 검사한 대상이에요. 다른 사람을 골라보세요.');
+  var C=curCase();
+  if(records.some(function(r){ return r.k===C.k && r.meal===meal && r.shot===shot; })){
+    notify('같은 사람·같은 조건으로 이미 검사했어요. 먹은 양이나 주사량을 바꿔 보세요.');
     return;
   }
   busy=true; revealed=false; now=0;
@@ -659,13 +690,19 @@ document.getElementById('runBtn').addEventListener('click', function(){
       now=3; revealed=true; draw();
       btn.disabled=false; busy=false;
       var t2=glucoseAt(C,2);
-      records.push({k:C.k, n:C.n, base:C.base, peak:peakOf(C), t2:t2, v:verdict(t2), ins:C.ins});
+      records.push({k:C.k, n:C.n, base:C.base, peak:peakOf(C), t2:t2, v:verdict(t2), ins:C.ins, meal:meal, shot:shot});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
+      var B0=curCase(), base0={k:B0.k,n:B0.n,c:B0.c,base:CASES[cIdx].base,peak:CASES[cIdx].peak,ins:CASES[cIdx].ins};
+      var t2base=glucoseAt(base0,2);
       box.innerHTML='최고 혈당 <span class="big-val">'+peakOf(C).toFixed(0)+'</span> · 2시간 후 <span class="big-val">'
         +t2.toFixed(0)+'</span> → <b>'+verdict(t2)+'</b> '
-        +'<span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
+        +'<span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span><br>'
+        +'탄수화물 '+meal+'g · 인슐린 주사 '+shot+'단위<br>'
+        +'같은 사람이 50g 먹고 주사를 맞지 않았을 때의 2시간 후 값은 '+t2base.toFixed(0)+' (판정 '+verdict(t2base)+') 입니다 — '
+        +(verdict(t2)!==verdict(t2base) ? '<b>조건을 바꾸니 판정이 달라졌습니다.</b>' : '판정은 아직 같습니다. 먹은 양이나 주사량을 더 바꿔 보세요.')
+        +'<br><span style="font-size:.9rem;color:#a86825">※ 먹은 양과 주사량이 곡선을 바꾸는 정도는 비교를 쉽게 하려고 정한 교육용 모형값이에요.</span>';
       maybeToast(records.length);
     }
   }
@@ -675,10 +712,11 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=records.map(function(r,i){
     var cls=r.v==='정상'?'cold':'warm';
-    return '<tr><td>'+(i+1)+'</td><td class="kr">'+r.n+'</td><td>'+r.base+'</td><td>'+r.peak.toFixed(0)+'</td>'
+    return '<tr><td>'+(i+1)+'</td><td class="kr">'+r.n+'</td><td>'+(r.meal==null?50:r.meal)+'</td><td>'+(r.shot==null?0:r.shot)+'</td>'
+      +'<td>'+r.peak.toFixed(0)+'</td>'
       +'<td>'+r.t2.toFixed(0)+'</td><td class="kr"><span class="badge '+cls+'">'+r.v+'</span></td></tr>';
   }).join('');
 }

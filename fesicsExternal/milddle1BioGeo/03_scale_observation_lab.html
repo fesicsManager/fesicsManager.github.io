@@ -240,7 +240,10 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">관찰할 구성 단계를 선택하세요</div>
             <div class="btn-row" id="stageRow"></div>
-            <button class="btn-main" id="runBtn">현미경으로 확대해 관찰하기 ▶</button>
+            <div class="control-label" style="margin-top:12px;">확대 배율을 정하세요 — <span class="mono" id="magLabel">×1</span></div>
+            <input type="range" id="magRange" min="0" max="16" step="1" value="6" style="width:100%" aria-label="확대 배율">
+            <div class="control-label" style="font-weight:400;font-size:.9rem;color:#4a636a">시야 폭은 한 뼘(200 mm), 눈으로 구분할 수 있는 가장 작은 크기는 0.1 mm로 봅니다 (교육용 모형값).</div>
+            <button class="btn-main" id="runBtn">이 배율로 관찰하기 ▶</button>
             <div class="result-box" id="result">단계를 고르고 관찰하면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
         </div>
@@ -248,8 +251,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">관찰 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>구성 단계</th><th>대표 예</th><th>실제 크기(mm)</th><th>log₁₀(크기)</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>구성 단계</th><th>실제 크기(mm)</th><th>배율</th><th>보이는 크기(mm)</th><th>판정</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -268,7 +271,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
     <div class="card">
       <div class="locked" id="lockedMsg">
         <div class="lock-icon">🔒</div>
-        <div>아직 데이터가 부족합니다. 자유 탐구에서 서로 다른 단계 4개 이상을 관찰해주세요.</div>
+        <div>아직 데이터가 부족합니다. 자유 탐구에서 서로 다른 단계 4개 이상을 관찰해주세요. 단계마다 ‘잘 보임’이 되는 배율을 직접 찾아보세요.</div>
         <div class="lock-count">현재 <span id="lockedCount">0</span> / 4</div>
       </div>
       <div id="validationContent" style="display:none;">
@@ -489,6 +492,14 @@ var STAGES=[
   {n:'개체',   ex:'사람',     mm:1700, c:'#4a637a'}
 ];
 var sIdx=0, records=[], busy=false, revealed=false, zoom=0;
+/* 확대 배율 — 교육용 모형값: 시야 폭 200 mm, 눈으로 구분하는 가장 작은 크기 0.1 mm */
+var MAGS=[0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,20,50,100,200,500,1000,2000];
+var magIdx=6, VIEW_MM=200, EYE_MM=0.1;
+function magOf(){ return MAGS[magIdx]; }
+function magTxt(m){ return '×'+(m<1 ? String(m) : m.toLocaleString()); }
+function verdictOf(mm,m){ var v=mm*m; return {vis:v, ok:(v>=EYE_MM && v<=VIEW_MM), txt:(v<EYE_MM ? '너무 작아 안 보임' : v>VIEW_MM ? '너무 커서 시야 밖' : '잘 보임')}; }
+function toolOf(m){ return m<1 ? '멀리서 맨눈' : m<=1 ? '맨눈' : m<=20 ? '확대경' : '현미경'; }
+function visTxt(v){ return v>=1 ? v.toLocaleString(undefined,{maximumFractionDigits:1}) : v.toFixed(v>=0.01?3:5); }
 var canvas=document.getElementById('scaleCanvas'), ctx=canvas.getContext('2d');
 
 var row=document.getElementById('stageRow');
@@ -505,6 +516,16 @@ STAGES.forEach(function(s,i){
   });
   row.appendChild(b);
 });
+var magRange=document.getElementById('magRange'), magLabel=document.getElementById('magLabel');
+function syncMag(){ magLabel.textContent=magTxt(magOf()); }
+magRange.addEventListener('input',function(){
+  if(busy){ magRange.value=magIdx; return; }
+  magIdx=+magRange.value; zoom=0; revealed=false; syncMag();
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='단계와 배율을 고르고 관찰하면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+});
+syncMag();
 
 /* 각 단계의 그림 (반지름 r 기준) */
 function drawShape(idx, cx, cy, r, alpha){
@@ -600,9 +621,8 @@ function draw(){
     ctx.fillText(S.mm+' mm', 200+big+10, 333);
     ctx.textAlign='center';
     /* 배율 */
-    var mag=(big*2)/(S.mm*SAME_SCALE_PX);
     ctx.fillStyle='#4a636a'; ctx.font="600 19px 'Noto Sans KR',sans-serif"; ctx.textAlign='right';
-    ctx.fillText('×'+Math.round(mag)+' 확대', 424, 244);
+    ctx.fillText(magTxt(magOf())+' 보기', 424, 244);
     ctx.textAlign='center';
   }else{
     ctx.fillStyle='#8ea6a6'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
@@ -618,11 +638,13 @@ function draw(){
     ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
     ctx.fillText('실제 크기 '+S.mm+' mm (log₁₀ = '+Math.log10(S.mm).toFixed(2)+')', 220, 390);
     ctx.font="600 18px 'Noto Sans KR',sans-serif";
-    ctx.fillText('사람(1700mm)의 '+(S.mm/1700*100).toFixed(4)+'%', 220, 412);
+    var vd=verdictOf(S.mm, magOf());
+    ctx.fillStyle= vd.ok ? '#2f7d5a' : '#c1443c';
+    ctx.fillText(magTxt(magOf())+' → 보이는 크기 '+visTxt(vd.vis)+' mm · '+vd.txt, 220, 412);
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
     ctx.fillText('"현미경으로 확대해 관찰하기"를 눌러보세요', 220, 370);
-    ctx.fillText('선택한 단계: '+S.n+' ('+S.ex+')', 220, 398);
+    ctx.fillText('선택한 단계: '+S.n+' ('+S.ex+') · '+magTxt(magOf()), 220, 398);
   }
   ctx.textAlign='left';
 }
@@ -633,7 +655,7 @@ function zlDupNote(msg){ var el=document.getElementById('zlDupNote'); if(!el){ e
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return r.idx===sIdx; })){ zlDupNote('이미 같은 조건으로 기록했어요. 조건을 바꿔 보세요.'); return; }
+  if(records.some(function(r){ return r.idx===sIdx && r.mag===magOf(); })){ zlDupNote('이미 같은 단계·배율로 기록했어요. 조건을 바꿔 보세요.'); return; }
   busy=true; revealed=false; zoom=0;
   var btn=this; btn.disabled=true;
   /* 작은 단계일수록 더 많이 확대해야 하므로 애니메이션도 길게 */
@@ -649,12 +671,14 @@ document.getElementById('runBtn').addEventListener('click', function(){
       zoom=1; revealed=true; draw();
       btn.disabled=false; busy=false;
       var S=STAGES[sIdx];
-      records.push({n:S.n, ex:S.ex, mm:S.mm, log:Math.log10(S.mm), idx:sIdx});
+      var vd=verdictOf(S.mm, magOf());
+      records.push({n:S.n, ex:S.ex, mm:S.mm, log:Math.log10(S.mm), idx:sIdx, mag:magOf(), vis:vd.vis, ok:vd.ok, txt:vd.txt});
       renderTable();
       var box=document.getElementById('result');
-      box.className='result-box ok';
-      box.innerHTML=S.n+'('+S.ex+') 실제 크기: <span class="big-val">'+S.mm+' mm</span> '
-        +'<span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
+      box.className='result-box '+(vd.ok?'ok':'');
+      box.innerHTML=S.n+'('+S.ex+') 실제 크기: <span class="big-val">'+S.mm+' mm</span><br>'
+        +magTxt(magOf())+'로 보면 '+visTxt(vd.vis)+' mm — <b>'+vd.txt+'</b> · 필요한 도구: '+toolOf(magOf())
+        +'<br><span style="font-size:.92rem;color:var(--ink-soft)">사람(1700mm)의 '+(S.mm/1700*100).toFixed(4)+'% · 자동 기록됨</span>';
       maybeToast(records.length);
     }
   }
@@ -664,9 +688,9 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=records.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td class="kr">'+r.n+'</td><td class="kr">'+r.ex+'</td><td>'+r.mm+'</td><td>'+r.log.toFixed(2)+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td class="kr">'+r.n+'</td><td>'+r.mm+'</td><td>'+magTxt(r.mag)+'</td><td>'+visTxt(r.vis)+'</td><td class="kr">'+r.txt+'</td></tr>';
   }).join('');
 }
 
@@ -697,7 +721,15 @@ function renderValidation(){
     }).join('')
     + '<div class="insight-box">자동 분석: 로그 눈금이라 막대 높이가 <b>1 높아질 때마다</b> 실제 크기는 <b>10배</b>씩 커집니다(0보다 낮은 막대는 1 mm보다 작다는 뜻). '
     + '가장 작은 '+uniq[0].n+'과 가장 큰 '+uniq[uniq.length-1].n+'은 크기가 <b>'
-    + Math.round(uniq[uniq.length-1].mm/uniq[0].mm).toLocaleString()+'배</b> 차이 납니다.</div>';
+    + Math.round(uniq[uniq.length-1].mm/uniq[0].mm).toLocaleString()+'배</b> 차이 납니다.</div>'
+    + '<div class="insight-box">잘 보이는 배율 범위 (교육용 모형값 — 시야 200 mm, 눈 0.1 mm 기준)<br>'
+    + uniq.map(function(r){
+        var lo=EYE_MM/r.mm, hi=VIEW_MM/r.mm;
+        var mine=records.filter(function(x){ return x.idx===r.idx && x.ok; }).map(function(x){ return magTxt(x.mag); });
+        return '· <b>'+r.n+'</b>: '+magTxt(Math.round(lo*1000)/1000)+' ~ '+magTxt(Math.round(hi*1000)/1000)
+          +(mine.length ? ' (내가 찾은 배율: '+mine.join(', ')+')' : ' (아직 ‘잘 보임’을 못 찾았어요)');
+      }).join('<br>')
+    + '<br>세포와 개체는 잘 보이는 배율이 10만 배쯤 차이 나요. 그래서 단계마다 다른 도구(맨눈·확대경·현미경)가 필요합니다.</div>';
 
   var rows='', rs=[];
   for(var i=1;i<uniq.length;i++){

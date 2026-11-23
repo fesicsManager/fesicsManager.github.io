@@ -330,6 +330,13 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
           <label>누를 압력 (추의 무게) <b id="pVal">1.0 atm</b></label>
           <input type="range" id="pressureSlider" min="0.5" max="5" step="0.1" value="1.0" aria-label="누를 압력 (추의 무게)">
         </div>
+        <div class="control-row">
+          <label>실린더에 넣은 기체의 양 <b id="nVal">기준 1배</b></label>
+          <div class="verify-actions" id="amountOptions" style="gap:8px;">
+            <button class="action btn-primary" data-n="1" style="flex:1;">기준 1배</button>
+            <button class="action btn-ghost" data-n="2" style="flex:1;">2배</button>
+          </div>
+        </div>
         <div class="readout">
           <span>현재 부피</span><b id="vVal">210.0 mL</b>
         </div>
@@ -337,7 +344,7 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
           <button class="action btn-primary" id="runBtn">▶ 압력 가하기</button>
           <button class="action btn-ghost" id="resetPoints">초기화</button>
         </div>
-        <div class="hint">💡 온도는 실험 내내 일정하다고 가정합니다. 슬라이더로 누를 압력을 정한 뒤 <b>압력 가하기</b>를 누르면 피스톤이 움직이고, 멈춘 지점이 자동으로 표에 기록됩니다. 압력을 바꿔가며 4~5번 해보세요.</div>
+        <div class="hint">💡 온도는 실험 내내 일정하다고 가정합니다. 슬라이더로 누를 압력을 정한 뒤 <b>압력 가하기</b>를 누르면 피스톤이 움직이고, 멈춘 지점이 자동으로 표에 기록됩니다. 압력을 바꿔가며 4~5번 해보세요.<br>그다음 <b>기체의 양</b>을 2배로 바꿔 같은 압력에서 다시 재 보세요. P × V 가 같은 값으로 나오나요?</div>
       </section>
 
       <section class="card data-card">
@@ -345,7 +352,7 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
         <div class="scroll-table-wrap">
         <table id="dataTable">
           <thead>
-            <tr><th>#</th><th>압력 P (atm)</th><th>부피 V (mL)</th><th>P × V</th></tr>
+            <tr><th>#</th><th>기체의 양</th><th>압력 P (atm)</th><th>부피 V (mL)</th><th>P × V</th></tr>
           </thead>
           <tbody id="dataBody"></tbody>
         </table>
@@ -378,14 +385,17 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
         <div class="scroll-table-wrap">
         <table class="verify" id="verifyTable">
           <thead>
-            <tr><th>#</th><th>압력 P (atm)</th><th>부피 V (mL)</th><th>P × V (자동 계산)</th></tr>
+            <tr><th>#</th><th>기체의 양</th><th>압력 P (atm)</th><th>부피 V (mL)</th><th>P × V (자동 계산)</th></tr>
           </thead>
           <tbody id="verifyBody"></tbody>
         </table>
         </div>
         <div class="readout" style="margin-top:14px;">
-          <span>P × V 평균</span><b id="avgPV">-</b>
+          <span>P × V 평균 (지금 고른 양에서)</span><b id="avgPV">-</b>
           <span>편차(변동계수)</span><b id="cvPV">-</b>
+        </div>
+        <div class="readout" style="margin-top:8px;">
+          <span>양이 다를 때 P × V</span><b id="byAmount">-</b>
         </div>
 
         <div style="margin-top:18px;">
@@ -477,8 +487,10 @@ function zlFocusView(el){
 }
 
 /* ---------- shared physics ---------- */
-const K = 210; // atm·mL, boyle's law constant for this virtual gas
-function volumeFor(p){ return K / p; }
+const K = 210; // atm·mL, boyle's law constant for this virtual gas (기체의 양 기준 1배)
+let amount = 1;                      /* 실린더에 넣은 기체의 양 — 1배 또는 2배 */
+function kOf(n){ return K * n; }     /* 양이 늘면 P×V 상수도 그만큼 커진다 */
+function volumeFor(p, n){ return kOf(n == null ? amount : n) / p; }
 
 /* ---------- tabs ---------- */
 const tabBtns = document.querySelectorAll('.tab-btn');
@@ -517,6 +529,17 @@ slider.addEventListener('input', ()=>{
   pVal.textContent = pendingP.toFixed(1) + ' atm';
 });
 
+/* 기체의 양 고르기 — 둘째 조작 */
+document.getElementById('amountOptions').addEventListener('click',(e)=>{
+  const b = e.target.closest('button'); if(!b || running) return;
+  document.querySelectorAll('#amountOptions button').forEach(x=>{x.classList.remove('btn-primary');x.classList.add('btn-ghost');});
+  b.classList.remove('btn-ghost'); b.classList.add('btn-primary');
+  amount = parseInt(b.dataset.n, 10) || 1;
+  document.getElementById('nVal').textContent = amount === 1 ? '기준 1배' : amount + '배';
+  targetV = volumeFor(currentP); displayV = targetV; tw = null;
+  drawCharts();
+});
+
 function lockControls(lock){
   running = lock;
   runBtn.disabled = lock;
@@ -541,8 +564,8 @@ function finishRun(){
   lockControls(false);
   tw = null;
   displayV = targetV;
-  if(points.some(pt=>Math.abs(pt.p-currentP)<0.01)) return;   /* 같은 압력은 한 번만 */
-  points.push({p: currentP, v: displayV, color: colors[points.length % colors.length]});
+  if(points.some(pt=>Math.abs(pt.p-currentP)<0.01 && (pt.n||1)===amount)) return;   /* 같은 양·같은 압력은 한 번만 */
+  points.push({p: currentP, v: displayV, n: amount, color: colors[points.length % colors.length]});
   renderTable();
   drawCharts();
 }
@@ -560,7 +583,7 @@ function renderTable(){
   points.forEach((pt,i)=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `<td><span class="dot" style="background:${pt.color}"></span>${i+1}</td>
-      <td>${pt.p.toFixed(1)}</td><td>${pt.v.toFixed(1)}</td><td>${(pt.p*pt.v).toFixed(1)}</td>`;
+      <td>${(pt.n||1)===1?'1배':(pt.n||1)+'배'}</td><td>${pt.p.toFixed(1)}</td><td>${pt.v.toFixed(1)}</td><td>${(pt.p*pt.v).toFixed(1)}</td>`;
     dataBody.appendChild(tr);
   });
 }
@@ -574,7 +597,7 @@ const BLOCK_X = CW-78, BLOCK_W = 62;
 const V_MIN = volumeFor(5), V_MAX = volumeFor(0.5);
 
 let particles = [];
-for(let i=0;i<28;i++){
+for(let i=0;i<56;i++){
   particles.push({
     x: Math.random(), y: Math.random(),
     vx: (Math.random()-0.5)*2.4, vy:(Math.random()-0.5)*2.4
@@ -583,7 +606,7 @@ for(let i=0;i<28;i++){
 
 /* 그림의 가로 폭이 부피에 그대로 비례해야 '압력 2배 → 부피 1/2'이 눈에 보인다 */
 function regionWidthFor(v){
-  return Math.max(18, (v/V_MAX)*cylMaxWidth);
+  return Math.min(cylMaxWidth, Math.max(18, (v/V_MAX)*cylMaxWidth));
 }
 
 function easeInOut(u){ return u<0.5 ? 2*u*u : 1-Math.pow(-2*u+2,2)/2; }
@@ -600,7 +623,8 @@ function animate(){
   const regionTop = cylTop, regionBottom = cylBottom;
 
   // update particles (normalized 0..1 within region, converted to px)
-  particles.forEach(pt=>{
+  const shown = particles.slice(0, 28*amount);
+  shown.forEach(pt=>{
     let px = regionLeft + pt.x*w;
     let py = regionTop + pt.y*(regionBottom-regionTop);
     px += pt.vx; py += pt.vy;
@@ -628,7 +652,7 @@ function animate(){
 
   // particles
   ctx.fillStyle = '#2f8f9d';
-  particles.forEach(pt=>{
+  shown.forEach(pt=>{
     const px = regionLeft + pt.x*w;
     const py = regionTop + pt.y*(regionBottom-regionTop);
     ctx.beginPath();
@@ -669,7 +693,7 @@ function animate(){
   ctx.fillText(capText, capCX, 34);
   ctx.fillStyle = '#4a636a'; ctx.font = '20px "IBM Plex Mono",monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('기체', regionLeft+2, regionTop-14);
+  ctx.fillText(amount===1 ? '기체' : '기체 '+amount+'배', regionLeft+2, regionTop-14);
 
   requestAnimationFrame(animate);
 }
@@ -737,7 +761,7 @@ function drawCharts(){
   pvCtx.beginPath();
   let started=false;
   for(let p=0.44;p<=6;p+=0.02){
-    const v = K/p;
+    const v = kOf(amount)/p;
     if(v>480) continue;
     const [x,y] = toPxPV(p, v);
     if(!started){ pvCtx.moveTo(x,y); started=true; } else pvCtx.lineTo(x,y);
@@ -759,7 +783,7 @@ function drawCharts(){
   invCtx.setLineDash([4,3]);
   invCtx.beginPath();
   for(let iv=0; iv<=24; iv+=0.5){
-    const p = (K/1000)*iv;
+    const p = (kOf(amount)/1000)*iv;
     const [x,y] = toPxINV(iv, Math.min(p,6));
     if(iv===0) invCtx.moveTo(x,y); else invCtx.lineTo(x,y);
   }
@@ -795,19 +819,27 @@ function renderVerify(){
 
   const verifyBody=document.getElementById('verifyBody');
   verifyBody.innerHTML='';
-  const sorted=[...points].sort((a,b)=>a.p-b.p);
+  const sorted=[...points].sort((a,b)=>((a.n||1)-(b.n||1))||(a.p-b.p));
   sorted.forEach((pt,i)=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><span class="dot" style="background:${pt.color}"></span>${i+1}</td><td>${pt.p.toFixed(1)}</td><td>${pt.v.toFixed(1)}</td><td><b>${(pt.p*pt.v).toFixed(1)}</b></td>`;
+    tr.innerHTML=`<td><span class="dot" style="background:${pt.color}"></span>${i+1}</td><td>${(pt.n||1)===1?'1배':(pt.n||1)+'배'}</td><td>${pt.p.toFixed(1)}</td><td>${pt.v.toFixed(1)}</td><td><b>${(pt.p*pt.v).toFixed(1)}</b></td>`;
     verifyBody.appendChild(tr);
   });
-  const pvVals=sorted.map(pt=>pt.p*pt.v);
-  const avg=pvVals.reduce((a,b)=>a+b,0)/pvVals.length;
-  const variance=pvVals.reduce((a,b)=>a+(b-avg)*(b-avg),0)/pvVals.length;
+  /* 같은 양끼리만 모아 평균을 낸다 — 양이 다르면 상수도 다르다 */
+  const groups={};
+  sorted.forEach(pt=>{ const n=pt.n||1; (groups[n]=groups[n]||[]).push(pt.p*pt.v); });
+  const here=groups[amount] && groups[amount].length ? groups[amount] : sorted.map(pt=>pt.p*pt.v);
+  const avg=here.reduce((a,b)=>a+b,0)/here.length;
+  const variance=here.reduce((a,b)=>a+(b-avg)*(b-avg),0)/here.length;
   const cv=(Math.sqrt(variance)/avg*100);
   document.getElementById('avgPV').textContent=avg.toFixed(1)+' atm·mL';
   document.getElementById('cvPV').textContent=cv.toFixed(1)+'%';
+  const keys=Object.keys(groups).sort();
+  document.getElementById('byAmount').textContent = keys.length<2
+    ? '아직 한 가지 양만 재 봤어요 — 양을 바꿔 더 재 보세요'
+    : keys.map(k=>k+'배 → '+(groups[k].reduce((a,b)=>a+b,0)/groups[k].length).toFixed(1)).join(' · ');
   renderVerify._avg=avg;
+  renderVerify._keys=keys.length;
 }
 
 document.getElementById('gradeBtn').addEventListener('click',()=>{
@@ -820,7 +852,10 @@ document.getElementById('gradeBtn').addEventListener('click',()=>{
   result.className='show good';
   result.innerHTML=`Q1. ${relationOk? '정답입니다! 👏':'다시 살펴보세요.'} P × V 값이 거의 일정하다는 것(변동계수 ${document.getElementById('cvPV').textContent})은 압력이 커질수록 부피가 그만큼 작아진다는 <b>반비례</b> 관계를 의미합니다.<br>
     Q2. 예측값 ${isNaN(predict)?'-':predict} mL → ${predictOk? '정답에 가깝습니다! 👏':'다시 계산해 보세요.'} (내 평균 P×V ÷ 2.5 = ${truePredict.toFixed(1)} mL)<br><br>
-    이렇게 <b>내가 직접 측정한 데이터</b>에서 P×V가 항상 비슷한 값으로 나온다는 것을 확인하면, 그것이 바로 보일의 법칙(온도가 일정할 때 압력과 부피는 반비례)이 성립한다는 증거입니다.`;
+    이렇게 <b>내가 직접 측정한 데이터</b>에서 P×V가 항상 비슷한 값으로 나온다는 것을 확인하면, 그것이 바로 보일의 법칙(온도가 일정할 때 압력과 부피는 반비례)이 성립한다는 증거입니다.<br><br>
+    ${renderVerify._keys>1
+      ? '다만 <b>기체의 양을 바꾸면 P×V 값 자체가 달라집니다</b>(위의 「양이 다를 때 P × V」 줄을 보세요). 반비례라는 모양은 같지만, 일정한 상수는 <b>같은 양일 때만</b> 같습니다.'
+      : '아직 한 가지 양만 재 봤어요. <b>기체의 양</b>을 2배로 바꿔 같은 압력에서 다시 재면, P×V 값이 그대로인지 달라지는지 알 수 있습니다.'}`;
 });
 
 function focusCanvas(c){

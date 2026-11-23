@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,22 +439,33 @@ var LAB = (function(){
       var ST = [{s:'A', n:'남부 저지대', t:13.5, row:2, col:0}, {s:'B', n:'남부 산간(해발 400 m)', t:11.0, row:2, col:1}, {s:'C', n:'중부 저지대', t:11.5, row:1, col:0},
         {s:'D', n:'중부 산간(해발 500 m)', t:8.5, row:1, col:1}, {s:'E', n:'북부 낮은 산지(해발 200 m)', t:6.5, row:0, col:1}, {s:'F', n:'북부 저지대', t:7.5, row:0, col:0}];
       var UP = [0, 0.5, 1.0, 1.5, 2.0, 3.0];
-      function ok(t){ return t >= 8 - 1e-9 && t <= 12 + 1e-9; }
-      function list(d){ return ST.filter(function(x){ return ok(x.t + d); }).map(function(x){ return x.s; }); }
+      /* 작물마다 적지로 보는 연평균 기온 띠 (교육용 모형값 — 실제 재배는 강수·일조·서리도 함께 본다) */
+      var CROP = [{n:'사과', lo:8, hi:12}, {n:'감귤', lo:15, hi:18}, {n:'포도', lo:10, hi:16}, {n:'복숭아', lo:12, hi:15}];
+      var CUR = CROP[0];
+      function okWith(t, lo, hi){ return t >= lo - 1e-9 && t <= hi + 1e-9; }
+      function ok(t){ return okWith(t, CUR.lo, CUR.hi); }
+      function listW(d, cp){ return ST.filter(function(x){ return okWith(x.t + d, cp.lo, cp.hi); }).map(function(x){ return x.s; }); }
+      function list(d){ return listW(d, CUR); }
       return {
         sceneHeight: function(w){ return w < 600 ? 440 : 420; },
         idle: '상승폭과 따라갈 지점을 고른 뒤 <b>기온 올리기</b>를 누르세요.',
         shortHint: '+0°C와 +1.5°C를 먼저 기록해 웹툰의 표(B·C·D → D·E·F)를 재현하고, +3.0°C까지 올려 보세요.',
         params: [
           {key:'u', type:'seg', label:'연평균 기온 상승폭', cols:3, value:3, options:UP.map(function(v){ return '+' + f(v, 1) + '°C'; })},
-          {key:'w', type:'seg', label:'따라갈 지점', cols:3, value:1, options:ST.map(function(x){ return x.s + ' ' + x.n.split('(')[0]; })}
+          {key:'w', type:'seg', label:'따라갈 지점', cols:3, value:1, options:ST.map(function(x){ return x.s + ' ' + x.n.split('(')[0]; })},
+          {key:'cr', type:'seg', label:'작물 (적지 기준이 달라져요)', cols:2, value:0, options:CROP.map(function(x){ return x.n + ' ' + x.lo + '~' + x.hi + '°C'; }),
+            note:'기온이 올라갈 때 작물마다 적지가 같은 쪽으로 움직이나요? 사과와 감귤을 같은 상승폭에서 견주어 보세요.'}
         ],
         compute: function(p){
+          CUR = CROP[p.cr];
           var d = UP[p.u], now = list(0), aft = list(d), out = now.filter(function(s){ return aft.indexOf(s) < 0; }), inn = aft.filter(function(s){ return now.indexOf(s) < 0; });
           var x = ST[p.w], nt = x.t + d;
-          return {d:d, now:now, aft:aft, out:out, inn:inn, x:x, nt:nt, okNow:ok(x.t), okAft:ok(nt)};
+          var apN = listW(0, CROP[0]).length, apA = listW(d, CROP[0]).length;
+          return {d:d, now:now, aft:aft, out:out, inn:inn, x:x, nt:nt, okNow:ok(x.t), okAft:ok(nt),
+            cr:p.cr, cp:CROP[p.cr], dn:aft.length - now.length, apple:apA - apN};
         },
         draw: function(c, W, H, p, r, tau){
+          CUR = CROP[p.cr];
           var x0 = 20, x1 = W - 20, y0 = 40, y1 = H - 60, cw = (x1 - x0) / 2, ch = (y1 - y0) / 3, d = r ? UP[p.u] * Math.min(1, tau / 0.8) : 0;
           txt(c, '저지대', x0 + cw / 2, 28, {align:'center', bold:true, color:'#4A5868'}); txt(c, '산간·산지', x0 + cw * 1.5, 28, {align:'center', bold:true, color:'#4A5868'});
           ST.forEach(function(x, i){
@@ -465,29 +478,41 @@ var LAB = (function(){
             else txt(c, ok(t) ? '적지 ○' : '×', cx + 14, cy + ch - 16, {color:'#26313D'});
           });
           if (W < 420) txt(c, '북부', x1, 11, {align:'right', color:'#4A5868', size:12}); else txt(c, '북부', x1, y0 - 4 + 18, {align:'right', color:'#4A5868'});
-          txt(c, '적지 기준 8~12°C · 상승 +' + f(d, 1) + '°C', 14, H - 20, {bold:true});
+          txt(c, CUR.n + ' 적지 기준 ' + CUR.lo + '~' + CUR.hi + '°C · 상승 +' + f(d, 1) + '°C', 14, H - 20, {bold:true});
         },
         stats: function(p, r){
-          return [['상승폭', '+' + f(r.d, 1) + '°C (참고: 실제 우리나라 100여 년 약 +1.6°C)'],
+          return [['작물 · 적지 기준', r.cp.n + ' ' + r.cp.lo + '~' + r.cp.hi + '°C (교육용 모형값)', PAL[6]],
+            ['상승폭', '+' + f(r.d, 1) + '°C (참고: 실제 우리나라 100여 년 약 +1.6°C)'],
+            ['적지 수 변화', (r.dn > 0 ? '늘어남 (+' + r.dn + '곳)' : (r.dn < 0 ? '줄어듦 (' + r.dn + '곳)' : '그대로')) +
+              (r.cr !== 0 ? ' · 같은 상승폭에서 사과는 ' + (r.apple > 0 ? '+' + r.apple : '' + r.apple) + '곳' : ''), r.dn >= 0 ? PAL[1] : PAL[4]],
             ['지금 적지', r.now.join(' · ') || '없음', PAL[1]],
             ['상승 뒤 적지', r.aft.join(' · ') || '없음', PAL[0]],
             ['빠진 지점 / 새로 들어온 지점', (r.out.join(' · ') || '없음') + ' / ' + (r.inn.join(' · ') || '없음'), PAL[4]],
             [r.x.s + ' ' + r.x.n, f(r.x.t, 1) + '°C ' + (r.okNow ? '○' : '×') + ' → ' + f(r.nt, 1) + '°C ' + (r.okAft ? '○' : '×'), PAL[3]]];
         },
-        columns: ['상승폭', '지금 적지', '상승 뒤 적지', '빠짐', '새로 들어옴'],
-        record: function(p, r){ return {u:p.u, aft:r.aft.join(''), out:r.out.join(''), inn:r.inn.join('')}; },
-        row: function(d){ return ['+' + f(UP[d.u], 1) + '°C', 'B·C·D', d.aft.split('').join('·') || '없음', d.out.split('').join('·') || '없음', d.inn.split('').join('·') || '없음']; },
+        columns: ['작물 · 상승폭', '지금 적지', '상승 뒤 적지', '빠짐', '새로 들어옴'],
+        record: function(p, r){ return {u:p.u, cr:p.cr, now:r.now.join(''), aft:r.aft.join(''), out:r.out.join(''), inn:r.inn.join('')}; },
+        row: function(d){ return [CROP[d.cr].n + ' +' + f(UP[d.u], 1) + '°C', (d.now || '').split('').join('·') || '없음', d.aft.split('').join('·') || '없음', d.out.split('').join('·') || '없음', d.inn.split('').join('·') || '없음']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var byc = {}; rec.forEach(function(d){ (byc[d.cr] = byc[d.cr] || {})[d.u] = d; });
+          var ck = Object.keys(byc).map(Number).sort(), ccard = '';
+          if (ck.length >= 2){
+            var us = {}; ck.forEach(function(k){ Object.keys(byc[k]).forEach(function(u){ us[u] = 1; }); });
+            var uk = Object.keys(us).map(Number).sort(function(a, b){ return a - b; });
+            ccard = card('작물마다 적지가 어디로 움직이나', tableHTML(['상승폭'].concat(ck.map(function(k){ return CROP[k].n + ' (' + CROP[k].lo + '~' + CROP[k].hi + '°C)'; })),
+                uk.map(function(u){ return ['+' + f(UP[u], 1) + '°C'].concat(ck.map(function(k){ var d = byc[k][u]; return d ? ((d.aft.split('').join('·') || '없음') + ' (' + d.aft.length + '곳)') : '?'; })); })) +
+              '<p class="ask">같은 상승폭에서 한 작물은 적지가 줄고 다른 작물은 늘었나요? 적지는 기온이 올라가면 늘 북·고지로 간다고 말할 수 있을까요?</p>');
+          }
+          box.innerHTML = '<div class="vgrid">' + ccard +
             card('상승폭별 적지 지점 수 (기록)', '<div id="ap1"></div><p class="ask">상승폭이 커지면 적지는 남쪽·저지대에서 빠지고 북쪽·산간으로 들어옵니다. 같은 1.5°C에서 B(남부 산간)와 D(중부 산간)의 결과가 갈린 까닭은 무엇인가요?</p>') +
             card('웹툰의 표와 비교 (+1.5°C)', '<div id="ap2"></div><p class="ask">과제: 통계청 농작물 생산 조사에서 사과나 감귤류의 시·도별 재배 면적을 10년 이상 간격으로 두 시점 찾아 지도로 비교하고, 면적이 늘거나 준 지역의 위도와 해발 고도를 함께 적어 보세요.</p>') + '</div>';
           var seen = {}, items = [];
-          rec.slice().sort(function(a, b){ return a.u - b.u; }).forEach(function(d){ if (seen[d.u]) return; seen[d.u] = 1;
-            items.push({label:'+' + f(UP[d.u], 1) + '°C', v:d.aft.length, color:PAL[1], text:d.aft.length + '곳 (' + (d.aft.split('').join('·') || '없음') + ')'}); });
+          rec.slice().sort(function(a, b){ return a.u - b.u; }).forEach(function(d){ var kk = d.cr + '_' + d.u; if (seen[kk]) return; seen[kk] = 1;
+            items.push({label:CROP[d.cr].n + ' +' + f(UP[d.u], 1) + '°C', v:d.aft.length, color:d.cr === 0 ? PAL[1] : PAL[6], text:d.aft.length + '곳 (' + (d.aft.split('').join('·') || '없음') + ')'}); });
           $('ap1').innerHTML = hbars(items, 6);
           var ref = ['×', '○', '○', '○', '×', '×'], ref2 = ['×', '×', '×', '○', '○', '○'];
           $('ap2').innerHTML = tableHTML(['지점', '지금 (웹툰/실험)', '+1.5°C 뒤 (웹툰/실험)'], ST.map(function(x, i){
-            return [x.s + ' ' + x.n, f(x.t, 1) + '°C ' + ref[i] + ' / ' + (ok(x.t) ? '○' : '×'), f(x.t + 1.5, 1) + '°C ' + ref2[i] + ' / ' + (ok(x.t + 1.5) ? '○' : '×')]; }));
+            return [x.s + ' ' + x.n, f(x.t, 1) + '°C ' + ref[i] + ' / ' + (okWith(x.t, 8, 12) ? '○' : '×'), f(x.t + 1.5, 1) + '°C ' + ref2[i] + ' / ' + (okWith(x.t + 1.5, 8, 12) ? '○' : '×')]; }));
         }
       };
     })();
@@ -496,7 +521,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -453,7 +455,7 @@ function sim(wi, n){ var q = Q[wi], first = [], fin = [], sw = 0, timeline = [];
   else { var left = []; for (var j = 0; j < n; j++){ left.push(JOB); first.push(null); } var t2 = 0, alive = n; while (alive > 0){ for (var k = 0; k < n; k++){ if (left[k] <= 0) continue; if (first[k] == null) first[k] = t2; var d = Math.min(q, left[k]); timeline.push({p:k, s:t2, e:t2 + d}); t2 += d + 0.1; sw++; left[k] -= d; if (left[k] <= 0){ fin[k] = t2 - 0.1; alive--; } } } }
   return {first:first, fin:fin, sw:sw, timeline:timeline, n:n, wn:WAY[wi].name, avgFirst:mean(first), avgFin:mean(fin), total:Math.max.apply(null, fin), maxFirst:Math.max.apply(null, first)}; }
 return {
-  sceneHeight: 400,
+  sceneHeight: function (w){ return w < 560 ? 456 : 400; },
   idle: '방식과 프로그램 수를 정한 뒤 <b>실행 순서 정하기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 같은 프로그램 수에서 세 방식을 모두 기록하고, 프로그램 수도 바꿔 보세요.',
   params: [
@@ -469,7 +471,12 @@ return {
     var tst = Math.max(1, Math.round(tmax / 8)); while (pw / tmax * tst < 46) tst++;
     for (var t = 0; t <= tmax; t += tst) txt(c, t + '초', X(t), py + n * rowH + 20, {align:'center', color:'#4A5868'});
     var sS = R.wn + ' · 첫 반응 평균 ' + f(R.avgFirst, 1) + '초 · 모두 끝 ' + f(R.total, 1) + '초';
-    if (nar) wrapT(c, sS, 12, H - 34, W - 24, 22, {bold:true});   /* 좁은 화면: 두 줄로 */
+    /* 좁은 화면: 줄 수를 먼저 재서 마지막 줄이 캔버스 안에 들어오게 올려 그린다 */
+    if (nar){ c.font = '700 18px ' + FONT; var wsS = sS.split(' '), lnS = '', nS = 1;
+      for (var q2 = 0; q2 < wsS.length; q2++){ var t2 = lnS ? lnS + ' ' + wsS[q2] : wsS[q2];
+        if (lnS && c.measureText(t2).width > W - 24){ nS++; lnS = wsS[q2]; } else lnS = t2; }
+      wrapT(c, sS, 12, H - 12 - (nS - 1) * 22, W - 24, 22, {bold:true});
+    }
     else txt(c, sS, 12, H - 12, {bold:true});
   },
   stats: function(p, r){
@@ -496,7 +503,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

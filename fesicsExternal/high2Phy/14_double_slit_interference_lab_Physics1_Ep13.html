@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -255,7 +256,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="이중 슬릿으로 빛의 파장 재기 실험 장면"></canvas>
-          <p class="note">무늬 밝기는 이중 슬릿 간섭과 단일 슬릿 회절을 함께 계산한 값입니다. 가운데 밝은 무늬 7개(간격 6개)의 양 끝 거리를 0.5 mm 눈금 자로 읽습니다.</p>
+          <p class="note">무늬 밝기는 이중 슬릿 간섭과 단일 슬릿 회절을 함께 계산한 값입니다. 가운데 밝은 무늬 7개(간격 6개)의 양 끝 거리를 0.5 mm 눈금 자로 읽습니다. 네 번째 ‘?’는 <b>파장을 알려 주지 않는 레이저</b>입니다 — 무늬 간격만으로 파장을 구해 보세요.</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -382,8 +384,10 @@ var LAB = (function(){
 var LASERS = [
   {name:'빨강 (헬륨-네온)', short:'빨강', nm:632.8, color:'#FF3B2F', rgb:[255, 59, 47]},
   {name:'초록', short:'초록', nm:532.0, color:'#2FBF45', rgb:[64, 235, 80]},
-  {name:'보라', short:'보라', nm:405.0, color:'#8B5CF6', rgb:[160, 110, 255]}
+  {name:'보라', short:'보라', nm:405.0, color:'#8B5CF6', rgb:[160, 110, 255]},
+  {name:'미지의 레이저', short:'?', nm:488.0, color:'#13A3C0', rgb:[60, 200, 235], unknown:true}
 ];
+var CAND = [457.9, 488.0, 514.5];   /* 모두 실제 아르곤 이온 레이저의 방출선 */
 var DS = [0.20, 0.25, 0.40, 0.50];   // 슬릿 간격 (mm)
 var A = 0.04e-3, NINT = 6, RULER = 0.5, VIEW = 20;  // 슬릿 폭, 측정 간격 수, 자 눈금(mm), 전체 보기(±mm)
 function inten(ymm, lam, d, L){
@@ -405,7 +409,8 @@ return {
   idle: '레이저, 슬릿 간격, 스크린까지 거리를 정한 뒤 <b>레이저 켜기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 레이저 색, 슬릿 간격, 스크린 거리를 바꿔 가며 기록하세요.',
   params: [
-    {key:'las', type:'seg', label:'레이저', cols:3, value:0, options:LASERS.map(function(l){ return l.short + '<small>' + f(l.nm, 1) + ' nm</small>'; })},
+    {key:'las', type:'seg', label:'레이저', cols:3, value:0, options:LASERS.map(function(l){ return l.short + '<small>' + (l.unknown ? '파장 ?' : f(l.nm, 1) + ' nm') + '</small>'; }),
+      note:'‘?’는 파장을 알려 주지 않는 레이저입니다. 무늬 간격 Δx 와 d, L 로 파장을 구해 보세요.'},
     {key:'d', type:'seg', label:'슬릿 간격 d', value:1, options:DS.map(function(v){ return f(v, 2) + ' mm'; }),
       note:'슬릿 하나의 폭은 0.04 mm입니다.'},
     {key:'L', type:'range', label:'슬릿에서 스크린까지 거리 L', min:0.5, max:2.0, step:0.25, value:1.0, fmt:function(v){ return f(v, 2) + ' m'; }}
@@ -455,7 +460,8 @@ return {
     // 확대 무늬와 자
     var dxT = L * lam / d * 1000, zlo = -4 * dxT, zhi = 4 * dxT, sy2 = 318;
     c.fillStyle = '#4A5868'; c.textAlign = 'left';
-    var zT = '가운데 확대: 밝은 무늬 7개와 자', mmW = c.measureText('mm').width; if (c.measureText(zT).width + mmW + 12 > sw) c.font = '15px ' + FONT; if (c.measureText(zT).width + mmW + 12 > sw) c.font = '13px ' + FONT;
+    var zT = '가운데 확대: 밝은 무늬 7개와 자', mmW = c.measureText('mm').width, zMM = true; if (c.measureText(zT).width + mmW + 12 > sw) c.font = '15px ' + FONT; if (c.measureText(zT).width + mmW + 12 > sw) c.font = '13px ' + FONT;
+    if (c.measureText(zT).width + mmW + 12 > sw){ zT = '가운데 확대 (자 단위: mm)'; zMM = false; }   /* 좁은 화면: 13px 로도 안 들어가면 짧은 제목에 단위를 넣고 따로 쓰지 않는다 */
     c.fillText(zT, sx, sy2 - 20); c.font = '18px ' + FONT;
     strip(c, sx, sy2, sw, 40, zlo, zhi, lam, d, L, las.rgb, bright);
     var Z = function(v){ return sx + (v - zlo) / (zhi - zlo) * sw; };
@@ -470,7 +476,7 @@ return {
       c.lineWidth = 1; c.beginPath(); c.moveTo(Z(t), sy2 + 40); c.lineTo(Z(t), sy2 + 40 + (isMaj ? 14 : 7)); c.stroke();
       if (isMaj) c.fillText(f(t, decOf(major)), Z(t), sy2 + 72);
     }
-    c.textAlign = 'right'; c.fillStyle = '#4A5868'; c.fillText('mm', W - 16, sy2 - 20);
+    c.textAlign = 'right'; c.fillStyle = '#4A5868'; if (zMM) c.fillText('mm', W - 16, sy2 - 20);
     if (r && tau >= 1){
       c.strokeStyle = '#1E2833'; c.fillStyle = '#1E2833'; c.lineWidth = 2;
       for (var k = -3; k <= 3; k++){ var mx = Z(k * dxT); c.beginPath(); c.moveTo(mx, sy2 - 2); c.lineTo(mx - 5, sy2 - 9); c.lineTo(mx + 5, sy2 - 9); c.closePath(); c.fill(); }
@@ -482,23 +488,32 @@ return {
   },
   stats: function(p, r){
     return [
-      ['레이저 파장 λ', f(LASERS[p.las].nm, 1) + ' nm'],
+      ['레이저 파장 λ', LASERS[p.las].unknown ? '? (알려 주지 않음)' : f(LASERS[p.las].nm, 1) + ' nm'],
       ['슬릿 간격 d', f(DS[p.d], 2) + ' mm'],
       ['스크린까지 거리 L', f(p.L, 2) + ' m'],
       ['밝은 무늬 7개 양 끝 거리 (6칸)', f(r.span, 1) + ' mm'],
-      ['무늬 간격 Δx (6칸 ÷ 6)', f(r.dx, 3) + ' mm', LASERS[p.las].color]
+      ['무늬 간격 Δx (6칸 ÷ 6)', f(r.dx, 3) + ' mm', LASERS[p.las].color],
+      ['무늬 간격으로 구한 파장 Δx × d ÷ L', f(r.dx * DS[p.d] / p.L * 1000, 1) + ' nm', LASERS[p.las].unknown ? '#13A3C0' : null]
     ];
   },
   columns: ['레이저', 'λ (nm)', 'd (mm)', 'L (m)', '6칸 거리 (mm)', 'Δx (mm)'],
   record: function(p, r){ return {las:p.las, nm:LASERS[p.las].nm, d:DS[p.d], L:p.L, span:r.span, dx:r.dx}; },
-  row: function(d){ return [dot(LASERS[d.las].color) + LASERS[d.las].short, f(d.nm, 1), f(d.d, 2), f(d.L, 2), f(d.span, 1), f(d.dx, 3)]; },
+  row: function(d){ return [dot(LASERS[d.las].color) + LASERS[d.las].short, LASERS[d.las].unknown ? '?' : f(d.nm, 1), f(d.d, 2), f(d.L, 2), f(d.span, 1), f(d.dx, 3)]; },
   verify: function(rec, box){
-    var used = [0, 1, 2].filter(function(i){ return rec.some(function(d){ return d.las === i; }); });
+    var used = LASERS.map(function(l, i){ return i; }).filter(function(i){ return rec.some(function(d){ return d.las === i; }); });
+    var usedK = used.filter(function(i){ return !LASERS[i].unknown; });
+    var unk = rec.filter(function(d){ return LASERS[d.las].unknown; });
     var ser = function(fx, fy){ return used.map(function(i){ return {color:LASERS[i].color, pts:rec.filter(function(d){ return d.las === i; }).map(function(d){ return {x:fx(d), y:fy(d)}; })}; }); };
-    box.innerHTML = legend(used.map(function(i){ return {color:LASERS[i].color, label:LASERS[i].name + ' ' + f(LASERS[i].nm, 1) + ' nm'}; })) + '<div class="vgrid">' +
+    var quizCard = unk.length
+      ? '<p>후보 셋은 모두 <b>실제로 있는 아르곤 이온 레이저의 방출선</b>입니다. 기록한 무늬 간격으로 파장을 구해(Δx × d ÷ L) 어느 선인지 골라 보세요. 스크린 거리 L 을 크게, 슬릿 간격 d 를 좁게 하면 무늬가 넓어져 더 정확해집니다.</p>' +
+        '<div class="seg c3" id="lamQuiz">' + CAND.map(function(v){ return '<button type="button" data-nm="' + v + '">' + f(v, 1) + ' nm</button>'; }).join('') + '</div>' +
+        '<p class="ask" id="lamFb">단추를 누르면 내 기록과 견주어 알려 줄게요. Δx 는 mm, d 는 mm, L 은 m 단위이니 Δx × d ÷ L × 1000 을 하면 nm 가 됩니다.</p>'
+      : '<p class="msg">레이저에서 <b>?</b>(미지의 레이저)를 골라 두 번 이상 기록해 보세요. 그러면 무늬 간격만으로 파장을 구해 어느 레이저인지 맞혀 볼 수 있어요.</p>';
+    box.innerHTML = legend(used.map(function(i){ return {color:LASERS[i].color, label:LASERS[i].name + (LASERS[i].unknown ? ' (파장 ?)' : ' ' + f(LASERS[i].nm, 1) + ' nm')}; })) + '<div class="vgrid">' +
       card('무늬 간격과 스크린 거리', '<canvas class="chart" id="ch1" role="img" aria-label="이중 슬릿 간섭 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">같은 레이저와 슬릿에서 L을 두 배로 하면 Δx는 어떻게 되나요?</p>') +
       card('무늬 간격과 1 ÷ 슬릿 간격', '<canvas class="chart" id="ch2" role="img" aria-label="이중 슬릿 간섭 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">슬릿 간격이 넓어지면 무늬 간격은 어떻게 되나요?</p>') +
       card('무늬 간격으로 구한 파장', '<canvas class="chart" id="ch3" role="img" aria-label="이중 슬릿 간섭 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro3"></ul><p class="ask">세로축은 기록마다 Δx × d ÷ L로 계산한 값입니다. 차이는 어디에서 생겼을까요? 자의 눈금과 6칸을 재는 방법을 떠올려 보세요.</p>') +
+      card('미지의 레이저는 어느 것일까? — 거꾸로 맞히기', quizCard) +
       '</div>';
     // 1. Δx - L
     var lines = [], ro = [], g = groupBy(rec, function(d){ return d.las + '|' + d.d; });
@@ -529,11 +544,32 @@ return {
     // 3. 계산 파장
     var lamc = function(d){ return d.dx * d.d / d.L * 1000; };   // mm·mm/m → nm
     drawScatter($('ch3'), {xLabel:'레이저 파장 (nm)', yLabel:'Δx·d ÷ L (nm)', square:true, lines:[{k:1, color:'#8C99A8', dash:true}],
-      series:ser(function(d){ return d.nm; }, lamc)});
-    $('ro3').innerHTML = used.map(function(i){
+      series:usedK.map(function(i){ return {color:LASERS[i].color, pts:rec.filter(function(d){ return d.las === i; }).map(function(d){ return {x:d.nm, y:lamc(d)}; })}; })});
+    var li3 = usedK.map(function(i){
       var arr = rec.filter(function(d){ return d.las === i; }), m = mean(arr.map(lamc)), err = (m - LASERS[i].nm) / LASERS[i].nm * 100;
       return '<li>' + dot(LASERS[i].color) + LASERS[i].short + ' 기록 ' + arr.length + '개: 평균 <b>' + f(m, 1) + ' nm</b> (레이저 값과 ' + sgn(err, 1) + '%)</li>';
-    }).join('');
+    });
+    var mUnk = unk.length ? mean(unk.map(lamc)) : 0;
+    if (unk.length) li3.push('<li>' + dot(LASERS[3].color) + '? 기록 ' + unk.length + '개: 무늬 간격으로 구한 파장 평균 <b>' + f(mUnk, 1) + ' nm</b> — 적어 둔 값이 없으니 견줄 상대는 옆 칸에서 골라야 해요.</li>');
+    if (!li3.length) li3.push('<li>파장이 적힌 레이저로도 한 번 기록해 두면, 잰 값과 적힌 값을 견줄 수 있어요.</li>');
+    $('ro3').innerHTML = li3.join('');
+    var sig = 0, near = CAND[0];
+    if (unk.length){
+      sig = mean(unk.map(function(d){ return 0.25 / 6 * d.d / d.L * 1000; })) / Math.sqrt(unk.length);
+      CAND.forEach(function(v){ if (Math.abs(v - mUnk) < Math.abs(near - mUnk)) near = v; });
+    }
+    var qd = $('lamQuiz');
+    if (qd) Array.prototype.forEach.call(qd.querySelectorAll('button'), function(b){
+      b.addEventListener('click', function(){
+        var v = parseFloat(b.getAttribute('data-nm')), gap = Math.abs(mUnk - v);
+        Array.prototype.forEach.call(qd.querySelectorAll('button'), function(x){ x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+        var msg;
+        if (sig > 12) msg = '<b>아직 가릴 수 없어요.</b> 지금 기록으로 구한 파장은 ' + f(mUnk, 1) + ' nm 인데, 0.5 mm 자 눈금 때문에 ±' + f(sig, 1) + ' nm 쯤 흔들려요. 후보 사이 간격(약 30 nm)보다 커서 셋을 가릴 수 없습니다. 스크린 거리 L 을 크게, 슬릿 간격 d 를 좁게 해 무늬를 넓힌 뒤 여러 번 기록해 보세요.';
+        else if (v === near) msg = '<b>맞았어요.</b> 무늬 간격으로 구한 파장 ' + f(mUnk, 1) + ' nm 는 후보 가운데 ' + f(v, 1) + ' nm 선에 가장 가까워요(차이 ' + f(gap, 1) + ' nm, 자 눈금에서 오는 흔들림 ±' + f(sig, 1) + ' nm).';
+        else msg = '<b>아니에요.</b> 무늬 간격으로 구한 파장 ' + f(mUnk, 1) + ' nm 는 ' + f(near, 1) + ' nm 선에 더 가까워요. 고른 ' + f(v, 1) + ' nm 와는 ' + f(gap, 1) + ' nm 차이로, 자 눈금에서 오는 흔들림 ±' + f(sig, 1) + ' nm 보다 큽니다.';
+        $('lamFb').innerHTML = msg;
+      });
+    });
   }
 };
 })();
@@ -542,7 +578,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

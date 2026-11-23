@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,18 +439,24 @@ var LAB = (function(){
         {name:'뉴클레오타이드(dAMP) → DNA 가닥', s:'DNA 가닥', M:331.22, bond:'포스포다이에스터 결합', color:PAL[3]},
         {name:'글리세롤 + 지방산 → 중성지방', s:'중성지방', M:0, bond:'에스터 결합', color:PAL[2]}
       ], W18 = 18.02;
+      var GUESS = ['단위체 질량만큼 늘어난다', '단위체 질량 − 18.02 만큼 늘어난다', 'n 과 상관없다'];
       return {
         sceneHeight:360,
         idle:'단위체와 개수 n을 고른 뒤 <b>이어 붙이기</b>를 누르세요.',
         shortHint:'한 종류로 n을 5·20·50으로 바꿔 기록한 뒤 기울기를 보세요. 중성지방도 n에 따라 커지나요?',
         params:[
           {key:'m', type:'seg', label:'단위체', cols:2, value:0, options:MO.map(function(x){ return x.name; })},
-          {key:'n', type:'range', label:'이을 단위체 수 n', min:2, max:50, step:1, value:10, fmt:function(v){ return v + '개'; }}
+          {key:'n', type:'range', label:'이을 단위체 수 n', min:2, max:50, step:1, value:10, fmt:function(v){ return v + '개'; }},
+          {key:'gs', type:'seg', label:'짐작 — n 이 1 늘면 분자량은', value:0, options:GUESS,
+            note:'이어 붙이기 전에 먼저 고르세요. 결합이 생길 때마다 물 한 분자가 빠집니다.'}
         ],
         compute:function(p){
           var m = MO[p.m], n = p.n;
-          if (p.m === 3){ return {m:m, n:3, lipid:true, water:3, sum:92.09 + 3 * 256.42, mass:92.09 + 3 * 256.42 - 3 * W18}; }
-          return {m:m, n:n, lipid:false, water:n - 1, sum:n * m.M, mass:n * m.M - (n - 1) * W18};
+          var ans = p.m === 3 ? 2 : 1, step = p.m === 3 ? 0 : m.M - W18;
+          if (p.m === 3){ return {m:m, n:3, lipid:true, water:3, sum:92.09 + 3 * 256.42, mass:92.09 + 3 * 256.42 - 3 * W18,
+            gs:p.gs, ans:ans, hit:(p.gs === ans), step:step}; }
+          return {m:m, n:n, lipid:false, water:n - 1, sum:n * m.M, mass:n * m.M - (n - 1) * W18,
+            gs:p.gs, ans:ans, hit:(p.gs === ans), step:step};
         },
         draw:function(c, W, H, p, r, tau){
           var m = MO[p.m], k = r ? Math.min(tau / 0.8, 1) : 0, y = 150;
@@ -476,18 +484,24 @@ var LAB = (function(){
         },
         stats:function(p, r){
           if (r.lipid) return [['분자', '중성지방 (트라이팔미틴)'], ['결합', '에스터 결합 3개'], ['빠진 물', '3분자'],
-            ['분자량', f(r.mass, 2) + ' g/mol', PAL[2]], ['중합체인가?', 'n과 무관 — 반복 단위 중합체가 아님', PAL[4]]];
+            ['분자량', f(r.mass, 2) + ' g/mol', PAL[2]], ['중합체인가?', 'n과 무관 — 반복 단위 중합체가 아님', PAL[4]],
+            ['n 이 1 늘 때 실제 변화', '0 g/mol (지방산 3개로 고정)', PAL[3]],
+            ['나의 짐작', GUESS[r.gs] + (r.hit ? ' — 맞힘' : ' — 빗나감'), r.hit ? PAL[1] : PAL[4]]];
           return [['중합체', r.m.s + ' (단위체 ' + r.n + '개)'], ['결합 수', (r.n - 1) + '개 — ' + r.m.bond],
             ['빠진 물', r.water + '분자 (' + f(r.water * 18.02, 2) + ' g/mol)', PAL[5]],
             ['단위체 질량 합', f(r.sum, 2) + ' g/mol'], ['중합체 분자량', f(r.mass, 2) + ' g/mol', PAL[0]],
-            ['잔기 질량 (M − 18.02)', f(r.m.M - 18.02, 2) + ' g/mol']];
+            ['잔기 질량 (M − 18.02)', f(r.m.M - 18.02, 2) + ' g/mol'],
+            ['n 이 1 늘 때 실제 변화', f(r.step, 2) + ' g/mol (= ' + f(r.m.M, 2) + ' − 18.02)', PAL[3]],
+            ['나의 짐작', GUESS[r.gs] + (r.hit ? ' — 맞힘' : ' — 빗나감'), r.hit ? PAL[1] : PAL[4]]];
         },
-        columns:['분자', 'n', '빠진 물', '분자량(g/mol)'],
-        record:function(p, r){ return {m:p.m, n:r.n, w:r.water, mass:r.mass}; },
-        row:function(d){ return [MO[d.m].s, d.n, d.w, f(d.mass, 2)]; },
+        columns:['분자', 'n', '빠진 물', '분자량(g/mol)', 'n+1 변화', '짐작', '맞힘'],
+        record:function(p, r){ return {m:p.m, n:r.n, w:r.water, mass:r.mass, gs:r.gs, hit:r.hit, step:r.step}; },
+        row:function(d){ return [MO[d.m].s, d.n, d.w, f(d.mass, 2),
+          d.step == null ? '−' : f(d.step, 2), d.gs == null ? '−' : GUESS[d.gs], d.gs == null ? '−' : (d.hit ? '○' : '×')]; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('n에 따른 분자량', '<canvas class="chart" id="pm1"></canvas>' + legend(MO.map(function(m){ return {label:m.s, color:m.color}; })) + '<p class="ask">직선의 기울기가 단위체 분자량보다 18.02만큼 작았나요? 그 18.02는 무엇인가요?</p>') +
+            card('짐작 채점', '<div id="pm3"></div><p class="ask">왜 단위체 질량보다 18.02 작게 늘어날까요? 중성지방에서는 왜 n 이 아무 뜻도 없었나요?</p>') +
             card('기울기 = 잔기 질량 확인', '<div id="pm2"></div><p class="ask">과제: 아미노산 300개로 된 단백질을 완전히 가수분해하려면 물이 몇 분자 필요할까요? 평균 잔기 질량 110으로 이 단백질의 분자량도 어림해 보세요.</p>') + '</div>';
           drawScatter($('pm1'), {series:MO.map(function(m, i){ return {color:m.color, pts:rec.filter(function(d){ return d.m === i; }).map(function(d){ return {x:d.n, y:d.mass}; })}; }), xLabel:'단위체 수 n', yLabel:'분자량 (g/mol)'});
           var rows = [];
@@ -499,6 +513,15 @@ var LAB = (function(){
             rows.push([m.s, pts.length + '회', f(L.k, 2), f(m.M - 18.02, 2)]);
           });
           $('pm2').innerHTML = tableHTML(['중합체', '기록', '측정 기울기', '잔기 질량 M − 18.02'], rows);
+          (function(){
+            var gr = rec.filter(function(d){ return d.gs != null; });
+            if (!gr.length){ $('pm3').innerHTML = '<p class="msg">짐작을 고르고 이어 붙이면 여기에서 채점해 줍니다.</p>'; return; }
+            var hit = gr.filter(function(d){ return d.hit; }).length;
+            $('pm3').innerHTML = '<p>짐작 <b>' + hit + ' / ' + gr.length + '</b> 맞혔습니다.</p>' +
+              tableHTML(['분자', '나의 짐작', 'n+1 일 때 실제 변화', '맞힘'],
+                gr.map(function(d){ return [MO[d.m].s, GUESS[d.gs], f(d.step, 2) + ' g/mol', d.hit ? '○' : '×']; })) +
+              '<p class="msg">결합이 하나 생길 때마다 물 한 분자(18.02)가 빠지므로, 분자량은 단위체 질량이 아니라 <b>잔기 질량</b>만큼 늘어납니다. 중성지방은 지방산 3개로 끝나므로 n 을 올려도 변하지 않습니다.</p>';
+          })();
         }
       };
     })();
@@ -507,7 +530,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

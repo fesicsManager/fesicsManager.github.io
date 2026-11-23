@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -466,11 +468,20 @@ var LAB = (function(){
           return {s:s, truth:truth, here:here, ok:(p.j === 0) === truth, flagged:flagged};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var gx = 120, gy = 60, gw = (W - gx - 24) / 2, gh = 130, rd = p.rd, k = r ? Math.min(1, tau / 0.7) : 0, i;
-          tw(c, '출석 80% 이상', gx + gw / 2, gy - 14, gw - 6, {align:'center', bold:true});
-          tw(c, '출석 80% 미만', gx + gw * 1.5, gy - 14, gw - 6, {align:'center', bold:true});
-          tw(c, '합격', 60, gy + gh / 2 + 6, 100, {align:'center', bold:true});
-          tw(c, '불합격', 60, gy + gh * 1.5 + 6, 100, {align:'center', bold:true});
+          var narrow = W < 560;
+          /* 좁은 화면: 표 자리를 왼쪽으로 당기고 칸 이름을 두 줄로 적는다 */
+          var gx = narrow ? 58 : 120, gy = narrow ? 80 : 60, gw = (W - gx - (narrow ? 12 : 24)) / 2, gh = 130, rd = p.rd, k = r ? Math.min(1, tau / 0.7) : 0, i;
+          if (narrow){
+            tw(c, '출석 80%', gx + gw / 2, gy - 32, gw - 4, {align:'center', bold:true});
+            tw(c, '이상', gx + gw / 2, gy - 12, gw - 4, {align:'center', bold:true});
+            tw(c, '출석 80%', gx + gw * 1.5, gy - 32, gw - 4, {align:'center', bold:true});
+            tw(c, '미만', gx + gw * 1.5, gy - 12, gw - 4, {align:'center', bold:true});
+          } else {
+            tw(c, '출석 80% 이상', gx + gw / 2, gy - 14, gw - 6, {align:'center', bold:true});
+            tw(c, '출석 80% 미만', gx + gw * 1.5, gy - 14, gw - 6, {align:'center', bold:true});
+          }
+          tw(c, '합격', narrow ? gx / 2 : 60, gy + gh / 2 + 6, narrow ? gx - 10 : 100, {align:'center', bold:true});
+          tw(c, '불합격', narrow ? gx / 2 : 60, gy + gh * 1.5 + 6, narrow ? gx - 10 : 100, {align:'center', bold:true});
           for (var row = 0; row < 2; row++) for (var col = 0; col < 2; col++){
             var pass = row === 0, ok80 = col === 0;
             var bad = rd === 0 ? (pass && !ok80) : rd === 1 ? (ok80 && !pass) : ((pass && !ok80) || (ok80 && !pass));
@@ -482,11 +493,11 @@ var LAB = (function(){
           for (i = 0; i < ST.length; i++){
             var s = ST[i], col2 = s.a >= 80 ? 0 : 1, row2 = s.pass ? 0 : 1, sel = i === p.s, key = col2 + '_' + row2;
             slot[key] = (slot[key] || 0) + 1;
-            var tx = gx + col2 * gw + 34 + (slot[key] - 1) * Math.min(60, (gw - 60) / 2), ty = gy + row2 * gh + 46;
+            var tx = gx + col2 * gw + (narrow ? 16 : 34) + (slot[key] - 1) * (narrow ? 26 : Math.min(60, (gw - 60) / 2)), ty = gy + row2 * gh + 46;
             if (sel && r){ var sx = W / 2, sy = H - 60; tx = sx + (tx - sx) * k; ty = sy + (ty - sy) * k; }
-            c.fillStyle = sel ? PAL[0] : '#A8B4C2'; c.beginPath(); c.arc(tx, ty, sel ? 18 : 14, 0, Math.PI * 2); c.fill();
+            c.fillStyle = sel ? PAL[0] : '#A8B4C2'; c.beginPath(); c.arc(tx, ty, narrow ? (sel ? 13 : 11) : (sel ? 18 : 14), 0, Math.PI * 2); c.fill();
             txt(c, s.n, tx, ty + 6, {align:'center', bold:true, color:'#fff'});
-            if (sel) tw(c, s.a + '%', tx, ty + 40, 80, {align:'center', color:'#4A5868'});
+            if (sel) tw(c, s.a + '%', tx, ty + (narrow ? 32 : 40), narrow ? 48 : 80, {align:'center', color:'#4A5868'});
           }
           if (!r){ tfit(c, RD[rd].name, 20, H - 18, {color:'#4A5868'}); return; }
           if (tau >= 1){
@@ -524,7 +535,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

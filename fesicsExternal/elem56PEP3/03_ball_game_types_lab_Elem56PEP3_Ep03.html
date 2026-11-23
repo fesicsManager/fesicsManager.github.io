@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>공 경기는 다 이기는 법이 같을까</h1>
-    <p><b>경기</b>를 고르고, 그 경기가 어느 무리인지 <b>먼저 예측</b>해 보세요. 질문 두 개(네트로 땅이 나뉘나? 공격·수비를 차례로 바꾸나?)를 따라가면 전략형 스포츠의 세 유형 중 어디인지 나와요.<br><span style="font-size:.9em;color:#a86825">※ 분류는 웹툰의 경기 분류 질문표를 따랐어요. 놀이로 해 볼 때는 넓은 곳에서 풍선이나 가벼운 공으로 하고, 아프거나 어지러우면 바로 멈추고 어른에게 말하세요.</span></p>
+    <p><b>경기</b>를 고르고, 질문 두 개(네트로 땅이 나뉘나? 공격·수비를 차례로 바꾸나?)에 <b>내가 직접 답</b>해 보세요. 내 답을 따라가면 어느 무리로 떨어지는지 나오고, 실제 분류와 견줄 수 있어요.<br><span style="font-size:.9em;color:#a86825">※ 분류는 웹툰의 경기 분류 질문표를 따랐어요. 놀이로 해 볼 때는 넓은 곳에서 풍선이나 가벼운 공으로 하고, 아프거나 어지러우면 바로 멈추고 어른에게 말하세요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -442,19 +444,23 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 460,
-        idle: '경기와 내 예측을 고르고 <b>질문표로 나누기</b>를 누르세요.',
-        shortHint: '다섯 경기를 모두 나눠 보세요. 배드민턴과 같은 무리는 어느 경기인가요?',
+        idle: '경기를 고르고 두 질문에 답한 뒤 <b>질문표로 나누기</b>를 누르세요.',
+        shortHint: '다섯 경기를 모두 나눠 보고, 질문에 일부러 다르게 답해 어디로 떨어지는지도 보세요.',
         params: [
           {key:'g', type:'seg', label:'경기', cols:3, value:3, options:G.map(function(x){ return x.n; })},
-          {key:'y', type:'seg', label:'내 예측: 이 경기는 어느 무리일까?', cols:3, value:0, options:TY}
+          {key:'q1', type:'seg', label:'① 네트로 땅이 나뉘나?', cols:2, value:1, options:['예', '아니요']},
+          {key:'q2', type:'seg', label:'② 공격·수비를 차례로 바꾸나?', cols:2, value:1, options:['예', '아니요'], note:'①에 "예"라고 답하면 ②는 묻지 않아요.'}
         ],
         compute: function(p){
           var g = G[p.g], same = G.filter(function(x, i){ return x.ty === g.ty && i !== p.g; }).map(function(x){ return x.n; });
-          return {ty:g.ty, net:g.net, turn:g.turn, how:g.how, ok:p.y === g.ty, same:same};
+          var my = p.q1 === 0 ? 1 : (p.q2 === 0 ? 2 : 0);   /* 내 답이 데려간 무리 */
+          return {ty:g.ty, net:g.net, turn:g.turn, how:g.how, my:my, ok:my === g.ty, same:same,
+            w1:(p.q1 === 0) !== (g.net === 1), w2:p.q1 === 1 && ((p.q2 === 0) !== (g.turn === 1))};
         },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#F4F1E8'; c.fillRect(0, 0, W, H);
           var g = G[p.g], cw = Math.min(W - 40, 360), cx = (W - cw) / 2, cy = 14, ch = 150;
+          var my = r ? r.my : (p.q1 === 0 ? 1 : (p.q2 === 0 ? 2 : 0));
           c.fillStyle = '#7FB069'; c.fillRect(cx, cy, cw, ch); c.strokeStyle = '#FFFFFF'; c.lineWidth = 2; c.strokeRect(cx + 6, cy + 6, cw - 12, ch - 12);
           var k = r ? Math.min(1, tau / 0.5) : 0, bt = tau * 6;
           if (g.ty === 0){
@@ -483,33 +489,53 @@ var LAB = (function(){
           txt(c, g.n, cx + 10, cy + 26, {bold:true, color:'#FFFFFF'});
           var ty0 = cy + ch + 40, bh = 34, step = r ? Math.min(3, Math.floor(tau * 4)) : -1;
           var qw = Math.min(230, W - 32 - 76 - 24), aw = 76, LX = 16, RX = W - 16 - aw, r1 = ty0, r2 = ty0 + 64, r3 = ty0 + 128;
-          var gNet = step > 0 && g.net, gNo = step > 0 && !g.net, gArea = step > 1 && !g.net && !g.turn, gField = step > 1 && g.turn;
+          /* 질문에 내가 답한 대로 길이 켜진다 */
+          var a1 = p.q1 === 0, a2 = p.q2 === 0;
+          var gNet = step > 0 && a1, gNo = step > 0 && !a1, gArea = step > 1 && !a1 && !a2, gField = step > 1 && !a1 && a2;
           function ln(x1, y1, x2, y2, on){ seg(c, x1, y1, x2, y2, on ? '#2E9E78' : '#8C99A8', on ? 4 : 1.5); }
+          if (W < 560){
+            var bw2 = W - 32, aw2 = Math.min(90, bw2 - 70), q1y = ty0, a1y = q1y + bh + 8, q2y = a1y + bh + 16, a2y = q2y + bh + 8, a3y = a2y + bh + 8;
+            box(c, LX, q1y, bw2, bh, '네트로 땅이 나뉘나?', step === 0, step > 0);
+            txt(c, '예' + ' \u2192', LX + 4, a1y + bh / 2 + 6, {color:gNet ? '#1F6B4F' : '#4A5868', bold:gNet});
+            box(c, LX + bw2 - aw2, a1y, aw2, bh, '네트형', step >= 2 && my === 1, false);
+            box(c, LX, q2y, bw2, bh, '공수를 차례로 바꾸나?', step === 1 && !a1, step > 1 && !a1);
+            txt(c, '예' + ' \u2192', LX + 4, a2y + bh / 2 + 6, {color:gField ? '#1F6B4F' : '#4A5868', bold:gField});
+            box(c, LX + bw2 - aw2, a2y, aw2, bh, '필드형', step >= 2 && my === 2, false);
+            txt(c, '아니요' + ' \u2192', LX + 4, a3y + bh / 2 + 6, {color:gArea ? '#1F6B4F' : '#4A5868', bold:gArea});
+            box(c, LX + bw2 - aw2, a3y, aw2, bh, '영역형', step >= 2 && my === 0, false);
+          } else {
           ln(LX + qw, r1 + bh / 2, RX, r1 + bh / 2, gNet); txt(c, '예', (LX + qw + RX) / 2, r1 + bh / 2 - 6, {align:'center', color:'#4A5868'});
           ln(LX + 30, r1 + bh, LX + 30, r2, gNo); txt(c, '아니요', LX + 38, r1 + bh + 22, {color:'#4A5868'});
           ln(LX + 30, r2 + bh, LX + 30, r3, gArea); txt(c, '아니요', LX + 38, r2 + bh + 22, {color:'#4A5868'});
           ln(LX + qw, r2 + bh / 2, RX + aw / 2, r2 + bh / 2, gField); ln(RX + aw / 2, r2 + bh / 2, RX + aw / 2, r3, gField); txt(c, '예', (LX + qw + RX + aw / 2) / 2, r2 + bh / 2 - 6, {align:'center', color:'#4A5868'});
           box(c, LX, r1, qw, bh, '네트로 땅이 나뉘나?', step === 0, step > 0);
-          box(c, RX, r1, aw, bh, '네트형', step >= 2 && g.ty === 1, false);
-          box(c, LX, r2, qw, bh, '공수를 차례로 바꾸나?', step === 1 && !g.net, step > 1 && !g.net);
-          box(c, LX, r3, aw, bh, '영역형', step >= 2 && g.ty === 0, false);
-          box(c, RX, r3, aw, bh, '필드형', step >= 2 && g.ty === 2, false);
-          if (r && tau >= 0.95) txt(c, '내 예측 ' + TY[p.y] + ' → ' + (r.ok ? '맞았어요!' : '실제는 ' + TY[r.ty]), W / 2, H - 12, {align:'center', bold:true, color:r.ok ? PAL[1] : PAL[4]});
+          box(c, RX, r1, aw, bh, '네트형', step >= 2 && my === 1, false);
+          box(c, LX, r2, qw, bh, '공수를 차례로 바꾸나?', step === 1 && !a1, step > 1 && !a1);
+          box(c, LX, r3, aw, bh, '영역형', step >= 2 && my === 0, false);
+          box(c, RX, r3, aw, bh, '필드형', step >= 2 && my === 2, false);
+          }
+          if (r && tau >= 0.95) txt(c, '내 답 → ' + TY[my] + (r.ok ? ' (맞았어요!)' : ' / 실제는 ' + TY[r.ty]), W / 2, H - 12, {align:'center', bold:true, color:r.ok ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
-          return [['경기', G[p.g].n], ['네트로 땅이 나뉘나', r.net ? '○' : '×'], ['공격·수비를 차례로 바꾸나', r.turn ? '○' : '×'], ['점수 얻는 법', r.how],
-            ['유형', TY[r.ty], PAL[0]], ['내 예측', TY[p.y] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]], ['같은 무리 경기', r.same.join(', ') || '이 표에서는 없음'], ['작전 한 줄', TAC[r.ty], PAL[7]]];
+          return [['경기', G[p.g].n],
+            ['① 내 답 / 실제', (p.q1 === 0 ? '예' : '아니요') + ' / ' + (r.net ? '예' : '아니요'), r.w1 ? PAL[4] : PAL[1]],
+            ['② 내 답 / 실제', p.q1 === 0 ? '묻지 않음' : (p.q2 === 0 ? '예' : '아니요') + ' / ' + (r.turn ? '예' : '아니요'), r.w2 ? PAL[4] : PAL[1]],
+            ['내 답이 데려간 무리', TY[r.my], r.ok ? PAL[1] : PAL[4]],
+            ['실제 유형', TY[r.ty], PAL[0]],
+            ['어긋난 까닭', r.ok ? '두 질문에 모두 바르게 답했어요' : (r.w1 ? '① 네트 질문의 답이 달라 엉뚱한 무리로 갔어요' : '② 공수 교대 질문의 답이 달라 엉뚱한 무리로 갔어요'), r.ok ? PAL[1] : PAL[4]],
+            ['점수 얻는 법', r.how], ['같은 무리 경기', r.same.join(', ') || '이 표에서는 없음'], ['작전 한 줄', TAC[r.ty], PAL[7]]];
         },
-        columns: ['경기', '네트', '공수 교대', '유형', '내 예측'],
-        record: function(p, r){ return {g:p.g, y:p.y, ty:r.ty, ok:r.ok}; },
-        row: function(d){ return [G[d.g].n, G[d.g].net ? '○' : '×', G[d.g].turn ? '○' : '×', TY[d.ty], d.ok ? '맞음' : '다름']; },
+        columns: ['경기', '① 내 답', '② 내 답', '내 무리', '실제'],
+        record: function(p, r){ return {g:p.g, q1:p.q1, q2:p.q2, my:r.my, ty:r.ty, ok:r.ok}; },
+        row: function(d){ return [G[d.g].n, d.q1 === 0 ? '예' : '아니요', d.q1 === 0 ? '—' : (d.q2 === 0 ? '예' : '아니요'), TY[d.my], TY[d.ty] + (d.ok ? ' ○' : ' ✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('경기 분류 질문표 (내가 나눈 경기)', '<div id="bg1"></div><p class="ask">배드민턴과 점수 얻는 법이 가장 닮은 경기는 무엇인가요? 축구와 배드민턴은 왜 다른 무리일까요?</p>') +
+            card('경기 분류 질문표 (내가 나눈 경기)', '<div id="bg1"></div><p class="ask">질문에 일부러 틀리게 답하면 어느 무리로 떨어졌나요? 배드민턴과 점수 얻는 법이 가장 닮은 경기는 무엇인가요?</p>') +
             card('유형별 모아 보기와 작전', '<div id="bg2"></div><p class="ask">과제: 보거나 해 본 공 경기 다섯 가지(예: 탁구, 핸드볼, 발야구, 족구, 피구)를 질문표로 나눠 보고, 나누기 어려운 경기는 왜 어려운지 적어 보세요. 놀이로 해 볼 때는 넓은 곳에서 풍선이나 가벼운 공으로. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
           var seen = {}, okN = 0, n = 0; rec.forEach(function(d){ seen[d.g] = 1; n++; if (d.ok) okN++; });
+          var wrongN = n - okN;
           var ks = Object.keys(seen).sort();
-          $('bg1').innerHTML = tableHTML(['경기', '네트로 나뉘나', '공수 교대', '점수 얻는 법', '유형'], ks.map(function(k){ var g = G[k]; return [g.n, g.net ? '○' : '×', g.turn ? '○' : '×', g.how, '<b>' + TY[g.ty] + '</b>']; })) + '<p>내 예측이 맞은 기록: ' + n + '번 중 ' + okN + '번</p>';
+          $('bg1').innerHTML = tableHTML(['경기', '네트로 나뉘나', '공수 교대', '점수 얻는 법', '유형'], ks.map(function(k){ var g = G[k]; return [g.n, g.net ? '○' : '×', g.turn ? '○' : '×', g.how, '<b>' + TY[g.ty] + '</b>']; })) + '<p>내 답이 실제와 맞은 기록: ' + n + '번 중 ' + okN + '번 (엉뚱한 무리로 간 기록 ' + wrongN + '번)</p>';
           $('bg2').innerHTML = tableHTML(['유형', '내가 나눈 경기', '작전 한 줄'], TY.map(function(t, i){ var gs = ks.filter(function(k){ return G[k].ty === i; }).map(function(k){ return G[k].n; }); return [t, gs.join(', ') || '—', TAC[i]]; }));
         }
       };
@@ -519,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -258,6 +258,19 @@ tbody tr:nth-child(even){background:#f7faf9;}
             </div>
             <div class="control-label">분당 호흡수(직접 정하기): <span class="slider-val" id="rateVal">16</span> 회</div>
             <input type="range" id="rateSlider" min="12" max="40" step="2" value="16" aria-label="분당 호흡수">
+            <div class="control-label">숨 한 번의 깊이</div>
+            <div class="btn-row" id="depthButtons">
+              <button class="btn-choice active" data-tv="0">모형대로(자동)</button>
+              <button class="btn-choice" data-tv="300">얕고 빠르게 300mL</button>
+              <button class="btn-choice" data-tv="1000">깊고 느리게 1000mL</button>
+            </div>
+            <div class="control-label">1회 호흡량(직접 정하기): <span class="slider-val" id="tvVal">자동</span></div>
+            <input type="range" id="tvSlider" min="150" max="1500" step="50" value="500" aria-label="1회 호흡량">
+            <div class="control-label">숨길에 남는 공기(150mL)를 셀까요?</div>
+            <div class="btn-row" id="deadButtons">
+              <button class="btn-choice active" data-dead="0">무시하기</button>
+              <button class="btn-choice" data-dead="1">세어 넣기</button>
+            </div>
             <button class="btn-main" id="runBtn">1분 동안 숨 세어보기 ▶</button>
             <div class="result-box" id="bResult">상태를 고르고 버튼을 누르면, 1분 동안 마신 공기와 <b>몸이 가져간 산소</b>가 얼마인지 보여줍니다.</div>
           </div>
@@ -266,7 +279,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="bCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>상태</th><th>분당 호흡수</th><th>마신 공기(L/분)</th><th>얻은 산소(L/분)</th><th>하루 산소(L)</th></tr></thead>
+              <thead><tr><th>번호</th><th>1회 호흡량(mL)</th><th>분당 호흡수</th><th>마신 공기(L/분)</th><th>허파까지(L/분)</th><th>얻은 산소(L/분)</th></tr></thead>
               <tbody id="bTableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
@@ -583,9 +596,20 @@ function label(ctx,x,y,text,color,size,align){
 들숨의 산소 21%, 날숨의 산소 16%(차이 5%로 고정). 실제는 개인·운동 강도에 따라 다름.
 =========================================== */
 var TIDAL_ML=500, TIDAL_MAX_ML=1500, IN_PCT=21, OUT_PCT=16;
-function tidalMl(rate){ return TIDAL_ML + (TIDAL_MAX_ML-TIDAL_ML)*clamp((rate-16)/24,0,1); }
+/* 숨길(코·목·기관)에 남아 허파에 닿지 못하는 공기 — 교육용 모형값 150mL */
+var DEAD_ML=150;
+var manualTv=0, useDead=false;
+function tidalMl(rate){
+  if(manualTv>0) return manualTv;
+  return TIDAL_ML + (TIDAL_MAX_ML-TIDAL_ML)*clamp((rate-16)/24,0,1);
+}
 function airPerMinL(rate){ return rate*tidalMl(rate)/1000; }
-function oxygenPerMinL(rate){ return airPerMinL(rate)*(IN_PCT-OUT_PCT)/100; }
+/* 허파까지 닿는 공기 — 숨길에 남는 공기를 셀 때만 빼 준다 */
+function effAirPerMinL(rate){
+  if(!useDead) return airPerMinL(rate);
+  return rate*Math.max(0, tidalMl(rate)-DEAD_ML)/1000;
+}
+function oxygenPerMinL(rate){ return effAirPerMinL(rate)*(IN_PCT-OUT_PCT)/100; }
 function oxygenPerDayL(rate){ return oxygenPerMinL(rate)*60*24; }
 
 var STATES=[{rate:16,name:'쉴 때',cls:'rest'},{rate:24,name:'걸을 때',cls:'walk'},{rate:40,name:'달릴 때',cls:'run'}];
@@ -615,6 +639,32 @@ function syncStateButtons(){
     x.classList.toggle('active', parseInt(x.dataset.rate,10)===rate);
   });
 }
+function syncDepth(){
+  document.querySelectorAll('#depthButtons .btn-choice').forEach(function(x){
+    x.classList.toggle('active', parseInt(x.dataset.tv,10)===manualTv);
+  });
+  document.getElementById('tvVal').textContent = manualTv>0 ? (manualTv+' mL') : '자동';
+}
+document.querySelectorAll('#depthButtons .btn-choice').forEach(function(b){
+  b.addEventListener('click',function(){
+    manualTv=parseInt(b.dataset.tv,10);
+    if(manualTv>0) document.getElementById('tvSlider').value=manualTv;
+    syncDepth(); resetResult(); drawLungs(0);
+  });
+});
+document.getElementById('tvSlider').addEventListener('input',function(e){
+  manualTv=parseInt(e.target.value,10);
+  syncDepth(); resetResult(); drawLungs(0);
+});
+document.querySelectorAll('#deadButtons .btn-choice').forEach(function(b){
+  b.addEventListener('click',function(){
+    useDead = b.dataset.dead==='1';
+    document.querySelectorAll('#deadButtons .btn-choice').forEach(function(x){
+      x.classList.toggle('active', (x.dataset.dead==='1')===useDead);
+    });
+    resetResult(); drawLungs(0);
+  });
+});
 function resetResult(){
   var box=document.getElementById('bResult');
   box.className='result-box';
@@ -745,19 +795,23 @@ function drawLungs(p){
                              : (p>0 ? (goingIn?'들이마시는 중':'내쉬는 중') : '실행 버튼을 눌러주세요')),
           'rgba(255,255,255,0.95)', '#173238', 20);
 }
+syncDepth();
 drawLungs(0);
 
 document.getElementById('runBtn').addEventListener('click',function(){
   var btn=document.getElementById('runBtn');
   runAnim(btn, bCanvas, 4200, drawLungs, function(){
     var st=stateOf(rate);
-    records.push({ state:st.name, cls:st.cls, rate:rate,
-                   air:airPerMinL(rate), o2:oxygenPerMinL(rate), o2day:oxygenPerDayL(rate) });
+    records.push({ state:st.name, cls:st.cls, rate:rate, tv:tidalMl(rate), dead:useDead,
+                   air:airPerMinL(rate), eff:effAirPerMinL(rate), o2:oxygenPerMinL(rate), o2day:oxygenPerDayL(rate) });
     renderTable();
     var box=document.getElementById('bResult');
     box.className='result-box ok';
     box.innerHTML='1분 동안 마신 공기: <span class="big-val">'+fmtN(airPerMinL(rate),1)+' L</span> (숨 한 번에 '+fmtN(tidalMl(rate),0)+'mL · 모형값)<br>'+
       '그중 몸이 가져간 산소: <span class="big-val">'+fmtN(oxygenPerMinL(rate),2)+' L</span><br>'+
+      (useDead
+        ? '숨길에 남는 150mL를 빼면 허파까지 닿는 공기는 <b>'+fmtN(effAirPerMinL(rate),1)+' L</b>입니다 ('+rate+'회 × '+fmtN(Math.max(0,tidalMl(rate)-DEAD_ML),0)+'mL).<br>'
+        : '숨길에 남는 공기를 <b>세어 넣기</b>로 바꾸면 결과가 달라집니다.<br>')+
       '하루면 산소만 <b>'+comma(oxygenPerDayL(rate))+' L</b>.<br>'+
       '<span style="font-size:.94rem;color:var(--ink-soft);">자동으로 기록했습니다.</span>';
     afterRecord();
@@ -769,8 +823,8 @@ function renderTable(){
   var tb=document.getElementById('bTableBody');
   if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=records.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td><span class="badge '+r.cls+'">'+r.state+'</span></td>'+
-      '<td>'+r.rate+'</td><td>'+fmtN(r.air,1)+'</td><td>'+fmtN(r.o2,2)+'</td><td>'+comma(r.o2day)+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td><span class="badge '+r.cls+'">'+fmtN(r.tv||500,0)+(r.dead?' (150 뺌)':'')+'</span></td>'+
+      '<td>'+r.rate+'</td><td>'+fmtN(r.air,1)+'</td><td>'+fmtN(r.eff==null?r.air:r.eff,1)+'</td><td>'+fmtN(r.o2,2)+'</td></tr>';
   }).join('');
 }
 

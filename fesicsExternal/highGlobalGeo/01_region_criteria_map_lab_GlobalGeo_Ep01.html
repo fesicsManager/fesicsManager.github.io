@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -311,7 +313,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -441,15 +443,21 @@ var LAB = (function(){
       var CR = [{name:'위치(대륙)', short:'위치', labels:CONT, col:1}, {name:'소득 그룹(세계은행)', short:'소득', labels:INC, col:2}, {name:'인간 개발 지수(UNDP)', short:'인간 개발 지수', labels:HDI, col:3}];
       var GC = ['#2B5FA3', '#2E9E78', '#D98E04', '#C8463D', '#7657B3', '#3A8FB7'];
       function gOf(i, k){ return C[i][CR[k].col]; }
+      /* 칸을 열기 전에 먼저 찍게 하고, 틀린 쪽을 짚어 준다 */
+      var PS = ['소득 칸과 같을 것', '소득 칸과 다를 것'];
+      var PSP = ['1칸에 모일 것', '2칸으로 갈릴 것', '3칸 이상으로 흩어질 것'];
+      function spreadBand(n){ return n <= 1 ? 0 : n === 2 ? 1 : 2; }
       return {
-        sceneHeight: function(w){ return w < 400 ? 740 : w < 600 ? 640 : 470; },
+        sceneHeight: function(w){ return w < 400 ? 700 : w < 600 ? 640 : 470; },
         idle: '기준과 나라를 고른 뒤 <b>이 기준으로 나누기</b>를 누르세요.',
         shortHint: '같은 나라로 기준 세 가지를 모두 기록해 보세요. 베트남이나 이집트를 꼭 넣어 보세요.',
         minRec: 3,
         params: [
           {key:'crit', type:'seg', label:'나누는 기준', cols:3, value:0, options:CR.map(function(x){ return x.name; })},
           {key:'who', type:'seg', label:'따라가 볼 나라', cols:4, value:0, options:C.map(function(x){ return x[0]; }),
-            note:'아시아 나라 하나와 다른 대륙 나라 하나를 골라 세 기준을 모두 돌려 보세요.'}
+            note:'아시아 나라 하나와 다른 대륙 나라 하나를 골라 세 기준을 모두 돌려 보세요.'},
+          {key:'ps', type:'seg', label:'먼저 찍기 ① 이 나라의 인간 개발 지수 칸은', cols:2, value:0, options:PS},
+          {key:'psp', type:'seg', label:'먼저 찍기 ② 같은 대륙 나라들은 이 기준에서', cols:3, value:0, options:PSP}
         ],
         compute: function(p){
           var k = p.crit, i = p.who, g = gOf(i, k), mates = [], sizes = [], contSet = {};
@@ -457,13 +465,20 @@ var LAB = (function(){
           CR[k].labels.forEach(function(l, gi){ sizes.push(C.filter(function(x, j){ return gOf(j, k) === gi; }).length); });
           C.forEach(function(x, j){ if (x[1] === C[i][1]) contSet[gOf(j, k)] = 1; });
           var all = [CONT[C[i][1]], INC[C[i][2]], HDI[C[i][3]]];
-          return {k:k, i:i, g:g, gname:CR[k].labels[g], mates:mates, sizes:sizes, spread:Object.keys(contSet).length, all:all, shift:C[i][2] !== C[i][3]};
+          var spread = Object.keys(contSet).length, shift = C[i][2] !== C[i][3];
+          var psOk = (p.ps === 1) === shift, spOk = p.psp === spreadBand(spread);
+          return {k:k, i:i, g:g, gname:CR[k].labels[g], mates:mates, sizes:sizes, spread:spread, all:all, shift:shift,
+            psOk:psOk, spOk:spOk,
+            psMsg:PS[p.ps] + ' → 실제로는 ' + (shift ? '소득 칸과 다릅니다 (소득 ' + INC[C[i][2]] + ' · 지수 ' + HDI[C[i][3]] + ')' : '소득 칸과 같은 높이입니다') + (psOk ? ' — 맞음' : ' — 틀림'),
+            spMsg:PSP[p.psp] + ' → 실제로는 ' + spread + '칸' + (spOk ? ' — 맞음' : ' — 틀림')};
         },
         draw: function(c, W, H, p, r, tau){
           var k = p.crit, labels = CR[k].labels, narrow = W < 600, y = 30, x0 = narrow ? 14 : 150;
+          // 좁은 화면: 나라 이름표를 조금 줄이고 줄 간격도 좁혀 아래로 넘치지 않게
+          var csz = narrow ? 13 : 18, chH = narrow ? 26 : 30, step = narrow ? 30 : 36, hstep = narrow ? 34 : 36, pad = narrow ? 12 : 16;
           txt(c, '기준: ' + CR[k].name, 14, y, {bold:true});
           y += 16;
-          c.font = '18px ' + FONT;
+          c.font = csz + 'px ' + FONT;
           var order = 0;
           labels.forEach(function(l, gi){
             var list = [];
@@ -471,24 +486,24 @@ var LAB = (function(){
             y += 14;
             c.fillStyle = GC[gi]; c.fillRect(14, y, 6, 30);
             txt(c, l + ' ' + list.length, 26, y + 22, {bold:true, color:GC[gi]});
-            var x = x0; if (narrow) y += 36;
+            var x = x0; if (narrow) y += hstep;
             list.forEach(function(j){
-              c.font = '18px ' + FONT;
-              var w = c.measureText(C[j][0]).width + 16;
-              if (x + w > W - 10){ x = x0; y += 36; }
+              c.font = csz + 'px ' + FONT;
+              var w = c.measureText(C[j][0]).width + pad;
+              if (x + w > W - 10){ x = x0; y += step; }
               var a = r ? Math.max(0, Math.min(1, tau * 2.2 - order * 0.05)) : 1;
               order++;
               var sel = j === p.who, mate = gOf(p.who, k) === gi;
               c.globalAlpha = a;
-              c.fillStyle = mate ? GC[gi] : '#EEF2F6'; c.fillRect(x, y, w - 6, 30);
-              if (sel){ c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.strokeRect(x - 2, y - 2, w - 2, 34); }
-              txt(c, C[j][0], x + (w - 6) / 2, y + 21, {align:'center', bold:sel, color:mate ? '#fff' : '#26313D'});
+              c.fillStyle = mate ? GC[gi] : '#EEF2F6'; c.fillRect(x, y, w - 6, chH);
+              if (sel){ c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.strokeRect(x - 2, y - 2, w - 2, chH + 4); }
+              txt(c, C[j][0], x + (w - 6) / 2, y + (narrow ? 18 : 21), {align:'center', bold:sel, color:mate ? '#fff' : '#26313D', size:csz});
               c.globalAlpha = 1;
               x += w;
             });
-            y += 36;
+            y += step;
           });
-          if (r) txt(c, C[p.who][0] + ' → ' + r.gname + ' (같은 칸 ' + r.mates.length + '개국)', 14, H - 16, {bold:true, color:'#C8463D'});
+          if (r) txt(c, C[p.who][0] + ' → ' + r.gname + ' (같은 칸 ' + r.mates.length + '개국)', 14, Math.max(H - 16, y + 20), {bold:true, color:'#C8463D', size:narrow ? 14 : 18});
         },
         stats: function(p, r){
           var sz = CR[r.k].labels.map(function(l, gi){ return l + ' ' + r.sizes[gi]; }).join(' · ');
@@ -496,11 +511,15 @@ var LAB = (function(){
             ['고른 나라의 칸', C[r.i][0] + ' → ' + r.gname, PAL[4]],
             ['같은 칸 나라', r.mates.length ? r.mates.join(', ') : '없음'],
             ['같은 대륙(' + CONT[C[r.i][1]] + ') 나라들이 흩어진 칸 수', r.spread + '칸', PAL[1]],
-            ['세 기준에서 이 나라', '위치 ' + r.all[0] + ' · 소득 ' + r.all[1] + ' · 인간 개발 지수 ' + r.all[2] + (r.shift ? ' — 소득과 인간 개발 지수의 칸 높이가 다름' : ''), PAL[3]]];
+            ['세 기준에서 이 나라', '위치 ' + r.all[0] + ' · 소득 ' + r.all[1] + ' · 인간 개발 지수 ' + r.all[2] + (r.shift ? ' — 소득과 인간 개발 지수의 칸 높이가 다름' : ''), PAL[3]],
+            ['먼저 찍기 ① 채점', r.psMsg, r.psOk ? PAL[1] : PAL[4]],
+            ['먼저 찍기 ② 채점', r.spMsg, r.spOk ? PAL[1] : PAL[4]],
+            ['※', '소득 그룹·인간 개발 지수 칸은 공개 분류를 단계로만 옮겨 적은 교육용 모형값입니다. 쓸 때는 자료와 연도를 밝히세요.']];
         },
-        columns: ['기준', '나라', '들어간 칸', '같은 칸 나라 수', '같은 대륙이 흩어진 칸'],
-        record: function(p, r){ return {k:r.k, i:r.i, g:r.g, n:r.mates.length, spread:r.spread}; },
-        row: function(d){ return [CR[d.k].short, C[d.i][0], CR[d.k].labels[d.g], d.n + '개국', d.spread + '칸']; },
+        columns: ['기준', '나라', '들어간 칸', '같은 칸 나라 수', '흩어진 칸', '먼저 찍기'],
+        record: function(p, r){ return {k:r.k, i:r.i, g:r.g, n:r.mates.length, spread:r.spread, psOk:r.psOk, spOk:r.spOk}; },
+        row: function(d){ return [CR[d.k].short, C[d.i][0], CR[d.k].labels[d.g], d.n + '개국', d.spread + '칸',
+          d.psOk == null ? '—' : ((d.psOk ? '①○' : '①✕') + ' ' + (d.spOk ? '②○' : '②✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록한 나라의 세 장의 지도', '<div id="gv1"></div><p class="ask">소득 칸과 인간 개발 지수 칸의 높이가 다른 나라는 어디인가요? 수명과 교육을 넣으면 왜 칸이 바뀌는지 설명해 보세요.</p>') +
@@ -517,7 +536,9 @@ var LAB = (function(){
               items.push({label:CR[k].short + ' · ' + l, v:n, color:GC[gi], text:n + '개국'});
             });
           });
-          $('gv2').innerHTML = hbars(items, 8) + (Object.keys(ks).length < 3 ? '<p class="msg">아직 기록하지 않은 기준이 있어요.</p>' : '');
+          var h1 = rec.filter(function(d){ return d.psOk; }).length, h2 = rec.filter(function(d){ return d.spOk; }).length;
+          $('gv2').innerHTML = hbars(items, 8) + (Object.keys(ks).length < 3 ? '<p class="msg">아직 기록하지 않은 기준이 있어요.</p>' : '') +
+            '<p class="msg">먼저 찍기 성적 — ① ' + h1 + ' / ' + rec.length + ' · ② ' + h2 + ' / ' + rec.length + '</p>';
         }
       };
     })();
@@ -526,7 +547,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

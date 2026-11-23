@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -307,9 +308,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -459,17 +461,25 @@ var PARK = [
    feat:['부채꼴 주상 절리', '해안 단구', '패류 화석'], form:['① 바다 밑에 모래와 진흙이 쌓여 퇴적암이 됨', '② 화산 활동으로 용암이 흘러 식으며 절리가 생김', '③ 땅이 솟아오르며 계단 모양 해안 단구가 드러남'], color:'#6B7A85', min:'사장석, 석영, 방해석'}
 ];
 var STEPS = ['① 암석이 만들어진 때', '② 굳거나 쌓인 뒤의 변화', '③ 지금 모습이 드러난 과정'];
+var ORDER = [3, 0, 5, 1, 4, 2];   /* 맞혀 보기 문제 순서 — 고른 순서와 겹치지 않게 섞음 */
+function target(p){ return p.mode === 1 ? ORDER[p.q - 1] : p.p; }
 return {
   sceneHeight: function(W){ return W < 560 ? 580 : 400; },   // 좁으면 설명이 그림 아래로 내려가 더 길게
-  idle: '지질공원을 고른 뒤 <b>야외 답사하기</b>를 누르세요. 대표 명소의 암석과 지질 구조를 관찰하고 형성 과정을 순서대로 봅니다.',
-  shortHint: '자유 탐구 탭에서 여러 지질공원을 답사해 기록하세요.',
+  idle: '「도감 보기」는 지질공원을 골라 암석·지질 구조·형성 과정을 봅니다. 「맞혀 보기」는 암석과 지질 구조만 보고 어느 공원인지 먼저 고른 뒤 <b>야외 답사하기</b>로 답을 확인합니다.',
+  shortHint: '자유 탐구 탭에서 여러 지질공원을 답사해 기록하세요. 「맞혀 보기」로 문제를 바꿔 가며 맞혀 보면 더 좋습니다.',
   params: [
-    {key:'p', type:'seg', label:'국가지질공원', cols:3, value:0, options:PARK.map(function(x){ return x.name + '<small>' + x.spot + '</small>'; }),
+    {key:'mode', type:'seg', cols:2, label:'어떻게 볼까', value:0,
+      options:['도감 보기<small>골라서 읽기</small>', '맞혀 보기<small>단서로 추리</small>'],
+      note:'「맞혀 보기」를 고르면 공원 이름을 가리고 암석·주요 광물·지질 구조만 보여 줍니다. 아래에서 문제 번호를 고르고, 어느 공원인지 답을 고른 뒤 답사하기를 누르세요.'},
+    {key:'q', type:'range', label:'문제 번호 (맞혀 보기에서만)', min:1, max:6, step:1, value:1, fmt:function(v){ return v + '번'; }},
+    {key:'p', type:'seg', label:'국가지질공원 (맞혀 보기에서는 나의 답)', cols:3, value:0, options:PARK.map(function(x){ return x.name + '<small>' + x.spot + '</small>'; }),
       note:'우리나라 국가지질공원의 대표적인 암석과 지질 구조를 정리한 자료입니다. 실제 답사에서는 안전 수칙을 지키고, 암석을 함부로 떼어 내지 않습니다.'}
   ],
-  compute: function(p){ return {P:PARK[p.p]}; },
+  compute: function(p){ var tg = target(p);
+    return {P:PARK[tg], tg:tg, mode:p.mode, guess:p.p, hit:(p.mode !== 1 || p.p === tg)}; },
   draw: function(c, W, H, p, r, tau){
-    var P = PARK[p.p], k = r ? Math.min(tau / 0.9, 1) : 0, stage = r ? Math.min(2, Math.floor(k * 3)) : -1;
+    var tg = target(p), P = PARK[tg], rev = (p.mode !== 1) || !!r;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, stage = r ? Math.min(2, Math.floor(k * 3)) : -1;
     // 좁은 화면: 글자를 조금 줄이고, 캔버스 폭을 넘는 글은 띄어쓰기에서 줄을 나눔 (그린 줄 수를 돌려줌)
     var fs = W < 560 ? 16 : 18, lh = W < 560 ? 20 : 24;
     function wt(s, x, y, o){
@@ -480,18 +490,19 @@ return {
       lines.forEach(function(L, i){ txt(c, L, x, y + i * lh, o); });
       return lines.length;
     }
-    var t1 = wt(P.name + ' · ' + P.spot, 12, 26, {bold:true});
+    var t1 = rev ? wt(P.name + ' · ' + P.spot + (p.mode === 1 ? (p.p === tg ? '   ✅ 맞혔습니다' : '   ❌ 내 답: ' + PARK[p.p].name) : ''), 12, 26, {bold:true})
+      : wt('??? 지질공원 — 아래 단서만 보고 어디인지 골라 보세요', 12, 26, {bold:true, color:'#7657B3'});
     // 명소 모습 (주상절리·절벽 등 단순 그림)
     var gx = 12, gy = 44 + (t1 - 1) * lh, gw = Math.min(W - 24, 380), gh = 150;
     c.fillStyle = '#E7EEF4'; c.fillRect(gx, gy, gw, gh);
     var n = 14, bw = gw / n;
     for (var i = 0; i < n; i++){
-      var hFrac = p.p === 4 ? 0.5 + 0.1 * Math.sin(i) : 0.35 + 0.5 * Math.abs(Math.sin(i * 1.3 + p.p));
+      var hFrac = tg === 4 ? 0.5 + 0.1 * Math.sin(i) : 0.35 + 0.5 * Math.abs(Math.sin(i * 1.3 + tg));
       var bh = gh * hFrac * (stage >= 0 ? 1 : 0.5);
       c.fillStyle = P.color; c.fillRect(gx + i * bw + 1, gy + gh - bh, bw - 2, bh);
       c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.strokeRect(gx + i * bw + 1, gy + gh - bh, bw - 2, bh);
     }
-    if (p.p === 1 || p.p === 3){ c.fillStyle = 'rgba(140,190,230,.7)'; c.fillRect(gx + gw * 0.45, gy + 20, 22, gh - 20); }
+    if (tg === 1 || tg === 3){ c.fillStyle = 'rgba(140,190,230,.7)'; c.fillRect(gx + gw * 0.45, gy + 20, 22, gh - 20); }
     c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.strokeRect(gx, gy, gw, gh);
     // 정보
     var tx = gw + 30 > W - 140 ? 12 : gw + 30, ty = gw + 30 > W - 140 ? gy + gh + 30 : gy + 14;
@@ -502,21 +513,24 @@ return {
     yy += (wt('지질 구조: ' + P.feat.join(', '), tx, yy, {color:'#1E2833'}) - 1) * lh;
     // 형성 과정
     var fy = Math.max(yy + 32, gy + gh + 30), sy = fy + 14;
-    txt(c, '형성 과정', 12, fy, {bold:true, size:fs});
-    P.form.forEach(function(s, i){
-      var on = stage >= i;
+    txt(c, rev ? '형성 과정' : '형성 과정 — 답을 확인하면 보여 줍니다', 12, fy, {bold:true, size:fs});
+    (rev ? P.form : STEPS).forEach(function(s, i){
+      var on = rev ? stage >= i : false;
       var n = wt(s, 26, sy + 18, {color:on ? '#1E2833' : '#A9B4C0'});
       c.fillStyle = on ? PAL[i] : '#D4DCE5'; c.fillRect(12, sy, 6, 26 + (n - 1) * lh);
       sy += 34 + (n - 1) * lh;
     });
   },
   stats: function(p, r){
-    return [['지질공원 · 명소', r.P.name + ' · ' + r.P.spot], ['암석', r.P.rock, PAL[0]], ['주요 광물', r.P.min], ['시기', r.P.era],
+    var base = [['지질공원 · 명소', r.P.name + ' · ' + r.P.spot], ['암석', r.P.rock, PAL[0]], ['주요 광물', r.P.min], ['시기', r.P.era],
       ['지질 구조', r.P.feat.join(', '), PAL[3]], ['형성 과정 요약', r.P.ev]];
+    if (r.mode === 1) base.unshift(['맞혀 보기', '내 답 ' + PARK[r.guess].name + ' / 실제 ' + r.P.name + ' — ' + (r.hit ? '✅ 맞혔습니다' : '❌ 틀렸습니다'), r.hit ? PAL[1] : PAL[4]]);
+    return base;
   },
-  columns: ['지질공원', '명소', '암석', '시기', '지질 구조'],
-  record: function(p, r){ return {p:p.p}; },
-  row: function(d){ var P = PARK[d.p]; return [P.name, P.spot, P.rock, P.era, P.feat.join(', ')]; },
+  columns: ['지질공원', '맞히기', '암석', '시기', '지질 구조'],
+  record: function(p, r){ return {p:r.tg, mode:r.mode, guess:r.guess, hit:r.hit}; },
+  row: function(d){ var P = PARK[d.p];
+    return [P.name, d.mode === 1 ? (d.hit ? '✅ 맞힘' : '❌ ' + PARK[d.guess].name) : '도감', P.rock, P.era, P.feat.join(', ')]; },
   minRec: 3,
   verify: function(rec, box){
     var seen = {}, list = [];
@@ -524,11 +538,18 @@ return {
     box.innerHTML = '<div class="vgrid">' +
       card('답사한 지질공원 정리', '<div id="ro1"></div><p class="ask">여러 곳에서 공통으로 나온 지질 구조는 무엇인가요? 같은 주상 절리인데 암석이 현무암인 곳과 응회암인 곳이 있습니다. 두 경우의 형성 과정은 어떻게 다를까요?</p>') +
       card('암석의 종류로 나누기', '<div id="ro2"></div><p class="ask">화산암이 많은 곳과 심성암·변성암이 있는 곳은 마그마가 어디에서 식었는지가 다릅니다. 알갱이의 크기로 이를 어떻게 구별할 수 있을까요?</p>') +
+      card('단서로 맞혀 보기', '<div id="ro3"></div><p class="ask">어떤 단서가 가장 결정적이었나요? 암석만으로는 가를 수 없고 지질 구조까지 봐야 하는 짝이 있었나요?</p>') +
       card('지속가능한 발전 방안 제안하기', '<p>지질공원은 보전과 이용을 함께 하는 곳입니다. 탐방로와 전망대, 해설사 프로그램, 지역 특산품과 숙박, 학교 답사 프로그램 등이 운영됩니다.</p><p class="ask">답사한 곳 중 하나를 골라, 지질 명소를 훼손하지 않으면서 지역 주민에게 도움이 되는 방안을 세 가지 제안해 보세요. 방문객이 지켜야 할 약속도 함께 정리해 보세요.</p>') + '</div>';
     $('ro1').innerHTML = tableHTML(['지질공원', '암석', '시기', '지질 구조'], list.map(function(i){ var P = PARK[i]; return [P.name, P.rock, P.era, P.feat.join(', ')]; }), 'wrap');
     var grp = {'화산암 (현무암·유문암·응회암)':[], '심성암·변성암 포함':[]};
     list.forEach(function(i){ var P = PARK[i]; if (/화강암|변성/.test(P.rock)) grp['심성암·변성암 포함'].push(P.name); else grp['화산암 (현무암·유문암·응회암)'].push(P.name); });
     $('ro2').innerHTML = tableHTML(['암석의 종류', '지질공원'], Object.keys(grp).map(function(k){ return [k, grp[k].length ? grp[k].join(', ') : '·']; }), 'wrap');
+    var gs = rec.filter(function(d){ return d.mode === 1; });
+    var hits = gs.filter(function(d){ return d.hit; }).length;
+    $('ro3').innerHTML = gs.length
+      ? tableHTML(['문제의 공원', '내 답', '결과'], gs.map(function(d){ return [PARK[d.p].name, PARK[d.guess].name, d.hit ? '맞힘' : '틀림']; }), 'wrap')
+        + '<p class="msg">맞혀 보기 ' + gs.length + '번 가운데 ' + hits + '번 맞혔습니다.</p>'
+      : '<p class="msg">아직 「맞혀 보기」 기록이 없어요. 자유 탐구 탭에서 보기 방식을 바꿔 문제를 풀어 보세요.</p>';
   }
 };
 })();
@@ -537,7 +558,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

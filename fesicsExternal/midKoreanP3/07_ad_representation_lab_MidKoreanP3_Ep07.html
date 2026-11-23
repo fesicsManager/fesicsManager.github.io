@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -311,8 +313,8 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -409,13 +411,17 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var tkR = -1e9;
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke();
+    var tkS = f(v, decOf(xr[2])), tkW = c.measureText(tkS).width / 2;
+    if (X(v) - tkW > tkR + 4){ c.fillText(tkS, X(v), y + h + 6); tkR = X(v) + tkW; } }
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
   if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
   if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
-  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; var xlCx = x + w / 2, xlCv = c.canvas.width / (c.getTransform().a || 1);
+  c.fillText(xLabel, xlCx, y + h + 30, Math.max(60, 2 * Math.min(xlCx, xlCv - xlCx) - 8));
   c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
   c.textBaseline = 'alphabetic';
   return {X:X, Y:Y};
@@ -435,7 +441,7 @@ function hbars(items, max){
 var LAB = (function anonymous(
 ) {
 
-  function tx(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y); }
+  function tx(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y); }
   function lines(c, s, mw, o){
     o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT;
     var out = [], ws = String(s).split(' '), line = '';
@@ -469,26 +475,37 @@ var LAB = (function anonymous(
 
 return (function(){
       var REAL = 10;
+      /* 세 요소를 따로 켜고 끌 수 있게 했다. 아래 숫자는 교육용 모형값이고,
+         원래 광고(과일 사진 + 문구 있음 + 작은 글씨)는 예전과 똑같이 72% 로 나온다. */
+      var G0 = 72, DPH = 27, DSL = 21, DBG = 58;
+      function gOf(q){ return Math.max(REAL, G0 - (q.photo ? DPH : 0) - (q.slogan ? 0 : DSL) - (q.big ? DBG : 0)); }
       var AD = [
-        {n:'A. 원래 광고', ch:'바꾼 것 없음', photo:0, slogan:true, big:false, g:72},
-        {n:'B. 과일 사진 → 주스 병 사진', ch:'사진', photo:1, slogan:true, big:false, g:45},
-        {n:'C. ‘자연 그대로!’ 문구 뺌', ch:'문구', photo:0, slogan:false, big:false, g:51},
-        {n:'D. ‘과즙 10%’를 크게', ch:'작은 글씨', photo:0, slogan:true, big:true, g:14}
+        {n:'A. 원래 광고', ch:'바꾼 것 없음', photo:0, slogan:true, big:false},
+        {n:'B. 과일 사진 → 주스 병 사진', ch:'사진', photo:1, slogan:true, big:false},
+        {n:'C. ‘자연 그대로!’ 문구 뺌', ch:'문구', photo:0, slogan:false, big:false},
+        {n:'D. ‘과즙 10%’를 크게', ch:'작은 글씨', photo:0, slogan:true, big:true}
       ];
+      AD.forEach(function(x){ x.g = gOf(x); });
+      function qOf(p){ return {photo:p.ph, slogan:p.sl === 0, big:p.bg === 1}; }
+      function chOf(q){ var k = []; if (q.photo) k.push('사진'); if (!q.slogan) k.push('문구 뺌'); if (q.big) k.push('글씨 크게');
+        return k.length ? k.join(' + ') : '바꾼 것 없음'; }
       return {
-        sceneHeight: 440,
-        idle: '광고 판과 나의 예상을 고른 뒤 <b>이 광고 보여 주기</b>를 누르세요.',
-        shortHint: '네 판을 모두 보여 주세요. 어떤 요소 하나가 짐작을 가장 크게 바꾸었나요?',
+        sceneHeight: function (w){ return w < 560 ? 528 : 440; },
+        idle: '사진·문구·글씨 크기를 켜고 끈 뒤 <b>이 광고 보여 주기</b>를 누르세요.',
+        shortHint: '세 요소를 하나씩, 그리고 겹쳐서도 보여 주세요. 어느 요소가 짐작을 가장 크게 바꾸었나요?',
         params: [
-          {key:'a', type:'seg', label:'광고 판 (한 요소씩 바꿈)', cols:2, value:0, options:AD.map(function(x){ return x.n; })},
+          {key:'ph', type:'seg', label:'사진', cols:2, value:0, options:['과일 사진', '주스 병 사진']},
+          {key:'sl', type:'seg', label:'‘자연 그대로!’ 문구', cols:2, value:0, options:['그대로 둠', '뺌']},
+          {key:'bg', type:'seg', label:'‘과즙 10%’ 글씨', cols:2, value:0, options:['작게 (구석)', '크게'],
+            note:'※ 짐작한 비율은 실제 조사가 아니라 교육용 모형값이에요. 세 요소를 겹치면 효과가 더해집니다.'},
           {key:'e', type:'range', label:'나의 예상 — 연구원들이 짐작한 과즙 비율 평균', min:0, max:100, step:5, value:50, fmt:function(v){ return v + '%'; }}
         ],
         compute: function(p){
-          var ad = AD[p.a];
-          return {ad:ad, gap:ad.g - REAL, fromA:ad.g - AD[0].g, err:Math.abs(p.e - ad.g)};
+          var q = qOf(p), g = gOf(q), on = (q.photo ? 1 : 0) + (q.slogan ? 0 : 1) + (q.big ? 1 : 0);
+          return {q:q, g:g, on:on, ch:chOf(q), gap:g - REAL, fromA:g - G0, err:Math.abs(p.e - g)};
         },
         draw: function(c, W, H, p, r, tau){
-          var ad = AD[p.a], pw = Math.min(W - 40, 300), px = (W - pw) / 2, ph0 = 220;
+          var ad = r ? r.q : qOf(p), adg = r ? r.g : gOf(ad), pw = Math.min(W - 40, 300), px = (W - pw) / 2, ph0 = 220;
           rbox(c, px, 14, pw, ph0, '#FFF8EC', '#E5C77A', 2);
           tx(c, '뭉치 주스', px + pw / 2, 44, {bold:true, size:22, align:'center', color:'#7A4B12'});
           var cx = px + pw / 2, cy = 120;
@@ -508,32 +525,39 @@ return (function(){
           var rx = gx + gw * REAL / 100; c.fillStyle = PAL[1]; c.beginPath(); c.arc(rx, gy, 8, 0, Math.PI * 2); c.fill(); tx(c, '실제 10%', rx, gy + 48, {bold:true, size:14, align:'center', color:PAL[1]});
           var ex = gx + gw * p.e / 100; seg(c, ex, gy - 30, ex, gy + 6, PAL[6], 2, [4, 3]); tx(c, '내 예상', ex, gy - 34, {size:13, align:'center', color:PAL[6]});
           if (!r){ tx(c, '나의 예상: ' + p.e + '%', 20, H - 18, {color:'#4A5868'}); return; }
-          var b = ph(tau, 0.2, 0.8), v = REAL + (ad.g - REAL) * b, vx = gx + gw * v / 100;
+          var b = ph(tau, 0.2, 0.8), v = REAL + (adg - REAL) * b, vx = gx + gw * v / 100;
           seg(c, rx, gy - 14, vx, gy - 14, PAL[4], 4); arrow(c, vx, gy - 52, vx, gy - 8, PAL[4], 3);
           tx(c, '짐작 ' + Math.round(v) + '%', Math.min(Math.max(vx, 60), W - 60), gy - 58, {bold:true, size:18, align:'center', color:PAL[4]});
           if (tau > 0.8){ c.globalAlpha = ph(tau, 0.8, 1);
-            wrapT(c, '거짓 문구 0개 · 실제보다 ' + r.gap + '%p 높게 짐작', 20, H - 18, W - 40, 22, {bold:true, color:r.gap > 20 ? PAL[4] : PAL[1]});
+            var gT = '거짓 문구 0개 · 실제보다 ' + r.gap + '%p 높게 짐작', gO = {bold:true, color:r.gap > 20 ? PAL[4] : PAL[1]};
+            wrapT(c, gT, 20, H - 18 - (lines(c, gT, W - 40, gO).length - 1) * 22, W - 40, 22, gO);
             c.globalAlpha = 1; }
         },
         stats: function(p, r){
-          return [['광고 판', r.ad.n], ['바꾼 요소', r.ad.ch], ['연구원 짐작 평균', r.ad.g + '%', PAL[4]], ['실제 과즙', REAL + '%', PAL[1]],
-            ['어긋난 정도', r.gap + '%p' + (p.a ? ' (원래 광고보다 ' + (-r.fromA) + '%p 낮아짐)' : ''), r.gap > 20 ? PAL[4] : PAL[1]],
+          return [['바꾼 요소', r.ch + ' (' + r.on + '가지)'], ['연구원 짐작 평균', r.g + '%', PAL[4]], ['실제 과즙', REAL + '%', PAL[1]],
+            ['어긋난 정도', r.gap + '%p' + (r.on ? ' (원래 광고보다 ' + (-r.fromA) + '%p 낮아짐)' : ''), r.gap > 20 ? PAL[4] : PAL[1]],
+            ['요소별 몫', '사진 ' + DPH + '%p · 문구 ' + DSL + '%p · 작은 글씨를 크게 ' + DBG + '%p', PAL[3]],
+            ['판정', r.gap <= 10 ? '이제 짐작이 실제에 거의 닿았어요 — 거짓말을 안 해도 고를 수 있는 게 많아요' : r.on === 0 ? '거짓 문구는 하나도 없는데 ' + r.gap + '%p 어긋났어요' : '아직 ' + r.gap + '%p 어긋나요 — 다른 요소도 겹쳐 보세요', r.gap <= 10 ? PAL[1] : PAL[4]],
             ['나의 예상', p.e + '% (연구원 평균과 차이 ' + r.err + '%p)', r.err <= 10 ? PAL[1] : PAL[6]]];
         },
-        columns: ['판', '바꾼 요소', '짐작', '실제와 차이', '내 예상'],
-        record: function(p, r){ return {a:p.a, e:p.e}; },
-        row: function(d){ var ad = AD[d.a]; return [ad.n.charAt(0), ad.ch, ad.g + '%', (ad.g - REAL) + '%p', d.e + '%']; },
+        columns: ['사진', '문구', '글씨', '짐작', '실제와 차이', '내 예상'],
+        record: function(p, r){ return {ph:p.ph, sl:p.sl, bg:p.bg, g:r.g, e:p.e}; },
+        row: function(d){ return [d.ph ? '주스 병' : '과일', d.sl ? '뺌' : '있음', d.bg ? '크게' : '작게', d.g + '%', (d.g - REAL) + '%p', d.e + '%']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('판별 짐작한 과즙 비율 (실제 10%)', '<div id="mq7a"></div><p class="ask">네 판 모두 거짓 문구가 없는데 원래 광고는 실제보다 62%p나 높게 짐작됐어요. 사진·문구·작은 글씨 가운데 무엇이 가장 큰 차이를 만들었나요?</p>') +
-            card('한 요소씩 바꿨을 때 줄어든 짐작', '<div id="mq7b"></div><p class="ask">과제: 집에 있는 과자나 음료 포장에서 가장 크게 쓴 말과 가장 작게 쓴 정보를 하나씩 찾고, 둘의 크기를 바꾸면 어떤 인상이 될지 적어 보세요.</p>') + '</div>';
-          var items = AD.map(function(ad, i){ var tried = rec.some(function(d){ return d.a === i; });
+            card('한 요소만 바꿨을 때 짐작한 과즙 비율 (실제 10%)', '<div id="mq7a"></div><p class="ask">네 경우 모두 거짓 문구가 없는데 원래 광고는 실제보다 62%p나 높게 짐작됐어요. 사진·문구·작은 글씨 가운데 무엇이 가장 큰 차이를 만들었나요?</p>') +
+            card('내가 겹쳐 본 조합', '<div id="mq7b"></div><p class="ask">두 가지를 함께 바꾸면 줄어든 값이 대체로 더해졌나요? 과제: 집에 있는 과자나 음료 포장에서 가장 크게 쓴 말과 가장 작게 쓴 정보를 하나씩 찾고, 둘의 크기를 바꾸면 어떤 인상이 될지 적어 보세요.</p>') + '</div>';
+          function same(d, ad){ return (!!d.ph) === (!!ad.photo) && (d.sl === 0) === (!!ad.slogan) && (d.bg === 1) === (!!ad.big); }
+          var items = AD.map(function(ad){ var tried = rec.some(function(d){ return same(d, ad); });
             return {label:ad.n, v:ad.g, color:tried ? (ad.g - REAL > 20 ? PAL[4] : PAL[1]) : '#CBD3DD', text:ad.g + '%' + (tried ? '' : ' (아직)')}; });
           items.push({label:'실제 과즙', v:REAL, color:PAL[1], text:REAL + '%'});
           $('mq7a').innerHTML = hbars(items, 100);
-          var rows = AD.map(function(ad, i){ var mine = rec.filter(function(d){ return d.a === i; });
-            return [ad.n.charAt(0), ad.ch, ad.g + '%', i ? (ad.g - AD[0].g) + '%p' : '기준', mine.length ? f(mean(mine.map(function(d){ return d.e; })), 0) + '%' : '—']; });
-          $('mq7b').innerHTML = tableHTML(['판', '바꾼 요소', '짐작', '원래 광고와 차이', '내 예상(평균)'], rows);
+          var seen = {}, rows = [];
+          rec.forEach(function(d){ var key = (d.ph ? 1 : 0) + '' + d.sl + d.bg; if (seen[key]) return; seen[key] = 1;
+            var q = {photo:d.ph, slogan:d.sl === 0, big:d.bg === 1}, n = (q.photo ? 1 : 0) + (q.slogan ? 0 : 1) + (q.big ? 1 : 0);
+            rows.push([chOf(q), n + '가지', d.g + '%', (d.g - G0) + '%p', (d.g - REAL) + '%p']); });
+          $('mq7b').innerHTML = tableHTML(['바꾼 요소', '가지 수', '짐작', '원래 광고와 차이', '실제와 차이'], rows) +
+            '<p class="msg">서로 다른 조합 ' + rows.length + '가지를 재 봤어요. 세 가지를 모두 바꾸면 짐작이 실제 10%까지 내려옵니다.</p>';
         }
       };
     })();
@@ -543,7 +567,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -305,9 +306,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -452,6 +454,15 @@ var PL = [
   {name:'타이탄 (토성의 위성)', a:9.537, alb:0.22, gh:9, M:0.0225, R:0.404, atm:'N₂ 95 %, CH₄', mm:28, surf:'고체 표면'}   /* 관측 표면 약 94 K(−179 ℃) − 평형 약 85 K */
 ];
 var S0 = 1361, SIG = 5.670e-8, GC = 6.674e-11, ME = 5.972e24, RE = 6371e3, RGAS = 8.314;
+/* 고른 천체의 값을 그대로 쓰거나, 아래 세 칸으로 바꿔 가상 천체를 만든다 */
+function mod(P, p){
+  var a = P.a * (p.da == null ? 1 : p.da);
+  var alb = Math.max(0.02, Math.min(0.95, P.alb + (p.dalb == null ? 0 : p.dalb)));
+  var gh = P.gh * (p.dgh == null ? 1 : p.dgh);
+  var tw = (Math.abs(a - P.a) > 1e-9) || (Math.abs(alb - P.alb) > 1e-9) || (Math.abs(gh - P.gh) > 1e-9);
+  return {name:P.name + (tw ? ' (바꾼 값)' : ''), a:a, alb:alb, gh:gh, M:P.M, R:P.R, atm:P.atm, mm:P.mm,
+    surf:P.surf, ghKind:P.ghKind, tweaked:tw, base:P};
+}
 function calc(P){
   var S = S0 / (P.a * P.a);
   var Te = Math.pow(S * (1 - P.alb) / (4 * SIG), 0.25) - 273.15;
@@ -463,15 +474,19 @@ function calc(P){
 }
 return {
   sceneHeight: 460,
-  idle: '천체를 고른 뒤 <b>관측하기</b>를 누르세요. 받는 햇빛과 표면 온도, 대기를 붙잡는 정도를 계산합니다.',
-  shortHint: '자유 탐구 탭에서 여러 천체를 관측해 기록하세요.',
+  idle: '천체를 고르고 <b>관측하기</b>를 누르세요. 아래 세 칸으로 거리·반사율·온실 기체를 바꾸면 표면 온도가 어떻게 달라지는지도 볼 수 있어요.',
+  shortHint: '여러 천체를 관측하고, 한 천체는 거리·반사율·온실 기체를 바꿔 가며 여러 번 기록해 보세요.',
   params: [
     {key:'p', type:'seg', label:'천체', cols:3, value:2, options:PL.map(function(x){ return x.name; }),
-      note:'복사 평형 온도는 반사율을 뺀 햇빛과 방출하는 적외선이 균형을 이루는 온도입니다. 온실 효과 값은 물리 법칙에서 나온 상수가 아니라 관측된 표면 온도와 평형 온도의 차이를 천체마다 따로 적어 둔 것입니다. 목성처럼 고체 표면이 없는 행성은 1기압 기준면 온도를 쓰고, 그 차이는 온실 효과가 아니라 내부 열 방출 때문입니다.'}
+      note:'복사 평형 온도는 반사율을 뺀 햇빛과 방출하는 적외선이 균형을 이루는 온도입니다. 온실 효과 값은 물리 법칙에서 나온 상수가 아니라 관측된 표면 온도와 평형 온도의 차이를 천체마다 따로 적어 둔 것입니다. 목성처럼 고체 표면이 없는 행성은 1기압 기준면 온도를 쓰고, 그 차이는 온실 효과가 아니라 내부 열 방출 때문입니다.'},
+    {key:'da', type:'range', label:'태양까지 거리 (지금의 몇 배)', min:0.4, max:2.5, step:0.1, value:1, fmt:function(v){ return f(v, 1) + ' 배'; }},
+    {key:'dalb', type:'range', label:'반사율 더하기 (구름·얼음이 늘면 +)', min:-0.25, max:0.4, step:0.05, value:0, fmt:function(v){ return sgn(v * 100, 0) + ' %p'; }},
+    {key:'dgh', type:'range', label:'온실 기체 양 (지금의 몇 배)', min:0, max:2.5, step:0.1, value:1, fmt:function(v){ return f(v, 1) + ' 배'; },
+      note:'세 칸을 모두 가운데 값(1배, 0 %p, 1배)에 두면 실제 관측값 그대로입니다. 칸을 움직여 만든 온도는 S = 1361/거리², 평형 온도 = ⁴√(S(1−반사율)/4σ), 표면 온도 = 평형 온도 + 온실 효과 로 계산한 <b>교육용 모형값</b>입니다. 실제 온실 효과는 기체 양에 정비례하지 않습니다.'}
   ],
-  compute: function(p){ var P = PL[p.p]; return {P:P, C:calc(P)}; },
+  compute: function(p){ var P = mod(PL[p.p], p); return {P:P, C:calc(P)}; },
   draw: function(c, W, H, p, r, tau){
-    var P = PL[p.p], C = r ? r.C : calc(P), k = r ? Math.min(tau / 0.85, 1) : 0;
+    var P = r ? r.P : mod(PL[p.p], p), C = r ? r.C : calc(P), k = r ? Math.min(tau / 0.85, 1) : 0;
     // 행성 그림
     var cx = Math.min(W * 0.28, 150), cy = 140, R = 20 + Math.min(60, Math.log10(1 + P.R * 10) * 40);
     var hot = Math.min(1, Math.max(0, (C.Ts + 200) / 700));
@@ -527,17 +542,36 @@ return {
       ['복사 평형 온도', f(C.Te, 1) + ' ℃', PAL[0]], [P.ghKind ? P.ghKind : '온실 효과 (관측 차이)', sgn(P.gh, 0) + ' ℃'], ['관측 표면 온도 · ' + P.surf, f(C.Ts, 1) + ' ℃', PAL[4]],
       ['표면 중력', f(C.g, 2) + ' m/s²'], ['탈출 속도', f(C.vesc, 2) + ' km/s'], ['대기', P.atm]];
     if (C.vth != null) a.push(['탈출 속도 ÷ 분자 속력', f(C.keep, 1), C.keep > 6 ? PAL[1] : PAL[4]]);
+    if (P.tweaked){
+      var B = P.base, CB = calc(B);
+      a.push(['실제 ' + B.name + '과 견주면', '거리 ' + f(B.a, 3) + ' → ' + f(P.a, 3) + ' AU · 반사율 ' + f(B.alb * 100, 0) + ' → ' + f(P.alb * 100, 0) + ' % · 온실 ' + sgn(B.gh, 0) + ' → ' + sgn(P.gh, 0) + ' ℃', PAL[5]]);
+      a.push(['표면 온도 변화', f(CB.Ts, 1) + ' ℃ → ' + f(C.Ts, 1) + ' ℃ (' + sgn(C.Ts - CB.Ts, 1) + ' ℃) — 교육용 모형값', PAL[6]]);
+    }
     return a;
   },
   columns: ['천체', '거리 (AU)', '햇빛 (W/m²)', '반사율', '평형 온도 (℃)', '온실 효과 (℃)', '표면 온도 (℃)', '탈출 속도 (km/s)', '유지 지수'],
-  record: function(p, r){ var P = r.P, C = r.C; return {p:p.p, name:P.name, a:P.a, S:C.S, alb:P.alb, Te:C.Te, gh:P.gh, Ts:C.Ts, g:C.g, vesc:C.vesc, keep:C.keep, atm:P.atm}; },
+  record: function(p, r){ var P = r.P, C = r.C;
+    return {p:p.p, key:P.name + '|' + f(P.a, 3) + '|' + f(P.alb, 2) + '|' + f(P.gh, 0), tw:P.tweaked, base:P.base.name,
+      name:P.name, a:P.a, S:C.S, alb:P.alb, Te:C.Te, gh:P.gh, Ts:C.Ts, g:C.g, vesc:C.vesc, keep:C.keep, atm:P.atm}; },
   row: function(d){ return [d.name, f(d.a, 3), f(d.S, 0), f(d.alb * 100, 0) + ' %', f(d.Te, 1), sgn(d.gh, 0), f(d.Ts, 1), f(d.vesc, 2), d.keep != null ? f(d.keep, 1) : '−']; },
   verify: function(rec, box){
     var seen = {}, list = [];
-    rec.forEach(function(d){ if (seen[d.p]) return; seen[d.p] = 1; list.push(d); });
+    rec.forEach(function(d){ if (seen[d.key]) return; seen[d.key] = 1; list.push(d); });
+    var byBase = {};
+    list.forEach(function(d){ (byBase[d.base] = byBase[d.base] || []).push(d); });
+    var swing = [];
+    Object.keys(byBase).forEach(function(k){
+      var g = byBase[k]; if (g.length < 2) return;
+      var ts = g.map(function(d){ return d.Ts; });
+      swing.push([k, g.length + '가지', f(Math.min.apply(null, ts), 1) + ' ℃', f(Math.max.apply(null, ts), 1) + ' ℃', f(Math.max.apply(null, ts) - Math.min.apply(null, ts), 1) + ' ℃']);
+    });
     box.innerHTML = '<div class="vgrid">' +
       card('태양 거리와 받는 햇빛', '<canvas class="chart" id="ch1" role="img" aria-label="행성의 대기와 표면 온도 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">거리가 두 배가 되면 받는 햇빛은 몇 배가 되나요? 세로축을 1/거리²로 두면 어떤 모양이 되나요?</p>') +
       card('평형 온도와 실제 온도', '<canvas class="chart" id="ch2" role="img" aria-label="행성의 대기와 표면 온도 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">금성은 수성보다 태양에서 멀지만 훨씬 뜨겁습니다. 그 까닭을 대기와 온실 효과로 설명해 보세요.</p>') +
+      card('같은 천체에서 값을 바꿔 보면', (swing.length
+        ? tableHTML(['바탕 천체', '만든 경우', '가장 낮은 표면 온도', '가장 높은 표면 온도', '벌어진 폭'], swing) +
+          '<p class="ask">거리·반사율·온실 기체 중 어느 것을 바꿨을 때 온도가 가장 많이 움직였나요? 세 가지가 표면 온도를 정하는 방식이 서로 어떻게 다른지 적어 보세요. (바꾼 값으로 계산한 온도는 교육용 모형값입니다.)</p>'
+        : '<p class="ask">아직 같은 천체를 여러 조건으로 기록하지 않았어요. 천체를 하나 고른 뒤 거리·반사율·온실 기체 칸을 바꿔 가며 몇 번 더 관측해 보세요 — 표면 온도가 실제로 움직입니다.</p>')) +
       card('대기를 붙잡는 조건', '<div id="ro3"></div><p class="ask">탈출 속도가 크고 온도가 낮을수록 대기를 잘 붙잡습니다. 수성과 달에 대기가 거의 없는 까닭, 목성이 가벼운 수소까지 붙잡는 까닭을 설명해 보세요.</p>') + '</div>';
     drawScatter($('ch1'), {xLabel:'1 ÷ 거리² (1/AU²)', yLabel:'받는 햇빛 (W/m²)', tightX:true,
       series:[{color:PAL[3], pts:list.map(function(d){ return {x:1 / (d.a * d.a), y:d.S}; })}],
@@ -557,7 +591,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

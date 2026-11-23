@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -235,6 +236,9 @@ tbody tr:hover{background:#F5F8FB}
 <h3>🧮 이 실험의 계산 방법</h3>
 <p>동물·방향마다 정해 둔 가상 응답표를 써요. <span class="fx-formula">맞힌 비율 = 맞힌 친구 ÷ 20</span></p>
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· 맞힌 친구 수는 <b>0.25 + 0.75 × (특징 길이 × 그 방향에서 잘 보이는 정도)</b> 로 계산한 제로 랩의 <b>교육용 모형값</b>이에요. 0.25 는 넷 중 아무거나 골라도 맞을 수 있는 몫이에요.<br>
+· 특징(귀·코·목·꼬리)을 짧게 그리면 옆모습이어도 헷갈려요. 그래서 &lsquo;옆모습이면 늘 알아본다&rsquo;고 말할 수는 없어요.<br>
+· 색 그림은 특징 길이와 상관없이 다 알아봐요. 색이 또 하나의 단서이기 때문이에요.<br>
 · 실제로는 실루엣을 얼마나 자세히 오렸는지, 동물을 얼마나 잘 아는지에 따라 달라져요.</div>
 <h3>🌍 생활 속에서</h3>
 <ul><li>안내 표지나 그림 문자도 특징만 남긴 실루엣을 많이 써요. 내 물건을 실루엣으로 그린다면 특징이 가장 많이 보이는 쪽을 골라요.</li></ul>
@@ -294,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -432,74 +437,106 @@ function hbars(items, max){
 var LAB = (function(){
       function txtF(c, s, x, y, o, maxW){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(s).width;
         if (maxW && w > maxW){ c.save(); c.translate(x, y); c.scale(maxW / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
-      function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
       var AN = [{n:'토끼', key:'긴 귀', col:'#C9B8A6'}, {n:'코끼리', key:'긴 코', col:'#9AA3AD'}, {n:'기린', key:'긴 목', col:'#E2B65A'}, {n:'고양이', key:'뾰족한 귀와 올라간 꼬리', col:'#E59A4E'}];
       var VW = [{n:'옆모습', s:'옆'}, {n:'앞모습', s:'앞'}];
       var SHOW = [{n:'까만 실루엣', s:'실루엣'}, {n:'색 그림 (비교용)', s:'색 그림'}];
-      var TB = {'0_0':[19, 0, 0, 1], '1_0':[0, 20, 0, 0], '2_0':[0, 0, 20, 0], '3_0':[1, 0, 0, 19],
-        '0_1':[9, 0, 0, 11], '1_1':[0, 16, 1, 3], '2_1':[1, 2, 13, 4], '3_1':[12, 0, 0, 8]};
-      function calc(p){ var v = TB[p.a + '_' + p.v].slice(), nn;
-        if (p.s === 1){ v = [0, 0, 0, 0]; v[p.a] = 20; }
-        var right = v[p.a], wrong = 0, wi = -1;
+      /* VF: 그 방향에서 특징이 얼마나 잘 보이는가 (옆모습, 앞모습) — 제로 랩의 교육용 모형값
+         맞힐 비율 = 0.25(넷 중 아무거나) + 0.75 × (특징 길이 × 잘 보이는 정도) */
+      var VF = [[0.9333, 0.2667], [1, 0.7333], [1, 0.5333], [0.9333, 0.4667]];
+      /* 가장 헷갈리는 짝: 토끼↔고양이(귀), 코끼리↔기린(긴 부위) */
+      var CONF = [3, 2, 1, 0];
+      function rightOf(a, v, L){ var s = Math.min(1, Math.max(0, L * VF[a][v])); return Math.round(20 * (0.25 + 0.75 * s)); }
+      function calc(p){
+        var v = [0, 0, 0, 0], right;
+        if (p.s === 1){ right = 20; v[p.a] = 20; }
+        else { right = rightOf(p.a, p.v, p.L); v[p.a] = right; v[CONF[p.a]] = 20 - right; }
+        var wrong = 0, wi = -1;
         v.forEach(function(x, i){ if (i !== p.a && x > wrong){ wrong = x; wi = i; } });
-        nn = {v:v, right:right, wi:wi, wrong:wrong}; return nn; }
-      function shape(c, a, side, x, y, s, fill){
+        return {v:v, right:right, wi:wi, wrong:wrong};
+      }
+      function verdict(p, q){
+        if (p.s === 1) return '색이 있으니 특징을 짧게 그려도 다 알아봐요.';
+        if (q.right >= 18) return '특징이 또렷해서 거의 다 맞혔어요.';
+        if (q.right >= 12) return '절반이 넘게 맞혔지만 헷갈린 친구도 있어요.';
+        return '특징이 잘 안 보여서 ' + AN[q.wi].n + '(으)로 많이 헷갈렸어요.';
+      }
+      function shape(c, a, side, x, y, s, fill, L){
+        if (L === undefined) L = 1;
         c.fillStyle = fill; c.strokeStyle = fill;
         function el(cx, cy, rx, ry, rot){ c.beginPath(); c.ellipse(x + cx * s, y + cy * s, rx * s, ry * s, rot || 0, 0, Math.PI * 2); c.fill(); }
         function rc(x1, y1, w, h){ c.fillRect(x + x1 * s, y + y1 * s, w * s, h * s); }
         function tri(a1, b1, a2, b2, a3, b3){ c.beginPath(); c.moveTo(x + a1 * s, y + b1 * s); c.lineTo(x + a2 * s, y + b2 * s); c.lineTo(x + a3 * s, y + b3 * s); c.closePath(); c.fill(); }
         if (side){
-          if (a === 0){ el(0, 20, 34, 24); el(30, -8, 15, 13); el(26, -40, 5, 22, -0.15); el(36, -40, 5, 22, 0.15); el(-34, 18, 8, 8); rc(-24, 38, 12, 10); rc(14, 38, 14, 10); }
-          if (a === 1){ el(0, 0, 46, 32); el(46, -12, 20, 20); c.lineWidth = 9 * s; c.beginPath(); c.moveTo(x + 62 * s, y - 4 * s); c.quadraticCurveTo(x + 76 * s, y + 30 * s, x + 64 * s, y + 50 * s); c.stroke();
+          if (a === 0){ el(0, 20, 34, 24); el(30, -8, 15, 13); el(26, -18 - 22 * L, 5, 22 * L, -0.15); el(36, -18 - 22 * L, 5, 22 * L, 0.15); el(-34, 18, 8, 8); rc(-24, 38, 12, 10); rc(14, 38, 14, 10); }
+          if (a === 1){ el(0, 0, 46, 32); el(46, -12, 20, 20); c.lineWidth = 9 * s; c.beginPath(); c.moveTo(x + 62 * s, y - 4 * s); c.quadraticCurveTo(x + 76 * s, y + (-4 + 34 * L) * s, x + 64 * s, y + (-4 + 54 * L) * s); c.stroke();
             el(32, -8, 14, 20); rc(-38, 20, 16, 34); rc(-14, 20, 16, 34); rc(10, 20, 16, 34); rc(28, 20, 16, 34); }
-          if (a === 2){ el(-6, 10, 36, 20); c.lineWidth = 12 * s; c.beginPath(); c.moveTo(x + 20 * s, y + 2 * s); c.lineTo(x + 44 * s, y - 64 * s); c.stroke(); el(52, -68, 14, 8, 0.3);
-            rc(42, -82, 3, 9); rc(-36, 24, 7, 40); rc(-20, 24, 7, 40); rc(10, 24, 7, 40); rc(22, 24, 7, 40); }
-          if (a === 3){ el(-2, 14, 34, 16); el(34, -6, 14, 13); tri(26, -14, 30, -30, 36, -16); tri(36, -16, 44, -28, 46, -10); rc(-30, 22, 7, 24); rc(-16, 22, 7, 24); rc(14, 22, 7, 24); rc(24, 22, 7, 24);
-            c.lineWidth = 6 * s; c.beginPath(); c.moveTo(x - 34 * s, y + 10 * s); c.quadraticCurveTo(x - 56 * s, y - 6 * s, x - 46 * s, y - 34 * s); c.stroke(); }
+          if (a === 2){ var nx = 20 + 24 * L, ny = 2 - 66 * L;
+            el(-6, 10, 36, 20); c.lineWidth = 12 * s; c.beginPath(); c.moveTo(x + 20 * s, y + 2 * s); c.lineTo(x + nx * s, y + ny * s); c.stroke(); el(nx + 8, ny - 4, 14, 8, 0.3);
+            rc(nx - 2, ny - 18, 3, 9); rc(-36, 24, 7, 40); rc(-20, 24, 7, 40); rc(10, 24, 7, 40); rc(22, 24, 7, 40); }
+          if (a === 3){ el(-2, 14, 34, 16); el(34, -6, 14, 13); tri(26, -14, 30, -14 - 16 * L, 36, -16); tri(36, -16, 44, -16 - 12 * L, 46, -10); rc(-30, 22, 7, 24); rc(-16, 22, 7, 24); rc(14, 22, 7, 24); rc(24, 22, 7, 24);
+            c.lineWidth = 6 * s; c.beginPath(); c.moveTo(x - 34 * s, y + 10 * s); c.quadraticCurveTo(x - 56 * s, y + (10 - 16 * L) * s, x - 46 * s, y + (10 - 44 * L) * s); c.stroke(); }
         } else {
-          if (a === 0){ el(0, 26, 26, 26); el(0, -12, 18, 16); el(-8, -40, 5, 18, -0.1); el(8, -40, 5, 18, 0.1); }
-          if (a === 1){ el(0, 14, 32, 34); el(-30, -6, 20, 26); el(30, -6, 20, 26); el(0, -12, 16, 16); rc(-5, -4, 10, 46); }
-          if (a === 2){ el(0, 30, 22, 20); rc(-5, -40, 10, 66); el(0, -48, 9, 12); rc(-7, -64, 3, 8); rc(4, -64, 3, 8); el(-12, -50, 6, 3); el(12, -50, 6, 3); }
-          if (a === 3){ el(0, 26, 26, 26); el(0, -12, 18, 16); tri(-16, -18, -12, -36, -4, -24); tri(16, -18, 12, -36, 4, -24); }
+          if (a === 0){ el(0, 26, 26, 26); el(0, -12, 18, 16); el(-8, -22 - 18 * L, 5, 18 * L, -0.1); el(8, -22 - 18 * L, 5, 18 * L, 0.1); }
+          if (a === 1){ el(0, 14, 32, 34); el(-30, -6, 20, 26); el(30, -6, 20, 26); el(0, -12, 16, 16); rc(-5, -4, 10, 46 * L); }
+          if (a === 2){ var ty = 26 - 66 * L;
+            el(0, 30, 22, 20); rc(-5, ty, 10, 66 * L); el(0, ty - 8, 9, 12); rc(-7, ty - 24, 3, 8); rc(4, ty - 24, 3, 8); el(-12, ty - 10, 6, 3); el(12, ty - 10, 6, 3); }
+          if (a === 3){ el(0, 26, 26, 26); el(0, -12, 18, 16); tri(-16, -18, -12, -18 - 18 * L, -4, -24); tri(16, -18, 12, -18 - 18 * L, 4, -24); }
         }
       }
       return {
-        sceneHeight: 400,
-        idle: '동물·방향·보여 줄 카드를 고른 뒤 <b>카드 보여 주기</b>를 누르세요.',
-        shortHint: '네 동물의 옆모습 실루엣을 모두 보여 주고, 토끼와 고양이는 앞모습으로도 보여 주세요.',
+        sceneHeight: 430,
+        idle: '동물·방향·보여 줄 카드와 특징 길이를 고른 뒤 <b>카드 보여 주기</b>를 누르세요.',
+        shortHint: '네 동물의 옆모습 실루엣을 보여 주고, 특징 길이를 40%로 줄여서도 보여 주세요.',
         params: [
           {key:'a', type:'seg', label:'동물', cols:4, value:0, options:AN.map(function(x){ return x.n; })},
           {key:'v', type:'seg', label:'보는 방향', cols:2, value:0, options:VW.map(function(x){ return x.n; })},
-          {key:'s', type:'seg', label:'보여 줄 카드', cols:2, value:0, options:SHOW.map(function(x){ return x.n; }), note:'까만 실루엣은 다 똑같아 보일까요?'}
+          {key:'s', type:'seg', label:'보여 줄 카드', cols:2, value:0, options:SHOW.map(function(x){ return x.n; }), note:'까만 실루엣은 다 똑같아 보일까요?'},
+          {key:'L', type:'range', label:'특징(귀·코·목·꼬리) 길이', min:0.2, max:1.2, step:0.2, value:1, fmt:function(v){ return Math.round(v * 100) + '%'; }}
         ],
         compute: function(p){ return calc(p); },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#FBFAF7'; c.fillRect(0, 0, W, H);
           var q = calc(p), cw = Math.min(W - 40, 300), cx = W / 2, cy = 110, s = Math.min(1.3, cw / 190);
           c.fillStyle = '#FFFFFF'; c.fillRect(cx - cw / 2, 14, cw, 190); c.strokeStyle = '#C3CDD9'; c.lineWidth = 1.5; c.strokeRect(cx - cw / 2, 14, cw, 190);
-          shape(c, p.a, p.v === 0, cx, cy, s, p.s ? AN[p.a].col : '#1E2833');
-          txtF(c, VW[p.v].n + ' · ' + SHOW[p.s].s, cx - cw / 2 + 8, 34, {color:'#8C99A8'}, cw - 16);
-          var by = 228, bx = 80, bw = W - bx - 70, k = r ? Math.min(1, tau * 1.4) : 0;
+          c.save(); c.beginPath(); c.rect(cx - cw / 2 + 1, 15, cw - 2, 188); c.clip();
+          shape(c, p.a, p.v === 0, cx, cy, s, p.s ? AN[p.a].col : '#1E2833', p.L);
+          c.restore();
+          txtF(c, VW[p.v].n + ' · ' + SHOW[p.s].s + ' · 특징 ' + Math.round(p.L * 100) + '%', cx - cw / 2 + 8, 34, {color:'#8C99A8'}, cw - 16);
+          var by = 228, bx = 80, bw = Math.max(50, W - bx - 70), k = r ? Math.min(1, tau * 1.4) : 0;
           AN.forEach(function(an, i){ var y = by + i * 30, sel = i === p.a;
             txt(c, an.n, 12, y + 17, {bold:sel, color:sel ? PAL[1] : '#4A5868'}); c.fillStyle = '#E6EBF1'; c.fillRect(bx, y + 2, bw, 20);
             c.fillStyle = sel ? PAL[1] : PAL[4]; c.fillRect(bx, y + 2, bw * q.v[i] / 20 * k, 20); txt(c, r ? q.v[i] + '명' : '?', bx + bw + 8, y + 18, {color:'#4A5868'}); });
-          txtF(c, r ? '20명 중 ' + q.right + '명 맞힘' + (q.wrong >= 3 ? ' · ' + AN[q.wi].n + '(으)로 헷갈린 친구 ' + q.wrong + '명' : '') : '예상: 몇 명이 맞힐까?', 12, H - 14, {bold:true, color:r ? (q.right >= 18 ? PAL[1] : PAL[4]) : '#1E2833'}, W - 24);
+          txtF(c, r ? '20명 중 ' + q.right + '명 맞힘' + (q.wrong >= 3 ? ' · ' + AN[q.wi].n + '(으)로 헷갈린 친구 ' + q.wrong + '명' : '') : '예상: 몇 명이 맞힐까?',
+            12, H - 40, {bold:true, color:r ? (q.right >= 18 ? PAL[1] : PAL[4]) : '#1E2833'}, W - 24);
+          txtF(c, r ? verdict(p, q) : '※ 맞힌 친구 수는 교육용 모형값', 12, H - 14, {color:r ? '#4A5868' : '#8C99A8'}, W - 24);
         },
         stats: function(p, r){
-          var out = [['카드', AN[p.a].n + ' · ' + VW[p.v].n + ' · ' + SHOW[p.s].n], ['맞힌 친구 (가상)', r.right + '명 / 20명', r.right >= 18 ? PAL[1] : PAL[4]],
+          var out = [['카드', AN[p.a].n + ' · ' + VW[p.v].n + ' · ' + SHOW[p.s].n],
+            ['특징 길이', Math.round(p.L * 100) + '%', PAL[3]],
+            ['맞힌 친구 (교육용 모형)', r.right + '명 / 20명', r.right >= 18 ? PAL[1] : PAL[4]],
             ['특징', AN[p.a].key + (p.v === 0 ? ' — 옆모습에서 잘 보여요' : ' — 앞모습에서는 잘 안 보일 수 있어요'), PAL[3]]];
           out.push(['가장 많이 헷갈린 답', r.wrong ? AN[r.wi].n + ' ' + r.wrong + '명' : '없음']);
+          if (p.s === 1) out.push(['특징 길이는', '색 그림이라 맞힌 수를 바꾸지 않아요 (20명 모두 맞힘)', PAL[0]]);
+          else if (p.L !== 1) out.push(['특징을 100%로 그리면', rightOf(p.a, p.v, 1) + '명이 맞혀요 (지금 ' + r.right + '명)', PAL[0]]);
+          else out.push(['특징을 40%로 줄이면', rightOf(p.a, p.v, 0.4) + '명으로 줄어요 (지금 ' + r.right + '명)', PAL[0]]);
+          out.push(['판정', verdict(p, r), r.right >= 18 ? PAL[1] : PAL[4]]);
           return out;
         },
-        columns: ['동물', '방향', '카드', '맞힘', '헷갈린 답'],
-        record: function(p, r){ return {a:p.a, v:p.v, s:p.s, right:r.right, wi:r.wi, wrong:r.wrong}; },
-        row: function(d){ return [AN[d.a].n, VW[d.v].s, SHOW[d.s].s, d.right + '명', d.wrong ? AN[d.wi].n + ' ' + d.wrong : '없음']; },
+        columns: ['동물', '방향', '카드', '특징 길이', '맞힘', '헷갈린 답'],
+        record: function(p, r){ return {a:p.a, v:p.v, s:p.s, L:p.L, right:r.right, wi:r.wi, wrong:r.wrong}; },
+        row: function(d){ return [AN[d.a].n, VW[d.v].s, SHOW[d.s].s, Math.round(d.L * 100) + '%', d.right + '명', d.wrong ? AN[d.wi].n + ' ' + d.wrong : '없음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
+            card('특징 길이에 따라 달라지는 맞힌 수 (교육용 모형)', '<div id="a8c"></div><p class="ask">특징을 <b>40%</b>로 짧게 그리면 옆모습에서도 몇 명이 맞혔나요? 그러면 &lsquo;옆모습이면 늘 알아본다&rsquo;고 말할 수 있을까요?</p>') +
             card('실루엣: 옆모습 vs 앞모습', '<div id="a8a"></div><p class="ask">색이 없는 실루엣인데도 옆모습은 몇 명이 맞혔나요? 앞모습에서 토끼와 고양이는 왜 헷갈렸을까요?</p>') +
             card('색 그림과 비교', '<div id="a8b"></div><p class="ask">과제: 집 안 물건 세 가지를 손전등으로 비추어 그림자를 만들고, 가족이 가장 쉽게 맞힌 방향을 찾아 실루엣으로 그려 오세요. 손전등 불빛을 사람 눈에 비추지 않기.</p>') + '</div>';
-          var sil = rec.filter(function(d){ return d.s === 0; }), g = groupBy(sil, function(d){ return d.a + '_' + d.v; }), items = [];
-          Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; items.push({label:AN[d.a].n + ' · ' + VW[d.v].s, v:d.right, color:d.v ? PAL[4] : PAL[1], text:d.right + '명'}); });
+          $('a8c').innerHTML = tableHTML(['동물', '옆 40%', '옆 100%', '앞 40%', '앞 100%', '나'], AN.map(function(an, i){
+            return [an.n + ' (' + an.key + ')', rightOf(i, 0, 0.4) + '명', rightOf(i, 0, 1) + '명', rightOf(i, 1, 0.4) + '명', rightOf(i, 1, 1) + '명',
+              rec.some(function(d){ return d.a === i && d.s === 0; }) ? '해 봄' : '·'];
+          })) + '<p class="note">※ 맞힌 친구 수는 &lsquo;0.25 + 0.75 × (특징 길이 × 그 방향에서 잘 보이는 정도)&rsquo; 로 계산한 제로 랩의 교육용 모형값이에요. 색 그림은 길이와 상관없이 20명이 맞혀요.</p>';
+          var sil = rec.filter(function(d){ return d.s === 0; }), g = groupBy(sil, function(d){ return d.a + '_' + d.v + '_' + d.L; }), items = [];
+          Object.keys(g).sort().forEach(function(key){ var d = g[key][0];
+            items.push({label:AN[d.a].n + ' · ' + VW[d.v].s + ' · ' + Math.round(d.L * 100) + '%', v:d.right, color:d.v ? PAL[4] : PAL[1], text:d.right + '명'}); });
           $('a8a').innerHTML = items.length ? hbars(items, 20) : '<p class="msg">까만 실루엣 카드로도 보여 주세요.</p>';
           var h = groupBy(rec, function(d){ return d.s; }), rows = [];
           SHOW.forEach(function(sh, i){ var a = h[i]; if (!a) return; rows.push([sh.n, a.length + '장', f(mean(a.map(function(d){ return d.right; })), 1) + '명']); });
@@ -512,7 +549,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -258,6 +258,13 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">떨어뜨릴 시간: <span class="slider-val" id="tVal">2.0</span> 초</div>
             <input type="range" id="tSlider" min="0.5" max="4" step="0.5" value="2" aria-label="떨어뜨릴 시간">
+            <div class="control-label">물체의 질량: <span class="slider-val" id="mVal">1</span> kg</div>
+            <input type="range" id="mSlider" min="1" max="10" step="1" value="1" aria-label="물체의 질량">
+            <div class="control-label">공기 저항 (교육용 모형)</div>
+            <div class="btn-row" id="airRow">
+              <button class="btn-choice active" data-air="0">없다고 보기</button>
+              <button class="btn-choice" data-air="1">있다고 보기</button>
+            </div>
             <button class="btn-main" id="runBtn">그 시간까지 떨어뜨리기 ▶</button>
             <div class="result-box" id="result">시간을 정하고 떨어뜨리면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -266,8 +273,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>시간(초)</th><th>속력(m/s)</th><th>떨어진 거리(m)</th><th>속력÷시간</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>질량(kg)</th><th>공기 저항</th><th>시간(초)</th><th>속력(m/s)</th><th>떨어진 거리(m)</th><th>속력÷시간</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -511,21 +518,43 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 /* ================= 실험 ================= */
 
 var G=9.8, TMAX=4, HMAX=0.5*G*TMAX*TMAX;   /* 4초에 78.4m */
-function speedAt(t){ return G*t; }
-function fallAt(t){ return 0.5*G*t*t; }
+var MASS=1, AIR=0;
+/* 공기 저항은 교육용 모형값: 저항력 = K × v², K = 0.25 (공기 저항이 없다고 보면 예전과 똑같다).
+   그러면 더 이상 빨라지지 않는 속력(종단 속력)이 생기고, 그 값은 질량에 따라 달라진다. */
+var K=0.25;
+function vTerm(){ return Math.sqrt(MASS*G/K); }
+function speedAt(t){ if(!AIR) return G*t; var u=vTerm(); return u*Math.tanh(G*t/u); }
+function fallAt(t){ if(!AIR) return 0.5*G*t*t; var u=vTerm(); return u*u/G*Math.log(Math.cosh(G*t/u)); }
 
 var setT=2, records=[], busy=false, revealed=false, now=0, shots=[];
 var canvas=document.getElementById('fCanvas'), ctx=canvas.getContext('2d');
 var TOP=48, BOT=310, BX=150;
 function yOf(h){ return TOP+(BOT-TOP)*(Math.min(HMAX,h)/HMAX); }
 
-document.getElementById('tSlider').addEventListener('input',function(e){
-  setT=parseFloat(e.target.value);
-  document.getElementById('tVal').textContent=setT.toFixed(1);
+function resetRun(){
   now=0; shots=[]; revealed=false;
   document.getElementById('result').className='result-box';
   document.getElementById('result').innerHTML='시간을 정하고 떨어뜨리면 결과가 표에 자동으로 기록됩니다.';
   draw();
+}
+document.getElementById('tSlider').addEventListener('input',function(e){
+  setT=parseFloat(e.target.value);
+  document.getElementById('tVal').textContent=setT.toFixed(1);
+  resetRun();
+});
+document.getElementById('mSlider').addEventListener('input',function(e){
+  MASS=parseInt(e.target.value,10);
+  document.getElementById('mVal').textContent=MASS;
+  resetRun();
+});
+document.querySelectorAll('#airRow [data-air]').forEach(function(b){
+  b.addEventListener('click',function(){
+    if(busy) return;
+    document.querySelectorAll('#airRow [data-air]').forEach(function(x){ x.classList.remove('active'); });
+    b.classList.add('active');
+    AIR=parseInt(b.dataset.air,10);
+    resetRun();
+  });
 });
 
 function draw(){
@@ -544,6 +573,7 @@ function draw(){
   ctx.beginPath(); ctx.moveTo(74,TOP-10); ctx.lineTo(74,BOT+8); ctx.stroke();
 
   /* 0.5초 간격 사진 */
+  var lastLabY=-999;
   shots.forEach(function(s,i){
     ctx.globalAlpha=0.30;
     ctx.fillStyle='#c1443c';
@@ -551,8 +581,12 @@ function draw(){
     ctx.globalAlpha=1;
     ctx.strokeStyle='rgba(47,143,157,0.5)'; ctx.lineWidth=1.5; ctx.setLineDash([4,4]);
     ctx.beginPath(); ctx.moveTo(BX-30, yOf(s.h)); ctx.lineTo(BX+150, yOf(s.h)); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle='#2f8f9d'; ctx.font="700 15px 'IBM Plex Mono',monospace"; ctx.textAlign='left';
-    ctx.fillText(s.t.toFixed(1)+'초', BX+156, yOf(s.h)+5);
+    /* 사진이 겹칠 만큼 가까우면 시간 글자는 건너뛴다 (공기 저항이 있을 때 간격이 좁아진다) */
+    if(Math.abs(yOf(s.h)-lastLabY)>=17){
+      lastLabY=yOf(s.h);
+      ctx.fillStyle='#2f8f9d'; ctx.font="700 15px 'IBM Plex Mono',monospace"; ctx.textAlign='left';
+      ctx.fillText(s.t.toFixed(1)+'초', BX+156, yOf(s.h)+5);
+    }
     /* 사진 사이 간격 표시 */
     if(i>0){
       var y0=yOf(shots[i-1].h), y1=yOf(s.h);
@@ -560,8 +594,10 @@ function draw(){
       ctx.beginPath(); ctx.moveTo(BX-34,y0); ctx.lineTo(BX-34,y1); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(BX-38,y0); ctx.lineTo(BX-30,y0);
       ctx.moveTo(BX-38,y1); ctx.lineTo(BX-30,y1); ctx.stroke();
-      ctx.fillStyle='#a86825'; ctx.font="700 14px 'IBM Plex Mono',monospace"; ctx.textAlign='right';
-      ctx.fillText((s.h-shots[i-1].h).toFixed(1)+'m', BX-42, (y0+y1)/2+5);
+      if(Math.abs(y1-y0)>=15){
+        ctx.fillStyle='#a86825'; ctx.font="700 14px 'IBM Plex Mono',monospace"; ctx.textAlign='right';
+        ctx.fillText((s.h-shots[i-1].h).toFixed(1)+'m', BX-42, (y0+y1)/2+5);
+      }
     }
   });
 
@@ -594,15 +630,18 @@ function draw(){
     ctx.fillStyle='#173238'; ctx.font="700 23px 'Noto Sans KR',sans-serif";
     ctx.fillText(setT.toFixed(1)+'초 후 속력 '+speedAt(setT).toFixed(1)+' m/s', 220, 364);
     ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
-    var fs='v = 9.8 × '+setT.toFixed(1)+' = '+speedAt(setT).toFixed(1)+' · h = ½×9.8×'+setT.toFixed(1)+'² = '+fallAt(setT).toFixed(1)+'m', fw=ctx.measureText(fs).width;
+    var fs = AIR
+      ? '공기 저항 모형: 종단 속력 '+vTerm().toFixed(1)+' m/s ('+MASS+'kg) · 지금 '+speedAt(setT).toFixed(1)+' m/s · '+fallAt(setT).toFixed(1)+'m'
+      : 'v = 9.8 × '+setT.toFixed(1)+' = '+speedAt(setT).toFixed(1)+' · h = ½×9.8×'+setT.toFixed(1)+'² = '+fallAt(setT).toFixed(1)+'m';
+    var fw=ctx.measureText(fs).width;
     if(fw>424) ctx.font="600 "+Math.max(11,Math.floor(19*424/fw))+"px 'IBM Plex Mono',monospace"; // 캔버스(440) 폭에 맞게 글자 크기 줄이기
     ctx.fillText(fs, 220, 390);
     ctx.font="600 18px 'Noto Sans KR',sans-serif";
-    ctx.fillText('사진 간격이 점점 벌어지는 것 = 점점 빨라진다는 뜻', 220, 412);
+    ctx.fillText(AIR ? '사진 간격이 더 벌어지지 않는 것 = 더 빨라지지 않는다는 뜻' : '사진 간격이 점점 벌어지는 것 = 점점 빨라진다는 뜻', 220, 412);
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
     ctx.fillText('"그 시간까지 떨어뜨리기"를 눌러보세요', 220, 368);
-    ctx.fillText('설정한 시간: '+setT.toFixed(1)+'초', 220, 396);
+    ctx.fillText('시간 '+setT.toFixed(1)+'초 · 질량 '+MASS+'kg · 공기 저항 '+(AIR?'있음':'없음'), 220, 396);
   }
   ctx.textAlign='left';
 }
@@ -611,13 +650,13 @@ draw();
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return Math.abs(r.t-setT)<0.01; })){
-    notify('이미 측정한 시간이에요. 다른 시간을 골라보세요.');
+  if(records.some(function(r){ return Math.abs(r.t-setT)<0.01 && r.m===MASS && r.air===AIR; })){
+    notify('이미 측정한 조합이에요. 시간·질량·공기 저항을 바꿔보세요.');
     return;
   }
   busy=true; revealed=false; now=0; shots=[];
   var btn=this; btn.disabled=true;
-  lockInputs('#tSlider', true);
+  lockInputs('#tSlider,#mSlider,#airRow button', true);
   var dur=700*setT;                    /* 실제보다 느리게 재생 */
   var t0=performance.now(), nextShot=0.5;
   if(window.fxSound&&fxSound.wind) fxSound.wind(Math.min(1, speedAt(setT)/39.2), dur/1000);   /* 떨어지는 동안 바람 소리: 오래 떨어질수록 빨라져 크게 */
@@ -633,8 +672,8 @@ document.getElementById('runBtn').addEventListener('click', function(){
     else{
       now=setT; revealed=true; draw();
       btn.disabled=false; busy=false;
-      lockInputs('#tSlider', false);
-      records.push({t:setT, v:speedAt(setT), h:fallAt(setT)});
+      lockInputs('#tSlider,#mSlider,#airRow button', false);
+      records.push({t:setT, v:speedAt(setT), h:fallAt(setT), m:MASS, air:AIR, vt:AIR?vTerm():null});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
@@ -649,10 +688,10 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  var s=records.slice().sort(function(a,b){ return a.t-b.t; });
+  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  var s=records.slice().sort(function(a,b){ return (a.air-b.air)||(a.m-b.m)||(a.t-b.t); });
   tb.innerHTML=s.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.t.toFixed(1)+'</td><td>'+r.v.toFixed(1)+'</td><td>'+r.h.toFixed(1)+'</td>'
+    return '<tr><td>'+(i+1)+'</td><td>'+r.m+'</td><td class="kr">'+(r.air?'있음':'없음')+'</td><td>'+r.t.toFixed(1)+'</td><td>'+r.v.toFixed(1)+'</td><td>'+r.h.toFixed(1)+'</td>'
       +'<td>'+(r.v/r.t).toFixed(2)+'</td></tr>';
   }).join('');
 }
@@ -668,7 +707,10 @@ function renderValidation(){
   document.getElementById('lockedMsg').style.display='none';
   document.getElementById('validationContent').style.display='block';
 
-  var s=records.slice().sort(function(a,b){ return a.t-b.t; });
+  var all=records.slice().sort(function(a,b){ return a.t-b.t; });
+  var noAir=all.filter(function(r){ return !r.air; });
+  var withAir=all.filter(function(r){ return r.air; });
+  var s=(noAir.length>=2) ? noAir : all;
   var pts=s.map(function(r){ return {x:r.t, y:r.v}; });
   var reg=linreg(pts.map(function(p){return p.x;}), pts.map(function(p){return p.y;}));
   drawScatter(document.getElementById('vChart'), pts, '낙하 시간 (초)', '속력 (m/s)', reg);
@@ -681,7 +723,29 @@ function renderValidation(){
       return '<div class="mini-row"><span>'+r.t.toFixed(1)+'초</span><span class="mono">'+r.v.toFixed(1)+' m/s (속력÷시간 = '+ratios[i].toFixed(2)+')</span></div>';
     }).join('')
     + '<div class="insight-box">자동 분석: 속력은 시간에 <b>정비례</b>하는 직선이고, 기울기가 <span class="mono">'+reg.m.toFixed(2)
-    + '</span>입니다. 이 값이 바로 <b>중력가속도 9.8 m/s²</b> — 1초마다 속력이 9.8 m/s씩 일정하게 빨라진다는 뜻이에요.</div>';
+    + '</span>입니다. 이 값이 바로 <b>중력가속도 9.8 m/s²</b> — 1초마다 속력이 9.8 m/s씩 일정하게 빨라진다는 뜻이에요.</div>'
+    + (function(){
+        var byM={};
+        noAir.forEach(function(r){ var k=r.t.toFixed(1); (byM[k]=byM[k]||[]).push(r); });
+        var pairs=Object.keys(byM).filter(function(k){
+          var g=byM[k]; var ms={}; g.forEach(function(r){ ms[r.m]=1; });
+          return Object.keys(ms).length>=2;
+        });
+        if(!pairs.length) return '<div class="insight-box wait">같은 시간에서 <b>질량만 바꿔</b> 두 번 재 보세요. '
+          + '공기 저항이 없다고 보면 질량과 상관없이 결과가 같은지 직접 확인할 수 있어요.</div>';
+        var k0=pairs[0], g0=byM[k0];
+        var vmin=Math.min.apply(null,g0.map(function(r){return r.v;})), vmax=Math.max.apply(null,g0.map(function(r){return r.v;}));
+        return '<div class="insight-box">자동 분석: '+k0+'초에서 질량을 '
+          + g0.map(function(r){return r.m+'kg';}).join(' · ')+' 로 바꿔 재 보니 속력이 '
+          + vmin.toFixed(1)+'~'+vmax.toFixed(1)+' m/s 로 <b>모두 같았습니다</b>. '
+          + '공기 저항이 없다면 무거운 물체도 가벼운 물체와 <b>똑같이 떨어집니다</b>.</div>';
+      })()
+    + (withAir.length
+        ? '<div class="insight-box">공기 저항을 ‘있다고 보기’로 둔 기록 '+withAir.length+'개: '
+          + withAir.map(function(r){ return r.m+'kg → '+r.v.toFixed(1)+' m/s (더 빨라지지 않는 속력 '+r.vt.toFixed(1)+' m/s)'; }).join(' · ')
+          + '. 이때는 속력이 시간에 정비례하지 않고 <b>어느 값에서 멈추며</b>, 그 값이 <b>질량에 따라 달라집니다</b> — '
+          + '무거운 쪽이 더 빨리 떨어져요. 깃털과 쇠공이 다르게 떨어지는 까닭이 바로 이것입니다. (저항력 = 0.25 × 속력², 교육용 모형값)</div>'
+        : '<div class="insight-box wait">공기 저항을 <b>‘있다고 보기’</b>로 바꿔 한 번 더 재 보세요. ‘속력 ÷ 시간이 늘 9.8’이라는 규칙이 깨지는 것을 볼 수 있어요.</div>');
 
   /* 거리는 시간의 제곱에 비례 → 직선이 아니므로 추세선 없음 */
   drawScatter(document.getElementById('hChart'),

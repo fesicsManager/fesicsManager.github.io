@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -307,9 +308,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -453,7 +455,8 @@ var LAB = (function(){
 var C = 299792.458, H0 = 70, K0 = 393.37, H1 = 396.85;
 var GAL = [
   {name:'처녀자리 은하단', d:16.5}, {name:'페르세우스자리 은하단', d:73}, {name:'머리털자리 은하단', d:100},
-  {name:'헤르쿨레스자리 은하단', d:160}, {name:'북쪽왕관자리 은하단', d:300}
+  {name:'헤르쿨레스자리 은하단', d:160}, {name:'북쪽왕관자리 은하단', d:300},
+  {name:'이름 없는 은하 X', d:214, hidden:true}   /* 거리를 가린 연습용 은하 — 적색 편이로 거리를 되짚어 보게 하는 교육용 모형값 */
   /* v ≈ cz 근사가 잘 맞는 z ≲ 0.07 범위(≤ 300 Mpc)로 제한. 더 먼 은하는 상대론적·우주론적 적색 편이 식이 필요 */
 ];
 var RES = 0.01;
@@ -463,10 +466,16 @@ return {
   idle: '은하를 고른 뒤 <b>스펙트럼 찍기</b>를 누르세요. 흡수선의 파장을 재어 적색 편이와 후퇴 속도를 구합니다.',
   shortHint: '자유 탐구 탭에서 은하를 모두 관측해 기록하세요.',
   params: [
-    {key:'g', type:'seg', label:'관측할 은하', cols:3, value:0, options:GAL.map(function(x){ return x.name + '<small>' + x.d + ' Mpc</small>'; }),
-      note:'거리는 세페이드 변광성이나 초신성으로 따로 잰 값입니다. 분광기는 0.01 nm 단위로 읽습니다. 1 Mpc는 약 326만 광년입니다.'}
+    {key:'g', type:'seg', label:'관측할 은하', cols:3, value:0, options:GAL.map(function(x){ return x.name + '<small>' + (x.hidden ? '거리 모름' : x.d + ' Mpc') + '</small>'; }),
+      note:'거리는 세페이드 변광성이나 초신성으로 따로 잰 값입니다. 분광기는 0.01 nm 단위로 읽습니다. 1 Mpc는 약 326만 광년입니다. 「이름 없는 은하 X」는 거리를 가려 둔 은하입니다. 아래 눈금으로 거리를 먼저 짐작해 적어 두면(0이면 짐작 안 함) 관측이 끝난 뒤 참값과 견주어 참값의 10% 안쪽이면 맞은 것으로 셉니다. 짐작을 적기 전에는 은하 X의 거리를 보여 주지 않습니다. 10%라는 눈금은 교육용 모형값입니다.'},
+    {key:'guess', type:'range', label:'내가 짐작한 거리 (먼저 적기)', min:0, max:350, step:10, value:0,
+      fmt:function(v){ return v === 0 ? '짐작 안 함' : v + ' Mpc'; }}
   ],
-  compute: function(p){ var G = GAL[p.g], m = meas(G.d); return {G:G, m:m}; },
+  compute: function(p){
+    var G = GAL[p.g], m = meas(G.d), gs = p.guess || 0;
+    var err = gs ? Math.abs(gs - G.d) / G.d * 100 : null;
+    return {G:G, m:m, gs:gs, err:err, hit:gs ? err <= 10 : null, dz:m.vv / H0};
+  },
   draw: function(c, W, H, p, r, tau){
     var G = GAL[p.g], k = r ? Math.min(tau / 0.8, 1) : 0;
     // 스펙트럼 띠 두 개 (기준, 은하)
@@ -487,21 +496,37 @@ return {
     var P = plotBox(c, 92, 250, W - 122, H - 320, [0, 350, 50], [0, 25000, 5000], '거리 (Mpc)', '후퇴 속도 (km/s)');
     if (!r) return;
     c.strokeStyle = 'rgba(43,95,163,.4)'; c.lineWidth = 2; c.beginPath(); c.moveTo(P.X(0), P.Y(0)); c.lineTo(P.X(350), P.Y(H0 * 350)); c.stroke();
-    c.fillStyle = '#C8463D'; c.strokeStyle = '#fff'; c.lineWidth = 2;
-    c.beginPath(); c.arc(P.X(G.d), P.Y(r.m.vv), 7, 0, Math.PI * 2); c.fill(); c.stroke();
+    if (r.gs){ c.strokeStyle = '#D98E04'; c.lineWidth = 2.5; c.beginPath(); c.arc(P.X(Math.min(350, r.gs)), P.Y(r.m.vv), 8, 0, Math.PI * 2); c.stroke(); }
+    if (!(G.hidden && !r.gs)){
+      c.fillStyle = '#C8463D'; c.strokeStyle = '#fff'; c.lineWidth = 2;
+      c.beginPath(); c.arc(P.X(G.d), P.Y(r.m.vv), 7, 0, Math.PI * 2); c.fill(); c.stroke();
+    }
     if (nar) meter(c, W - 136, 206, 126, 'z = ' + r.m.zz.toFixed(4)); else meter(c, W - 200, 214, 190, 'z = ' + r.m.zz.toFixed(4));
   },
   stats: function(p, r){
-    return [['은하까지 거리', r.G.d + ' Mpc'], ['잰 Ca K선 파장', f(r.m.k, 2) + ' nm (기준 393.37)'], ['적색 편이 z = Δλ ÷ λ₀', r.m.zz.toFixed(4), PAL[4]],
-      ['후퇴 속도 v = cz', Math.round(r.m.vv).toLocaleString() + ' km/s', PAL[0]], ['v ÷ d', f(r.m.vv / r.G.d, 1) + ' km/s/Mpc']];
+    var hid = r.G.hidden && !r.gs;
+    var out = [['은하까지 거리', hid ? '아직 모름 — 눈금으로 먼저 짐작해 보세요' : r.G.d + ' Mpc'],
+      ['잰 Ca K선 파장', f(r.m.k, 2) + ' nm (기준 393.37)'], ['적색 편이 z = Δλ ÷ λ₀', r.m.zz.toFixed(4), PAL[4]],
+      ['후퇴 속도 v = cz', Math.round(r.m.vv).toLocaleString() + ' km/s', PAL[0]],
+      ['v ÷ d', hid ? '거리를 모르니 구할 수 없음' : f(r.m.vv / r.G.d, 1) + ' km/s/Mpc']];
+    if (r.gs){
+      out.push(['내가 짐작한 거리', r.gs + ' Mpc', PAL[6]]);
+      out.push(['적색 편이로 되짚은 거리 v ÷ 70', f(r.dz, 0) + ' Mpc']);
+      out.push(['참값 ' + r.G.d + ' Mpc 과의 차이', f(r.err, 1) + '% → ' + (r.hit ? '맞음 (10% 안)' : '빗나감 (10% 밖)'), r.hit ? PAL[1] : '#C8463D']);
+    }
+    return out;
   },
-  columns: ['은하', '거리 (Mpc)', '잰 파장 (nm)', 'Δλ (nm)', 'z', '속도 (km/s)', 'v ÷ d'],
-  record: function(p, r){ return {g:p.g, d:r.G.d, k:r.m.k, z:r.m.zz, v:r.m.vv}; },
-  row: function(d){ return [GAL[d.g].name, d.d, f(d.k, 2), f(d.k - K0, 2), d.z.toFixed(4), Math.round(d.v).toLocaleString(), f(d.v / d.d, 1)]; },
+  columns: ['은하', '거리 (Mpc)', '잰 파장 (nm)', 'Δλ (nm)', 'z', '속도 (km/s)', 'v ÷ d', '짐작한 거리 → 판정'],
+  record: function(p, r){ return {g:p.g, d:r.G.d, k:r.m.k, z:r.m.zz, v:r.m.vv, hid:!!r.G.hidden, gs:r.gs, err:r.err, hit:r.hit}; },
+  row: function(d){ var mask = d.hid && !d.gs;
+    return [GAL[d.g].name, mask ? '?' : d.d, f(d.k, 2), f(d.k - K0, 2), d.z.toFixed(4), Math.round(d.v).toLocaleString(), mask ? '?' : f(d.v / d.d, 1),
+      d.gs ? d.gs + ' Mpc → ' + (d.hit ? '맞음' : '빗나감 (' + f(d.err, 0) + '%)') : '—'];
+  },
   minRec: 3,
   verify: function(rec, box){
     var seen = {}, list = [];
-    rec.forEach(function(d){ if (seen[d.g]) return; seen[d.g] = 1; list.push(d); });
+    rec.forEach(function(d){ if (d.hid && !d.gs) return; if (seen[d.g]) return; seen[d.g] = 1; list.push(d); });
+    var tried = rec.filter(function(d){ return d.gs; }), hits = tried.filter(function(d){ return d.hit; }).length;
     box.innerHTML = '<div class="vgrid">' +
       card('거리와 후퇴 속도', '<canvas class="chart" id="ch1" role="img" aria-label="허블 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">점들이 원점을 지나는 직선에 놓이나요? 기울기가 뜻하는 것은 무엇일까요?</p>') +
       card('허블 상수로 구한 우주의 나이', '<div id="ro2"></div><p class="ask">우주가 지금 속도로 계속 팽창해 왔다고 보면 나이는 1 ÷ H₀입니다. 실제 우주의 나이(약 138억 년)와 비교하면 어떤가요? 팽창 속도가 변해 왔다면 어느 쪽으로 어긋날까요?</p>') +
@@ -509,8 +534,10 @@ return {
     drawScatter($('ch1'), {xLabel:'거리 (Mpc)', yLabel:'후퇴 속도 (km/s)', series:[{color:'#C8463D', pts:list.map(function(d){ return {x:d.d, y:d.v}; })}],
       lines:list.length >= 2 ? [{k:fit0(list.map(function(d){ return {x:d.d, y:d.v}; })), color:'#2B5FA3'}] : []});
     var slope = list.length >= 2 ? fit0(list.map(function(d){ return {x:d.d, y:d.v}; })) : null;
-    $('ro1').innerHTML = slope ? '<li>원점을 지나는 직선의 기울기 (허블 상수 H₀): <b>' + f(slope, 1) + ' km/s/Mpc</b></li><li>기록 ' + list.length + '개의 v ÷ d 평균: ' + f(mean(list.map(function(d){ return d.v / d.d; })), 1) + '</li>'
-      : '<li>은하를 2개 이상 관측해 기록하면 기울기를 구해 줄게요.</li>';
+    $('ro1').innerHTML = (slope ? '<li>원점을 지나는 직선의 기울기 (허블 상수 H₀): <b>' + f(slope, 1) + ' km/s/Mpc</b></li><li>기록 ' + list.length + '개의 v ÷ d 평균: ' + f(mean(list.map(function(d){ return d.v / d.d; })), 1) + '</li>'
+      : '<li>은하를 2개 이상 관측해 기록하면 기울기를 구해 줄게요.</li>')
+      + (tried.length ? '<li>거리를 먼저 짐작한 횟수: ' + tried.length + '번, 그 가운데 참값의 10% 안에 든 것: <b>' + hits + '번</b></li>'
+      : '<li>「내가 짐작한 거리」 눈금을 0보다 크게 두고 재면, 짐작이 맞았는지도 여기에 쌓입니다.</li>');
     if (slope){
       var age = 1 / (slope / (3.0857e19)) / (3.156e7);
       $('ro2').innerHTML = tableHTML(['항목', '값'], [['구한 허블 상수 H₀', f(slope, 1) + ' km/s/Mpc'], ['1 ÷ H₀ (우주의 나이 추정)', f(age / 1e8, 0) + '억 년'], ['현대 관측값과 비교', '약 138억 년']]);
@@ -523,7 +550,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

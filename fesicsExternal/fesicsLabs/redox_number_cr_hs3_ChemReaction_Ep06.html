@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>산화수와 산화·환원 반응 | 고3 화학 반응의 세계</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -411,7 +413,8 @@ return {
       txt(c, r && tau >= 1 ? R.obs : '관찰 중…', bx, by + bh + 28, {bold:true});
     } else {
       // 산화수 사다리
-      var ax = 60, aw = W - 120, ay = 110, ah = 150;
+      var narrow = W < 560;
+      var ax = narrow ? 40 : 60, aw = W - (narrow ? 80 : 120), ay = 110, ah = 150;
       c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5;
       for (var v = -4; v <= 6; v += 2){ var y = ay + ah / 2 - v * ah / 12; c.beginPath(); c.moveTo(ax, y); c.lineTo(ax + aw, y); c.stroke(); txt(c, sgn(v, 0), ax - 10, y, {align:'right', base:'middle', color:'#4A5868'}); }
       txt(c, '산화수', ax - 10, ay - 12, {align:'right', color:'#4A5868'});
@@ -421,11 +424,16 @@ return {
         arrow(c, x, y1, x, ynow, col, 3);
         c.fillStyle = col; c.beginPath(); c.arc(x, y1, 5, 0, Math.PI * 2); c.fill();
         c.beginPath(); c.arc(x, ynow, 6, 0, Math.PI * 2); c.fill();
-        txt(c, el + ' ' + sgn(a, 0) + ' → ' + sgn(b, 0), x + 12, (y1 + y2) / 2, {color:col, bold:true, base:'middle'});
+        /* 좁은 화면에서는 두 설명이 가로로 겹치므로 사다리 아래에 두 줄로 쓴다 */
+        if (!narrow) txt(c, el + ' ' + sgn(a, 0) + ' → ' + sgn(b, 0), x + 12, (y1 + y2) / 2, {color:col, bold:true, base:'middle'});
         txt(c, lab, x - 4, y2 + (b > a ? -14 : 22), {align:'right', color:col, bold:true});
       }
       mark(ax + aw * 0.22, R.ox.el, R.ox.a, R.ox.b, '#C8463D', '산화');
       mark(ax + aw * 0.6, R.rd.el, R.rd.a, R.rd.b, '#2B5FA3', '환원');
+      if (narrow){
+        txt(c, '산화 ' + R.ox.el + ' ' + sgn(R.ox.a, 0) + ' → ' + sgn(R.ox.b, 0), 12, ay + ah + 32, {color:'#C8463D', bold:true});
+        txt(c, '환원 ' + R.rd.el + ' ' + sgn(R.rd.a, 0) + ' → ' + sgn(R.rd.b, 0), 12, ay + ah + 60, {color:'#2B5FA3', bold:true});
+      }
       txt(c, '이동한 전자 ' + R.e + ' mol (반응식 계수 기준)', 12, H - 40, {bold:true});
       txt(c, '산화되는 쪽이 잃은 전자 수와 환원되는 쪽이 얻은 전자 수는 같습니다', 12, H - 14, {color:'#4A5868'});
     }
@@ -460,7 +468,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

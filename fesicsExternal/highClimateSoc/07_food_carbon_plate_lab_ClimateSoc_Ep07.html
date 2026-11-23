@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -300,9 +301,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -327,6 +329,13 @@ function wtxt(c, s, x, y, maxW, o, lh){
     if (line && c.measureText(t).width > maxW){ txt(c, line, x, y, o); y += lh; line = words[i]; } else line = t;
   }
   txt(c, line, x, y, o); return y + lh;
+}
+function lineCountT(c, s, maxW, bold){
+  c.font = (bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 1;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ n++; line = ws[i]; } else line = t; }
+  return n;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -450,31 +459,68 @@ var LAB = (function(){
 
 var FOOD = [{name:'소고기', em:12, land:40}, {name:'돼지고기', em:2.5, land:3}, {name:'닭고기', em:1.5, land:2}, {name:'생선', em:1.5, land:0.5}, {name:'달걀', em:1, land:1.5}, {name:'두부', em:0.5, land:0.5}, {name:'콩·렌틸', em:0.2, land:0.4}];
 var ALT = [2, 5, 6], AN = ['닭고기', '두부', '콩·렌틸'], BASE = [1, 2, 3, 4, 5];   // 기본 식단 순환
-function calc(beef, ai, students){ var meals = [], em = 0, land = 0; for (var i = 0; i < 21; i++){ var fi = i < beef ? 0 : BASE[i % 5]; meals.push(fi); }
+/* 선호·영양 점수는 비교를 쉽게 하려고 정한 교육용 모형값(5점 만점) */
+var PREF = [5, 4, 4, 3, 3, 2, 2], NUT = [5, 4, 3, 4, 3, 2, 2];
+function mealsOf(beef, ai, swap){ var m = [], i;
+  for (i = 0; i < 21; i++) m.push(i < beef ? (i < swap ? ALT[ai] : 0) : BASE[i % 5]);
+  return m; }
+function sums(m){ var em = 0, land = 0, pr = 0, nu = 0;
+  m.forEach(function(fi){ em += FOOD[fi].em; land += FOOD[fi].land; pr += PREF[fi]; nu += NUT[fi]; });
+  return {em:em, land:land, pref:pr / 21, nut:nu / 21}; }
+/* 목표 감축량을 '끼니 줄이기'와 '다른 고기로 바꾸기'로 각각 채워 본다 */
+function route(beef, ai, kind, target){
+  var best = null, i;
+  for (i = 0; i <= beef; i++){
+    var m = (kind === 0) ? mealsOf(beef - i, ai, 0) : mealsOf(beef, ai, i);
+    var q = sums(m);
+    if (q.em <= target + 1e-9){ best = {step:i, em:q.em, land:q.land, pref:q.pref, nut:q.nut, met:true}; break; }
+    if (i === beef) best = {step:i, em:q.em, land:q.land, pref:q.pref, nut:q.nut, met:false};
+  }
+  return best || {step:0, em:sums(mealsOf(beef, ai, 0)).em, land:0, pref:0, nut:0, met:false};
+}
+function calc(beef, ai, students, goal, way){ var meals = [], em = 0, land = 0; for (var i = 0; i < 21; i++){ var fi = i < beef ? 0 : BASE[i % 5]; meals.push(fi); }
   meals.forEach(function(fi){ em += FOOD[fi].em; land += FOOD[fi].land; });
   var alt = ALT[ai], emAlt = em - beef * (FOOD[0].em - FOOD[alt].em), landAlt = land - beef * (FOOD[0].land - FOOD[alt].land);
-  return {beef:beef, alt:AN[ai], students:students, meals:meals, em:em, land:land, emAlt:emAlt, landAlt:landAlt, save:em - emAlt, schoolSave:(em - emAlt) * students * 40 / 1000, schoolEm:em * students * 40 / 1000, beefShare:beef * FOOD[0].em / em}; }
+  goal = (goal == null ? 0 : goal); way = (way == null ? 0 : way);
+  var target = em * (1 - goal / 100);
+  var rA = route(beef, ai, 0, target), rB = route(beef, ai, 1, target);
+  var pick = (way === 0) ? rA : (way === 1 ? rB : null);
+  if (way === 2){
+    /* 반반 — 줄이기와 바꾸기를 번갈아 한 칸씩 더해 가며 목표를 채운다 */
+    var i, j, got = null;
+    for (i = 0; i <= beef && !got; i++){ for (j = 0; i + j <= beef; j++){
+      var q = sums(mealsOf(beef - i, ai, Math.min(j, Math.max(0, beef - i))));
+      if (q.em <= target + 1e-9){ got = {step:i + j, cut:i, swap:j, em:q.em, land:q.land, pref:q.pref, nut:q.nut, met:true}; break; } } }
+    pick = got || {step:beef, cut:beef, swap:0, em:sums(mealsOf(0, ai, 0)).em, land:0, pref:0, nut:0, met:false};
+  }
+  var base = sums(meals);
+  return {beef:beef, alt:AN[ai], students:students, meals:meals, em:em, land:land, emAlt:emAlt, landAlt:landAlt, save:em - emAlt, schoolSave:(em - emAlt) * students * 40 / 1000, schoolEm:em * students * 40 / 1000, beefShare:beef * FOOD[0].em / em,
+    goal:goal, way:way, target:target, rA:rA, rB:rB, pick:pick, basePref:base.pref, baseNut:base.nut}; }
 return {
-  sceneHeight: 400,
-  idle: '소고기 횟수·대체 단백질·급식 인원을 정한 뒤 <b>식단 계산하기</b>를 누르세요.',
+  sceneHeight: function (w){ return w < 560 ? 452 : 400; },
+  idle: '소고기 횟수·대체 단백질·목표 감축량·채우는 길을 정한 뒤 <b>식단 계산하기</b>를 누르세요. 같은 감축량을 어느 길로 채우느냐에 따라 치르는 값이 달라집니다.',
   shortHint: '자유 탐구 탭에서 소고기 횟수를 0, 1, 3, 5, 7로 바꿔 가며 기록하세요.',
   params: [
     {key:'b', type:'range', label:'일주일 소고기 끼니', min:0, max:7, step:1, value:3, fmt:function(v){ return v + '끼'; }},
     {key:'a', type:'seg', label:'소고기를 이것으로 바꾸면', cols:3, value:0, options:AN},
+    {key:'goal', type:'range', label:'목표 감축량 (지금 배출 대비)', min:0, max:60, step:10, value:0, fmt:function(v){ return v ? v + '%' : '목표 없음'; }},
+    {key:'way', type:'seg', label:'목표를 어느 쪽으로 채울까', cols:3, value:0, options:['끼니 줄이기', '다른 고기로 바꾸기', '반반']},
     {key:'s', type:'range', label:'학교 급식 인원', min:200, max:2000, step:100, value:1000, fmt:function(v){ return v + '명'; },
       note:'일주일 21끼 중 소고기 횟수를 뺀 나머지는 돼지·닭·생선·달걀·두부를 고루 먹는 기본 식단입니다. 학교 환산은 연 40주 기준입니다.'}
   ],
-  compute: function(p){ return calc(p.b, p.a, p.s); },
+  compute: function(p){ return calc(p.b, p.a, p.s, p.goal, p.way); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.b, p.a, p.s), cols = ['#C8463D', '#D98E04', '#F5C16C', '#3A8FB7', '#F7E27A', '#DDF0E6', '#2E9E78'];
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.b, p.a, p.s, p.goal, p.way), cols = ['#C8463D', '#D98E04', '#F5C16C', '#3A8FB7', '#F7E27A', '#DDF0E6', '#2E9E78'];
     var px = 20, py = 40, cw = Math.min(40, (W * 0.45) / 7); C.meals.forEach(function(fi, i){ c.fillStyle = cols[fi]; c.fillRect(px + (i % 7) * cw, py + Math.floor(i / 7) * cw, cw - 3, cw - 3); });
     txt(c, '21끼 (빨강 = 소고기 ' + C.beef + '끼)', px, py + 3 * cw + 20, {color:'#4A5868'});
     var bx = px + 7 * cw + 50, bw = W - bx - 20; if (bw > 80){ var ph = 150, ax = plotBox(c, bx, py, bw, ph, [0, 2, 1], [0, 100, 20], '', 'kg CO₂e / 주'); var w2 = bw / 2 * 0.5;
-      c.fillStyle = '#C8463D'; c.fillRect(ax.X(0.5) - w2 / 2, ax.Y(Math.min(100, C.em * k)), w2, ax.Y(0) - ax.Y(Math.min(100, C.em * k))); txt(c, '지금 ' + f(C.em * k, 1), ax.X(0.5), py + ph + 24, {align:'center', color:'#C8463D'});
-      c.fillStyle = '#2E9E78'; c.fillRect(ax.X(1.5) - w2 / 2, ax.Y(Math.min(100, C.emAlt * k)), w2, ax.Y(0) - ax.Y(Math.min(100, C.emAlt * k))); txt(c, C.alt + '로 ' + f(C.emAlt * k, 1), ax.X(1.5), py + ph + 24, {align:'center', color:'#2E9E78'}); }
-    if (W < 500){   /* 좁은 화면: 마지막 줄을 두 줄로 */
-      txt(c, '농지 ' + f(C.land * k, 0) + ' m² → ' + f(C.landAlt * k, 0) + ' m²', 20, H - 74, {color:'#4A5868', maxW:W - 28});
-      wtxt(c, '학교 ' + C.students + '명 · 1년: ' + f(C.schoolEm * k, 1) + ' t 중 ' + f(C.schoolSave * k, 1) + ' t 감축 가능', 20, H - 40, W - 28, {bold:true, color:'#2E9E78'}, 24);
+      c.fillStyle = '#C8463D'; c.fillRect(ax.X(0.5) - w2 / 2, ax.Y(Math.min(100, C.em * k)), w2, ax.Y(0) - ax.Y(Math.min(100, C.em * k))); txt(c, '지금 ' + f(C.em * k, 1), ax.X(0.5), py + ph + 44, {align:'center', color:'#C8463D'});   /* 가로축 눈금 숫자(0·1·2) 아래로 */
+      c.fillStyle = '#2E9E78'; c.fillRect(ax.X(1.5) - w2 / 2, ax.Y(Math.min(100, C.emAlt * k)), w2, ax.Y(0) - ax.Y(Math.min(100, C.emAlt * k))); txt(c, C.alt + '로 ' + f(C.emAlt * k, 1), ax.X(1.5), py + ph + 44, {align:'center', color:'#2E9E78'}); }
+    if (W < 500){   /* 좁은 화면: 마지막 줄을 줄 수만큼 아래에서 올려 그린다 */
+      var s2 = '학교 ' + C.students + '명 · 1년: ' + f(C.schoolEm * k, 1) + ' t 중 ' + f(C.schoolSave * k, 1) + ' t 감축 가능';
+      var n2 = lineCountT(c, s2, W - 28, true), y2 = H - 14 - (n2 - 1) * 24;
+      txt(c, '농지 ' + f(C.land * k, 0) + ' m² → ' + f(C.landAlt * k, 0) + ' m²', 20, y2 - 30, {color:'#4A5868', maxW:W - 28});
+      wtxt(c, s2, 20, y2, W - 28, {bold:true, color:'#2E9E78'}, 24);
       return;
     }
     txt(c, '농지 ' + f(C.land * k, 0) + ' m² → ' + f(C.landAlt * k, 0) + ' m²', 20, H - 44, {color:'#4A5868'});
@@ -482,18 +528,37 @@ return {
   },
   stats: function(p, r){
     return [['소고기 · 대체 · 인원', r.beef + '끼 · ' + r.alt + ' · ' + r.students + '명'], ['주간 배출 (지금)', f(r.em, 1) + ' kg CO₂e', PAL[4]], ['소고기가 차지하는 비율', f(r.beefShare * 100, 0) + ' %', PAL[6]], ['대체 뒤 주간 배출', f(r.emAlt, 1) + ' kg', PAL[1]], ['한 사람 주간 감축', f(r.save, 1) + ' kg (' + f(r.save / Math.max(0.1, r.em) * 100, 0) + ' %)', PAL[1]],
+      ['목표 감축량', r.goal ? r.goal + '% — 주간 ' + f(r.em, 1) + ' → ' + f(r.target, 1) + ' kg 아래로' : '목표를 정하지 않았습니다 (슬라이더로 정해 보세요)', PAL[3]],
+      ['끼니 줄이기로 채우면', r.goal ? (r.rA.met ? '소고기 ' + r.rA.step + '끼를 줄이면 됩니다 (' + f(r.rA.em, 1) + ' kg · 선호 ' + f(r.rA.pref, 2) + ' · 영양 ' + f(r.rA.nut, 2) + ')' : '소고기를 모두 줄여도 목표에 닿지 않습니다') : '—', r.goal ? (r.rA.met ? PAL[1] : PAL[4]) : PAL[7]],
+      ['다른 고기로 바꿔 채우면', r.goal ? (r.rB.met ? '소고기 ' + r.rB.step + '끼를 ' + r.alt + '로 바꾸면 됩니다 (' + f(r.rB.em, 1) + ' kg · 선호 ' + f(r.rB.pref, 2) + ' · 영양 ' + f(r.rB.nut, 2) + ')' : '모두 바꿔도 목표에 닿지 않습니다') : '—', r.goal ? (r.rB.met ? PAL[1] : PAL[4]) : PAL[7]],
+      ['내가 고른 길', ['끼니 줄이기', '다른 고기로 바꾸기', '반반'][r.way] + (r.goal ? (r.pick.met ? ' — 목표를 채웠습니다 (' + f(r.pick.em, 1) + ' kg)' : ' — 목표에 닿지 못했습니다') : ''), r.goal ? (r.pick.met ? PAL[1] : PAL[4]) : PAL[7]],
+      ['치르는 값 (교육용 모형값)', r.goal ? ('선호 ' + f(r.basePref, 2) + ' → ' + f(r.pick.pref, 2) + ' · 영양 ' + f(r.baseNut, 2) + ' → ' + f(r.pick.nut, 2) +
+        ' — 같은 감축량이라도 어느 길로 채우느냐에 따라 깎이는 것이 다릅니다') : '목표를 정하면 선호·영양이 얼마나 깎이는지 함께 보여 줍니다', PAL[6]],
       ['농지 (지금 → 대체)', f(r.land, 0) + ' → ' + f(r.landAlt, 0) + ' m²·년 (1년 동안 그 식단을 대기 위해 차지하는 땅; 생선은 양식·어장을 땅으로 환산한 값)'], ['학교 연간 감축 (급식 40주 기준)', comma(r.schoolSave, r.schoolSave >= 100 ? 0 : 1) + ' t CO₂e (승용차 약 ' + (r.schoolSave * 1000 / 0.17 >= 1e4 ? comma(r.schoolSave * 1000 / 0.17 / 1e4, 0) + '만 km)' : comma(r.schoolSave * 1000 / 0.17, 0) + ' km)'), PAL[0]]];
   },
-  columns: ['소고기', '대체', '주간 배출', '대체 뒤', '농지 (m²)', '학교 감축 (t)'],
-  record: function(p, r){ return {beef:r.beef, a:p.a, em:r.em, emAlt:r.emAlt, land:r.land, schoolSave:r.schoolSave}; },
-  row: function(d){ return [d.beef + '끼', AN[d.a], f(d.em, 1), f(d.emAlt, 1), f(d.land, 0), f(d.schoolSave, 1)]; },
+  columns: ['소고기', '목표', '고른 길', '달성', '선호', '영양'],
+  record: function(p, r){ return {beef:r.beef, a:p.a, em:r.em, emAlt:r.emAlt, land:r.land, schoolSave:r.schoolSave,
+    goal:r.goal, way:r.way, met:r.pick.met, pref:r.pick.pref, nut:r.pick.nut, basePref:r.basePref, baseNut:r.baseNut,
+    aPref:r.rA.pref, aNut:r.rA.nut, aMet:r.rA.met, bPref:r.rB.pref, bNut:r.rB.nut, bMet:r.rB.met}; },
+  row: function(d){ return [d.beef + '끼', (d.goal || 0) + '%', ['끼니 줄이기', '바꾸기', '반반'][d.way || 0],
+    d.goal ? (d.met ? '○' : '✕') : '—', f(d.pref == null ? d.basePref : d.pref, 2), f(d.nut == null ? d.baseNut : d.nut, 2)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('소고기 횟수와 주간 배출', '<canvas class="chart" id="ch1" role="img" aria-label="소고기 끼니 수에 따른 배출"></canvas><ul class="readout" id="ro1"></ul><p class="ask">소고기 1끼당 배출이 몇 kg 늘었나요(기울기)? 소고기 0끼 식단의 배출은 얼마인가요? 무엇을 먹느냐가 얼마나 먹느냐보다 큰 까닭은?</p>') +
+      card('같은 감축량을 어느 길로 채울까', '<div id="ro3"></div><p class="ask">같은 감축량을 끼니 줄이기로 채울 때와 다른 고기로 바꿔 채울 때, 선호와 영양이 얼마나 깎였나요? 급식에서 어느 쪽을 고르겠습니까? 그 까닭을 적어 보세요.</p>') +
       card('학교 급식으로 환산하면', '<div id="ro2"></div><p class="ask">한 메뉴를 바꾸는 것이 학교 전체에서 몇 톤인가요? 영양 교사께 제안할 때 근거로 쓸 수 있는 숫자 세 가지를 골라 보세요.</p>') + '</div>';
     var pts = rec.map(function(d){ return {x:d.beef, y:d.em}; }), fit = distinct(rec.map(function(d){ return d.beef; })) >= 2 ? linfit(pts) : null;
     drawScatter($('ch1'), {xLabel:'일주일 소고기 끼니', yLabel:'주간 배출 (kg CO₂e)', series:[{color:PAL[4], pts:pts}, {color:PAL[1], hollow:true, pts:rec.map(function(d){ return {x:d.beef, y:d.emAlt}; })}], lines:fit ? [{k:fit.k, b:fit.b, color:PAL[4], dash:true}] : []});
     $('ro1').innerHTML = '<li>● 지금 식단 · ○ 대체 뒤' + (fit ? ' · 기울기 ≈ <b>' + f(fit.k, 1) + ' kg/끼</b>' : '') + '</li>';
+    var withGoal = rec.filter(function(d){ return d.goal; });
+    $('ro3').innerHTML = withGoal.length
+      ? tableHTML(['목표', '끼니 줄이기 (선호/영양)', '바꾸기 (선호/영양)', '내가 고른 길', '달성'],
+          withGoal.map(function(d){ return [d.goal + '%',
+            (d.aMet ? f(d.aPref, 2) + ' / ' + f(d.aNut, 2) : '닿지 못함'),
+            (d.bMet ? f(d.bPref, 2) + ' / ' + f(d.bNut, 2) : '닿지 못함'),
+            ['끼니 줄이기', '바꾸기', '반반'][d.way || 0], d.met ? '○' : '✕']; })) +
+        '<p class="msg">배출을 줄이는 길은 하나가 아니고, 길마다 <b>치르는 값</b>이 다릅니다. 선호·영양 점수는 교육용 모형값이지만, 급식처럼 여러 사람이 함께 먹는 자리에서는 배출만 보고 정할 수 없다는 점은 같습니다.</p>'
+      : '<p class="msg">목표 감축량을 정해 두고 두 길을 견주어 보세요.</p>';
     $('ro2').innerHTML = tableHTML(['소고기', '대체', '주간', '대체 뒤', '학교 연간 감축'], rec.map(function(d){ return [d.beef + '끼', AN[d.a], f(d.em, 1) + ' kg', f(d.emAlt, 1) + ' kg', f(d.schoolSave, 1) + ' t']; }));
   }
 };
@@ -503,7 +568,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

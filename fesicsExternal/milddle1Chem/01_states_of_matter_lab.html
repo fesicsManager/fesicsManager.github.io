@@ -218,6 +218,14 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
       <label>온도 (℃) <b id="tVal">50</b></label>
       <input type="range" id="tempSlider" min="0" max="100" step="1" value="50" aria-label="온도 (℃)">
     </div>
+    <div class="control-row">
+      <label>기체 칸에 넣은 알갱이 <b id="gasVal">질소 N₂ (28)</b></label>
+      <div class="verify-actions" id="gasOptions" style="display:flex;gap:8px;">
+        <button class="action btn-ghost" data-g="0" style="flex:1;">수소 H₂ (2)</button>
+        <button class="action" data-g="1" style="flex:1;">질소 N₂ (28)</button>
+        <button class="action btn-ghost" data-g="2" style="flex:1;">이산화탄소 CO₂ (44)</button>
+      </div>
+    </div>
     <div style="margin-top:12px;display:flex;gap:8px;">
       <button class="action" id="recordSpeed" style="margin-top:0;">📍 이 온도에서 속력 측정하기</button>
       <button class="action" id="resetSpeed" style="margin-top:0;background:#eef2f0;color:var(--ink-soft);box-shadow:none;border:1px solid #d5e0dc;">초기화</button>
@@ -229,10 +237,10 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
       <thead><tr><th>상태</th><th>모양</th><th>부피</th><th>입자배열</th><th>운동성</th></tr></thead>
       <tbody id="propTable"></tbody>
     </table>
-    <div class="hint">💡 기체 칸에 표시되는 속력은 질소(N₂) 분자의 제곱평균제곱근 속력 <b>v = √(3RT/M)</b>로 계산한 값입니다 (R=8.314, M=0.028 kg/mol, T는 절대온도). 온도를 바꿔가며 4개 이상 측정해 보세요.<br><span style="color:#a86825">※ 이 식은 <b>이상 기체에만</b> 적용되는 식이에요. 고체·액체 그림의 움직임은 온도가 오르면 진동·이동이 활발해진다는 것을 나타낸 <b>정성적 표현</b>이지, 기체의 속력 값을 고체·액체에 그대로 적용한 것이 아닙니다. 고체 입자는 제자리에서 진동만 하고, 액체 입자는 이웃과 붙은 채 자리를 바꿔요.</span></div>
+    <div class="hint">💡 기체 칸에 보이는 속력은 공기 속 질소(N₂) 알갱이가 돌아다니는 <b>대표 빠르기</b>를 계산한 값이에요(계산하는 식은 위의 <b>원리</b>에 있어요). 온도를 바꿔가며 4개 이상 측정해 보세요. 그다음 <b>기체 알갱이</b>를 바꿔 같은 온도에서 다시 측정해 보세요.<br><span style="color:#a86825">※ 이 식은 <b>이상 기체에만</b> 적용되는 식이에요. 고체·액체 그림의 움직임은 온도가 오르면 진동·이동이 활발해진다는 것을 나타낸 <b>정성적 표현</b>이지, 기체의 속력 값을 고체·액체에 그대로 적용한 것이 아닙니다. 고체 입자는 제자리에서 진동만 하고, 액체 입자는 이웃과 붙은 채 자리를 바꿔요.</span></div>
     <div class="scroll-table-wrap">
 <table id="speedTable" style="margin-top:10px;">
-      <thead><tr><th>온도</th><th>기체 입자 속력 (m/s)</th></tr></thead>
+      <thead><tr><th>기체</th><th>온도</th><th>입자 속력 (m/s)</th><th>속력 × √분자량</th></tr></thead>
       <tbody id="speedBody"></tbody>
     </table>
 </div>
@@ -249,7 +257,7 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
     <section>
       <div class="scroll-table-wrap">
 <table id="myShowTable">
-        <thead><tr><th>온도</th><th>기체 입자 속력 (m/s)</th></tr></thead>
+        <thead><tr><th>기체</th><th>온도</th><th>입자 속력 (m/s)</th><th>속력 × √분자량</th></tr></thead>
         <tbody id="myShowBody"></tbody>
       </table>
 </div>
@@ -354,12 +362,23 @@ const CMONO='"IBM Plex Mono","SFMono-Regular",Consolas,monospace';
 const slider=document.getElementById('tempSlider'), tVal=document.getElementById('tVal');
 let temp=50;
 slider.addEventListener('input',()=>{temp=parseInt(slider.value); tVal.textContent=temp;});
+document.getElementById('gasOptions').addEventListener('click',(e)=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#gasOptions button').forEach(x=>{x.classList.add('btn-ghost');});
+  b.classList.remove('btn-ghost');
+  gasIdx=parseInt(b.dataset.g,10)||0;
+  document.getElementById('gasVal').textContent=GASNAME[gasIdx];
+});
 
 /* 기체 입자의 제곱평균제곱근 속력: v = √(3RT/M) — 질소(N₂, M=0.028 kg/mol) 기준 */
 const R_GAS=8.314, M_N2=0.028;
-function vrms(tc){ return Math.sqrt(3*R_GAS*(tc+273.15)/M_N2); }
+/* 기체 종류도 고를 수 있게 — 같은 온도에서 M 이 크면 속력이 느려진다 */
+const GASM=[0.002,0.028,0.044], GASNAME=['수소 H₂ (2)','질소 N₂ (28)','이산화탄소 CO₂ (44)'];
+let gasIdx=1;
+function curM(){ return GASM[gasIdx]; }
+function vrms(tc, M){ return Math.sqrt(3*R_GAS*(tc+273.15)/(M==null?curM():M)); }
 /* 50℃를 기준으로 한 상대 속력 — 애니메이션의 '활발함' 척도로만 사용 (고체·액체의 실제 입자 속도가 아님, 정성적 표현) */
-function speedScale(tc){ return vrms(tc)/vrms(50); }
+function speedScale(tc){ return vrms(tc, M_N2)/vrms(50, M_N2); }
 
 function rr(g,x,y,w,h,r){
   g.beginPath();
@@ -485,11 +504,11 @@ let speedTrials=[];
 const speedBody=document.getElementById('speedBody');
 document.getElementById('recordSpeed').addEventListener('click',()=>{
   if(speedTrials.length>=10){ notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  if(speedTrials.some(s=>s.temp===temp)){ notify('이미 '+temp+'℃에서 측정했어요. 온도를 바꿔서 측정해 보세요.'); return; }
+  if(speedTrials.some(s=>s.temp===temp && (s.gi==null?1:s.gi)===gasIdx)){ notify('이미 그 기체로 '+temp+'℃에서 측정했어요. 온도나 기체를 바꿔서 측정해 보세요.'); return; }
   const v=vrms(temp);
-  speedTrials.push({temp, speed:v});
+  speedTrials.push({temp, speed:v, gi:gasIdx, gas:GASNAME[gasIdx], M:curM()});
   const tr=document.createElement('tr');
-  tr.innerHTML=`<td>${temp}</td><td>${v.toFixed(1)}</td>`;
+  tr.innerHTML=`<td>${GASNAME[gasIdx]}</td><td>${temp}</td><td>${v.toFixed(1)}</td><td>${(v*Math.sqrt(curM()*1000)).toFixed(0)}</td>`;
   speedBody.appendChild(tr);
 });
 document.getElementById('resetSpeed').addEventListener('click',()=>{
@@ -527,11 +546,21 @@ function renderVerify(){
   const sorted=[...speedTrials].sort((a,b)=>a.temp-b.temp);
   sorted.forEach(tr0=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${tr0.temp}</td><td>${tr0.speed.toFixed(1)}</td>`;
+    const MM=(tr0.M||M_N2)*1000;
+    tr.innerHTML=`<td>${tr0.gas||'질소 N₂ (28)'}</td><td>${tr0.temp}</td><td>${tr0.speed.toFixed(1)}</td><td>${(tr0.speed*Math.sqrt(MM)).toFixed(0)}</td>`;
     body.appendChild(tr);
   });
-  const {slope,intercept}=linregress3(sorted.map(t=>t.temp), sorted.map(t=>t.speed));
+  /* 지금 고른 기체의 기록만으로 추세선을 낸다 */
+  const here=sorted.filter(t=>(t.gi==null?1:t.gi)===gasIdx);
+  const use=here.length>=2?here:sorted;
+  const {slope,intercept}=linregress3(use.map(t=>t.temp), use.map(t=>t.speed));
   renderVerify._slope=slope; renderVerify._intercept=intercept;
+  /* 같은 온도에서 기체만 다른 짝이 있으면 비교해 준다 */
+  const pair={};
+  sorted.forEach(t=>{ (pair[t.temp]=pair[t.temp]||[]).push(t); });
+  const cmp=Object.keys(pair).filter(k=>pair[k].length>=2).map(k=>
+    k+'℃ → '+pair[k].map(t=>(t.gas||'질소 N₂ (28)')+' '+t.speed.toFixed(0)+' m/s').join(' · '));
+  renderVerify._cmp=cmp;
 }
 
 document.getElementById('gradeDensity').addEventListener('click',()=>{
@@ -544,7 +573,10 @@ document.getElementById('gradeDensity').addEventListener('click',()=>{
   result.className='show';
   result.innerHTML=`Q1. 내 데이터에서 온도가 높을수록 속력은 ${slope>0?'커집니다':'뚜렷한 경향이 보이지 않습니다'} → ${q1ok?'정답입니다! 👏':'다시 살펴보세요.'}<br>
     Q2. 예측값 ${isNaN(predict)?'-':predict} → ${predictOk?'정답에 가깝습니다! 👏':'다시 확인해 보세요.'} (내 데이터 추세선으로 계산한 값: ${truePredict.toFixed(1)})<br><br>
-    기체 입자의 속력은 <b>절대온도의 제곱근</b>에 비례합니다 (v = √(3RT/M)). 그래서 0℃(273K)에서 493 m/s인 질소 분자가 100℃(373K)에서는 576 m/s로 빨라집니다. 온도를 두 배로 올려도 속력이 두 배가 되지는 않는다는 점에 주의하세요. (Q2의 추세선은 직선으로 어림한 값이라 공식값과 조금 다를 수 있어요. 고체·액체 입자는 이 식을 따르지 않고, 온도가 오르면 진동과 이동이 활발해질 뿐입니다.)`;
+    ${(renderVerify._cmp&&renderVerify._cmp.length)
+      ? '같은 온도에서 기체만 바꾼 기록: '+renderVerify._cmp.join(' / ')+'<br>→ 분자량이 커지면 속력이 느려집니다. 분자량이 4배가 되면 속력은 반으로 줄어요(속력 ∝ 1÷√M). 그래서 <b>속력 × √분자량</b> 칸은 같은 온도라면 기체가 달라도 거의 같은 값이 됩니다.<br><br>'
+      : '온도를 그대로 두고 <b>기체</b>만 바꿔 한 번 더 측정해 보세요. 같은 온도인데 속력이 달라지는지 알 수 있어요.<br><br>'}
+    기체 입자는 <b>온도가 높을수록 빨라집니다.</b> 0℃에서 493 m/s이던 질소 분자가 100℃에서는 576 m/s가 되지요. 다만 온도를 두 배로 올려도 속력이 두 배가 되지는 않아요. 조금씩 둔하게 빨라집니다(까닭은 위의 <b>원리</b>에서). (Q2의 추세선은 직선으로 어림한 값이라 공식값과 조금 다를 수 있어요. 고체·액체 입자는 이 식을 따르지 않고, 온도가 오르면 진동과 이동이 활발해질 뿐입니다.)`;
 });
 
 function focusCanvas(c){

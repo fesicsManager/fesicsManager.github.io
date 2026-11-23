@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -475,17 +477,42 @@ return (function(){
         {n:'1모둠 — 문제 확인 → 바로 투표', done:[1, 0, 0, 0, 1], plan:'배식대 1개 추가', cost:'배식대 구입, 배식 인력 1명 추가', after:90},
         {n:'2모둠 — 자료로 원인 분석 → 방안 3개 비교', done:[1, 1, 1, 1, 1], plan:'학년별 5분 간격 출발', cost:'시간표 안내만', after:45}
       ];
+      var ONOFF = ['건너뜀', '거침'];
+      /* (우리 모둠) — 다섯 단계를 직접 켜고 끈다. 어느 단계를 빼면 어떤 방안이 뽑히는지 계산한다.
+         대기 인원은 교육용 모형값이다 */
+      function mkMine(p){
+        var d = [p.s1 == null ? 1 : p.s1, p.s2 || 0, p.s3 || 0, p.s4 || 0, p.s5 || 0];
+        var plan, cost, after, note;
+        if (!d[0]){ plan = '무엇이 문제인지 정하지 못함'; cost = '—'; after = 120;
+          note = '문제 확인을 건너뛰면 고를 방안 자체가 나오지 않습니다'; }
+        else if (!d[1]){ plan = '배식대 1개 추가'; cost = '배식대 구입, 배식 인력 1명 추가'; after = 90;
+          note = '원인 분석을 건너뛰면 “줄이 길다 → 배식대를 늘리자”처럼 눈에 보이는 것만 손대게 됩니다'; }
+        else if (!d[2]){ plan = '급식 시간 10분 늘리기 (떠오른 첫 방안)'; cost = '수업 시간 조정 필요'; after = 100;
+          note = '방안 탐색을 건너뛰면 처음 떠오른 방안으로 굳어집니다'; }
+        else if (!d[3]){ plan = '가장 목소리가 큰 쪽의 방안 — 학년별 급식실 분리'; cost = '급식실 두 곳 운영'; after = 70;
+          note = '기준 비교를 건너뛰면 효과·비용을 견주지 못해 비싼 방안이 뽑힙니다'; }
+        else { plan = '학년별 5분 간격 출발'; cost = '시간표 안내만'; after = 45;
+          note = '네 단계를 모두 거치면 자료가 가리키는 방안이 뽑힙니다'; }
+        if (!d[4] && after < 120){ after = Math.min(120, after + 15);
+          note += '. 결정·점검을 건너뛰어 지켜지지 않은 만큼 다시 늘었습니다'; }
+        return {n:'(우리 모둠) 내가 고른 단계', done:d, plan:plan, cost:cost, after:after, note:note, mine:true};
+      }
       return {
-        sceneHeight: 440,
-        idle: '모둠과 나의 예측을 고른 뒤 <b>이 모둠의 방안을 시행하기</b>를 누르세요.',
+        sceneHeight: function(w){ return w < 560 ? 480 : 440; },
+        idle: '모둠과 나의 예측을 고른 뒤 <b>이 모둠의 방안을 시행하기</b>를 누르세요. (우리 모둠) 을 고르면 다섯 단계를 직접 켜고 끌 수 있습니다.',
         shortHint: '두 모둠을 모두 시행해 보세요. 돈을 더 쓴 방안이 효과도 컸나요?',
         params: [
-          {key:'m', type:'seg', label:'모둠', cols:1, value:0, options:G.map(function(x){ return x.n; })},
+          {key:'m', type:'seg', label:'모둠', cols:1, value:0, options:G.map(function(x){ return x.n; }).concat(['(우리 모둠) 다섯 단계를 내가 고르기'])},
+          {key:'s1', type:'seg', label:'① 문제 확인', cols:2, value:1, options:ONOFF},
+          {key:'s2', type:'seg', label:'② 원인 분석 (시간대별 대기 자료 보기)', cols:2, value:0, options:ONOFF},
+          {key:'s3', type:'seg', label:'③ 방안 탐색 (여러 방안 모으기)', cols:2, value:0, options:ONOFF},
+          {key:'s4', type:'seg', label:'④ 기준 비교 (효과·비용·실현 가능성)', cols:2, value:0, options:ONOFF},
+          {key:'s5', type:'seg', label:'⑤ 결정·점검', cols:2, value:0, options:ONOFF},
           {key:'g', type:'range', label:'나의 예측 — 시행 뒤 12:35 대기 인원', min:0, max:120, step:5, value:60, fmt:function(v){ return v + '명'; }}
         ],
-        compute: function(p){ var x = G[p.m]; return {x:x, cut:(120 - x.after) / 120 * 100, diff:p.g - x.after}; },
+        compute: function(p){ var x = (p.m === 2 ? mkMine(p) : G[p.m]); return {x:x, cut:(120 - x.after) / 120 * 100, diff:p.g - x.after}; },
         draw: function(c, W, H, p, r, tau){
-          var x = G[p.m], cw = (W - 40) / 5;
+          var x = (r && r.x) ? r.x : (p.m === 2 ? mkMine(p) : G[p.m]), cw = (W - 40) / 5;
           STEP.forEach(function(s, i){
             var on = x.done[i], xx = 20 + i * cw;
             rbox(c, xx + 2, 16, cw - 4, 40, on ? PAL[0] : '#EEF1F5', on ? null : '#C9D1DB', 1);
@@ -500,7 +527,8 @@ return (function(){
           T.forEach(function(t, i){
             var h = Q[i] / 120 * bh, xx = bx + i * bw2;
             c.fillStyle = i === 1 ? '#9DB4D3' : '#C9D3E0'; c.fillRect(xx + 6, by - h, bw2 - 12, h);
-            tx(c, t, xx + bw2 / 2, by + 20, {size:13, align:'center', color:'#4A5868'});
+            /* 좁은 화면: 시각이 서로 붙으므로 한 칸씩 번갈아 아래 줄에 적는다 */
+            tx(c, t, xx + bw2 / 2, by + (W < 560 && i % 2 ? 40 : 20), {size:13, align:'center', color:'#4A5868'});
             tx(c, Q[i] + '', xx + bw2 / 2, by - h - 6, {size:13, align:'center', bold:true});
           });
           if (!r){ tx(c, '나의 예측: 12:35 → ' + p.g + '명', 20, H - 12, {color:'#4A5868'}); return; }
@@ -514,18 +542,28 @@ return (function(){
         stats: function(p, r){
           var x = r.x;
           return [['모둠', x.n], ['거친 단계', x.done.filter(function(v){ return v; }).length + ' / 5단계'], ['고른 방안', x.plan], ['비용·준비', x.cost],
-            ['12:35 대기 인원', '120명 → ' + x.after + '명 (감소율 ' + f(r.cut, 1) + '%)', p.m ? PAL[1] : PAL[6]], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[3]]];
+            ['12:35 대기 인원 (교육용 모형값)', '120명 → ' + x.after + '명 (감소율 ' + f(r.cut, 1) + '%)', r.cut >= 50 ? PAL[1] : PAL[6]], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[3]]]
+            .concat(x.mine ? [['건너뛴 단계가 만든 일', x.note, r.cut >= 50 ? PAL[1] : PAL[4]]] : []);
         },
         columns: ['모둠', '거친 단계', '방안', '12:35 시행 뒤', '나의 예측'],
-        record: function(p, r){ return {m:p.m, g:p.g}; },
-        row: function(d){ var x = G[d.m]; return [(d.m + 1) + '모둠', x.done.filter(function(v){ return v; }).length + '/5', x.plan, x.after + '명', d.g + '명']; },
+        record: function(p, r){ return {m:p.m, g:p.g, done:r.x.done.slice(), plan:r.x.plan, after:r.x.after}; },
+        row: function(d){ return [d.m === 2 ? '우리 모둠' : (d.m + 1) + '모둠',
+          d.done.map(function(v, i){ return v ? (i + 1) : '·'; }).join('') + ' (' + d.done.filter(function(v){ return v; }).length + '/5)',
+          d.plan, d.after + '명', d.g + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('12:35 대기 인원 — 시행 전과 뒤', '<div id="sl6a"></div><p class="ask">2모둠의 방안은 돈을 덜 쓰고도 효과가 컸어요. 시간대별 대기 자료가 원인을 어떻게 바꿔 보이게 했는지 설명해 보세요.</p>') +
+            card('내가 건너뛴 단계와 뽑힌 방안', '<div id="sl6c"></div><p class="ask">원인 분석을 건너뛰었을 때 어떤 방안이 뽑혔나요? 네 단계를 모두 거쳤을 때와 비용을 견주어 보세요.</p>') +
             card('두 모둠 비교와 나의 예측', '<div id="sl6b"></div><p class="ask">과제: 학교나 동네에서 불편한 문제 하나를 골라 원인을 알려 줄 자료(시간·장소·인원)를 직접 모아 표로 만들고, 해결 방안 세 가지를 효과·비용·실현 가능성으로 비교해 보세요.</p>') + '</div>';
           $('sl6a').innerHTML = hbars([{label:'시행 전', v:120, color:'#9DB4D3', text:'120명'}, {label:'1모둠 (배식대 추가)', v:90, color:PAL[6], text:'90명 (−25%)'}, {label:'2모둠 (5분 간격 출발)', v:45, color:PAL[1], text:'45명 (−62.5%)'}], 120);
           var g = groupBy(rec, function(d){ return d.m; });
           $('sl6b').innerHTML = tableHTML(['모둠', '단계', '방안', '비용·준비', '시행 뒤', '내 예측 평균'], G.map(function(x, i){ var a = g[i] || []; return [(i + 1) + '모둠', x.done.filter(function(v){ return v; }).length + '/5', x.plan, x.cost, x.after + '명', a.length ? f(mean(a.map(function(d){ return d.g; })), 0) + '명' : '—']; }));
+          var mine = rec.filter(function(d){ return d.m === 2; });
+          $('sl6c').innerHTML = mine.length
+            ? tableHTML(['거친 단계', '뽑힌 방안', '12:35 시행 뒤'], mine.map(function(d){
+                return [STEP.filter(function(s, i){ return d.done[i]; }).join(' → ') || '없음', d.plan, d.after + '명']; })) +
+              '<p class="msg">②원인 분석을 건너뛰면 “배식대를 늘리자”처럼 눈에 보이는 것만 손대게 되고, 돈은 더 들면서 효과는 작아요. ④기준 비교를 건너뛰면 비싼 방안이 뽑히고, ⑤결정·점검을 건너뛰면 지켜지지 않아 다시 늘어요. 숫자는 교육용 모형값이에요.</p>'
+            : '<p class="msg">(우리 모둠) 을 골라 단계를 직접 켜고 끄며 시행해 보세요.</p>';
         }
       };
     })();
@@ -535,7 +573,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

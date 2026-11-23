@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -307,6 +309,13 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txtWrap(c, s, x, y, mw, lh, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; var ws = String(s).split(' '), L = [], cur = ''; ws.forEach(function(w){ var t = cur ? cur + ' ' + w : w; if (cur && c.measureText(t).width > mw){ L.push(cur); cur = w; } else cur = t; }); if (cur) L.push(cur); var y0 = o.up ? y - (L.length - 1) * lh : y; L.forEach(function(l, k){ txt(c, l, x, y0 + k * lh, o); }); return L.length; }
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
 function txt(c, s, x, y, o){
   o = o || {}; var fs = o.size || 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; if (o.maxW){ var w0 = c.measureText(s).width; if (w0 > o.maxW){ fs = Math.max(12, Math.floor(fs * o.maxW / w0)); c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; } } c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
@@ -437,23 +446,38 @@ var LAB = (function(){
       ];
       var MON = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
       var G = ['앞 숫자가 달 (달/날)', '앞 숫자가 날 (날/달)'];
+      var USE = ['고른 종이로', '내가 넣은 두 숫자로'];
+      /* 두 숫자를 직접 넣게 해 둘 다 12 이하라 판별이 안 되는 경우를 만나게 한다 */
+      function pick(p){ return p.use === 1 ? {n:'내가 넣은 두 숫자', a:p.n1, b:p.n2, uk:D[p.d].uk} : D[p.d]; }
       return {
-        sceneHeight: 380,
+        sceneHeight: function(w){ return w < 320 ? 470 : w < 460 ? 420 : 380; },
         idle: '종이와 예측을 고른 뒤 <b>날짜 읽기</b>를 누르세요.',
         shortHint: '13 이상 숫자가 있는 종이 4장을 먼저 하고, 마지막에 영국·미국 초대장 5/4를 비교해 보세요.',
         params: [
           {key:'d', type:'seg', label:'종이 (가상 예시)', cols:2, value:4, options:D.map(function(x){ return x.n + ' · ' + x.a + '/' + x.b; })},
+          {key:'use', type:'seg', label:'무엇으로 읽을까', cols:2, value:0, options:USE},
+          {key:'n1', type:'range', label:'내 앞 숫자', min:1, max:31, step:1, value:5, fmt:function(v){ return f(v, 0); }},
+          {key:'n2', type:'range', label:'내 뒤 숫자', min:1, max:31, step:1, value:4, fmt:function(v){ return f(v, 0); }},
           {key:'g', type:'seg', label:'예측: 이 날짜의 순서는?', cols:2, value:0, options:G,
             note:'뭉치는 "숫자는 세계 어디서나 같지!"라고 했어요.'}
         ],
         compute: function(p){
-          var d = D[p.d], big = d.a >= 13 ? '앞' : d.b >= 13 ? '뒤' : '없음';
-          var dayFirst = d.uk, m = dayFirst ? d.b : d.a, day = dayFirst ? d.a : d.b, ok = (p.g === 1) === dayFirst;
-          var how = big === '앞' ? '13 이상 숫자(' + d.a + ')가 앞 → 날이 먼저' : big === '뒤' ? '13 이상 숫자(' + d.b + ')가 뒤 → 달이 먼저' : '13 이상 숫자가 없어요 → 숫자만으로는 모름, ' + (d.uk ? '영국' : '미국') + ' 방식으로 읽어요';
-          return {d:d, big:big, dayFirst:dayFirst, m:m, day:day, ok:ok, how:how, ko:m + '월 ' + day + '일'};
+          var d = pick(p), big = d.a >= 13 ? '앞' : d.b >= 13 ? '뒤' : '없음';
+          var both13 = d.a >= 13 && d.b >= 13;
+          var dayFirst = both13 ? null : (big === '앞' ? true : big === '뒤' ? false : d.uk);
+          var m = dayFirst === null ? null : (dayFirst ? d.b : d.a);
+          var day = dayFirst === null ? null : (dayFirst ? d.a : d.b);
+          var ok = dayFirst === null ? null : (p.g === 1) === dayFirst;
+          var how = both13 ? '두 숫자가 모두 13 이상이라 어느 쪽도 달이 될 수 없어요 — 날짜로 읽을 수 없는 숫자예요'
+            : big === '앞' ? '13 이상 숫자(' + d.a + ')가 앞 → 날이 먼저'
+            : big === '뒤' ? '13 이상 숫자(' + d.b + ')가 뒤 → 달이 먼저'
+            : '두 숫자가 모두 12 이하예요 → 숫자만으로는 알 수 없어서, ' + (d.uk ? '영국' : '미국') + ' 방식이라는 것을 알아야 읽을 수 있어요';
+          return {d:d, big:big, both13:both13, dayFirst:dayFirst, m:m, day:day, ok:ok, how:how,
+            ko:dayFirst === null ? '읽을 수 없어요' : m + '월 ' + day + '일',
+            tell:both13 ? '알 수 없음 (날짜가 아님)' : big === '없음' ? '숫자만으로는 알 수 없음' : '숫자만으로 알 수 있음'};
         },
         draw: function(c, W, H, p, r, tau){
-          var d = D[p.d], k = r ? Math.min(tau / 0.8, 1) : 0;
+          var d = pick(p), k = r ? Math.min(tau / 0.8, 1) : 0;
           var cw = Math.min(26, (W - 40) / 12);
           for (var i = 1; i <= 12; i++){ c.fillStyle = '#E8EEF6'; c.fillRect(20 + (i - 1) * cw + 1, 20, cw - 2, 26); txt(c, String(i), 20 + (i - 0.5) * cw, 39, {align:'center', color:'#4A5868'}); }
           txt(c, '달이 될 수 있는 숫자: 1~12', 20, 70, {color:'#8C99A8'});
@@ -466,35 +490,41 @@ var LAB = (function(){
             c.fillStyle = hot ? PAL[4] : '#fff'; c.strokeStyle = hot ? PAL[4] : '#5C6B7A'; c.lineWidth = 2;
             c.fillRect(x, ty + 50 + lift, bw, 56); c.strokeRect(x, ty + 50 + lift, bw, 56);
             txt(c, String(v), x + bw / 2, ty + 88 + lift, {align:'center', bold:true, color:hot ? '#fff' : '#1E2833'});
-            if (r && k >= 1) txt(c, (j === 0) === r.dayFirst ? '날' : '달', x + bw / 2, ty + 124, {align:'center', bold:true, color:(j === 0) === r.dayFirst ? PAL[4] : PAL[0]});
+            if (r && k >= 1) txt(c, r.dayFirst === null ? '?' : ((j === 0) === r.dayFirst ? '날' : '달'), x + bw / 2, ty + 124, {align:'center', bold:true, color:r.dayFirst === null ? PAL[6] : ((j === 0) === r.dayFirst ? PAL[4] : PAL[0])});
           });
           txt(c, '/', gx + bw + 16, ty + 88, {align:'center', bold:true});
           if (r){
             c.globalAlpha = k;
-            txt(c, '→ ' + r.ko + '  (' + MON[r.m] + ' ' + r.day + ')', 20, ty + 170, {bold:true, color:PAL[1]});
-            txt(c, r.ok ? '○ 예측이 맞았어요' : '✕ 순서가 반대예요', 20, ty + 200, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
-            txtWrap(c, r.big === '없음' ? '13 이상 숫자 없음 — 나라를 봐야 해요' : '13 이상 숫자: ' + r.big + ' 자리', 20, ty + 230, W - 32, 22, {color:'#4A5868'});
+            var yA = ty + 170;
+            var nA = txtWrap(c, r.dayFirst === null ? '→ ' + r.ko : '→ ' + r.ko + '  (' + MON[r.m] + ' ' + r.day + ')', 20, yA, W - 40, 22, {bold:true, color:r.dayFirst === null ? PAL[6] : PAL[1]});
+            var yB = yA + nA * 22 + 8;
+            txtFit(c, r.ok === null ? '— 판정할 수 없어요' : r.ok ? '○ 예측이 맞았어요' : '✕ 순서가 반대예요', 20, yB, {bold:true, color:r.ok === null ? PAL[6] : r.ok ? PAL[1] : PAL[4]}, W - 40);
+            txtWrap(c, r.both13 ? '두 숫자가 모두 13 이상 — 달이 될 수 있는 숫자가 없어요' : r.big === '없음' ? '13 이상 숫자 없음 — 나라를 봐야 해요' : '13 이상 숫자: ' + r.big + ' 자리', 20, yB + 30, W - 32, 22, {color:'#4A5868'});
             c.globalAlpha = 1;
           }
         },
         stats: function(p, r){
-          return [['종이', r.d.n + ' — ' + r.d.a + '/' + r.d.b], ['13 이상 숫자', r.big === '없음' ? '없음' : r.big + ' 자리', r.big === '없음' ? PAL[6] : PAL[4]],
-            ['판별', r.how], ['뜻', r.ko, PAL[1]], ['내 예측', G[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
-            ['헷갈리지 않게 쓰기', r.dayFirst ? r.day + ' ' + MON[r.m] + ' (영국식)' : MON[r.m] + ' ' + r.day + ' (미국식)']];
+          return [['읽은 것', r.d.n + ' — ' + r.d.a + '/' + r.d.b], ['13 이상 숫자', r.big === '없음' ? '없음' : r.big + ' 자리', r.big === '없음' ? PAL[6] : PAL[4]],
+            ['숫자만으로 알 수 있나', r.tell, r.tell === '숫자만으로 알 수 있음' ? PAL[1] : PAL[6]],
+            ['판별', r.how], ['뜻', r.ko, r.dayFirst === null ? PAL[6] : PAL[1]],
+            ['내 예측', G[p.g] + (r.ok === null ? ' — 판정 못 함' : r.ok ? ' — ○' : ' — ✕'), r.ok === null ? PAL[6] : r.ok ? PAL[1] : PAL[4]],
+            ['헷갈리지 않게 쓰기', r.dayFirst === null ? '달 이름을 글자로 쓰면 이런 일이 없어요' : r.dayFirst ? r.day + ' ' + MON[r.m] + ' (영국식)' : MON[r.m] + ' ' + r.day + ' (미국식)']];
         },
-        columns: ['종이', '날짜', '13 이상 자리', '뜻', '내 예측'],
-        record: function(p, r){ return {d:p.d, g:p.g, ok:r.ok, big:r.big}; },
-        row: function(x){ var d = D[x.d], m = d.uk ? d.b : d.a, dd = d.uk ? d.a : d.b; return [d.n, d.a + '/' + d.b, x.big, m + '월 ' + dd + '일', x.ok ? '○' : '✕']; },
+        columns: ['읽은 것', '날짜', '13 이상 자리', '알 수 있나', '뜻', '내 예측'],
+        record: function(p, r){ return {d:p.d, use:p.use, g:p.g, ok:r.ok, big:r.big, nm:r.d.n, a:r.d.a, b:r.d.b, ko:r.ko, tell:r.tell}; },
+        row: function(x){ return [x.nm || D[x.d].n, x.a + '/' + x.b, x.big, x.tell || '—', x.ko, x.ok === null ? '—' : (x.ok ? '○' : '✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('13 이상 숫자로 판별한 순서', '<div id="dt1"></div><p class="ask">영국 종이와 미국 종이에서 13 이상 숫자는 각각 어느 자리에 있었나요? 그러면 영국 친구의 5/4는 며칠인가요?</p>') +
-            card('나라별 순서', '<div id="dt2"></div><p class="ask">과제: 내 생일을 우리나라, 미국, 영국 방식으로 세 번 써 보고, 달 이름을 영어 글자로도 한 번 써 보세요.</p>') + '</div>';
-          var by = groupBy(rec, function(d){ return d.d; }), rows = [];
-          Object.keys(by).forEach(function(k){ var d = D[k], a = by[k], m = d.uk ? d.b : d.a, dd = d.uk ? d.a : d.b;
-            rows.push([d.n, d.a + '/' + d.b, a[0].big, d.uk ? '날/달' : '달/날', m + '월 ' + dd + '일']); });
-          $('dt1').innerHTML = tableHTML(['종이', '날짜', '13 이상', '순서', '뜻'], rows);
-          var uk = Object.keys(by).filter(function(k){ return D[k].uk; }).length, us = Object.keys(by).length - uk;
-          $('dt2').innerHTML = hbars([{label:'영국 종이 → 날/달', v:uk, color:PAL[4], text:uk + '장'}, {label:'미국 종이 → 달/날', v:us, color:PAL[0], text:us + '장'}], Math.max(1, uk, us));
+            card('숫자만으로 알 수 있었나', '<div id="dt2"></div><p class="ask">두 숫자를 모두 12 이하로 넣으면 어떻게 되나요? 그래서 달 이름을 글자로 쓰면 왜 좋은가요?</p>') + '</div>';
+          var by = groupBy(rec, function(d){ return (d.nm || D[d.d].n) + '|' + d.a + '/' + d.b; }), rows = [];
+          Object.keys(by).forEach(function(k){ var a = by[k], d = a[0];
+            rows.push([d.nm || D[d.d].n, d.a + '/' + d.b, d.big, d.tell || '—', d.ko]); });
+          $('dt1').innerHTML = tableHTML(['읽은 것', '날짜', '13 이상', '알 수 있나', '뜻'], rows);
+          var can = rec.filter(function(d){ return d.tell === '숫자만으로 알 수 있음'; }).length;
+          var cant = rec.length - can;
+          $('dt2').innerHTML = hbars([{label:'숫자만으로 알 수 있었음', v:can, color:PAL[1], text:can + '번'},
+            {label:'숫자만으로는 알 수 없었음', v:cant, color:PAL[4], text:cant + '번'}], Math.max(1, can, cant));
         }
       };
     })();
@@ -503,7 +533,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

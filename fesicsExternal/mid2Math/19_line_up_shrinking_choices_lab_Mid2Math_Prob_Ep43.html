@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -289,9 +290,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -425,30 +427,39 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var NN = [2, 3, 4, 5], NAMES = ['가', '나', '다', '라', '마'], PR = ['n가지', 'n × n가지', 'n × (n−1) × … × 1가지'];
+      var NN = [2, 3, 4, 5], NAMES = ['가', '나', '다', '라', '마'];
+      var PR = ['n가지', 'n × n가지', 'n × (n−1) × … × 1가지 (n!)', '자리 수만큼만 줄여 가며 곱하기'];
+      /* n명에서 k명만 뽑아 줄 세우는 모든 경우 */
+      function permsK(a, k){ if (k === 0) return [[]]; var o = [];
+        a.forEach(function(x, i){ var rest = a.slice(0, i).concat(a.slice(i + 1));
+          permsK(rest, k - 1).forEach(function(q){ o.push([x].concat(q)); }); }); return o; }
       function perms(a){ if (a.length <= 1) return [a.slice()]; var o = []; a.forEach(function(x, i){ var rest = a.slice(0, i).concat(a.slice(i + 1)); perms(rest).forEach(function(p){ o.push([x].concat(p)); }); }); return o; }
       function fact(n){ return n <= 1 ? 1 : n * fact(n - 1); }
       return {
         sceneHeight: 420,
-        idle: '사람 수와 예측을 고르고 <b>줄 세워 보기</b>를 누르세요.',
+        idle: '사람 수·자리 수·예측을 고르고 <b>줄 세워 보기</b>를 누르세요. 자리 수를 줄이면 답이 n! 이 아니게 됩니다.',
         shortHint: '2명, 3명, 4명, 5명을 모두 해 보세요. 사람이 한 명 늘 때 방법 수는 몇 배가 되나요?',
         params: [
           {key:'n', type:'seg', label:'사람 수 n', cols:4, value:1, options:NN.map(function(v){ return v + '명'; })},
+          {key:'k', type:'range', label:'세울 자리 수 (사람 수보다 많으면 사람 수만큼)', min:1, max:5, step:1, value:5, fmt:function(v){ return v + '자리'; }},
           {key:'g', type:'seg', label:'나의 예측', cols:1, value:0, options:PR}
         ],
         compute: function(p){
-          var n = NN[p.n], L = perms(NAMES.slice(0, n)), pv = [n, n * n, fact(n)][p.g];
-          return {n:n, list:L, total:L.length, pv:pv, ok:pv === L.length};
+          var n = NN[p.n], k = Math.min(p.k == null ? 5 : p.k, n);
+          var L = permsK(NAMES.slice(0, n), k);
+          var nPr = 1, i; for (i = 0; i < k; i++) nPr *= (n - i);
+          var pv = [n, n * n, fact(n), nPr][p.g];
+          return {n:n, k:k, list:L, total:L.length, nPr:nPr, pv:pv, ok:pv === L.length, full:(k === n)};
         },
         draw: function(c, W, H, p, r, tau){
-          var n = NN[p.n], sw = Math.min(90, (W - 40) / n);
-          txt(c, n + '명: ' + NAMES.slice(0, n).join(', '), 20, 30, {bold:true});
-          var k = r ? tau : 0, st = Math.floor(k * 2 * n + 1e-9);
-          for (var i = 0; i < n; i++){
+          var n = NN[p.n], kk = Math.min(p.k == null ? 5 : p.k, n), sw = Math.min(90, (W - 40) / Math.max(1, kk));
+          txt(c, n + '명 중 ' + kk + '자리: ' + NAMES.slice(0, n).join(', '), 20, 30, {bold:true});
+          var k = r ? tau : 0, st = Math.floor(k * 2 * kk + 1e-9);
+          for (var i = 0; i < kk; i++){
             var x = 20 + i * sw; c.fillStyle = i < st ? PAL[0] : '#EEF2F6'; c.fillRect(x + 3, 50, sw - 6, 50);
             txt(c, (i + 1) + '번째', x + sw / 2, 72, {align:'center', color:i < st ? '#fff' : '#8C99A8'});
             if (i < st) txt(c, (n - i) + '명', x + sw / 2, 94, {align:'center', bold:true, color:'#fff'});
-            if (i < st && i < n - 1) txt(c, '×', x + sw, 82, {align:'center', bold:true, color:'#1E2833'});
+            if (i < st && i < kk - 1) txt(c, '×', x + sw, 82, {align:'center', bold:true, color:'#1E2833'});
           }
           if (!r) return;
           if (k >= 0.5){
@@ -456,20 +467,26 @@ var LAB = (function(){
             for (var j = 0; j < show; j++) txt(c, L[j].join(''), 20 + (j % cols) * cw, 140 + Math.floor(j / cols) * 26, {color:PAL[3]});
             if (L.length > cap && show >= cap) txt(c, '… 외 ' + (L.length - cap) + '가지', W - 20, H - 40, {align:'right', color:'#4A5868'});
           }
-          if (tau >= 1) txt(c, '모두 ' + r.total + '가지 (예측 ' + r.pv + '가지)', 20, H - 12, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
+          if (tau >= 1) txt(c, '모두 ' + r.total + '가지 (예측 ' + r.pv + '가지)' + (r.full ? '' : ' — 자리가 사람보다 적어 n! 이 아닙니다'), 20, H - 12, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
-          var chain = []; for (var i = r.n; i >= 1; i--) chain.push(i);
-          return [['사람 수', r.n + '명'], ['계산', chain.join(' × ') + ' = ' + r.total, PAL[0]], ['직접 센 줄', r.total + '가지', PAL[3]],
+          var chain = [], i; for (i = 0; i < r.k; i++) chain.push(r.n - i);
+          var fc = []; for (i = r.n; i >= 1; i--) fc.push(i);
+          return [['사람 수 · 자리 수', r.n + '명 중 ' + r.k + '자리'],
+            ['곱의 법칙으로 센 값', chain.join(' × ') + ' = ' + r.nPr, PAL[0]],
+            ['직접 센 줄', r.total + '가지' + (r.total === r.nPr ? ' — 곱의 법칙과 같습니다' : ' — 곱의 법칙과 다릅니다'), r.total === r.nPr ? PAL[1] : PAL[4]],
+            ['n! 과 비교', r.full ? ('자리가 사람 수와 같아 n! = ' + fc.join(' × ') + ' = ' + fact(r.n) + ' 과 같습니다')
+              : ('n! = ' + fact(r.n) + ' 이지만 자리가 ' + r.k + '개뿐이라 ' + r.nPr + '가지입니다 — “정답은 n!” 이 늘 맞지는 않습니다'), r.full ? PAL[1] : PAL[6]],
             ['나의 예측', PR[p.g] + ' → ' + r.pv + '가지' + (r.ok ? ' — 맞았어요' : ' — 실제와 달라요'), r.ok ? PAL[1] : PAL[4]],
             ['참고', r.n === 2 && p.g === 0 ? '2명에서는 “n가지”가 우연히 맞아요. 3명으로 확인해 보세요.' : '자리가 하나 채워질 때마다 선택지가 하나씩 줄어요.']];
         },
-        columns: ['n', '예측', '예측 값', '실제', '맞음'],
-        record: function(p, r){ return {n:r.n, g:p.g, pv:r.pv, t:r.total, ok:r.ok}; },
-        row: function(d){ return [d.n + '명', PR[d.g], d.pv, d.t, d.ok ? '예' : '아니오']; },
+        columns: ['n', '자리', '곱의 법칙', '직접 센 수', '맞음'],
+        record: function(p, r){ return {n:r.n, k:r.k, g:p.g, pv:r.pv, t:r.total, nPr:r.nPr, ok:r.ok, full:r.full}; },
+        row: function(d){ return [d.n + '명', d.k + '자리', d.nPr, d.t, d.t === d.nPr ? '같음' : '다름']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('사람 수별 실제 방법 수와 예측', '<div id="lu1"></div><p class="ask">“n가지” 예측은 몇 명일 때까지 맞았나요? 사람이 한 명 늘면 방법 수는 몇 배가 되었나요?</p>') +
+            card('자리 수를 줄이면', '<div id="lu3"></div><p class="ask">자리 수를 사람 수보다 적게 두면 답이 n! 이 아니었나요? 곱의 법칙으로 센 값과 직접 센 목록 수가 늘 같았는지 확인해 보세요.</p>') +
             card('예측 방법별 적중', '<div id="lu2"></div><p class="ask">과제: 4명 중 3명만 뽑아 한 줄로 세우는 방법의 수를 자리마다 줄어드는 선택지로 구하고, 나뭇가지 그림 일부로 확인하세요.</p>') + '</div>';
           var items = [];
           NN.forEach(function(n){ var g = rec.filter(function(d){ return d.n === n; }); if (!g.length) return; var t = g[0].t;
@@ -477,6 +494,11 @@ var LAB = (function(){
           $('lu1').innerHTML = hbars(items, 120);
           var rows = PR.map(function(s, i){ var g = rec.filter(function(d){ return d.g === i; }); return [s, g.length + '회', g.length ? f(g.filter(function(d){ return d.ok; }).length / g.length * 100, 0) + '%' : '—']; });
           $('lu2').innerHTML = tableHTML(['예측', '기록', '적중률'], rows);
+          var seen = {}, rows3 = [];
+          rec.forEach(function(d){ var key = d.n + '_' + d.k; if (seen[key]) return; seen[key] = 1;
+            rows3.push([d.n + '명', d.k + '자리', d.nPr, d.t, d.t === d.nPr ? '같음' : '다름', d.full ? 'n! 과 같음' : 'n! 보다 작음']); });
+          $('lu3').innerHTML = tableHTML(['사람 수', '자리 수', '곱의 법칙', '직접 센 수', '맞나', 'n! 과 비교'], rows3) +
+            '<p class="msg">자리마다 고를 수 있는 사람이 하나씩 줄어드는 것이 핵심이에요. 자리 수가 사람 수와 같을 때만 끝이 1 까지 내려가 n! 이 되고, 자리가 적으면 거기서 멈춰요. 어느 경우든 곱의 법칙으로 센 값과 직접 센 목록 수는 같아요.</p>';
         }
       };
     })();
@@ -485,7 +507,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

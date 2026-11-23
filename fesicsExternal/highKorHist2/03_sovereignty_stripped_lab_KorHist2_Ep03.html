@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -478,46 +480,77 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
       var PW = ['군사 기지', '재정·외교 고문', '외교권', '내정·군대', '사법권', '경찰권', '통치권 전체'];
       return {
         sceneHeight: 420,
-        idle: '문서와 빼앗긴 권한에 대한 나의 예상을 고른 뒤 <b>문서 적용하기</b>를 누르세요.',
+        idle: '문서와 빼앗긴 권한에 대한 나의 예상을 고른 뒤 <b>문서 적용하기</b>를 누르세요. <b>날짜 가리고 맞히기</b>로 바꾸면 문서에서 연월이 사라져, 순서를 직접 세워야 합니다.',
         shortHint: '문서 일곱 개를 순서대로 적용해 보면 좋아요. 4개 이상 기록하면 비교할 수 있습니다.',
         params: [
           {key:'d', type:'seg', label:'문서', cols:4, value:0, options:DOC.map(function(x){ return x.n + ' (' + x.d + ')'; })},
-          {key:'g', type:'seg', label:'이 문서로 빼앗긴 권한은? (나의 예상)', cols:4, value:0, options:PW}
+          {key:'g', type:'seg', label:'이 문서로 빼앗긴 권한은? (나의 예상)', cols:4, value:0, options:PW},
+          {key:'hd', type:'seg', label:'연월 보여 주기', value:0, options:['날짜 보기 (기본)', '날짜 가리고 맞히기'],
+            note:'가리면 문서 단추와 장면에서 연월이 숨고, 실행한 뒤에 드러납니다.'},
+          {key:'po', type:'seg', label:'이 문서는 몇 번째로 적용되었을까? (순서 예측)', cols:4, value:0,
+            options:['순서 예측 안 함', '1번째', '2번째', '3번째', '4번째', '5번째', '6번째', '7번째'],
+            note:'찍어 둔 순서는 기록 표에 쌓이고, 결과 비교 탭에서 내가 늘어놓은 순서를 실제와 견줘 맞힌 수를 셉니다.'}
         ],
-        compute: function(p){ return {doc:DOC[p.d], ok:p.g === p.d, left:6 - p.d}; },
+        compute: function(p){ return {doc:DOC[p.d], ok:p.g === p.d, left:6 - p.d,
+          poOK:(p.po === 0 ? null : (p.po - 1) === p.d)}; },
         draw: function(c, W, H, p, r, tau){
           var sz = fz(W), n = PW.length, gx = 16, gw = W - 32, pw = gw / n, top = 90, base = H - 90, k = r ? ease(tau / 0.8) : 0;
+          var sbd = document.getElementById('seg_d');
+          if (sbd && sbd.children.length === DOC.length){
+            for (var q2 = 0; q2 < DOC.length; q2++){
+              var want = DOC[q2].n + (p.hd ? '' : ' (' + DOC[q2].d + ')');
+              if (sbd.children[q2].textContent !== want) sbd.children[q2].textContent = want;
+            }
+          }
           c.fillStyle = '#5C6B7A'; c.beginPath(); c.moveTo(gx - 6, top); c.lineTo(W / 2, top - 50); c.lineTo(gx + gw + 6, top); c.closePath(); c.fill();
           tx(c, '대한제국', W / 2, top - 14, {align:'center', bold:true, color:'#fff', size:sz});
           c.fillStyle = '#5C6B7A'; c.fillRect(gx - 6, base, gw + 12, 12);
           PW.forEach(function(w, i){
-            var x = gx + i * pw + pw * 0.18, bw = pw * 0.64, gone = i < p.d, now = i === p.d, dy = 0, col = '#E8DCC4';
+            var x = gx + i * pw + pw * 0.18, bw = pw * 0.64, gone = (p.hd && !r) ? false : i < p.d, now = i === p.d, dy = 0, col = '#E8DCC4';
             if (gone) col = '#C9D2DC';
             if (now && r){ col = 'rgba(200,70,61,' + (0.3 + 0.6 * k) + ')'; dy = 40 * k * k; x += Math.sin(tau * 30) * 3 * (1 - k); }
             c.globalAlpha = now && r ? 1 - 0.55 * k : 1; c.fillStyle = col; c.fillRect(x, top + dy, bw, base - top); c.globalAlpha = 1;
-            c.save(); c.translate(x + bw / 2, base - 8); c.rotate(-Math.PI / 2); tx(c, w, 0, 0, {size:W < 520 ? 11 : 14, color:gone ? '#7A8794' : '#1E2833', base:'middle', bold:now}); c.restore();
+            c.save(); c.translate(x + bw / 2, base - 8); c.rotate(-Math.PI / 2); tx(c, w, 0, 0, {size:W < 520 ? 11 : 14, color:gone ? '#7A8794' : '#1E2833', base:'middle', bold:(p.hd && !r) ? false : now}); c.restore();
           });
           var doc = DOC[p.d];
-          tx(c, doc.d + ' ' + doc.n, 16, H - 52, {bold:true, size:sz + 1});
+          tx(c, (p.hd && !r ? '????.? ' : doc.d + ' ') + doc.n, 16, H - 52, {bold:true, size:sz + 1});
           if (r && tau > 0.6){ wrapT(c, doc.t, 16, H - 28, W - 32, sz + 4, {size:sz - 1, color:'#3D4A5A', max:1});
             stamp(c, W - 80, 30, r.ok ? '예상 적중' : '예상과 다름', r.ok ? PAL[1] : PAL[4], ease((tau - 0.6) / 0.4), W < 520 ? 13 : 16); }
           else tx(c, '나의 예상: ' + PW[p.g], 16, H - 28, {size:sz - 1, color:'#4A5868'});
         },
-        stats: function(p, r){ return [['문서', r.doc.n + ' (' + r.doc.d + ')'], ['빼앗긴 권한', PW[p.d], PAL[4]], ['내용', r.doc.t], ['나의 예상', PW[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
-          ['남은 권한 기둥', r.left ? r.left + '개 (' + PW.slice(p.d + 1).join(' · ') + ')' : '없음 — 국권 피탈'], ['1904년 2월부터', f((p.d === 0 ? 0 : [0, 0.5, 1.75, 3.4, 5.4, 6.3, 6.5][p.d]), 1) + '년 경과']]; },
-        columns: ['문서', '연월', '나의 예상', '실제', '맞음'],
-        record: function(p, r){ return {d:p.d, g:p.g, ok:r.ok}; },
-        row: function(d){ return [DOC[d.d].n, DOC[d.d].d, PW[d.g], PW[d.d], d.ok ? '○' : '×']; },
+        stats: function(p, r){
+          var a = [['문서', r.doc.n + ' (' + r.doc.d + ')'], ['빼앗긴 권한', PW[p.d], PAL[4]], ['내용', r.doc.t], ['나의 예상', PW[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]]];
+          if (r.poOK !== null) a.push(['순서 예측', p.po + '번째 → ' + (r.poOK ? '맞음' : '틀림 (실제 ' + (p.d + 1) + '번째)'), r.poOK ? PAL[1] : PAL[4]]);
+          else a.push(['순서 예측', '순서를 찍지 않았어요 — 날짜를 가리고 몇 번째인지 찍어 보세요', '#8C99A8']);
+          a.push(['남은 권한 기둥', r.left ? r.left + '개 (' + PW.slice(p.d + 1).join(' · ') + ')' : '없음 — 국권 피탈']);
+          a.push(['1904년 2월부터', f((p.d === 0 ? 0 : [0, 0.5, 1.75, 3.4, 5.4, 6.3, 6.5][p.d]), 1) + '년 경과']);
+          return a;
+        },
+        columns: ['문서', '연월', '나의 예상', '실제', '맞음', '순서 예측'],
+        record: function(p, r){ return {d:p.d, g:p.g, ok:r.ok, po:p.po, hd:p.hd, a2:r.poOK}; },
+        row: function(d){ return [DOC[d.d].n, DOC[d.d].d, PW[d.g], PW[d.d], d.ok ? '○' : '×',
+          d.po === 0 ? '–' : (d.po + '번째' + (d.a2 ? ' ○' : ' ✕') + (d.hd ? ' (날짜 가림)' : ''))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('단계표 (내가 확인한 문서)', '<div id="ss1"></div><p class="ask">"나라가 없어졌다"고 말할 수 있는 시점은 어디라고 생각하나요? 외교권을 잃은 1905년과 통치권을 잃은 1910년 가운데 하나를 골라 근거를 대 보세요.</p>') +
-            card('형식 비교 — 정상 조약 vs 을사늑약', '<div id="ss2"></div><p class="ask">과제: 1904~1910년 문서 7개를 표로 만들어 각각 빼앗긴 권한을 적고, 을사늑약과 조미 조약의 형식(제목·서명·비준)을 비교해 무효 주장의 근거를 정리해 보세요. 헤이그 특사가 각국에 전하려 한 문서의 내용도 찾아보세요.</p>') + '</div>';
+            card('형식 비교 — 정상 조약 vs 을사늑약', '<div id="ss2"></div><p class="ask">과제: 1904~1910년 문서 7개를 표로 만들어 각각 빼앗긴 권한을 적고, 을사늑약과 조미 조약의 형식(제목·서명·비준)을 비교해 무효 주장의 근거를 정리해 보세요. 헤이그 특사가 각국에 전하려 한 문서의 내용도 찾아보세요.</p>') +
+            card('내가 늘어놓은 순서', '<div id="ss3"></div><p class="ask">날짜를 가리고도 순서를 맞힌 문서와 틀린 문서는 무엇이 달랐나요? 권한의 내용만 보고 앞뒤를 가릴 수 있는 까닭을 적어 보세요.</p>') + '</div>';
           var last = {}; rec.forEach(function(d){ last[d.d] = d; });
           var ids = Object.keys(last).map(Number).sort(function(a, b){ return a - b; });
           $('ss1').innerHTML = tableHTML(['연월', '문서', '빼앗긴 권한', '나의 예상'], ids.map(function(i){ return [DOC[i].d, DOC[i].n, PW[i], last[i].ok ? '○' : '× (' + PW[last[i].g] + ')']; })) +
             '<p class="msg">확인한 문서 ' + ids.length + ' / 7개</p>';
           $('ss2').innerHTML = tableHTML(['요건', '조미 수호 통상 조약 (1882)', '을사늑약 (1905)'], [
             ['조약 제목', '있음', '없음'], ['국가 원수의 비준', '비준서 교환', '황제 서명·국새 없음'], ['날인', '양측 전권 대표', '외부대신 직인'], ['체결 환경', '협상', '일본군이 궁궐 주변 배치'], ['원수의 뒤 반응', '—', '고종: "승인한 바 없다" (헤이그 특사 1907)']]);
+          var pl = {}; rec.forEach(function(d){ if (d.po) pl[d.d] = d; });
+          var pk = Object.keys(pl).map(Number), pc = pk.filter(function(i){ return pl[i].a2; }).length;
+          var mine = pk.slice().sort(function(a, b){ return pl[a].po - pl[b].po; });
+          var dup = {}, hasDup = false; pk.forEach(function(i){ if (dup[pl[i].po]) hasDup = true; dup[pl[i].po] = 1; });
+          $('ss3').innerHTML = (pk.length
+            ? '<p class="msg">순서를 찍은 문서 ' + pk.length + '개 가운데 맞힌 것 <b>' + pc + '개</b>' + (hasDup ? ' — 같은 번째를 두 문서에 찍은 것이 있어요' : '') + '</p>' +
+              tableHTML(['내가 찍은 번째', '문서', '빼앗긴 권한', '실제 번째'], mine.map(function(i){
+                return [pl[i].po + '번째' + (pl[i].a2 ? ' ○' : ' ✕'), DOC[i].n, PW[i], (i + 1) + '번째 (' + DOC[i].d + ')'];
+              }))
+            : '<p class="msg">아직 순서를 찍은 기록이 없어요. \'날짜 가리고 맞히기\'로 바꾸고 몇 번째인지 찍어 실행하면, 내가 늘어놓은 순서를 여기서 실제와 견줍니다.</p>');
         }
       };
     
@@ -527,7 +560,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

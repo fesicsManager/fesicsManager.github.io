@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -486,6 +488,9 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         {n:'발전부를 통째로 삭제', s:'발전부 삭제', L:16, N:9, what:'갈등 없이 바로 귀환'},
         {n:'재현부 앞에 다른 곡의 주제 삽입', s:'다른 주제 삽입', L:18, N:15, what:'전혀 다른 재료가 끼어듦 (아주 이상함)'}];
       var GR = [{n:'형식을 배운 모둠', s:'배움'}, {n:'배우지 않은 모둠', s:'안 배움'}];
+      /* 내가 직접 표시하는 곳. 0번(아직 표시하지 않음)이 기본값이라 예전 결과가 그대로 나온다. */
+      var MK = ['아직 표시하지 않음', '이상한 곳 없음', '제시부', '발전부 자리', '재현부 제2주제', '끼어든 주제'];
+      var ANS = [1, 4, 3, 5];   /* 편집 0~3 의 실제 수상한 자리 */
       function sections(e){
         var s = [{n:'제시부 1주제', k:'으뜸조', w:1, c:0}, {n:'제시부 2주제', k:'딸림조', w:1, c:1}];
         if (e !== 2) s.push({n:'발전부', k:'여러 조', w:1.4, c:5, ed:false});
@@ -494,14 +499,16 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         s.push({n:'코다', k:'으뜸조', w:0.6, c:6});
         return s; }
       function calc(p){ var e = ED[p.e], cnt = p.g === 0 ? e.L : e.N, oth = p.g === 0 ? e.N : e.L;
-        return {e:e, cnt:cnt, oth:oth, rate:cnt / 20 * 100, gap:e.L - e.N, sec:sections(p.e)}; }
+        var ans = ANS[p.e], hit = p.me === 0 ? null : (p.me === ans);
+        return {e:e, cnt:cnt, oth:oth, rate:cnt / 20 * 100, gap:e.L - e.N, sec:sections(p.e), me:p.me, ans:ans, hit:hit}; }
       return {
         sceneHeight: 430,
         idle: '편집과 모둠을 고른 뒤 <b>편집본 들려주기</b>를 누르세요.',
         shortHint: '네 편집을 두 모둠 모두로 기록해 보세요. 두 모둠의 차이가 가장 큰 편집은 어느 것인가요?',
         params: [
           {key:'e', type:'seg', label:'편집', cols:2, value:0, options:ED.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'들은 모둠 (각 20명)', cols:2, value:0, options:GR.map(function(x){ return x.n; })}
+          {key:'g', type:'seg', label:'들은 모둠 (각 20명)', cols:2, value:0, options:GR.map(function(x){ return x.n; })},
+          {key:'me', type:'seg', label:'내가 이상하다고 느낀 곳', cols:2, value:0, options:MK, note:'먼저 들으면서 직접 고르세요. 두 모둠 숫자는 수업용 예시 값이고, 내 적중률은 내 표시로 계산합니다.'}
         ],
         compute: function(p){
           var r = calc(p), S = session(2, 0.18), t = 0, d = 0.09, W2 = [1, 0.45, 0.2, 0.1];
@@ -545,14 +552,18 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           return [['편집', r.e.n, PAL[0]], ['들은 모둠', GR[p.g].n], ['"이상하다" 표시 (수업용 예시)', r.cnt + ' / 20명 (' + f(r.rate, 0) + '%)', PAL[4]],
             ['다른 모둠', r.oth + ' / 20명'], ['해상도 차이 (배움 − 안 배움)', sgn(r.gap, 0) + '명', PAL[3]],
             ['어긋난 기대', r.e.what, PAL[6]],
+            ['내 표시', r.me === 0 ? '아직 표시하지 않았어요 — 조작에서 골라 보세요.'
+              : MK[r.me] + ' → ' + (r.hit ? '맞혔어요 (실제: ' + MK[r.ans] + ')' : '빗나갔어요 (실제: ' + MK[r.ans] + ')'),
+              r.me === 0 ? null : (r.hit ? PAL[1] : PAL[4])],
             ['기대 지도', '재현부에서는 제2주제도 으뜸조로 돌아온다 · 발전부의 갈등 뒤에 귀환한다']];
         },
-        columns: ['편집', '모둠', '표시 인원', '비율', '배움−안 배움'],
-        record: function(p, r){ return {e:p.e, g:p.g, cnt:r.cnt, gap:r.gap}; },
-        row: function(d){ return [ED[d.e].s, GR[d.g].s, d.cnt + '명', f(d.cnt / 20 * 100, 0) + '%', sgn(d.gap, 0)]; },
+        columns: ['편집', '모둠', '내 표시', '맞음', '표시 인원', '배움−안 배움'],
+        record: function(p, r){ return {e:p.e, g:p.g, cnt:r.cnt, gap:r.gap, me:r.me, hit:r.hit}; },
+        row: function(d){ return [ED[d.e].s, GR[d.g].s, d.me ? MK[d.me] : '—', d.hit === null || d.hit === undefined ? '—' : (d.hit ? '○' : '✕'), d.cnt + '명', sgn(d.gap, 0)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('편집별 "이상하다" 표시 (수업용 예시)', '<div id="h1a"></div><p class="ask">아주 이상한 편집(다른 주제 삽입)과 미묘한 편집(제2주제 조성) 가운데, 두 모둠의 차이가 큰 쪽은 어디인가요? 형식 지식은 무엇을 더 들리게 했나요?</p>') +
+            card('내 귀는 어디까지 들었나 (내 표시로 계산)', '<div id="h1c"></div><p class="ask">내가 맞힌 편집과 빗나간 편집은 어느 쪽이었나요? 내 적중률을 두 모둠 비율과 견주면 나는 어느 모둠에 가깝나요?</p>') +
             card('정리', '<div id="h1b"></div><p class="ask">과제: 소나타 형식 악장 하나를 들으며 제시부·발전부·재현부의 시작 시각을 적고, 재현부에서 제시부와 달라진 점 세 가지를 찾아보세요. 처음 들을 때와 형식을 표시한 뒤 들을 때의 인상도 비교해 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.e + '_' + d.g; }), items = [], rows = [];
           ED.forEach(function(e, i){ [0, 1].forEach(function(gg){ if (!g[i + '_' + gg]) return; var v = gg ? e.N : e.L;
@@ -560,6 +571,19 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
             if (g[i + '_0'] || g[i + '_1']) rows.push([e.s, e.L + '명', e.N + '명', sgn(e.L - e.N, 0)]); });
           $('h1a').innerHTML = hbars(items, 20) + (items.length < 8 ? '<p class="msg">편집 4가지 × 모둠 2개 중 기록하지 않은 조합이 있어요.</p>' : '');
           $('h1b').innerHTML = tableHTML(['편집', '배움', '안 배움', '차이'], rows);
+          /* 미리 박힌 인원과 달리, 이것은 내 표시만으로 계산한 값이다 */
+          var mine = rec.filter(function(x){ return x.me; });
+          var rows3 = ED.map(function(e, i){
+            var g2 = mine.filter(function(x){ return x.e === i; });
+            if (!g2.length) return [e.s, '—', '—', e.L + '명 / ' + e.N + '명'];
+            var hits = g2.filter(function(x){ return x.hit; }).length;
+            return [e.s, g2.length + '번', hits + '번 맞음 (' + f(hits / g2.length * 100, 0) + '%)', e.L + '명 / ' + e.N + '명'];
+          });
+          var tot = mine.length, th = mine.filter(function(x){ return x.hit; }).length;
+          $('h1c').innerHTML = tableHTML(['편집', '내가 들어 본 횟수', '내 적중', '배움 / 안 배움 (예시)'], rows3)
+            + '<p class="msg">' + (tot
+              ? '내 적중률은 ' + th + '/' + tot + ' = <b>' + f(th / tot * 100, 0) + '%</b> 입니다. 미묘한 편집(제2주제 조성)에서도 맞혔다면 형식 지도를 쓰고 있는 것이고, 아주 이상한 편집만 맞혔다면 아직 소리의 낯섦만 듣고 있는 것이에요.'
+              : '조작에서 "내가 이상하다고 느낀 곳"을 골라 다시 들어 보면, 내 적중률이 여기에 계산됩니다.') + '</p>';
         }
       };
     })();
@@ -568,7 +592,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

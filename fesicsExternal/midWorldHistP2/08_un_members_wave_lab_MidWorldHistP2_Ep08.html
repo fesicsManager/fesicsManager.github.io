@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -482,13 +484,17 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         shortHint: '1945, 1955, 1960, 1965, 1975, 1990년처럼 넓게 골라 5번 이상 기록해 보세요.',
         params: [
           {key:'y', type:'range', label:'연도', min:1945, max:2011, step:1, value:1960, fmt:function(v){ return v + '년'; }},
-          {key:'v', type:'seg', label:'보기', cols:2, value:0, options:VW}
+          {key:'v', type:'seg', label:'보기', cols:2, value:0, options:VW},
+          {key:'gs', type:'range', label:'먼저 짐작: 이 해까지 10년 동안 늘어난 회원국 수', min:0, max:60, step:5, value:20, fmt:function(v){ return '+' + v + '개국'; },
+            note:'짐작을 먼저 적고 실행하면, 실제 계단과 맞혔는지 채점해 줘요. 1960년 앞뒤에서 특히 많이 틀립니다.'}
         ],
         compute: function(p){
           var n = cnt(p.y), n5 = cnt(Math.max(1945, p.y - 5)), n10 = cnt(Math.max(1945, p.y - 10));
           var ev = IND.filter(function(d){ return d.y === p.y; }).map(function(d){ return d.n; });
           var done = IND.filter(function(d){ return d.y <= p.y; }).length;
-          return {n:n, d5:n - n5, d10:n - n10, ev:ev, done:done, share:(n - 51) / (193 - 51) * 100};
+          var d10 = n - n10, gs = p.gs, diff = gs - d10;
+          return {n:n, d5:n - n5, d10:d10, ev:ev, done:done, share:(n - 51) / (193 - 51) * 100,
+            gs:gs, diff:diff, hit:(Math.abs(diff) <= 5), base:n10};
         },
         draw: function(c, W, H, p, r, tau){
           var s = fz(W), k = r ? ease(tau) : 1, yy = r ? Math.round(lerp(1945, p.y, k)) : p.y;
@@ -503,6 +509,9 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
             c.strokeStyle = PAL[1]; c.lineWidth = 3.5; c.beginPath(); prev = 51; c.moveTo(X(1945), Y(51));
             for (var y2 = 1946; y2 <= yy; y2++){ var v2 = cnt(y2); c.lineTo(X(y2), Y(prev)); c.lineTo(X(y2), Y(v2)); prev = v2; } c.stroke();
             seg(c, X(yy), T, X(yy), B, '#26313D', 1.5, [5, 4]); disc(c, X(yy), Y(cnt(yy)), 6, '#26313D');
+            if (r){ var gy2 = Y(Math.min(200, r.base + r.gs));
+              seg(c, Math.max(L, X(yy) - 60), gy2, Math.min(R, X(yy) + 60), gy2, PAL[6], 2, [6, 4]);
+              tx(c, '짐작', Math.max(L, X(yy) - 60) - 2, gy2 - 6, {align:'left', size:s - 3, color:PAL[6]}); }
             tx(c, yy + '년 · ' + cnt(yy) + '개국', Math.min(X(yy) + 8, R - 120), Y(cnt(yy)) - 12, {bold:true, size:s});
             tx(c, '유엔 회원국 수 (연말)', L, H - 12, {size:s - 2, color:'#7A8794'});
           } else {
@@ -519,18 +528,22 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         },
         stats: function(p, r){
           return [['연도', p.y + '년'], ['유엔 회원국 수', r.n + '개국 (1945년 51 → 현재 193)', PAL[1]], ['5년 전보다', '+' + r.d5 + '개국'], ['10년 전보다', '+' + r.d10 + '개국', r.d10 >= 30 ? PAL[0] : '#1E2833'],
+            ['내 짐작 (10년 증가)', '+' + r.gs + '개국 → 실제 +' + r.d10 + '개국', r.hit ? PAL[2] : PAL[0]],
+            ['채점', r.hit ? '✅ 맞았어요 (±5개국 안)' : (r.diff > 0 ? '❌ ' + r.diff + '개국 많이 짐작했어요' : '❌ ' + (-r.diff) + '개국 적게 짐작했어요'), r.hit ? PAL[2] : PAL[0]],
             ['이 해의 독립 사례', r.ev.length ? r.ev.join(', ') : '(목록에 없음)', PAL[3]], ['읽기', p.y === 1945 ? '1945년에 모든 식민지가 독립한 것이 아님 — 51개국에서 출발' : p.y >= 1990 && p.y <= 1993 ? '이 무렵 증가는 소련·유고슬라비아 해체의 영향이 큼' : '독립은 45년에 걸친 긴 물결', PAL[6]]];
         },
-        columns: ['연도', '회원국', '10년 증가', '이 해의 사례'],
-        record: function(p, r){ return {y:p.y, n:r.n, d10:r.d10, ev:r.ev.join(', ') || '—'}; },
-        row: function(d){ return [d.y, d.n + '개국', '+' + d.d10, d.ev]; },
+        columns: ['연도', '회원국', '내 짐작', '10년 증가', '채점', '이 해의 사례'],
+        record: function(p, r){ return {y:p.y, n:r.n, d10:r.d10, ev:r.ev.join(', ') || '—', gs:r.gs, diff:r.diff, hit:r.hit}; },
+        row: function(d){ return [d.y, d.n + '개국', '+' + d.gs, '+' + d.d10, d.hit ? '✅' : (d.diff > 0 ? '❌ +' + d.diff : '❌ ' + d.diff), d.ev]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 고른 해의 유엔 회원국 수', '<canvas class="chart" id="m8a"></canvas><p class="ask">기록한 점들 가운데 기울기가 가장 가파른 구간은 언제인가요? 뭉치의 ‘1945년에 한꺼번에’와 비교해 보세요.</p>') +
             card('10년 단위 증가 (증가표 기준)', '<div id="m8b"></div><p class="ask">과제: 백지도에 아시아·아프리카 나라들을 독립 연도별로 1940년대·50년대·60년대·70년대 이후 네 가지 색으로 칠하고, 한 나라를 골라 독립 방식(협상·전쟁)과 독립 뒤 겪은 과제 하나를 조사해 보세요.</p>') + '</div>';
           drawScatter($('m8a'), {series:[{color:PAL[1], pts:rec.map(function(d){ return {x:d.y - 1945, y:d.n}; })}], xLabel:'1945년부터 지난 해', yLabel:'회원국 수'});
           var rows = [[1945, 1955], [1955, 1965], [1965, 1975], [1975, 1985], [1985, 1995], [1995, 2005]].map(function(a){ return {label:a[0] + '→' + a[1], v:cnt(a[1]) - cnt(a[0]), color:a[0] === 1955 ? PAL[0] : PAL[1], text:'+' + (cnt(a[1]) - cnt(a[0]))}; });
-          $('m8b').innerHTML = hbars(rows, 50) + '<p class="msg">1955→1965년(+41)이 가장 큰 10년입니다. 1960년 한 해에만 +17개국. 1985→1995년 증가는 소련·유고슬라비아 해체 영향이 큽니다.</p>';
+          $('m8b').innerHTML = hbars(rows, 50) + '<p class="msg">1955→1965년(+41)이 가장 큰 10년입니다. 1960년 한 해에만 +17개국. 1985→1995년 증가는 소련·유고슬라비아 해체 영향이 큽니다.</p>'
+            + (function(){ var hit = rec.filter(function(d){ return d.hit; }), low = rec.filter(function(d){ return d.diff < -5; });
+              return '<p class="msg">먼저 짐작한 뒤 채점한 결과: 맞힌 기록 <b>' + hit.length + '개</b> · 틀린 기록 <b>' + (rec.length - hit.length) + '개</b>' + (low.length ? ', 그 가운데 <b>너무 적게</b> 짐작한 기록이 ' + low.length + '개' : '') + '. 짐작이 가장 많이 빗나간 해: ' + (function(){ var w = rec[0]; rec.forEach(function(d){ if (Math.abs(d.diff) > Math.abs(w.diff)) w = d; }); return w.y + '년 (짐작 +' + w.gs + ' / 실제 +' + w.d10 + ')'; })() + '. 계단이 한 번에 솟은 해가 아니라 <b>45년에 걸쳐 여러 번</b> 올라갔습니다 — “1945년에 모두 독립”이 아닙니다.</p>'; })();
         }
       };
     
@@ -540,7 +553,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

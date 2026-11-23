@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,18 +479,27 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
         {n:'둘째 칸', nm:'라', fq:440.00, st:3}, {n:'셋째 줄', nm:'시', fq:493.88, st:4}];
       var SH = [{n:'4분음표 (까만 머리 + 기둥)', s:'4분음표', beats:1, fill:true, stem:true}, {n:'2분음표 (빈 머리 + 기둥)', s:'2분음표', beats:2, fill:false, stem:true},
         {n:'온음표 (빈 머리, 기둥 없음)', s:'온음표', beats:4, fill:false, stem:false}];
-      function calc(p){ var po = PO[p.o], sh = SH[p.s]; return {nm:po.nm, fq:po.fq, beats:sh.beats, sec:sh.beats * 0.5}; }
+      var GN = ['안 찍음', '미', '파', '솔', '라', '시'];
+      function calc(p){ var po = PO[p.o], sh = SH[p.s], n = Math.max(1, Math.round(p.n == null ? 1 : p.n)), tot = sh.beats * n;
+        var gi = p.gn || 0;
+        return {nm:po.nm, fq:po.fq, beats:sh.beats, sec:sh.beats * 0.5, n:n, tot:tot,
+          full:(tot === 4 ? '딱 맞음' : (tot < 4 ? '덜 찼음' : '넘쳤음')),
+          need:(4 - tot), guess:gi, gname:GN[gi], ok:(gi > 0 ? (gi - 1 === p.o) : null)}; }
       return {
         sceneHeight: 420,
         idle: '오선의 자리와 음표 생김새를 고른 뒤 <b>불어서 재기</b>를 누르세요.',
-        shortHint: '둘째 줄(솔)에서 4분음표와 2분음표를 하나씩 재고, 2분음표를 둘째 칸(라)으로 옮겨서도 재 보세요.',
+        shortHint: '둘째 줄(솔)에서 4분음표와 2분음표를 하나씩 재고, 2분음표를 둘째 칸(라)으로 옮겨서도 재 보세요. 자리를 옮긴 뒤에는 계이름을 먼저 찍어 보고, 음표 개수를 바꿔 한 마디(4박)를 딱 채워 보세요.',
         params: [
           {key:'o', type:'seg', label:'오선의 자리 (높이)', cols:5, value:2, options:PO.map(function(x){ return x.n; })},
-          {key:'s', type:'seg', label:'음표의 생김새 (길이)', cols:3, value:0, options:SH.map(function(x){ return x.n; }), note:'색깔(까만지, 하얀지)을 바꾸면 높이가 바뀔까요, 길이가 바뀔까요?'}
+          {key:'s', type:'seg', label:'음표의 생김새 (길이)', cols:3, value:0, options:SH.map(function(x){ return x.n; }), note:'색깔(까만지, 하얀지)을 바꾸면 높이가 바뀔까요, 길이가 바뀔까요?'},
+          {key:'gn', type:'seg', label:'먼저 찍기: 지금 고른 자리는 무슨 계이름일까?', cols:3, value:0, options:GN,
+            note:'찍고 나서 재면 맞았는지 알려 줘요. 계이름 이름표는 재기 전에는 숨어 있어요. 아래 「음표를 몇 개 넣을까」를 움직이면 한 마디(4박)가 꽉 차는지, 덜 차는지, 넘치는지 달라져요.'},
+          {key:'n', type:'range', label:'음표를 몇 개 넣을까 (마디 채우기)', min:1, max:4, step:1, value:1, fmt:function(v){ return v + '개'; }}
         ],
         compute: function(p){
-          var r = calc(p), S = session(Math.min(2, r.sec + 0.1), 0.18);
-          if (S){ tone(S, r.fq, 0, r.sec - 0.04, 0.5, [1, 0.35, 0.12]); for (var b = 0; b < 4; b++) ping(S, 1760, b * 0.5, 0.05, 0.25); }
+          var r = calc(p), S = session(Math.min(2, r.tot * 0.5 + 0.1), 0.18);
+          if (S){ for (var i = 0; i < r.n; i++) tone(S, r.fq, i * r.sec, r.sec - 0.04, 0.5, [1, 0.35, 0.12]);
+            for (var b = 0; b < 4; b++) ping(S, 1760, b * 0.5, 0.05, 0.25); }
           return r;
         },
         draw: function(c, W, H, p, r, tau){
@@ -498,40 +509,55 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
           c.strokeStyle = PAL[3]; c.lineWidth = 3; c.beginPath(); c.arc(cx, gy, 9, 0, Math.PI * 1.7); c.stroke();
           seg(c, cx + 6, gy - 9, cx + 2, gy - 60, PAL[3], 3); seg(c, cx + 2, gy - 60, cx - 6, gy + 30, PAL[3], 2);
           txt(c, '솔', cx + 18, gy + 6, {bold:true, color:PAL[3]});
-          var nx = x0 + sw * 0.62, ny = ly(PO[p.o].st), sh = SH[p.s];
+          var nx = x0 + sw * (q.n > 1 ? 0.40 : 0.62), ny = ly(PO[p.o].st), sh = SH[p.s];
           var nmX = function(st){ return x0 + sw - 4 - (W < 560 && st % 2 ? 26 : 0); };
           if (r){ for (var g = 0; g < 5; g++) if (g !== p.o) txt(c, PO[g].nm, nmX(PO[g].st), ly(PO[g].st) + 6, {align:'right', color:'#B4BEC9'}); }
-          c.save(); c.translate(nx, ny); c.rotate(-0.35); c.beginPath(); c.ellipse(0, 0, 11, 8, 0, 0, Math.PI * 2);
-          if (sh.fill){ c.fillStyle = '#1E2833'; c.fill(); } else { c.strokeStyle = '#1E2833'; c.lineWidth = 3; c.stroke(); } c.restore();
-          if (sh.stem) seg(c, nx + 10, ny - 3, nx + 10, ny - 46, '#1E2833', 2.5);
+          for (var ni = 0; ni < q.n; ni++){ var hx = nx + ni * 30;
+            c.save(); c.translate(hx, ny); c.rotate(-0.35); c.beginPath(); c.ellipse(0, 0, 11, 8, 0, 0, Math.PI * 2);
+            if (sh.fill){ c.fillStyle = '#1E2833'; c.fill(); } else { c.strokeStyle = '#1E2833'; c.lineWidth = 3; c.stroke(); } c.restore();
+            if (sh.stem) seg(c, hx + 10, ny - 3, hx + 10, ny - 46, '#1E2833', 2.5); }
           if (r) txt(c, PO[p.o].nm, nmX(PO[p.o].st), ny + 6, {align:'right', bold:true, color:PAL[0]});
           var showT = W >= 560;
           if (showT){ meter(c, W - 170, 20, 150, r ? q.nm + ' ' + f(q.fq, 0) + ' Hz' : '— Hz'); txt(c, '튜너', W - 170, 72, {color:'#4A5868'}); }
           var by = 250, bw = W - 40, bx = 20;
           txt(c, '박 (1분에 120박)', bx, by - 12, {color:'#4A5868'});
           for (var b = 0; b < 4; b++){ c.strokeStyle = '#C3CDD9'; c.lineWidth = 1.5; c.strokeRect(bx + bw * b / 4, by, bw / 4, 40); txt(c, (b + 1) + '박', bx + bw * (b + 0.5) / 4, by + 26, {align:'center', color:'#8C99A8'}); }
-          if (r){ var len = Math.min(q.beats / 4, tau * 1.25);
-            c.globalAlpha = 0.75; c.fillStyle = PAL[0]; c.fillRect(bx, by + 4, bw * len, 32); c.globalAlpha = 1; }
-          txtF(c, r ? '높이: ' + q.nm + ' (약 ' + f(q.fq, 0) + ' Hz) · 길이: ' + q.beats + '박 (' + f(q.sec, 1) + '초)' : '예상: 이 음표는 얼마나 높고, 얼마나 길까?', 12, 340, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 24);
+          if (r){ var len = Math.min(1, Math.min(q.tot / 4, tau * 1.25 * Math.max(1, q.tot / 4)));
+            c.globalAlpha = 0.75; c.fillStyle = q.tot > 4 ? PAL[3] : PAL[0]; c.fillRect(bx, by + 4, bw * len, 32); c.globalAlpha = 1; }
+          txtF(c, r ? '높이: ' + q.nm + ' (약 ' + f(q.fq, 0) + ' Hz) · 길이: ' + q.beats + '박' + (q.n > 1 ? ' × ' + q.n + '개 = ' + q.tot + '박 (' + q.full + ')' : ' (' + f(q.sec, 1) + '초)') : '예상: 이 음표는 얼마나 높고, 얼마나 길까?', 12, 340, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 24);
           txtF(c, PO[p.o].n + ' · ' + SH[p.s].s, 12, H - 16, {color:'#4A5868'}, W - 24);
         },
         stats: function(p, r){
-          return [['오선의 자리', PO[p.o].n], ['음표 생김새', SH[p.s].n], ['튜너가 알려 준 높이', r.nm + ' (약 ' + f(r.fq, 0) + ' Hz)', PAL[0]],
+          var a = [['오선의 자리', PO[p.o].n], ['음표 생김새', SH[p.s].n], ['튜너가 알려 준 높이', r.nm + ' (약 ' + f(r.fq, 0) + ' Hz)', PAL[0]],
             ['소리 나는 길이', r.beats + '박 = ' + f(r.sec, 1) + '초', PAL[1]], ['높이를 정한 것', '자리 (' + PO[p.o].n + ')', PAL[3]], ['길이를 정한 것', '생김새 (' + SH[p.s].s + ')', PAL[6]]];
+          if (r.guess > 0) a.push(['찍은 계이름 채점', r.gname + ' → ' + (r.ok ? '맞았어요! (정답 ' + r.nm + ')' : '아니에요 (정답 ' + r.nm + ')'), r.ok ? PAL[1] : PAL[3]]);
+          if (r.n > 1) a.push(['한 마디(4박) 채우기', r.beats + '박 × ' + r.n + '개 = ' + r.tot + '박 → ' + r.full +
+            (r.need > 0 ? ' (' + r.need + '박 더 있어야 해요)' : (r.need < 0 ? ' (' + (-r.need) + '박 넘었어요)' : '')), r.tot === 4 ? PAL[1] : PAL[3]]);
+          return a;
         },
-        columns: ['자리', '생김새', '계이름', '진동수 (Hz)', '길이'],
-        record: function(p, r){ return {o:p.o, s:p.s, nm:r.nm, fq:r.fq, beats:r.beats}; },
-        row: function(d){ return [PO[d.o].n, SH[d.s].s, d.nm, f(d.fq, 0), d.beats + '박']; },
+        columns: ['자리', '생김새', '개수', '계이름', '진동수 (Hz)', '모두 몇 박', '마디 채우기', '찍은 계이름'],
+        record: function(p, r){ return {o:p.o, s:p.s, nm:r.nm, fq:r.fq, beats:r.beats, n:r.n, tot:r.tot, full:r.full, guess:r.guess, ok:r.ok}; },
+        row: function(d){ return [PO[d.o].n, SH[d.s].s, d.n + '개', d.nm, f(d.fq, 0), d.tot + '박', d.full,
+          d.guess > 0 ? (GN[d.guess] + (d.ok ? ' ○' : ' ×')) : '안 찍음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('자리 × 생김새 표', '<div id="m2a"></div><p class="ask">같은 자리에서 생김새만 바꿨을 때 계이름이 바뀌었나요? 같은 생김새로 자리만 옮겼을 때는요? 까만색은 무엇을 알려 주는 표시였나요?</p>') +
-            card('내가 잰 음의 길이', '<div id="m2b"></div><p class="ask">과제: 종이에 오선을 긋고 둘째 줄에 솔을 4분음표와 2분음표로 하나씩 그려 보세요. 그다음 한 자리씩 올려 라와 시도 그리고, 리코더나 피아노 앱으로 쳐서 확인해 보세요.</p>') + '</div>';
+            card('내가 잰 음의 길이', '<div id="m2b"></div><p class="ask">과제: 종이에 오선을 긋고 둘째 줄에 솔을 4분음표와 2분음표로 하나씩 그려 보세요. 그다음 한 자리씩 올려 라와 시도 그리고, 리코더나 피아노 앱으로 쳐서 확인해 보세요.</p>') +
+            card('찍은 계이름 점수 · 마디 채우기', '<div id="m2c"></div><p class="ask">계이름을 찍고 잰 것만 점수에 들어가요. 몇 번 틀렸나요? 그리고 음표 개수를 바꾸면 한 마디가 딱 4박이 되는 때는 언제였나요?</p>') + '</div>';
           var rows = PO.map(function(po, oi){ var a = rec.filter(function(d){ return d.o === oi; }); if (!a.length) return null;
             return [po.n].concat(SH.map(function(sh, si){ var g = a.filter(function(d){ return d.s === si; }); return g.length ? g[0].nm + ' · ' + sh.beats + '박' : '—'; })); }).filter(function(x){ return x; });
           $('m2a').innerHTML = tableHTML(['자리'].concat(SH.map(function(s){ return s.s; })), rows);
           var g = groupBy(rec, function(d){ return d.o + '_' + d.s; }), items = [];
           Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; items.push({label:d.nm + ' ' + SH[d.s].s, v:d.beats, color:SH[d.s].fill ? '#26313D' : PAL[5], text:d.beats + '박'}); });
           $('m2b').innerHTML = hbars(items, 4);
+          var tried = rec.filter(function(d){ return d.guess > 0; }), hit = tried.filter(function(d){ return d.ok; }).length;
+          var fit = rec.filter(function(d){ return d.tot === 4; }).length, over = rec.filter(function(d){ return d.tot > 4; }).length;
+          $('m2c').innerHTML = tableHTML(['항목', '수'], [
+            ['계이름을 찍어 본 횟수', tried.length + '번'],
+            ['그 가운데 맞힌 횟수', hit + '번' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')],
+            ['한 마디가 딱 4박이 된 횟수', fit + '번'],
+            ['4박을 넘겨 버린 횟수', over + '번']
+          ]);
         }
       };
     })();
@@ -540,7 +566,8 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

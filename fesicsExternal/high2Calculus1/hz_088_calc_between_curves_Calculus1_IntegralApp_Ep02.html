@@ -151,12 +151,13 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="위−아래 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="a">구간 왼쪽 (×0.25) <b><span id="a_v">-4.00</span></b></label><input type="range" id="a" min="-8" max="2" step="1" value="-4" data-fmt="2"></div><div class="ctl"><label for="b">구간 오른쪽 (×0.25) <b><span id="b_v">8.00</span></b></label><input type="range" id="b" min="3" max="12" step="1" value="8" data-fmt="2"></div><div class="row"><button class="btn go" id="goBtn">📐 두 곡선 사이 재기</button></div>
+      <div class="ctl"><label for="c">직선의 높이 (×0.5) — y = x + c <b><span id="c_v">4.0</span></b></label><input type="range" id="c" min="-8" max="8" step="1" value="4" data-fmt="1"></div>
+<div class="ctl"><label for="a">구간 왼쪽 (×0.25) <b><span id="a_v">-4.00</span></b></label><input type="range" id="a" min="-8" max="2" step="1" value="-4" data-fmt="2"></div><div class="ctl"><label for="b">구간 오른쪽 (×0.25) <b><span id="b_v">8.00</span></b></label><input type="range" id="b" min="3" max="12" step="1" value="8" data-fmt="2"></div><div class="row"><button class="btn go" id="goBtn">📐 두 곡선 사이 재기</button></div>
       <div class="readout" id="readout"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>구간</th><th>위 곡선</th><th>∫(위−아래)</th><th>∫(아래−위)</th><th>넓이</th><th>부호</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>c</th><th>구간</th><th>위 곡선</th><th>∫(위−아래)</th><th>∫(아래−위)</th><th>넓이</th><th>부호</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,8 +236,12 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function f(x){return x+2;}
+/* 직선의 높이 c 를 내리면 두 곡선이 만나지 않게 되어, 구간 안에서 위아래가 통째로 뒤바뀐다.
+   x²/2 = x + c  →  x² − 2x − 2c = 0  →  x = 1 ± √(1+2c).  c < −0.5 이면 교점이 없다. */
+function cc(){return v('c')/2;}
+function f(x){return x+cc();}
 function g(x){return x*x/2;}
+function cTxt(){var c=cc();return 'y = x'+(c<0?'−'+nf(-c,1):'+'+nf(c,1));}
 function st(){var a=v('a')/4,b=v('b')/4;
 if(b<=a)b=a+1;
 var up=nint(function(x){return f(x)-g(x);},a,b);
@@ -248,7 +253,12 @@ if(Math.abs(cur)<1e-12)cross.push(x);else if(prev*cur<0)cross.push(x-0.001);
 prev=cur;}
 cross.sort(function(p,q){return p-q;});
 cross=cross.filter(function(x,i,arr){return i===0||Math.abs(x-arr[i-1])>0.01;});
-return{a:a,b:b,up:up,dn:dn,area:area,cross:cross,
+var mid=(a+b)/2, topMid=(f(mid)>=g(mid))?'직선':'포물선';
+var flip=(cross.length>0);
+var judge = flip ? '구간 안에서 위아래가 '+cross.length+'번 뒤바뀝니다 — 교점으로 나눠 적분해야 합니다'
+  : (topMid==='직선' ? '구간 내내 직선이 위 — ∫(직선 − 포물선) 이 바로 넓이입니다'
+    : '구간 내내 포물선이 위 — ∫(직선 − 포물선) 은 넓이의 부호를 뒤집은 값입니다');
+return{a:a,b:b,c:cc(),up:up,dn:dn,area:area,cross:cross,topMid:topMid,flip:flip,judge:judge,
 clean:(cross.length===0),same:(Math.abs(up-area)<1e-6)};}
 function draw(){clr();var o=st();
 var pl=plot(-3.5,4.5,-1,9,46);axes(pl,'x','y');
@@ -262,33 +272,40 @@ for(var x=-3.5;x<=4.5;x+=0.02){var py=pl.Y(fn(x));if(py<-30||py>H+30){first=true
 if(first){ctx.moveTo(pl.X(x),py);first=false;}else ctx.lineTo(pl.X(x),py);}
 ctx.stroke();}
 cv(f,'#7aa2ff');cv(g,'#ffb86b');
-label('y = x+2',24,26,'#7aa2ff',13,'left');
+label(cTxt(),24,26,'#7aa2ff',13,'left');
 label('y = x²/2',94,26,'#ffb86b',13,'left');
 o.cross.forEach(function(c){dot(pl.X(c),pl.Y(f(c)),6,'#ff7a8a');});
 panel(24,H-118,W-48,102);
-label('구간 ['+nf(o.a,2)+', '+nf(o.b,2)+']'+(o.cross.length?'   교점 '+o.cross.length+'개 — 위아래가 바뀝니다':'   위아래가 그대로'),
+label('구간 ['+nf(o.a,2)+', '+nf(o.b,2)+']'+(o.cross.length?'   교점 '+o.cross.length+'개 — 위아래가 바뀝니다':'   위 곡선: '+o.topMid),
 W/2,H-92,o.cross.length?'#ff7a8a':'#9db0d4',14);
 label((o.clean?'∫(위 − 아래) = ':'∫(f − g) = ')+nf(o.up,5)+
 (o.clean?'':'   ← 교점 뒤로는 f 가 아래'),W/2,H-62,'#5ee0c8',15);
 label((o.clean?'∫(아래 − 위) = ':'∫(g − f) = ')+nf(o.dn,5)+'   ← 부호만 반대',W/2,H-32,'#ff7a8a',16);
 label('실제 넓이 = '+nf(o.area,5),W/2,H-8,'#c8d5ef',14);
-ro(kv(o.clean?'∫(위−아래)':'∫(f−g)',nf(o.up,5))+' &nbsp;'+kv(o.clean?'∫(아래−위)':'∫(g−f)',nf(o.dn,5))+'<br>'+
-kv('넓이',nf(o.area,5))+' &nbsp;'+kv('교점',o.cross.length+'개'));}
+ro(kv('직선',cTxt())+' &nbsp;'+kv('위 곡선',o.topMid)+'<br>'+
+kv(o.clean?'∫(위−아래)':'∫(f−g)',nf(o.up,5))+' &nbsp;'+kv(o.clean?'∫(아래−위)':'∫(g−f)',nf(o.dn,5))+'<br>'+
+kv('넓이',nf(o.area,5))+' &nbsp;'+kv('교점',o.cross.length+'개')+'<br>'+kv('판정',o.judge));}
 function record(){var o=st();
-return{cells:['['+nf(o.a,2)+', '+nf(o.b,2)+']',o.cross.length?'구간마다 다름':'y = x+2',
+return{cells:[nf(o.c,1),'['+nf(o.a,2)+', '+nf(o.b,2)+']',o.cross.length?'구간마다 다름':o.topMid,
 nf(o.up,4),nf(o.dn,4),nf(o.area,4),o.up>=0?'+':'−'],
-up:o.up,dn:o.dn,area:o.area,cross:o.cross.length,same:o.same};}
+c:o.c,topMid:o.topMid,up:o.up,dn:o.dn,area:o.area,cross:o.cross.length,same:o.same};}
 function analyze(){var neg=rows.filter(function(r){return r.dn<0;}).length;
 var cr=rows.filter(function(r){return r.cross>0;}).length;
-var t='<table><thead><tr><th>∫(위−아래)</th><th>∫(아래−위)</th><th>넓이</th><th>교점</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td class="ok">'+nf(r.up,3)+'</td><td class="no">'+nf(r.dn,3)+'</td>'+
+var t='<table><thead><tr><th>c</th><th>위 곡선</th><th>∫(f−g)</th><th>∫(g−f)</th><th>넓이</th><th>교점</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+nf(r.c,1)+'</td><td>'+r.topMid+'</td><td class="ok">'+nf(r.up,3)+'</td><td class="no">'+nf(r.dn,3)+'</td>'+
 '<td>'+nf(r.area,3)+'</td><td class="'+(r.cross?'no':'')+'">'+r.cross+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 순서를 바꾸면 부호가 뒤집힌다</h4>'+t+
 '<p class="big">음수가 나온 기록 <span class="no">'+neg+'개</span></p>'+
 '<p class="note">넓이는 음수가 될 수 없습니다. 음수가 나왔다면 <b>위아래를 바꿔 쓴 것</b>입니다.</p></div>'+
-'<div class="card"><h4>2. 교점이 있으면 더 조심</h4>'+
+'<div class="card"><h4>2. 직선의 높이를 내리면 위아래가 통째로 뒤바뀐다</h4>'+
+'<p class="note">기록한 c: '+Object.keys(rows.reduce(function(m,r){m[nf(r.c,1)]=1;return m;},{})).join(' · ')+'. '+
+'x²/2 = x + c 를 풀면 x = 1 ± √(1+2c) 이므로, <b>c = −0.5 에서 접하고 c < −0.5 면 만나지 않습니다</b>. '+
+'만나지 않으면 구간 내내 포물선이 위라서 ∫(직선 − 포물선) 이 음수가 되고, 그 절댓값이 넓이입니다.</p>'+
+'<p class="note">포물선이 위였던 기록 '+rows.filter(function(r){return r.topMid==='포물선';}).length+'개 · 직선이 위였던 기록 '+rows.filter(function(r){return r.topMid==='직선';}).length+'개. '+
+'“위에서 아래를 뺀다”는 말은 <b>어느 쪽이 위인지 먼저 정한 뒤</b>에야 쓸 수 있습니다.</p></div>'+
+'<div class="card"><h4>3. 교점이 있으면 더 조심</h4>'+
 '<p class="big">교점이 포함된 기록 <span class="no">'+cr+'개</span></p>'+
 '<p class="note">교점에서 위아래가 뒤바뀝니다. 그대로 한 번에 적분하면 일부가 <b>빼지면서</b> 넓이보다 작은 값이 나옵니다.</p>'+
 '<p class="note">그래서 ① 교점을 모두 찾고 ② 구간을 나눠 ③ 각 구간에서 위아래를 다시 판단해야 합니다.</p></div></div>';}

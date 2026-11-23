@@ -152,11 +152,22 @@ var ev=document.getElementById('ev'),sv=document.getElementById('sv'),res=docume
 function u(id,el){el.oninput=function(){document.getElementById(id).textContent=el.value;draw(1);};}
 u('vS',sv);u('vL',lvl);
 var RS=['문제를 말로 꺼내 함께 다룸','친척·이웃의 도움','학교·직장의 이해','지역 복지·상담 연결','경제적 여유','역할 재조정','의미 부여(이 일을 어떻게 볼지)'];
+/* 위기 종류마다 잘 듣는 자원이 다르다 — 가중치는 교육용 모형값 */
+var WM=[
+  [1.2,1.3,1.0,1.4,1.3,1.4,1.0],
+  [1.0,1.1,0.8,1.3,1.5,1.2,0.9],
+  [1.1,0.9,1.5,1.0,0.9,1.0,1.1],
+  [1.4,1.2,1.0,1.3,0.6,0.8,1.5],
+  [1.5,0.8,0.7,1.4,0.7,1.3,1.2]
+];
+function wrow(){ var i=ev.selectedIndex; if(i<0)i=0; return WM[i]; }
+ev.onchange=function(){draw(1);};
 function buffer(){
-  var m={},s=0;
+  var m={},s=0,raw=0,w=wrow(),mx=0,k;
   for(var i=0;i<items.length;i++)m[items[i].r]=items[i].l;
-  for(var k in m)s+=m[k];
-  return {map:m,sum:s,max:RS.length*3};
+  for(k in m){ raw+=m[k]; s+=m[k]*w[RS.indexOf(k)]; }
+  for(var j=0;j<RS.length;j++) mx+=3*w[j];
+  return {map:m,sum:s,raw:raw,max:mx,w:w};
 }
 function draw(prog){
   var b=buffer(),S=Number(sv.value);
@@ -179,7 +190,9 @@ function draw(prog){
     var v=b.map[RS[i]];
     var y=ly+i*rowH;
     c.fillStyle='#1d2433';c.textAlign='left';
-    var nm=RS[i];if(nm.length>16)nm=nm.slice(0,16)+'…';
+    var nm=RS[i];if(nm.length>15)nm=nm.slice(0,15)+'…';
+    var wi=b.w[i];
+    nm=(wi>=1.3?'◎ ':wi<=0.8?'△ ':'○ ')+nm;
     c.fillText(nm,35,y+9);
     for(var k=0;k<3;k++){
       var x=cvv.width-130+k*26;
@@ -197,7 +210,7 @@ function draw(prog){
   c.fillText(have>=need?'완충 자원이 충격을 감당할 수 있습니다':'완충 자원이 부족합니다 — 비어 있는 칸을 보세요',cvv.width/2,cvv.height-12);
 }
 return {
-  columns:['사례','충격','자원 항목','수준'],
+  columns:['사례','충격','자원 항목','수준','이 위기에 듣는 정도'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='자원 항목을 하나씩 점검해 <b>점검판에 올리기</b>를 눌러 보세요.';},
   run:function(done){
@@ -208,12 +221,17 @@ return {
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/20,1));
       if(t>=20){clearInterval(iv);var b=buffer();
         var left=RS.length-Object.keys(b.map).length;
-        out.innerHTML='점검한 항목 '+Object.keys(b.map).length+'개 · 남은 항목 '+left+'개';
+        var w=b.wrow||b.w, best=[], j2;
+        for(j2=0;j2<RS.length;j2++) if(w[j2]>=1.3) best.push(RS[j2].replace(/\(.*\)/,''));
+        out.innerHTML='점검한 항목 '+Object.keys(b.map).length+'개 · 남은 항목 '+left+'개'
+          +'<br>이 위기(<b>'+ev.value+'</b>)에 잘 듣는 자원: <b>'+(best.length?best.join(', '):'—')+'</b>'
+          +'<br>완충 점수 '+b.sum.toFixed(1)+' / 필요 '+(Number(sv.value)*2.1).toFixed(1)+' (같은 수준이라도 위기에 따라 점수가 달라집니다)';
         done();}},30);
   },
   record:function(){
-    return {cells:[ev.value,sv.value,res.value.length>14?res.value.slice(0,14)+'…':res.value,lvl.value+'/3'],
-            raw:{e:ev.value,s:Number(sv.value),r:res.value,l:Number(lvl.value)}};
+    var wv=wrow()[RS.indexOf(res.value)];
+    return {cells:[ev.value,sv.value,res.value.length>14?res.value.slice(0,14)+'…':res.value,lvl.value+'/3',(wv>=1.3?'◎ 잘 듣음':wv<=0.8?'△ 덜 듣음':'○ 보통')+' ('+wv.toFixed(1)+'배)'],
+            raw:{e:ev.value,s:Number(sv.value),r:res.value,l:Number(lvl.value),w:wv,ei:ev.selectedIndex<0?0:ev.selectedIndex}};
   },
   verify:function(rs){
     var m={};
@@ -236,6 +254,18 @@ return {
          '<div class="barwrap"><div class="bar" style="width:'+(v2/3*100)+'%;background:'+(v2===0?'#e05c6e':(v2===3?'#6ab98a':'#f0903a'))+'"></div></div>';
     }
     h+='</div><div><h3>읽어 내기</h3>';
+    var eiMap={};
+    for(var z=0;z<rs.length;z++) eiMap[rs[z].raw.ei]=1;
+    var eis=Object.keys(eiMap);
+    if(eis.length){
+      h+='<p style="font-size:1.03rem;line-height:1.85">같은 수준(예: 2/3)이라도 <b>위기에 따라 듣는 정도가 다릅니다</b>. ';
+      for(var z2=0;z2<eis.length;z2++){
+        var wrw=WM[Number(eis[z2])],bst=[],wst=[];
+        for(var z3=0;z3<RS.length;z3++){ if(wrw[z3]>=1.3)bst.push(RS[z3].replace(/\(.*\)/,'')); if(wrw[z3]<=0.8)wst.push(RS[z3].replace(/\(.*\)/,'')); }
+        h+='<br>· <b>'+document.getElementById('ev').options[Number(eis[z2])].text+'</b> — 잘 듣는 자원: '+(bst.join(', ')||'—')+' / 덜 듣는 자원: '+(wst.join(', ')||'—');
+      }
+      h+='</p>';
+    }
     if(zero.length){
       h+='<p style="font-size:1.03rem;line-height:1.85">아예 비어 있는 자원: <b>'+zero.join(', ')+'</b>. 회복은 남아 있는 자원보다 <b>비어 있는 칸</b>에서 막힙니다.</p>';
     }

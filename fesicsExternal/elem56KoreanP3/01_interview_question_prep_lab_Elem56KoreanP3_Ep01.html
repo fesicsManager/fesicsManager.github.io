@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -435,7 +437,8 @@ var LAB = (function(){
         {n:'① 빈 수첩 — 가서 떠오르는 대로', s:'빈 수첩', core:1, fuQ:1, fuGain:1, stop:7, off:4, c:PAL[4]},
         {n:'② 쉬운 질문을 잔뜩 (좋아하는 색깔 등)', s:'쉬운 질문 많이', core:1, fuQ:0, fuGain:0, stop:2, off:8, c:PAL[6]},
         {n:'③ 목적에 맞는 질문 5개를 미리 적어 감', s:'질문 준비', core:5, fuQ:3, fuGain:1, stop:1, off:0, c:PAL[0]},
-        {n:'④ 질문 없이 선생님께 맡김', s:'질문 없음', core:2, fuQ:0, fuGain:0, stop:5, off:0, c:PAL[7]}
+        {n:'④ 질문 없이 선생님께 맡김', s:'질문 없음', core:2, fuQ:0, fuGain:0, stop:5, off:0, c:PAL[7]},
+        {n:'⑤ 내가 직접 적어 감 — 아래 슬라이더로 정함', s:'내가 적음', core:0, fuQ:0, fuGain:0, stop:0, off:0, c:PAL[2]}
       ];
       var FU = ['대답을 듣고 궁금한 것을 더 묻는다', '준비한 것만 묻고 끝낸다'];
       var MD = ['직접 만나서', '전화 — 처음에 누구인지·왜 전화했는지 밝힘', '전화 — 밝히지 않고 바로 질문'];
@@ -447,18 +450,26 @@ var LAB = (function(){
         params: [
           {key:'m', type:'seg', label:'가기 전 준비', cols:2, value:0, options:PM.map(function(x){ return x.n; })},
           {key:'fu', type:'seg', label:'면담하는 동안', cols:2, value:0, options:FU},
-          {key:'md', type:'seg', label:'만나는 방법', cols:3, value:0, options:MD, note:'전화 면담도 할 수 있어요. 얼굴이 안 보일 때 무엇을 먼저 말해야 할까요?'}
+          {key:'md', type:'seg', label:'만나는 방법', cols:3, value:0, options:MD, note:'전화 면담도 할 수 있어요. 얼굴이 안 보일 때 무엇을 먼저 말해야 할까요?'},
+          {key:'nq', type:'range', label:'⑤ 내가 적어 간 질문 수', min:0, max:8, step:1, value:5, fmt:function(x){ return x + '개'; }},
+          {key:'fitq', type:'range', label:'⑤ 그 가운데 목적(도서관 일)에 맞는 질문 수', min:0, max:8, step:1, value:5, fmt:function(x){ return x + '개'; }, note:'⑤를 고르면 이 두 값으로 결과를 계산해요. 알아낸 것·멈춤 수는 교육용 모형값이에요.'}
         ],
         compute: function(p){
-          var m = PM[p.m], fuQ = p.fu === 0 ? m.fuQ : 0, got = m.core + (p.fu === 0 ? m.fuGain : 0), stop = m.stop, lost = 0;
+          var m = PM[p.m], custom = (p.m === 4);
+          var nq = p.nq, fitq = Math.min(p.fitq, nq);
+          var core = custom ? fitq : m.core;
+          var off = custom ? (nq - fitq) : m.off;
+          var fuGain = custom ? (fitq >= 3 ? 1 : 0) : m.fuGain;
+          var fuQ = p.fu === 0 ? (custom ? Math.min(3, Math.max(0, fitq - 2)) : m.fuQ) : 0;
+          var got = core + (p.fu === 0 ? fuGain : 0), stop = custom ? Math.max(0, 8 - 2 * fitq) : m.stop, lost = 0;
           if (p.md === 2){ lost = 1; got = Math.max(0, got - 1); stop += 1; }
           var ev = [], i;
-          for (i = 0; i < m.core - lost && i < 8; i++) ev.push('q');
+          for (i = 0; i < core - lost && i < 8; i++) ev.push('q');
           for (i = 0; i < fuQ; i++) ev.splice(Math.min(ev.length, 1 + i * 2), 0, 'f');
-          for (i = 0; i < m.off; i++) ev.splice(Math.min(ev.length, i * 2), 0, 'o');
+          for (i = 0; i < off; i++) ev.splice(Math.min(ev.length, i * 2), 0, 'o');
           for (i = 0; i < stop; i++) ev.splice(Math.min(ev.length, 1 + i * 2), 0, 's');
           if (lost) ev.unshift('w');
-          return {m:m, got:got, stop:stop, off:m.off, fuQ:fuQ, lost:lost, ev:ev};
+          return {m:m, custom:custom, nq:nq, fitq:fitq, got:got, stop:stop, off:off, fuQ:fuQ, lost:lost, ev:ev};
         },
         draw: function(c, W, H, p, r, tau){
           var m = PM[p.m], x0 = 20, bw = W - 40, y0 = 40;
@@ -488,15 +499,17 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['준비', r.m.n, r.m.c], ['면담하는 동안', FU[p.fu]], ['만나는 방법', MD[p.md]],
+          return [['준비', r.m.n, r.m.c],
+            ['미리 적어 간 질문', r.custom ? (r.nq + '개 — 목적에 맞는 것 ' + r.fitq + '개 · 상관없는 것 ' + (r.nq - r.fitq) + '개') : '정해진 방법대로', r.custom ? PAL[2] : 0],
+            ['면담하는 동안', FU[p.fu]], ['만나는 방법', MD[p.md]],
             ['목적에 맞는 내용을 알아낸 개수', r.got ? '약 ' + r.got + '개' : '0개', PAL[0]],
             ['"음… 뭐 물어보지?" 멈춘 횟수', '약 ' + r.stop + '번', PAL[6]],
             ['목적과 상관없는 질문', r.off ? '약 ' + r.off + '개' : '거의 없음'],
             ['대답을 듣고 더 물은 질문', r.fuQ ? '약 ' + r.fuQ + '개' : '없음', PAL[1]]];
         },
-        columns: ['준비', '더 묻기', '방법', '알아낸 것', '멈춤'],
-        record: function(p, r){ return {m:p.m, fu:p.fu, md:p.md, got:r.got, stop:r.stop}; },
-        row: function(d){ return [PM[d.m].s, d.fu === 0 ? '함' : '안 함', ['만나서', '전화(밝힘)', '전화(안 밝힘)'][d.md], d.got + '개', d.stop + '번']; },
+        columns: ['준비', '적어 간 질문', '더 묻기', '방법', '알아낸 것', '멈춤'],
+        record: function(p, r){ return {m:p.m, fu:p.fu, md:p.md, got:r.got, stop:r.stop, custom:r.custom, nq:r.nq, fitq:r.fitq}; },
+        row: function(d){ return [PM[d.m].s, d.custom ? (d.nq + '개 / 맞는 것 ' + d.fitq + '개') : '—', d.fu === 0 ? '함' : '안 함', ['만나서', '전화(밝힘)', '전화(안 밝힘)'][d.md], d.got + '개', d.stop + '번']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('준비 방법별 알아낸 것 (10분)', '<div id="iv1"></div><p class="ask">웹툰의 결과(빈 수첩 약 2개, 질문 준비 약 6개)와 같나요? 질문을 5개 준비했는데 왜 6개를 알아냈을까요?</p>') +
@@ -506,7 +519,7 @@ var LAB = (function(){
             var v = mean(g.map(function(d){ return d.got; })); items.push({label:m.s, v:v, color:m.c, text:'약 ' + f(v, 1) + '개'}); });
           $('iv1').innerHTML = hbars(items, 8);
           var rows = rec.slice(-8).map(function(d){ return [PM[d.m].s + (d.fu === 0 ? ' · 더 묻기' : ''), d.stop + '번', d.got + '개']; });
-          $('iv2').innerHTML = tableHTML(['조건', '멈춤', '알아낸 것'], rows) + '<p class="msg">멈춤이 많을수록 알아낸 것이 적어요. 질문을 찾느라 시간을 쓰기 때문이에요.</p>';
+          $('iv2').innerHTML = tableHTML(['조건', '멈춤', '알아낸 것'], rows) + '<p class="msg">멈춤이 많을수록 알아낸 것이 적어요. 질문을 찾느라 시간을 쓰기 때문이에요.</p>' + (function(){ var cu = rec.filter(function(d){ return d.custom; }); if (!cu.length) return '<p class="msg">⑤ <b>내가 직접 적어 감</b>을 골라, 질문 수와 그 가운데 목적에 맞는 수를 바꿔 가며 기록해 보세요. 숫자가 미리 정해져 있지 않고 <b>적어 간 질문으로 계산</b>됩니다.</p>'; var lo = cu.filter(function(d){ return d.fitq <= 2; }), hi = cu.filter(function(d){ return d.fitq >= 5; }); return '<p class="msg">⑤ 로 직접 적어 간 기록 ' + cu.length + '개. 목적에 맞는 질문이 <b>2개 이하</b>였던 기록은 평균 멈춤 ' + (lo.length ? f(mean(lo.map(function(d){ return d.stop; })), 1) + '번' : '아직 없음') + ', <b>5개 이상</b>이었던 기록은 ' + (hi.length ? f(mean(hi.map(function(d){ return d.stop; })), 1) + '번' : '아직 없음') + '이었습니다. 질문 수가 아니라 <b>목적에 맞는</b> 질문 수가 갈림길입니다 — 상관없는 질문을 많이 적어 가도 알아낸 것은 늘지 않습니다.</p>'; })();
         }
       };
     })();
@@ -515,7 +528,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

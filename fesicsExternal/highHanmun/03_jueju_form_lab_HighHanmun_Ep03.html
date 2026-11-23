@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -479,11 +481,17 @@ var LAB = (function anonymous(
       var CK = ['전환이 3구에', '압운 자리', '20자 압축', '결구의 여백'];
       return {
         sceneHeight: function(w){ return w < 520 ? 470 : 430; },
-        idle: '시와 바꿀 형식을 고른 뒤 <b>이 형식으로 바꿔 읽기</b>를 누르세요.',
+        idle: '시와 바꿀 형식을 고른 뒤 <b>이 형식으로 바꿔 읽기</b>를 누르세요. 결과를 보기 전에 아래 <b>예측</b>을 찍어 두면 맞혔는지 기록 표에 쌓입니다.',
         shortHint: '한 편의 시로 다섯 가지 형식을 모두 해 보세요.',
         params: [
           {key:'s', type:'seg', label:'오언절구', cols:2, value:0, options:PO.map(function(x){ return x.t + ' (' + x.a + ')'; })},
-          {key:'m', type:'seg', label:'형식 바꾸기', cols:3, value:0, options:MD}
+          {key:'m', type:'seg', label:'형식 바꾸기', cols:3, value:0, options:MD},
+          {key:'pb', type:'seg', label:'① 먼저 예측 — 네 장치 가운데 무엇이 깨질까?', cols:3, value:0,
+            options:['예측 안 함'].concat(CK).concat(['아무것도 안 깨짐']),
+            note:'하나만 찍어 보세요. 찍은 장치가 실제로 무너졌으면(또는 \'아무것도\'를 찍고 4점이 나오면) 맞은 것으로 셉니다.'},
+          {key:'pr', type:'seg', label:'② 압운은 내가 판정 — 운자만 읽어 보면?', value:0,
+            options:['판정 안 함', '압운 살았다', '일부만 남았다', '압운 무너졌다'],
+            note:'운자는 각 구의 다섯째 글자로, 장면에 동그라미가 그려져 있어요. 구를 바꿔도 그 운자가 압운 자리에 그대로 남는지 세어 보고 직접 판정하세요.'}
         ],
         compute: function(p){
           var po = PO[p.s], o = ORD[p.m];
@@ -492,7 +500,11 @@ var LAB = (function anonymous(
           var rhyme = rk / rn;
           var cnt = p.m === 4 ? po.L.reduce(function(s, l){ return s + l.g.replace(/ /g, '').length; }, 0) : p.m === 3 ? 15 + po.ex.replace(/ /g, '').length : 20;
           var comp = cnt === 20 ? 1 : 0, gap = (p.m === 3 || p.m === 4) ? 0 : 1;
-          return {po:po, o:o, ck:[turn, rhyme, comp, gap], sc:turn + rhyme + comp + gap, cnt:cnt, rk:rk, rn:rn};
+          var ck = [turn, rhyme, comp, gap], sc = turn + rhyme + comp + gap;
+          var rj = rhyme >= 1 ? 1 : rhyme > 0 ? 2 : 3;
+          return {po:po, o:o, ck:ck, sc:sc, cnt:cnt, rk:rk, rn:rn, rj:rj,
+            pbOK:(p.pb === 0 ? null : (p.pb === 5 ? sc === 4 : ck[p.pb - 1] < 1)),
+            prOK:(p.pr === 0 ? null : p.pr === rj)};
         },
         draw: function(c, W, H, p, r, tau){
           var po = PO[p.s], o = r ? r.o : ORD[0], k = r ? ease(tau / 0.5) : 0, lh = (H - 120) / 4, cs = Math.min(30, (W - 120) / 5.5);
@@ -526,23 +538,47 @@ var LAB = (function anonymous(
           }
         },
         stats: function(p, r){
+          var RJ = ['', '압운 살았다', '일부만 남았다', '압운 무너졌다'];
           var lost = CK.map(function(x, i){ return r.ck[i] >= 1 ? '' : r.ck[i] > 0 ? x + ' 일부(운자 ' + (r.rn - r.rk) + '곳)' : x; }).filter(function(x){ return x; });
-          return [['시', r.po.t + ' (' + r.po.a + ')'], ['바꾼 형식', MD[p.m], PAL[0]],
+          var a = [['시', r.po.t + ' (' + r.po.a + ')'], ['바꾼 형식', MD[p.m], PAL[0]],
             ['형식 유지 점수', f(r.sc, r.sc % 1 ? 1 : 0) + ' / 4', r.sc === 4 ? PAL[1] : r.sc >= 2 ? PAL[6] : PAL[4]],
-            ['무너진 장치', lost.length ? lost.join(', ') : '없음', PAL[4]], ['글자 수', r.cnt + '자' + (r.cnt > 20 ? ' — 설명이 늘고 여백이 ' + (p.m === 4 ? '사라짐' : '줄어듦') : '')]];
+            ['무너진 장치', lost.length ? lost.join(', ') : '없음', PAL[4]], ['글자 수', r.cnt + '자' + (r.cnt > 20 ? ' — 설명이 늘고 여백이 ' + (p.m === 4 ? '사라짐' : '줄어듦') : '')],
+            ['압운 자리', '압운 자리 ' + r.rn + '곳 가운데 ' + r.rk + '곳 남음 → ' + RJ[r.rj]]];
+          if (r.pbOK !== null) a.push(['① 깨짐 예측', (p.pb === 5 ? '아무것도 안 깨짐' : CK[p.pb - 1]) + ' → ' + (r.pbOK ? '맞음' : '틀림 (실제로 무너진 것: ' + (lost.length ? lost.join(', ') : '없음') + ')'), r.pbOK ? PAL[1] : PAL[4]]);
+          if (r.prOK !== null) a.push(['② 압운 판정', RJ[p.pr] + ' → ' + (r.prOK ? '맞음' : '틀림 (실제 ' + RJ[r.rj] + ')'), r.prOK ? PAL[1] : PAL[4]]);
+          if (r.pbOK === null && r.prOK === null) a.push(['예측', '예측을 찍지 않았어요 — 다음에는 실행 전에 찍어 보세요', '#8C99A8']);
+          return a;
         },
-        columns: ['시', '형식', '전환', '압운', '압축', '여백', '점수'],
-        record: function(p, r){ return {s:p.s, m:p.m, ck:r.ck, sc:r.sc}; },
-        row: function(d){ var o = function(v){ return v >= 1 ? '○' : v > 0 ? '△' : '✕'; }; return [PO[d.s].t.split(' ')[1], MD[d.m], o(d.ck[0]), o(d.ck[1]), o(d.ck[2]), o(d.ck[3]), f(d.sc, d.sc % 1 ? 1 : 0) + ' / 4']; },
+        columns: ['시', '형식', '전환', '압운', '압축', '여백', '점수', '① 예측', '② 압운 판정'],
+        record: function(p, r){ return {s:p.s, m:p.m, ck:r.ck, sc:r.sc, pb:p.pb, pr:p.pr, rj:r.rj, a1:r.pbOK, a2:r.prOK}; },
+        row: function(d){ var o = function(v){ return v >= 1 ? '○' : v > 0 ? '△' : '✕'; }; return [PO[d.s].t.split(' ')[1], MD[d.m], o(d.ck[0]), o(d.ck[1]), o(d.ck[2]), o(d.ck[3]), f(d.sc, d.sc % 1 ? 1 : 0) + ' / 4',
+          d.pb === 0 ? '–' : ((d.pb === 5 ? '안 깨짐' : CK[d.pb - 1]) + (d.a1 ? ' ○' : ' ✕')),
+          d.pr === 0 ? '–' : (['', '살았다', '일부만', '무너졌다'][d.pr] + (d.a2 ? ' ○' : ' ✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('형식 바꾸기별 유지 점수', '<div id="hh3a"></div><p class="ask">가장 많은 장치를 무너뜨린 조작은 무엇이었나요? "결구를 설명문으로" 바꾸면 독자가 할 일이 어떻게 달라지나요?</p>') +
-            card('절구의 구조', '<div id="hh3b"></div><p class="ask">과제: 오언절구나 칠언절구 한 편을 골라 기승전결을 표시하고, 3구에서 무엇이 전환되는지 서술해 보세요. 소리 내어 읽고 운자도 표시하세요.</p>') + '</div>';
+            card('절구의 구조', '<div id="hh3b"></div><p class="ask">과제: 오언절구나 칠언절구 한 편을 골라 기승전결을 표시하고, 3구에서 무엇이 전환되는지 서술해 보세요. 소리 내어 읽고 운자도 표시하세요.</p>') +
+            card('예측 맞힌 수', '<div id="hh3c"></div><p class="ask">어느 조작에서 예측이 많이 틀렸나요? 구를 바꿔도 압운이 멀쩡한 경우와 무너지는 경우의 차이는 무엇인가요?</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.m; }), items = [];
           MD.forEach(function(m, i){ var g = by[i]; if (!g) return; var v = mean(g.map(function(d){ return d.sc; }));
             items.push({label:m, v:v, color:v >= 4 ? PAL[1] : v >= 2 ? PAL[6] : PAL[4], text:f(v, 1) + ' / 4'}); });
           $('hh3a').innerHTML = hbars(items, 4);
           $('hh3b').innerHTML = tableHTML(['구', '역할', '내용'], [['기(起)', '일으킴', '장면 제시'], ['승(承)', '이어받음', '장면 확대'], ['전(轉)', '돌림', '시점·화제 전환'], ['결(結)', '맺음', '정서의 착지']]);
+          var t1 = 0, c1 = 0, t2 = 0, c2 = 0;
+          rec.forEach(function(d){ if (d.pb){ t1++; if (d.a1) c1++; } if (d.pr){ t2++; if (d.a2) c2++; } });
+          if (!t1 && !t2){
+            $('hh3c').innerHTML = '<p class="msg">아직 예측을 찍은 기록이 없어요. 실행 전에 ①·②를 찍으면 맞힌 수가 여기에 쌓입니다.</p>';
+          } else {
+            var RJ2 = ['', '살았다', '일부만', '무너졌다'];
+            $('hh3c').innerHTML = hbars([
+              {label:'① 깨짐 예측', v:c1, color:PAL[0], text:c1 + ' / ' + t1 + '회'},
+              {label:'② 압운 판정', v:c2, color:PAL[3], text:c2 + ' / ' + t2 + '회'}
+            ], Math.max(1, t1, t2)) + tableHTML(['형식', '① 예측', '② 압운 판정'], rec.filter(function(d){ return d.pb || d.pr; }).map(function(d){
+              return [MD[d.m],
+                d.pb === 0 ? '–' : ((d.pb === 5 ? '안 깨짐' : CK[d.pb - 1]) + (d.a1 ? ' ○' : ' ✕')),
+                d.pr === 0 ? '–' : (RJ2[d.pr] + (d.a2 ? ' ○' : ' ✕ (실제 ' + RJ2[d.rj] + ')'))];
+            }), 'wrap');
+          }
         }
       };
     
@@ -552,7 +588,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

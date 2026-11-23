@@ -248,7 +248,19 @@ tbody tr:nth-child(even){background:#f7faf9;}
               <button class="btn-choice" data-d="3">은하 C <span style="font-weight:400;">거리 3</span></button>
               <button class="btn-choice" data-d="4">은하 D <span style="font-weight:400;">거리 4</span></button>
             </div>
-            <button class="btn-main" id="blowBtn">풍선 불어 우주 팽창시키기 ▶</button>
+            <div class="control-label" style="margin-top:12px;">풍선을 얼마나 부풀릴까</div>
+            <select id="expSel" aria-label="팽창 비율" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+              <option value="0">2배로 부풀기 (기본)</option>
+              <option value="1">1.5배로 부풀기</option>
+              <option value="2">3배로 부풀기</option>
+            </select>
+            <div class="control-label" style="margin-top:12px;">어디에서 볼까</div>
+            <select id="obsSel" aria-label="관측하는 은하" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+              <option value="0">우리은하 (거리 0) 에서 보기</option>
+              <option value="1">은하 B (거리 2) 에서 보기</option>
+              <option value="2">은하 D (거리 4) 에서 보기</option>
+            </select>
+            <button class="btn-main" id="blowBtn" style="margin-top:12px;">풍선 불어 우주 팽창시키기 ▶</button>
             <div class="result-box" id="blowResult">은하를 고르고 실험 버튼을 눌러보세요.</div>
           </div>
         </div>
@@ -256,8 +268,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">팽창 기록 (<span class="mono" id="blowCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>처음 거리</th><th>나중 거리</th><th>늘어난 거리</th><th>멀어지는 속도</th></tr></thead>
-              <tbody id="blowBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>어디서</th><th>팽창</th><th>처음 거리</th><th>나중 거리</th><th>늘어난 거리</th><th>멀어지는 속도</th></tr></thead>
+              <tbody id="blowBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box warm" style="margin-top:14px;">
@@ -566,8 +578,15 @@ function label(ctx,x,y,text,color,size,align){
 /* 풍선이 2배로 부풀면 모든 거리가 2배가 된다.
    늘어난 거리 = 처음 거리 × 1,  멀어진 속도 = 늘어난 거리 ÷ 걸린 시간
    → 처음 거리가 2배면 속도도 2배 (허블 법칙) */
-const EXPAND=2, TIME=2;
-function speedOf(d0){ return d0*(EXPAND-1)/TIME; }
+/* 팽창 비율과 '어디서 보는가'를 둘째 조작으로 연다.
+   기본값(2배로 부풀기 · 우리은하에서 보기)은 예전 식과 같다. */
+const EXP_OPT=[{n:'2배로 부풀기 (기본)', s:'2배', e:2},{n:'1.5배로 부풀기', s:'1.5배', e:1.5},{n:'3배로 부풀기', s:'3배', e:3}];
+const OBS_OPT=[{n:'우리은하 (거리 0) 에서 보기', s:'우리은하', p:0},{n:'은하 B (거리 2) 에서 보기', s:'은하 B', p:2},{n:'은하 D (거리 4) 에서 보기', s:'은하 D', p:4}];
+let curExp=0, curObs=0;
+let EXPAND=2;
+const TIME=2;
+function speedOf(d0){ return d0*(EXP_OPT[curExp].e-1)/TIME; }
+function hubSlope(){ return (EXP_OPT[curExp].e-1)/TIME; }
 const GALS=[1,2,3,4];
 let sel=1, blowRecs=[];
 const bC=document.getElementById('balloonCanvas'), bx=bC.getContext('2d');
@@ -641,17 +660,36 @@ document.querySelectorAll('#gRow .btn-choice').forEach(b=>{
     drawBalloon(0);
   });
 });
+document.getElementById('expSel').addEventListener('change',e=>{
+  curExp=parseInt(e.target.value,10); EXPAND=EXP_OPT[curExp].e;
+  NOTE('balNote','이제 풍선을 <b>'+EXP_OPT[curExp].s+'</b> 로 부풉니다. 같은 은하라도 멀어지는 속도가 달라집니다.');
+  drawBalloon(0);
+});
+document.getElementById('obsSel').addEventListener('change',e=>{
+  curObs=parseInt(e.target.value,10);
+  NOTE('balNote','이제 <b>'+OBS_OPT[curObs].n+'</b>. 내가 선 자리가 바뀌면 거리도 달라집니다.');
+  drawBalloon(0);
+});
 document.getElementById('blowBtn').addEventListener('click',()=>{
   const btn=document.getElementById('blowBtn');
   NOTE('balNote','풍선이 부푸는 중입니다. 은하들이 스스로 기어가지 않는데도 서로 멀어집니다.');
   runAnim(btn, bC, 2200, drawBalloon, ()=>{
-    const v=speedOf(sel);
-    blowRecs.push({d0:sel, d1:sel*EXPAND, dd:sel*(EXPAND-1), v:v});
+    const E=EXP_OPT[curExp].e, OP=OBS_OPT[curObs].p;
+    const d0=Math.abs(sel-OP), v=speedOf(d0);
+    if(d0===0){
+      const b0=document.getElementById('blowResult');
+      b0.className='result-box';
+      b0.innerHTML='지금 서 있는 은하를 고르셨어요. 거리가 0 이라 멀어지지 않습니다 — 다른 은하를 골라 보세요.';
+      NOTE('balNote','내가 선 자리에서 나 자신까지의 거리는 0 입니다. 다른 은하를 골라 보세요.');
+      return;
+    }
+    blowRecs.push({d0:d0, d1:d0*E, dd:d0*(E-1), v:v, obs:curObs, exp:curExp, gal:sel});
     renderBlow();
     const b=document.getElementById('blowResult');
     b.className='result-box ok';
-    b.innerHTML='멀어지는 속도: <span class="big-val">'+v.toFixed(2)+'</span>';
-    NOTE('balNote','은하 '+String.fromCharCode(64+sel)+' 는 거리 '+sel+' 에서 '+(sel*EXPAND)+' 로 늘어났습니다. '+
+    b.innerHTML='멀어지는 속도: <span class="big-val">'+v.toFixed(2)+'</span>'+
+      '<br>'+OBS_OPT[curObs].s+' 에서 본 은하 '+String.fromCharCode(64+sel)+' · 풍선 '+EXP_OPT[curExp].s;
+    NOTE('balNote',OBS_OPT[curObs].s+' 에서 보면 은하 '+String.fromCharCode(64+sel)+' 는 거리 '+d0+' 에서 '+(d0*E).toFixed(1)+' 로 늘어났습니다. '+
       '<b>멀리 있던 은하일수록 더 많이 멀어집니다.</b>');
     afterRecord();
   });
@@ -659,8 +697,9 @@ document.getElementById('blowBtn').addEventListener('click',()=>{
 function renderBlow(){
   document.getElementById('blowCount').textContent=blowRecs.length;
   const tb=document.getElementById('blowBody');
-  if(!blowRecs.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  tb.innerHTML=blowRecs.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+r.d0+'</td><td>'+r.d1+'</td><td>'+r.dd+'</td><td>'+r.v.toFixed(2)+'</td></tr>').join('');
+  if(!blowRecs.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  tb.innerHTML=blowRecs.map((r,i)=>'<tr><td>'+(i+1)+'</td><td class="kr">'+OBS_OPT[r.obs||0].s+'</td><td>'+EXP_OPT[r.exp||0].s+
+    '</td><td>'+r.d0+'</td><td>'+r.d1.toFixed(1)+'</td><td>'+r.dd.toFixed(1)+'</td><td>'+r.v.toFixed(2)+'</td></tr>').join('');
 }
 
 countFn=()=>blowRecs.length;
@@ -672,19 +711,46 @@ function renderVerify(){
   document.getElementById('verifyContent').style.display=ok?'block':'none';
   if(!ok) return;
 
-  const uniq=new Set(blowRecs.map(r=>r.d0)).size;
+  /* 조건(팽창 비율·관측 위치)이 같은 기록만 모아 비교해야 공정하다 */
+  const byC={};
+  blowRecs.forEach(r=>{ const k=(r.exp||0)+'_'+(r.obs||0); (byC[k]=byC[k]||[]).push(r); });
+  let mainK=Object.keys(byC)[0];
+  Object.keys(byC).forEach(k=>{ if(byC[k].length>byC[mainK].length) mainK=k; });
+  const main=byC[mainK];
+  const uniq=new Set(main.map(r=>r.d0)).size;
   const ch=document.getElementById('hubChart'), ins=document.getElementById('hubInsight');
   if(uniq<2){
     ch.innerHTML=''; hubReg=null;
     ins.innerHTML='<div class="insight-box wait">서로 다른 은하를 관측해야 규칙이 보입니다.</div>';
     return;
   }
-  scatterChart(ch, blowRecs.map(r=>({x:r.d0, y:r.v, color:'#5aa9d6'})),
+  scatterChart(ch, main.map(r=>({x:r.d0, y:r.v, color:'#5aa9d6'})),
     {xlab:'처음 거리', ylab:'멀어지는 속도', xd:0, yd:2, x0:0, y0:0});
-  hubReg=leastSquares(blowRecs.map(r=>({x:r.d0,y:r.v})));
+  hubReg=leastSquares(main.map(r=>({x:r.d0,y:r.v})));
+  /* 조건마다 기울기를 따로 구해, 시점을 옮겨도 기울기가 같은지 본다 */
+  const rows=Object.keys(byC).map(k=>{
+    const a=byC[k], u=new Set(a.map(r=>r.d0)).size;
+    const g=u>=2 ? leastSquares(a.map(r=>({x:r.d0,y:r.v}))).slope : null;
+    return {k:k, exp:a[0].exp||0, obs:a[0].obs||0, n:a.length, slope:g};
+  });
+  const byExp={};
+  rows.forEach(r=>{ if(r.slope!=null) (byExp[r.exp]=byExp[r.exp]||[]).push(r); });
+  let sameObs='';
+  Object.keys(byExp).forEach(k=>{
+    const a=byExp[k]; if(a.length<2) return;
+    const ss=a.map(r=>r.slope), lo=Math.min.apply(null,ss), hi=Math.max.apply(null,ss);
+    sameObs+='<br>· 팽창 '+EXP_OPT[k].s+' — 관측 위치를 '+a.map(r=>OBS_OPT[r.obs].s).join(' / ')+' 로 바꿰도 기울기가 '+
+      lo.toFixed(2)+' ~ '+hi.toFixed(2)+' 로 '+(hi-lo<0.06?'<b>그대로</b>':'거의 같음')+'였습니다.';
+  });
   ins.innerHTML='<div class="insight-box">점들이 <b>원점을 지나는 직선</b> 위에 놓입니다. 기울기는 '+
-    '<span class="mono">'+hubReg.slope.toFixed(2)+'</span> 입니다.<br>'+
-    '거리가 2배면 속도도 2배 — 이것이 <b>허블 법칙</b>이고, 실제 우주에서 이 기울기를 <b>허블 상수</b>라고 부릅니다.</div>';
+    '<span class="mono">'+hubReg.slope.toFixed(2)+'</span> 입니다. (팽창 '+EXP_OPT[main[0].exp||0].s+' · '+OBS_OPT[main[0].obs||0].s+' 에서 본 기록)<br>'+
+    '거리가 2배면 속도도 2배 — 이것이 <b>허블 법칙</b>이고, 실제 우주에서 이 기울기를 <b>허블 상수</b>라고 부릅니다.</div>'+
+    '<div class="insight-box warm" style="margin-top:12px;"><b>팽창 비율과 시점을 바꿰 보면 (내 기록으로 계산)</b><br>'+
+    rows.map(r=>'· '+EXP_OPT[r.exp].s+' 팽창 · '+OBS_OPT[r.obs].s+' 에서 — 기록 '+r.n+'개, 기울기 '+(r.slope==null?'(서로 다른 은하를 더 재야 함)':r.slope.toFixed(2))).join('<br>')+
+    '<br><br>· 풍선을 더 많이 부풀리면 기울기(허블 상수)가 커집니다 — 1.5배 → 0.25, 2배 → 0.50, 3배 → 1.00.'+
+    (sameObs ? '<br>· 그런데 <b>어디에서 보든 기울기는 바뀌지 않습니다.</b>'+sameObs+'<br>그래서 우주에는 <b>중심이 없습니다</b> — 모든 은하가 "내가 가운데" 라고 보게 돼요.'
+      : '<br>· "어디에서 볼까"를 은하 B·은하 D 로 바꿔 같은 팽창 비율로 다시 재 보면, 기울기가 그대로인지 확인할 수 있어요. 그대로라면 우주에 중심이 없다는 뜻입니다.')+
+    '</div>';
 }
 document.getElementById('predictBtn').addEventListener('click',()=>{
   const fb=document.getElementById('predictFeedback');

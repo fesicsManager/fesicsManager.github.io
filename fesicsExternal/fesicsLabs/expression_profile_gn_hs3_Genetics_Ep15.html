@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>유전자 발현 프로파일과 맞춤 의학 | 고3 과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -388,7 +390,7 @@ function effect(S, D){
 }
 var MODE = ['발현 프로파일 보기', '맞춤 치료 고르기'];
 return {
-  sceneHeight: 470,
+  sceneHeight: function (w){ return w < 560 ? 520 : 470; },
   idle: '시료와 조건을 정한 뒤 <b>분석하기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 환자마다 어떤 유전자가 많이 발현되는지 비교하세요.',
   params: [
@@ -407,6 +409,24 @@ return {
   },
   draw: function(c, W, H, p, r, tau){
     var S = SAMP[p.s], k = r ? Math.min(tau / 0.85, 1) : 0;
+    var narrow = W < 560;
+    if (narrow){
+      /* 좁은 화면에서는 히트맵 칸이 너무 좁아 고른 시료 하나를 줄 목록으로 보여 준다 */
+      txt(c, S.name + ' (정상 대비 배수)', 12, 36, {bold:true});
+      GENES.forEach(function(g, j){
+        var y = 62 + j * 38, v = S.v[j], lv = Math.log2(v), a = Math.min(1, Math.abs(lv) / 2.6);
+        c.font = '13px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+        c.fillText(g, 12, y);
+        c.textAlign = 'right'; c.fillStyle = '#1E2833'; c.font = '700 13px ' + FONT;
+        c.fillText(f(v, 1) + '배', W - 12, y);
+        c.fillStyle = '#E6EBF1'; c.fillRect(12, y + 8, W - 24, 8);
+        c.fillStyle = lv > 0 ? 'rgba(200,70,61,' + (0.25 + a * 0.7) + ')' : 'rgba(43,95,163,' + (0.25 + a * 0.7) + ')';
+        var half = (W - 24) / 2, zx = 12 + half;
+        c.fillRect(lv >= 0 ? zx : zx - half * a * k, y + 8, half * a * k, 8);
+      });
+      c.font = '12px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left';
+      c.fillText('오른쪽(붉은색): 많이 발현, 왼쪽(푸른색): 적게 발현', 12, 62 + GENES.length * 38 + 10);
+    } else {
     // 히트맵
     var hx = 150, hy = 70, cw = Math.min(70, (W - hx - 30) / GENES.length), ch = 32;
     /* 칸이 좁아 유전자 이름을 13px 로, 홀수 번째는 한 줄 위에 써서(가는 선으로 칸과 이음) 서로 겹치지 않게 */
@@ -428,18 +448,20 @@ return {
       });
     });
     txt(c, '붉은색: 많이 발현, 푸른색: 적게 발현 (정상 대비 배수)', hx - 100, hy + 4 * (ch + 6) + 20, {color:'#4A5868'});
-    var by = 300;
+    }
+    var by = narrow ? 336 : 300;
     if (!r) return;
     if (r.md === 1){
       txt(c, r.S.name + ' · ' + r.D.name, 12, by, {bold:true});
       txt(c, '표적 유전자 발현 ' + f(r.E.lvl, 1) + '배 · 약물 분해 효소 ' + f(r.E.meta, 1) + '배', 12, by + 30, {});
-      var bx = 150, bw = W - bx - 24;
-      c.fillStyle = '#E6EBF1'; c.fillRect(bx, by + 46, bw, 26);
+      var bx = narrow ? 16 : 150, bw = narrow ? W - 32 : W - 150 - 24;
+      var byb = by + (narrow ? 64 : 46);
+      c.fillStyle = '#E6EBF1'; c.fillRect(bx, byb, bw, 26);
       c.fillStyle = r.E.eff > 55 ? '#2E9E78' : r.E.eff > 30 ? '#D98E04' : '#C8463D';
-      c.fillRect(bx, by + 46, bw * r.E.eff / 100 * k, 26);
-      txt(c, '예상 효과', 12, by + 60, {base:'middle'});
-      txt(c, r.E.eff + ' %', bx + bw * r.E.eff / 100 * k + 8, by + 60, {base:'middle', bold:true});
-      txt(c, r.D.note, 12, by + 96, {color:'#4A5868'});
+      c.fillRect(bx, byb, bw * r.E.eff / 100 * k, 26);
+      txt(c, '예상 효과', 12, narrow ? by + 56 : by + 60, {base:narrow ? 'alphabetic' : 'middle'});
+      txt(c, r.E.eff + ' %', bx + bw * r.E.eff / 100 * k + 8, byb + 14, {base:'middle', bold:true});
+      txt(c, r.D.note, 12, by + (narrow ? 116 : 96), {color:'#4A5868'});
       return;
     }
     txt(c, r.S.name + ' (' + r.S.note + ') · 기준 ' + f(r.cut, 1) + '배', 12, by, {bold:true});
@@ -484,7 +506,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

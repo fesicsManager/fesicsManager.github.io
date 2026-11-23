@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,17 +445,35 @@ var LAB = (function(){
       var HJ = [['愚民', '有所欲言', '終不得伸其情者', '多矣', '憫然'], ['어린 百姓', '니르고져 홇 배 이셔도', '마참내 제 뜨들 시러 펴디 몯할 노미', '하니라', '어엿비 너겨']];
       var MAP = [0, 4, 2, 3];
       var RD = ['오늘의 뜻으로 읽는다', '한문 원문의 짝으로 대조한다'];
+      var RDS = ['오늘 뜻', '한문 대조'];
+      /* 네 낱말을 각각 어떻게 읽느냐에 따라 번역문 전체가 달라진다 */
+      var SLOT = [
+        ['나이가 적은', '어리석은(글을 몰라 뜻을 펴지 못하는)'],
+        ['예쁘게', '불쌍히'],
+        ['놈(남자를 낮잡는 말)', '사람'],
+        ['한다', '많다']
+      ];
+      function sentOf(sel){
+        return SLOT[0][sel[0]] + ' 백성이 말하고자 하는 바가 있어도, 마침내 제 뜻을 펴지 못하는 ' +
+          SLOT[2][sel[2]] + '이 ' + SLOT[3][sel[3]] + '. 내가 이를 ' + SLOT[1][sel[1]] + ' 여겨…';
+      }
       return {
         sceneHeight: function(w){ return w < 560 ? 480 : 400; },
         idle: '낱말과 읽는 방법을 고른 뒤 <b>이 방법으로 읽기</b>를 누르세요.',
         shortHint: '네 낱말을 두 방법으로 모두 읽어 보세요. 오늘 뜻으로 읽어서 맞는 낱말이 있나요?',
         params: [
-          {key:'w', type:'seg', label:'낱말', cols:4, value:0, options:WD.map(function(x){ return x.w; })},
-          {key:'rd', type:'seg', label:'읽는 방법', cols:2, value:0, options:RD}
+          {key:'w', type:'seg', label:'자세히 볼 낱말', cols:4, value:0, options:WD.map(function(x){ return x.w; })},
+          {key:'r0', type:'seg', label:'‘어린’을 어떻게 읽을까', cols:2, value:0, options:RDS},
+          {key:'r1', type:'seg', label:'‘어엿비’를 어떻게 읽을까', cols:2, value:0, options:RDS},
+          {key:'r2', type:'seg', label:'‘노미(놈)’를 어떻게 읽을까', cols:2, value:0, options:RDS},
+          {key:'r3', type:'seg', label:'‘하니라’를 어떻게 읽을까', cols:2, value:0, options:RDS,
+            note:'낱말마다 따로 고를 수 있습니다. 네 낱말을 섞어 읽으면 번역문 전체가 어떻게 뒤틀리는지 결과 칸에서 보세요.'}
         ],
         compute: function(p){
-          var x = WD[p.w], mean = p.rd === 0 ? x.today : x.old, ok = p.rd === 1;
-          return {x:x, mean:mean, ok:ok};
+          var sel = [p.r0, p.r1, p.r2, p.r3], rd = sel[p.w];
+          var x = WD[p.w], mean = rd === 0 ? x.today : x.old, ok = rd === 1;
+          var bad = sel.filter(function(v){ return v === 0; }).length;
+          return {x:x, mean:mean, ok:ok, rd:rd, sel:sel, bad:bad, sent:sentOf(sel), right:sentOf([1, 1, 1, 1])};
         },
         draw: function(c, W, H, p, r, tau){
           var narrow = W < 560, n = 5, cols = narrow ? 1 : 5, sel = MAP[p.w], k = r ? Math.min(1, tau / 0.6) : 0;
@@ -468,29 +488,33 @@ var LAB = (function(){
               c.font = (on ? '700 ' : '') + '15px ' + FONT; c.fillStyle = '#1E2833'; c.textAlign = 'center';
               var ws = HJ[1][i].split(' '), l1 = ws.slice(0, Math.ceil(ws.length / 2)).join(' '), l2 = ws.slice(Math.ceil(ws.length / 2)).join(' ');
               c.fillText(l1, x + cw / 2, 188); c.fillText(l2, x + cw / 2, 212); c.restore();
-              if (r && p.rd === 1 && on) seg(c, x + cw / 2, 80, x + cw / 2, 80 + 80 * k, PAL[2], 3);
+              if (r && r.rd === 1 && on) seg(c, x + cw / 2, 80, x + cw / 2, 80 + 80 * k, PAL[2], 3);
             }
             txt(c, '한문 원문', 20, 22, {color:'#4A5868'}); txt(c, '언해 (오늘 글자로)', 20, 152, {color:'#4A5868'});
           } else {
             txt(c, '한문: ' + HJ[0][sel], 20, 40, {bold:true}); txt(c, '언해: ' + HJ[1][sel], 20, 80, {bold:true});
-            if (r && p.rd === 1) seg(c, 70, 48, 70, 48 + 16 * k, PAL[2], 3);
+            if (r && r.rd === 1) seg(c, 70, 48, 70, 48 + 16 * k, PAL[2], 3);
           }
           var x0 = WD[p.w], y = narrow ? 140 : 280;
           if (r && tau > 0.5){
-            if (p.rd === 1) txt(c, '짝 한자: ' + x0.han + ' (' + x0.hanT + ')', 20, y, {color:PAL[2], bold:true});
+            if (r.rd === 1) txt(c, '짝 한자: ' + x0.han + ' (' + x0.hanT + ')', 20, y, {color:PAL[2], bold:true});
             else txt(c, '한문은 보지 않고 오늘 뜻으로', 20, y, {color:'#4A5868'});
             c.save(); c.beginPath(); c.rect(20, y + 16, W - 40, 40); c.clip();
             txt(c, '‘' + x0.w + '’ = ' + r.mean, 20, y + 44, {bold:true, color:r.ok ? PAL[1] : PAL[4]}); c.restore();
             txt(c, r.ok ? '○ 원문과 맞음' : '✕ 원문 ' + x0.han + '와 어긋남', 20, y + 80, {color:r.ok ? PAL[1] : PAL[4]});
+            txt(c, '문장에서 어긋난 낱말 ' + r.bad + ' / 4', 20, y + 112, {bold:true, color:r.bad ? PAL[4] : PAL[1]});
           }
         },
         stats: function(p, r){
-          return [['낱말', r.x.w + ' — 언해 “' + r.x.eon + '”'], ['읽는 방법', RD[p.rd]], ['읽은 뜻', r.mean, r.ok ? PAL[1] : PAL[4]],
-            ['짝이 되는 한자', r.x.han + ' (' + r.x.hanT + ')', PAL[2]], ['15세기 무렵의 뜻', r.x.old, PAL[1]], ['오늘의 뜻', r.x.today], ['변화의 종류', r.x.ch, PAL[3]]];
+          return [['낱말', r.x.w + ' — 언해 “' + r.x.eon + '”'], ['읽는 방법', RD[r.rd]], ['읽은 뜻', r.mean, r.ok ? PAL[1] : PAL[4]],
+            ['짝이 되는 한자', r.x.han + ' (' + r.x.hanT + ')', PAL[2]], ['15세기 무렵의 뜻', r.x.old, PAL[1]], ['오늘의 뜻', r.x.today], ['변화의 종류', r.x.ch, PAL[3]],
+            ['내가 고른 대로 읽은 번역문', r.sent, r.bad ? PAL[4] : PAL[1]],
+            ['어긋난 낱말', r.bad + ' / 4개' + (r.bad ? ' — 한 낱말만 어긋나도 문장이 뒤틀립니다' : ' — 원문과 맞는 번역문'), r.bad ? PAL[4] : PAL[1]],
+            ['원문대로 읽으면', r.right]];
         },
-        columns: ['낱말', '방법', '읽은 뜻', '원문과'],
-        record: function(p, r){ return {w:p.w, rd:p.rd, ok:r.ok}; },
-        row: function(d){ return [WD[d.w].w, d.rd ? '한문 대조' : '오늘 뜻', d.rd ? WD[d.w].old : WD[d.w].today, d.ok ? '맞음' : '어긋남']; },
+        columns: ['낱말', '방법', '읽은 뜻', '원문과', '어긋난 낱말'],
+        record: function(p, r){ return {w:p.w, rd:r.rd, ok:r.ok, sel:r.sel.slice(), bad:r.bad, sent:r.sent}; },
+        row: function(d){ return [WD[d.w].w, d.rd ? '한문 대조' : '오늘 뜻', d.rd ? WD[d.w].old : WD[d.w].today, d.ok ? '맞음' : '어긋남', d.bad + '/4']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('한문 원문과 언해 대조표', '<div id="eh1"></div><p class="ask">한 문장 안에서 오늘 뜻으로 읽어 틀리는 낱말이 몇 개였나요? 옛 글을 읽을 때 가장 먼저 의심해야 할 생각은 무엇일까요?</p>') +
@@ -500,7 +524,11 @@ var LAB = (function(){
             if (t) wrong++;
             return [x.w, h ? x.han + ' (' + x.hanT + ')' : '?', t ? x.today + ' ✕' : '?', h ? x.old + ' ○' : '?'];
           });
-          $('eh1').innerHTML = tableHTML(['언해 낱말', '짝 한자', '오늘 뜻으로', '한문 대조로'], rows) + '<p class="msg">오늘 뜻으로 읽어 본 낱말 ' + wrong + '개 — 모두 원문과 어긋남</p>';
+          var sents = {}, srows = [];
+          rec.forEach(function(d){ if (sents[d.sent]) return; sents[d.sent] = 1; srows.push([d.bad + '/4', d.sent]); });
+          srows.sort(function(a, b){ return parseInt(a[0], 10) - parseInt(b[0], 10); });
+          $('eh1').innerHTML = tableHTML(['언해 낱말', '짝 한자', '오늘 뜻으로', '한문 대조로'], rows) + '<p class="msg">오늘 뜻으로 읽어 본 낱말 ' + wrong + '개 — 모두 원문과 어긋남</p>' +
+            '<p class="msg">내가 만들어 본 번역문</p>' + tableHTML(['어긋난 낱말', '번역문 전체'], srows);
           $('eh2').innerHTML = tableHTML(['낱말', '15세기 무렵', '오늘', '변화'], [['어리다', '어리석다', '나이가 적다', '의미 이동'], ['어엿브다', '불쌍하다', '예쁘다', '의미 이동'], ['놈', '사람(평범한 말)', '남자를 낮잡는 말', '의미 축소·가치 하락'], ['얼굴', '몸 전체의 모양, 형체', '낯', '의미 축소']]);
         }
       };
@@ -510,7 +538,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

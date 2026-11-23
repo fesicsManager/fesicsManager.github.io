@@ -256,16 +256,23 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
       <label>맞출 온도 <b id="tVal">0.0 ℃</b></label>
       <input type="range" id="tempSlider" min="-100" max="200" step="5" value="0" aria-label="맞출 온도">
     </div>
+    <div class="control-row">
+      <label>실린더에 넣은 기체의 양 <b id="nVal">기준 1배</b></label>
+      <div class="verify-actions" id="amountOptions" style="gap:8px;">
+        <button class="action btn-primary" data-n="1" style="flex:1;">기준 1배</button>
+        <button class="action btn-ghost" data-n="2" style="flex:1;">2배</button>
+      </div>
+    </div>
     <div class="readout"><span>현재 부피</span><b id="vVal">200.0 mL</b></div>
     <button class="action" id="runBtn">▶ 가열 · 냉각 하기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
-    <div class="hint">💡 압력은 피스톤이 자유롭게 움직이므로 항상 대기압으로 일정합니다. 슬라이더로 온도를 정하고 <b>가열·냉각 하기</b>를 누르면 알코올램프(또는 냉각 그릇 — 0℃보다 낮게 식힐 때는 얼음물 대신 드라이아이스·액체 질소 같은 냉각제)가 작동하며 기체가 팽창·수축하고, 멈춘 지점이 자동으로 표에 기록됩니다.</div>
+    <div class="hint">💡 압력은 피스톤이 자유롭게 움직이므로 항상 대기압으로 일정합니다. 슬라이더로 온도를 정하고 <b>가열·냉각 하기</b>를 누르면 알코올램프(또는 냉각 그릇 — 0℃보다 낮게 식힐 때는 얼음물 대신 드라이아이스·액체 질소 같은 냉각제)가 작동하며 기체가 팽창·수축하고, 멈춘 지점이 자동으로 표에 기록됩니다.<br>온도를 4~5번 바꿔 잰 뒤 <b>기체의 양</b>을 2배로 바꿔 다시 재 보세요. 직선의 기울기와 교점 가운데 무엇이 달라지나요?</div>
   </section>
   <section class="card">
     <h2>측정 데이터 &amp; 그래프</h2>
     <div class="scroll-table-wrap">
 <table id="dataTable">
-      <thead><tr><th>#</th><th>온도(℃)</th><th>부피(mL)</th></tr></thead>
+      <thead><tr><th>#</th><th>기체의 양</th><th>온도(℃)</th><th>부피(mL)</th></tr></thead>
       <tbody id="dataBody"></tbody>
     </table>
 </div>
@@ -283,13 +290,16 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
   <div id="verifyContent" class="hidden">
     <div class="scroll-table-wrap">
     <table id="myDataTable">
-      <thead><tr><th>#</th><th>온도(℃)</th><th>부피(mL)</th></tr></thead>
+      <thead><tr><th>#</th><th>기체의 양</th><th>온도(℃)</th><th>부피(mL)</th></tr></thead>
       <tbody id="myDataBody"></tbody>
     </table>
     </div>
     <div class="readout" style="margin-top:14px;">
       <span>내 데이터의 기울기 (ΔV/ΔT)</span><b id="mySlope">-</b>
       <span>부피=0이 되는 온도</span><b id="myZero">-</b>
+    </div>
+    <div class="readout" style="margin-top:8px;">
+      <span>양이 다를 때 기울기와 교점</span><b id="byAmount">-</b>
     </div>
 
     <div style="margin-top:18px;">
@@ -385,8 +395,9 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
 }));
 
 /* ===== EXPLORE ===== */
-const K_CHARLES = 200/273; // mL per Kelvin, V0=200mL at 0C(273K)
-function volumeForT(tc){ return K_CHARLES*(tc+273); }   /* 이상 기체 모형(샤를 법칙). 실제 기체는 저온에서 액화되어 직선에서 벗어남 */
+const K_CHARLES = 200/273; // mL per Kelvin, V0=200mL at 0C(273K), 기체의 양 기준 1배
+let amount = 1;                        /* 실린더에 넣은 기체의 양 — 1배 또는 2배 */
+function volumeForT(tc, n){ return K_CHARLES*(n==null?amount:n)*(tc+273); }   /* 이상 기체 모형(샤를 법칙). 실제 기체는 저온에서 액화되어 직선에서 벗어남 */
 
 const slider=document.getElementById('tempSlider'), tVal=document.getElementById('tVal'), vVal=document.getElementById('vVal');
 let currentT=0, targetV=volumeForT(0), displayV=targetV;
@@ -403,6 +414,15 @@ slider.addEventListener('input',()=>{
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b','#c1447f','#4a637a','#a86825'];
 let points=[];
+document.getElementById('amountOptions').addEventListener('click',(e)=>{
+  const b=e.target.closest('button'); if(!b||running) return;
+  document.querySelectorAll('#amountOptions button').forEach(x=>{x.classList.remove('btn-primary');x.classList.add('btn-ghost');});
+  b.classList.remove('btn-ghost'); b.classList.add('btn-primary');
+  amount=parseInt(b.dataset.n,10)||1;
+  document.getElementById('nVal').textContent = amount===1 ? '기준 1배' : amount+'배';
+  targetV=volumeForT(currentT); displayV=targetV; tw=null;
+  drawChart();
+});
 function lockControls(lock){
   running=lock;
   document.getElementById('runBtn').disabled=lock;
@@ -424,8 +444,8 @@ document.getElementById('runBtn').addEventListener('click',()=>{
 function finishRun(){
   lockControls(false);
   tw=null; displayV=targetV; heatT=currentT;
-  if(points.some(pt=>Math.abs(pt.t-currentT)<0.01)) return;   /* 같은 온도는 한 번만 */
-  points.push({t:currentT, v:displayV, color:colors[points.length%colors.length]});
+  if(points.some(pt=>Math.abs(pt.t-currentT)<0.01 && (pt.n||1)===amount)) return;   /* 같은 양·같은 온도는 한 번만 */
+  points.push({t:currentT, v:displayV, n:amount, color:colors[points.length%colors.length]});
   renderTable(); drawChart();
 }
 document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); drawChart(); });
@@ -433,7 +453,7 @@ function renderTable(){
   const body=document.getElementById('dataBody'); body.innerHTML='';
   points.forEach((p,i)=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><span class="dot" style="background:${p.color}"></span>${i+1}</td><td>${p.t.toFixed(1)}</td><td>${p.v.toFixed(1)}</td>`;
+    tr.innerHTML=`<td><span class="dot" style="background:${p.color}"></span>${i+1}</td><td>${(p.n||1)===1?'1배':(p.n||1)+'배'}</td><td>${p.t.toFixed(1)}</td><td>${p.v.toFixed(1)}</td>`;
     body.appendChild(tr);
   });
 }
@@ -444,11 +464,11 @@ const CW=canvas.width, CH=canvas.height;
 const CMONO='"IBM Plex Mono","SFMono-Regular",Consolas,monospace';
 const cylLeft=140, cylRight=260, cylBottom=286, cylTopMax=96;
 const V_MIN=volumeForT(-100), V_MAX=volumeForT(200);
-let particles=[]; for(let i=0;i<22;i++) particles.push({x:Math.random(),y:Math.random(),vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2});
+let particles=[]; for(let i=0;i<44;i++) particles.push({x:Math.random(),y:Math.random(),vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2});
 
 /* 높이가 부피에 그대로 비례해야 '절대온도 2배 → 부피 2배'가 눈에 보인다 */
 function heightFor(v){
-  return Math.max(16, (v/V_MAX)*(cylBottom-cylTopMax));
+  return Math.min(cylBottom-cylTopMax, Math.max(16, (v/V_MAX)*(cylBottom-cylTopMax)));
 }
 
 function clampN(v,a,b){ return Math.max(a,Math.min(b,v)); }
@@ -723,8 +743,16 @@ function drawChart(){
   cc.strokeStyle='rgba(47,143,157,0.55)'; cc.lineWidth=2; cc.setLineDash([6,4]);
   cc.beginPath();
   for(let t=-100;t<=200;t+=10){
-    const v=volumeForT(t); const [x,y]=toPx(t,v);
+    const v=volumeForT(t); const [x,y]=toPx(t,Math.min(v,360));
     if(t===-100) cc.moveTo(x,y); else cc.lineTo(x,y);
+  }
+  cc.stroke(); cc.setLineDash([]);
+  /* 양이 다른 쪽 직선도 흐리게 함께 — 기울기는 달라도 교점은 같다 */
+  cc.strokeStyle='rgba(168,104,37,0.45)'; cc.lineWidth=2; cc.setLineDash([3,4]);
+  cc.beginPath();
+  for(let t2=-100;t2<=200;t2+=10){
+    const v2=volumeForT(t2, amount===1?2:1); const q=toPx(t2,Math.min(v2,360));
+    if(t2===-100) cc.moveTo(q[0],q[1]); else cc.lineTo(q[0],q[1]);
   }
   cc.stroke(); cc.setLineDash([]);
   cc.lineWidth=1;
@@ -774,14 +802,22 @@ function renderVerify(){
   const sorted=[...points].sort((a,b)=>a.t-b.t);
   sorted.forEach((pt,i)=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><span class="dot" style="background:${pt.color}"></span>${i+1}</td><td>${pt.t.toFixed(1)}</td><td>${pt.v.toFixed(1)}</td>`;
+    tr.innerHTML=`<td><span class="dot" style="background:${pt.color}"></span>${i+1}</td><td>${(pt.n||1)===1?'1배':(pt.n||1)+'배'}</td><td>${pt.t.toFixed(1)}</td><td>${pt.v.toFixed(1)}</td>`;
     myDataBody.appendChild(tr);
   });
-  const {slope, intercept}=linregress(sorted);
+  /* 같은 양끼리만 직선을 맞춘다 — 기울기는 양마다 다르지만 교점은 같다 */
+  const groups={};
+  sorted.forEach(pt=>{ const nn=pt.n||1; (groups[nn]=groups[nn]||[]).push(pt); });
+  const here=(groups[amount]&&groups[amount].length>=2)?groups[amount]:sorted;
+  const {slope, intercept}=linregress(here);
   const zeroT=-intercept/slope;
   document.getElementById('mySlope').textContent=slope.toFixed(3)+' mL/℃';
   document.getElementById('myZero').textContent=zeroT.toFixed(0)+' ℃';
-  renderVerify._slope=slope; renderVerify._intercept=intercept;
+  const keys=Object.keys(groups).filter(k=>groups[k].length>=2).sort();
+  document.getElementById('byAmount').textContent = keys.length<2
+    ? '아직 한 가지 양만 2개 이상 재 봤어요 — 양을 바꿔 더 재 보세요'
+    : keys.map(k=>{ const g=linregress(groups[k]); return k+'배 → 기울기 '+g.slope.toFixed(3)+', 교점 '+(-g.intercept/g.slope).toFixed(0)+'℃'; }).join(' · ');
+  renderVerify._slope=slope; renderVerify._intercept=intercept; renderVerify._keys=keys.length;
 }
 
 document.getElementById('calcBtn2').addEventListener('click',()=>{
@@ -796,6 +832,7 @@ document.getElementById('calcBtn2').addEventListener('click',()=>{
   result.className='show';
   result.innerHTML=`Q1. 내가 구한 절대영도 추정값(${zeroT.toFixed(0)}℃)은 실제 값(-273℃)과 ${zeroCloseActual?'거의 일치':'차이가 있음'}합니다 → ${q1ok?'정답입니다! 👏':'다시 살펴보세요.'}<br>
     Q2. 예측값 ${isNaN(predict)?'-':predict} mL → ${predictOk?'정답에 가깝습니다! 👏':'다시 계산해 보세요.'} (내 데이터의 회귀식으로 계산한 값: ${truePredict.toFixed(1)} mL)<br><br>
+    ${renderVerify._keys>1 ? '기체의 양을 바꾸면 <b>직선의 기울기는 달라지지만 교점(절대영도)은 그대로</b>입니다 — 위의 「양이 다를 때」 줄에서 두 값을 비교해 보세요.<br>' : '<b>기체의 양</b>을 2배로 바꿔 2개 이상 더 재 보세요. 기울기와 교점 가운데 무엇이 달라지나요?<br>'}
     이렇게 <b>내가 직접 측정한 데이터</b>의 추세선을 저온 쪽으로 연장(외삽)하면 부피가 0이 되는 온도가 약 -273℃로 나옵니다. 이 온도를 <b>절대영도(0 K)</b>라고 부릅니다.<br><span style="color:#a86825">※ 이 실린더는 <b>이상 기체</b> 모형이에요. 실제 기체는 온도를 낮추면 -273℃에 이르기 훨씬 전에 <b>액체·고체로 변해</b> 직선에서 벗어나므로, 부피가 실제로 0이 되는 것이 아니라 '직선을 연장했을 때의 교점'이 절대영도입니다. 기체 종류에 상관없이 묽은(압력이 낮은) 기체일수록 이 직선에 가깝게 행동해요.</span>`;
 });
 

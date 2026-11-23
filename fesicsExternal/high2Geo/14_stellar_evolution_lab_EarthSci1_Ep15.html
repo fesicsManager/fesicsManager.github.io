@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -307,9 +308,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -478,6 +480,11 @@ function fuse(M, stage){
 }
 function yr(t){ return t >= 1e8 ? f(t / 1e8, t >= 1e9 ? 0 : 1) + '억 년' : t >= 1e4 ? Math.round(t / 1e4).toLocaleString() + '만 년' : Math.round(t).toLocaleString() + '년'; }
 function lum(L){ if (L >= 1e5 || (L > 0 && L < 1e-3)){ var e = Math.floor(Math.log10(L)); return f(L / Math.pow(10, e), 1) + ' × 10^' + e; } return L >= 100 ? Math.round(L).toLocaleString() : f(L, 2); }
+/* 질량을 고르기 전에 끝과 수명을 먼저 찍어 보게 하는 채점용 구분 — 경계값(8·20 M☉, 1억·200억 년)은 교육용 모형값 */
+var END = ['백색 왜성', '중성자별', '블랙홀'];
+var BAND = ['1억 년보다 짧다', '1억 ~ 200억 년', '200억 년보다 길다'];
+function endKind(M){ return M < 8 ? 0 : M < 20 ? 1 : 2; }
+function lifeBand(t){ return t < 1e8 ? 0 : t <= 2e10 ? 1 : 2; }
 function starColor(T){ var t = Math.min(1, Math.max(0, (T - 3000) / 9000)); return 'rgb(255,' + Math.round(150 + 90 * t) + ',' + Math.round(90 + 165 * t) + ')'; }
 return {
   sceneHeight: 470,
@@ -486,11 +493,16 @@ return {
   params: [
     {key:'m', type:'seg', label:'주계열일 때 별의 질량', cols:3, value:1, options:MS.map(function(v){ return v + ' M☉'; })},
     {key:'st', type:'range', label:'진화 단계 (0 원시별 → 4 마지막)', min:0, max:4, step:1, value:1, fmt:function(v){ return v + '단계'; },
-      }
+      },
+    {key:'pe', type:'seg', label:'먼저 찍어 보기 ① 이 별의 마지막 모습', cols:4, value:0, options:['찍지 않음'].concat(END)},
+    {key:'pl', type:'seg', label:'먼저 찍어 보기 ② 주계열에 머무는 수명', cols:4, value:0, options:['찍지 않음'].concat(BAND),
+      note:'찍지 않음이 기본값입니다. 질량을 고르기 전에 ①②를 먼저 찍어 두면, 진화를 따라간 뒤 맞았는지 채점해 측정 결과와 기록 표에 남습니다. 마지막 모습의 경계(8·20 M☉)와 수명 구간(1억·200억 년)은 교육용 모형값입니다.'}
   ],
   compute: function(p){
     var M = MS[p.m], tr = track(M), st = Math.min(p.st, tr.length - 1), cur = tr[st];
-    return {M:M, tr:tr, st:st, cur:cur, life:life(M), msL:msL(M), msT:msT(M), fuse:fuse(M, st), heavy:M >= 8};
+    var ek = endKind(M), lb = lifeBand(life(M));
+    return {M:M, tr:tr, st:st, cur:cur, life:life(M), msL:msL(M), msT:msT(M), fuse:fuse(M, st), heavy:M >= 8,
+      ek:ek, lb:lb, pe:p.pe || 0, pl:p.pl || 0, hitE:p.pe ? (p.pe - 1 === ek) : null, hitL:p.pl ? (p.pl - 1 === lb) : null};
   },
   draw: function(c, W, H, p, r, tau){
     var P = plotBox(c, 84, 20, W - 110, H - 150, [50000, 0, -10000], [-6, 8, 2], '표면 온도 (K)', 'log(광도/L☉)');
@@ -518,13 +530,19 @@ return {
     txt(c, '핵융합: ' + r.fuse, 12, H - 18, {color:'#4A5868'});
   },
   stats: function(p, r){
-    return [['질량 (주계열)', r.M + ' M☉'], ['현재 단계', r.cur.name, PAL[0]], ['표면 온도', r.cur.bh ? '— (빛이 빠져나오지 못함)' : Math.round(r.cur.T).toLocaleString() + ' K'],
+    var out = [['질량 (주계열)', r.M + ' M☉'], ['현재 단계', r.cur.name, PAL[0]], ['표면 온도', r.cur.bh ? '— (빛이 빠져나오지 못함)' : Math.round(r.cur.T).toLocaleString() + ' K'],
       ['광도', r.cur.bh ? '0 (보이지 않음)' : lum(r.cur.L) + ' L☉'],
       ['주계열 수명', yr(r.life), PAL[4]], ['핵융합', r.fuse]];
+    if (r.pe) out.push(['찍은 마지막 모습 ' + END[r.pe - 1] + ' → 실제 ' + END[r.ek], r.hitE ? '맞음' : '빗나감', r.hitE ? PAL[1] : '#C8463D']);
+    if (r.pl) out.push(['찍은 수명 「' + BAND[r.pl - 1] + '」 → 실제 ' + yr(r.life), r.hitL ? '맞음' : '빗나감', r.hitL ? PAL[1] : '#C8463D']);
+    return out;
   },
-  columns: ['질량 (M☉)', '단계', '표면 온도 (K)', '광도 (L☉)', '주계열 수명', '마지막 모습'],
-  record: function(p, r){ return {m:p.m, M:r.M, st:r.st, name:r.cur.name, T:r.cur.T, L:r.cur.L, life:r.life, end:r.tr[r.tr.length - 1].name}; },
-  row: function(d){ return [d.M, d.name, d.T == null ? '—' : Math.round(d.T).toLocaleString(), d.T == null ? '0' : lum(d.L), yr(d.life), d.end]; },
+  columns: ['질량 (M☉)', '단계', '표면 온도 (K)', '광도 (L☉)', '주계열 수명', '마지막 모습', '찍은 끝 → 판정', '찍은 수명 → 판정'],
+  record: function(p, r){ return {m:p.m, M:r.M, st:r.st, name:r.cur.name, T:r.cur.T, L:r.cur.L, life:r.life, end:r.tr[r.tr.length - 1].name,
+    pe:r.pe, pl:r.pl, hitE:r.hitE, hitL:r.hitL}; },
+  row: function(d){ return [d.M, d.name, d.T == null ? '—' : Math.round(d.T).toLocaleString(), d.T == null ? '0' : lum(d.L), yr(d.life), d.end,
+    d.pe ? END[d.pe - 1] + ' → ' + (d.hitE ? '맞음' : '빗나감') : '—',
+    d.pl ? BAND[d.pl - 1] + ' → ' + (d.hitL ? '맞음' : '빗나감') : '—']; },
   verify: function(rec, box){
     var ms = rec.filter(function(d){ return d.st === 1; });
     box.innerHTML = '<div class="vgrid">' +
@@ -532,8 +550,13 @@ return {
       card('질량과 마지막 모습', '<div id="ro2"></div><p class="ask">태양 정도의 별과 질량이 매우 큰 별은 마지막이 어떻게 다른가요? 그 경계는 대략 몇 M☉인가요?</p>') +
       card('별과 원소', '<p>수소와 헬륨은 우주 초기에 만들어졌고, 탄소·산소·철 같은 원소는 별의 중심에서, 철보다 무거운 원소는 초신성 폭발 등에서 만들어졌습니다.</p><p class="ask">우리 몸을 이루는 탄소와 산소는 어디에서 왔을까요? 별이 죽으며 흩어진 물질이 다음 세대의 별과 행성이 되는 과정을 정리해 보세요.</p>') + '</div>';
     drawScatter($('ch1'), {xLabel:'질량 (M☉)', yLabel:'log(주계열 수명 / 년)', series:[{color:PAL[0], pts:ms.map(function(d){ return {x:d.M, y:Math.log10(d.life)}; })}], tightY:true});
-    $('ro1').innerHTML = ms.length ? ms.slice().sort(function(a, b){ return a.M - b.M; }).map(function(d){ return '<li>' + d.M + ' M☉: 광도 ' + lum(d.L) + ' L☉, 수명 ' + yr(d.life) + '</li>'; }).join('')
-      : '<li>1단계(주계열성)로 여러 질량을 기록하면 비교할 수 있어요.</li>';
+    var tE = rec.filter(function(d){ return d.pe; }), tL = rec.filter(function(d){ return d.pl; });
+    var hE = tE.filter(function(d){ return d.hitE; }).length, hL = tL.filter(function(d){ return d.hitL; }).length;
+    $('ro1').innerHTML = (ms.length ? ms.slice().sort(function(a, b){ return a.M - b.M; }).map(function(d){ return '<li>' + d.M + ' M☉: 광도 ' + lum(d.L) + ' L☉, 수명 ' + yr(d.life) + '</li>'; }).join('')
+      : '<li>1단계(주계열성)로 여러 질량을 기록하면 비교할 수 있어요.</li>')
+      + (tE.length || tL.length
+        ? '<li>먼저 찍은 마지막 모습: ' + tE.length + '번 가운데 <b>' + hE + '번</b> 맞음, 먼저 찍은 수명: ' + tL.length + '번 가운데 <b>' + hL + '번</b> 맞음</li>'
+        : '<li>질량을 고르기 전에 「먼저 찍어 보기」를 쓰면 맞힌 수가 여기에 쌓입니다.</li>');
     var seen = {}, rows = [];
     rec.forEach(function(d){ if (seen[d.M]) return; seen[d.M] = 1; rows.push([d.M + ' M☉', d.M <= 0.5 ? '적색 거성 (먼 미래, 행성상 성운 없음)' : d.M < 8 ? '적색 거성 → 행성상 성운' : '적색 초거성 → 초신성', d.end]); });
     $('ro2').innerHTML = tableHTML(['질량', '거치는 단계', '마지막 모습'], rows.sort(function(a, b){ return parseFloat(a[0]) - parseFloat(b[0]); }));
@@ -545,7 +568,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

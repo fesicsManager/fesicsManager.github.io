@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -300,9 +301,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -451,12 +453,17 @@ var LAB = (function(){
         params: [
           {key:'c', type:'seg', label:'사무 카드', cols:3, value:0, options:CD.map(function(x){ return x.n; })},
           {key:'own', type:'range', label:'자체 재원(지방세 + 세외 수입) 비율', min:10, max:90, step:5, value:40, fmt:function(v){ return v + '%'; }},
-          {key:'gr', type:'range', label:'지방교부세 비율', min:0, max:50, step:5, value:25, fmt:function(v){ return v + '%'; }}
+          {key:'gr', type:'range', label:'지방교부세 비율', min:0, max:50, step:5, value:25, fmt:function(v){ return v + '%'; }},
+          {key:'proj', type:'range', label:'하려는 사업에 드는 돈 (전체 예산의 몇 %)', min:5, max:80, step:5, value:20, fmt:function(v){ return v + '%'; },
+            note:'용도가 묶이지 않은 돈(자체 재원 + 교부세)으로 이 사업을 할 수 있는지 판정해 줘요. 보조금 비중을 키우면 같은 사업도 못 하게 되는 자리를 찾아보세요.'}
         ],
         compute: function(p){
           if (p.own + p.gr > 100) return {fail:'자체 재원과 지방교부세를 더하면 100%를 넘어요. 나머지가 국고 보조금입니다.'};
-          var sub = 100 - p.own - p.gr;
-          return {cd:CD[p.c], sub:sub, free:p.own + p.gr, self:p.own};
+          var sub = 100 - p.own - p.gr, free = p.own + p.gr, cd = CD[p.c];
+          var allowed = (cd.ok >= 1), enough = (free >= p.proj);
+          var can = allowed && enough, shortBy = Math.max(0, p.proj - free);
+          return {cd:cd, sub:sub, free:free, self:p.own, proj:p.proj,
+            allowed:allowed, enough:enough, can:can, shortBy:shortBy};
         },
         draw: function(c, W, H, p, r, tau){
           var x0 = 20, bw = W - 40, y = 70, k = r ? Math.min(tau / 0.7, 1) : 1, sub = Math.max(0, 100 - p.own - p.gr);
@@ -472,24 +479,33 @@ var LAB = (function(){
           c.fillStyle = cd.ok === 2 ? '#DCEFE6' : cd.ok === 1 ? '#FBEBD3' : cd.ok === 0 ? '#E6EBF1' : '#F6DCDA'; c.fillRect(x0, cy, bw, 70);
           txt(c, cd.n.length > Math.floor(bw / 19) ? cd.n.slice(0, Math.floor(bw / 19) - 1) + '…' : cd.n, x0 + 12, cy + 28, {bold:true});
           if (r) txt(c, '→ ' + cd.who, x0 + 12, cy + 56, {color:cd.ok === -1 ? PAL[4] : PAL[0], bold:true});
-          if (r && tau >= 1) txt(c, '스스로 정할 수 있는 몫 ' + r.free + '%', 16, H - 16, {bold:true, color:PAL[1]});
+          if (r && tau >= 1) txt(c, '자율 몫 ' + r.free + '% · 사업비 ' + r.proj + '% → ' + (r.can ? '가능' : '불가'), 16, H - 16, {bold:true, color:r.can ? PAL[1] : PAL[4]});
+          if (r) seg(c, x0 + bw * Math.min(100, p.proj) / 100, y - 6, x0 + bw * Math.min(100, p.proj) / 100, y + 52, '#26313D', 2, [4, 3]);
         },
         stats: function(p, r){
           return [['사무 카드', r.cd.n], ['성격', r.cd.k, PAL[3]], ['결정 주체', r.cd.who, r.cd.ok === -1 ? PAL[4] : PAL[0]],
             ['재원 (자체 / 교부세 / 보조금)', p.own + '% / ' + p.gr + '% / ' + r.sub + '%'],
             ['용도 제한이 적은 돈 (자체 + 교부세)', r.free + '% — 이 모형의 "스스로 정할 수 있는 몫"', PAL[1]],
             ['스스로 걷는 돈의 비율 (자체 재원)', r.self + '% — 재정 자립도와 비슷한 개념(실제 계산식은 공시 자료 확인)', PAL[5]],
-            ['용도가 정해진 돈 (국고 보조금)', r.sub + '%', PAL[2]]];
+            ['용도가 정해진 돈 (국고 보조금)', r.sub + '%', PAL[2]],
+            ['하려는 사업에 드는 돈', r.proj + '%'],
+            ['이 사업을 할 수 있나', r.can ? '✅ 할 수 있습니다 (자율 몫 ' + r.free + '% ≥ 사업비 ' + r.proj + '%)' : (!r.allowed ? '❌ 돈이 있어도 할 수 없습니다 — ' + r.cd.k : '❌ 돈이 모자랍니다 — ' + r.shortBy + '%p 부족'), r.can ? PAL[1] : PAL[4]],
+            ['막힌 곳', r.can ? '없음' : (!r.allowed ? '<b>권한</b>이 없습니다 (국가 사무이거나 조례로 할 수 없는 일)' : '<b>돈</b>이 없습니다 — 보조금을 ' + r.shortBy + '%p 만큼 자체 재원·교부세로 바꿔야 합니다'), PAL[3]]];
         },
-        columns: ['사무', '결정 주체', '자체', '보조금', '자율 몫'],
-        record: function(p, r){ return {c:p.c, own:p.own, gr:p.gr, sub:r.sub, free:r.free}; },
-        row: function(d){ return [CD[d.c].n, CD[d.c].who, d.own + '%', d.sub + '%', d.free + '%']; },
+        columns: ['사무', '결정 주체', '자체', '보조금', '자율 몫', '사업비', '할 수 있나', '막힌 곳'],
+        record: function(p, r){ return {c:p.c, own:p.own, gr:p.gr, sub:r.sub, free:r.free, proj:r.proj, allowed:r.allowed, enough:r.enough, can:r.can, shortBy:r.shortBy}; },
+        row: function(d){ return [CD[d.c].n, CD[d.c].who, d.own + '%', d.sub + '%', d.free + '%', d.proj + '%', d.can ? '✅' : '❌', d.can ? '—' : (!d.allowed ? '권한' : '돈 ' + d.shortBy + '%p')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('보조금 비율과 스스로 정할 수 있는 몫', '<div id="av1"></div><p class="ask">보조금 비중이 크면 실제 자율은 어떻게 되나요? 자율만 키우면 격차가, 형평만 챙기면 획일이 문제가 된다는 말과 연결해 보세요.</p>') +
             card('분류해 본 사무 카드', '<div id="av2"></div><p class="ask">과제: 우리 지역 조례 하나를 찾아 근거가 되는 법률, 의결 날짜, 제정 이유를 정리하고, 같은 내용의 조례가 다른 지역에도 있는지 비교해 보세요.</p>') + '</div>';
           var it = rec.slice(-6).map(function(d){ return {label:'보조금 ' + d.sub + '%', v:d.free, color:PAL[1], text:'자율 몫 ' + d.free + '%'}; });
-          $('av1').innerHTML = hbars(it, 100);
+          $('av1').innerHTML = hbars(it, 100)
+            + (function(){ var can = rec.filter(function(d){ return d.can; }), noMoney = rec.filter(function(d){ return d.allowed && !d.enough; }), noPower = rec.filter(function(d){ return !d.allowed; });
+              var k = {}; rec.forEach(function(d){ k[d.sub] = d; }); var ks = Object.keys(k).map(Number).sort(function(a, b){ return a - b; });
+              return '<p class="msg">사업 판정: 할 수 있었던 기록 <b>' + can.length + '개</b> · <b>돈</b>이 모자랐던 기록 ' + noMoney.length + '개 · <b>권한</b>이 없어 막힌 기록 ' + noPower.length + '개. '
+                + (ks.length > 1 ? '보조금 비중별 자율 몫 — ' + ks.map(function(x){ return '보조금 ' + x + '% → 자율 ' + k[x].free + '%' + (k[x].can ? ' (가능)' : ' (불가)'); }).join(' · ') + '. ' : '보조금 비중을 키워 같은 사업이 불가로 바뀌는 자리를 찾아보세요. ')
+                + '자치는 <b>권한과 돈이 모두</b> 있어야 성립합니다 — 사무가 자치 사무여도 돈이 보조금으로 묶여 있으면 스스로 정할 수 없고, 돈이 넉넉해도 국가 사무는 손댈 수 없습니다. (재원 구성은 가상 값)</p>'; })();
           var seen = {}; rec.forEach(function(d){ seen[d.c] = 1; });
           $('av2').innerHTML = tableHTML(['사무', '성격', '결정 주체'], Object.keys(seen).map(function(k){ return [CD[k].n, CD[k].k, CD[k].who]; }));
         }
@@ -500,7 +516,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

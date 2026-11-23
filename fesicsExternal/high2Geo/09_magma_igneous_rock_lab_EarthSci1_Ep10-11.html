@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -305,9 +306,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -460,13 +462,40 @@ var IG = {
   '49|1':'현무암', '49|0':'반려암', '50|1':'현무암', '50|0':'반려암',
   '60|1':'안산암', '60|0':'섬록암', '70|1':'유문암', '70|0':'화강암'
 };
-var META = [
-  {name:'접촉 변성 (마그마 옆)', T:600, P:1, from:'셰일', to:'혼펠스', tex:'알갱이가 고르게 굳음 (엽리 없음)'},
-  {name:'접촉 변성 (마그마 옆)', T:600, P:1, from:'석회암', to:'대리암', tex:'방해석 알갱이가 굵어짐'},
-  {name:'약한 광역 변성', T:350, P:3, from:'셰일', to:'점판암', tex:'얇게 쪼개지는 결(엽리)이 생김'},
-  {name:'강한 광역 변성', T:700, P:7, from:'셰일', to:'편마암', tex:'밝고 어두운 줄무늬(편마 구조)'},
-  {name:'강한 광역 변성', T:700, P:7, from:'사암', to:'규암', tex:'석영이 단단히 맞물림'}
+var PROTO = [
+  {n:'셰일 (진흙이 굳은 돌)'},
+  {n:'석회암'},
+  {n:'사암'},
+  {n:'화강암'}
 ];
+/* 온도·압력에서 변성암을 정하는 교육용 모형 */
+function metaOf(pi, T, P){
+  var from = ['셰일', '석회암', '사암', '화강암'][pi];
+  var kind = P >= 3 ? '광역 변성 (넓게 눌리며)' : '접촉 변성 (마그마 옆에서)';
+  var to, tex, fol = false;
+  if (pi === 0){
+    if (P >= 3){
+      if (T < 300){ to = '거의 그대로 (셰일)'; tex = '아직 덜 데워졌어요. 온도를 올려 보세요.'; }
+      else if (T < 450){ to = '점판암'; tex = '얇게 쪼개지는 결(엽리)이 생겨요.'; fol = true; }
+      else if (T < 600){ to = '천매암'; tex = '엽리를 따라 비단 같은 윤이 나요.'; fol = true; }
+      else if (T < 700){ to = '편암'; tex = '납작한 운모가 한 방향으로 늘어서 반짝여요.'; fol = true; }
+      else { to = '편마암'; tex = '밝고 어두운 줄무늬(편마 구조)가 생겨요.'; fol = true; }
+    } else {
+      if (T < 500){ to = '거의 그대로 (셰일)'; tex = '마그마에서 멀어 덜 구워졌어요.'; }
+      else { to = '혼펠스'; tex = '알갱이가 고르게 단단히 굳어요 (엽리 없음).'; }
+    }
+  } else if (pi === 1){
+    if (T < 500){ to = '거의 그대로 (석회암)'; tex = '아직 알갱이가 굵어지지 않았어요.'; }
+    else { to = '대리암'; tex = '방해석 알갱이가 굵어져요. 한 가지 광물뿐이라 엽리가 잘 생기지 않아요.'; }
+  } else if (pi === 2){
+    if (T < 500){ to = '거의 그대로 (사암)'; tex = '모래 알갱이 사이가 아직 벌어져 있어요.'; }
+    else { to = '규암'; tex = '석영이 단단히 맞물려요. 석영뿐이라 엽리가 잘 생기지 않아요.'; }
+  } else {
+    if (T >= 700 && P >= 7){ to = '편마암 (화강 편마암)'; tex = '깊은 곳에서 오래 눌려 줄무늬가 생겨요.'; fol = true; }
+    else { to = '거의 그대로 (화강암)'; tex = '단단한 화성암이라 더 깊고 뜨거운 곳이라야 변해요.'; }
+  }
+  return {name:kind, T:T, P:P, from:from, to:to, tex:tex, fol:fol, changed:to.indexOf('거의 그대로') < 0};
+}
 return {
   sceneHeight: function(w){ return w < 480 ? 560 : 460; },
   idle: '마그마가 생기는 곳과 식는 방식을 정한 뒤 <b>암석 만들기</b>를 누르세요.',
@@ -474,13 +503,15 @@ return {
   params: [
     {key:'pl', type:'seg', label:'마그마가 생기는 곳', value:0, options:PLACE.map(function(x){ return x.name; })},
     {key:'co', type:'seg', label:'식는 방식', value:0, options:COOL.map(function(x){ return x.name; })},
-    {key:'me', type:'seg', label:'변성 실험 (원래 암석과 조건)', cols:3, value:0, options:['하지 않음'].concat(META.map(function(m){ return m.from + ' → ' + m.name.split(' ')[0] + m.name.split(' ')[1]; })),
-      note:'SiO₂ 함량은 각 환경에서 만들어지는 마그마의 대표적인 값입니다. 변성 온도와 압력도 대표적인 조건입니다.'}
+    {key:'pr', type:'seg', label:'눌러서 데울 원래 암석', cols:3, value:0, options:['하지 않음'].concat(PROTO.map(function(x){ return x.n; }))},
+    {key:'mt', type:'range', label:'변성 온도', min:200, max:800, step:50, value:400, fmt:function(v){ return v + ' ℃'; }},
+    {key:'mp', type:'range', label:'누르는 압력', min:1, max:10, step:1, value:3, fmt:function(v){ return v + ' kbar'; },
+      note:'SiO₂ 함량은 각 환경에서 만들어지는 마그마의 대표적인 값입니다. 변성에서는 <b>온도</b>와 <b>압력</b>을 직접 바꿔 봅니다. 압력이 낮고 온도만 높으면 마그마 옆에서 구워지는 <b>접촉 변성</b>, 압력이 높으면 산맥이 생길 때처럼 눌리는 <b>광역 변성</b>이에요. 온도·압력의 경계값은 교육용 대표값입니다.'}
   ],
   compute: function(p){
     var P = PLACE[p.pl], C = COOL[p.co], rock = IG[P.sio2 + '|' + (C.deep ? 0 : 1)];
     var col = P.sio2 < 55 ? '어두운색 (고철질)' : P.sio2 < 65 ? '중간색 (중성)' : '밝은색 (규장질)';
-    var M = p.me > 0 ? META[p.me - 1] : null;
+    var M = p.pr > 0 ? metaOf(p.pr - 1, p.mt, p.mp) : null;
     return {P:P, C:C, rock:rock, col:col, M:M};
   },
   draw: function(c, W, H, p, r, tau){
@@ -529,12 +560,19 @@ return {
   stats: function(p, r){
     var a = [['마그마가 생긴 까닭', r.P.why], ['SiO₂ 함량', r.P.sio2 + ' %', PAL[2]], ['식는 방식', r.C.name + ' → ' + r.C.gr],
       ['만들어진 화성암', r.rock, PAL[4]], ['색', r.col]];
-    if (r.M) a.push(['변성 결과', r.M.from + ' → ' + r.M.to + ' (' + r.M.tex + ')', PAL[3]]);
+    if (r.M){
+      a.push(['변성 조건', r.M.name + ' · ' + r.M.T + ' ℃ · ' + r.M.P + ' kbar']);
+      a.push(['변성 결과', r.M.from + ' → ' + r.M.to, PAL[3]]);
+      a.push(['달라진 모습', r.M.tex]);
+      a.push(['줄무늬(엽리)', r.M.fol ? '생김 — 한 방향으로 눌려 광물이 늘어섬' : '없음 — 사방에서 고르게 데워지거나 광물이 한 가지']);
+    }
     return a;
   },
-  columns: ['생성 장소', 'SiO₂ (%)', '식는 방식', '화성암', '색', '변성 실험'],
-  record: function(p, r){ return {pl:p.pl, sio2:r.P.sio2, co:p.co, rock:r.rock, col:r.col, me:p.me}; },
-  row: function(d){ return [PLACE[d.pl].name.split(' ')[0], d.sio2, COOL[d.co].gr, d.rock, d.col, d.me ? META[d.me - 1].from + ' → ' + META[d.me - 1].to : '−']; },
+  columns: ['생성 장소', 'SiO₂ (%)', '식는 방식', '화성암', '색', '원래 암석', '온도 (℃)', '압력 (kbar)', '변성암', '엽리'],
+  record: function(p, r){ return {pl:p.pl, sio2:r.P.sio2, co:p.co, rock:r.rock, col:r.col, pr:p.pr, mt:p.mt, mp:p.mp,
+    mfrom:r.M ? r.M.from : '', mto:r.M ? r.M.to : '', mkind:r.M ? r.M.name : '', mtex:r.M ? r.M.tex : '', mfol:r.M ? r.M.fol : false}; },
+  row: function(d){ return [PLACE[d.pl].name.split(' ')[0], d.sio2, COOL[d.co].gr, d.rock, d.col,
+    d.pr ? d.mfrom : '−', d.pr ? d.mt : '−', d.pr ? d.mp : '−', d.pr ? d.mto : '−', d.pr ? (d.mfol ? '있음' : '없음') : '−']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('SiO₂ 함량과 식는 속도로 나눈 화성암', '<div id="ro1"></div><p class="ask">같은 SiO₂ 함량인데 이름이 다른 두 암석은 무엇이 다른가요? 가로줄과 세로줄은 각각 무엇을 뜻할까요?</p>') +
@@ -547,9 +585,16 @@ return {
       series:[{color:PAL[2], pts:rec.map(function(d){ return {x:d.pl + 1, y:d.sio2}; })}]});
     $('ro2').innerHTML = [0, 1, 2, 3].filter(function(i){ return rec.some(function(d){ return d.pl === i; }); }).map(function(i){
       return '<li><b>' + (i + 1) + ' ' + PLACE[i].name + '</b>: ' + PLACE[i].why + '</li>'; }).join('');
-    var used = rec.filter(function(d){ return d.me; });
-    $('ro3').innerHTML = used.length ? tableHTML(['원래 암석', '조건', '온도 (℃)', '압력 (kbar)', '변성암', '특징'], used.map(function(d){ var m = META[d.me - 1]; return [m.from, m.name, m.T, m.P, m.to, '<span style="white-space:normal">' + m.tex + '</span>']; }), 'wrap')
-      : '<p class="msg">변성 실험을 골라 기록하면 여기에 정리됩니다.</p>';
+    var used = rec.filter(function(d){ return d.pr; });
+    var fol = used.filter(function(d){ return d.mfol; }), nof = used.filter(function(d){ return !d.mfol && d.mto.indexOf('거의 그대로') < 0; });
+    $('ro3').innerHTML = used.length ? tableHTML(['원래 암석', '조건', '온도 (℃)', '압력 (kbar)', '변성암', '줄무늬(엽리)', '특징'], used.map(function(d){
+        return [d.mfrom, d.mkind, d.mt, d.mp, d.mto, d.mfol ? '있음' : '없음', '<span style="white-space:normal">' + d.mtex + '</span>']; }), 'wrap') +
+      '<ul class="readout">' +
+      '<li>압력이 높았던 기록(3 kbar 이상)은 ' + fol.length + '개, 그중 줄무늬가 생긴 것은 ' + fol.length + '개예요. <b>한 방향으로 누르면</b> 납작한 광물이 그 방향에 나란히 늘어서서 줄무늬(엽리)가 생겨요.</li>' +
+      '<li>마그마 옆에서 구워지기만 한 기록은 ' + nof.length + '개로, 같은 온도라도 줄무늬 없이 알갱이만 굵어져요.</li>' +
+      '<li>석회암·사암처럼 광물이 거의 한 가지인 암석은 아무리 눌러도 줄무늬가 잘 생기지 않고 알갱이만 단단히 맞물려요.</li>' +
+      '<li>같은 셰일이라도 온도가 올라갈수록 점판암 → 천매암 → 편암 → 편마암으로 바뀌어요. <b>녹지는 않고</b> 고체인 채로 광물만 다시 자란 것이 변성암이에요.</li></ul>'
+      : '<p class="msg">원래 암석을 고르고 온도·압력을 바꿔 기록하면 여기에 정리됩니다.</p>';
   }
 };
 })();
@@ -558,7 +603,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

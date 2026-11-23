@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -474,40 +476,63 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         {n:'인도', k:['ind'], mob:[135, '약 130만~140만 명 (7만 명 이상 사망)'], war:'서부 전선, 메소포타미아, 동아프리카 등으로 파병', y19:'암리차르 학살(1919.4) — 영국군 발포로 수백 명 사망, 이후 비폭력 불복종 운동 확산'},
         {n:'아프리카', k:['af'], mob:[200, '병사·짐꾼 200만 명 이상'], war:'토고·카메룬·남서아프리카·동아프리카에서 전투, 짐꾼 사망만 10만 명 이상 추정', y19:'독일 식민지는 독립이 아니라 영국·프랑스 등의 위임 통치령으로 재분배'},
         {n:'프랑스 식민지', k:['af', 'sea'], mob:[50, '병력 50만 명 이상 (세네갈·알제리·인도차이나 등)'], war:'서부 전선에 투입, 노동자도 동원', y19:'식민 지배 유지 — 전쟁 경험이 이후 독립운동의 바탕이 됨'},
-        {n:'중동', k:['me'], mob:null, war:'오스만 제국과 영국군의 전쟁 — 갈리폴리, 메소포타미아, 팔레스타인; 아랍인의 봉기', y19:'이집트 1919년 혁명; 아랍 지역은 영국·프랑스의 위임 통치령으로'},
+        {n:'중동', k:['me'], mob:[280, '오스만 제국 동원 약 280만 명 (여러 전선)'], war:'오스만 제국과 영국군의 전쟁 — 갈리폴리, 메소포타미아, 팔레스타인; 아랍인의 봉기', y19:'이집트 1919년 혁명; 아랍 지역은 영국·프랑스의 위임 통치령으로'},
         {n:'동아시아·태평양', k:['cn', 'jk', 'oc'], mob:[14, '중국인 노동자 약 14만 명 유럽 파견'], war:'일본이 칭다오의 독일 기지와 독일령 태평양 섬들을 점령', y19:'산둥의 독일 권익이 일본으로 → 중국 5·4 운동; 조선 3·1 운동'}
       ];
       var VW = ['전쟁 중 (1914~18)', '전쟁 뒤 (1919)'];
+      var ONOFF = ['끄기', '켜기'];
+      var EURO = 6000;   /* 유럽 열강이 본토에서 동원한 인원 약 6,000만 명 (대략) */
+      function selOf(p){ var a = []; for (var i = 0; i < RG.length; i++) if (p['g' + i] === 1) a.push(i); return a; }
       return {
         sceneHeight: 420,
-        idle: '지역과 시점을 고른 뒤 <b>지도에 표시하기</b>를 누르세요.',
-        shortHint: '여섯 지역 가운데 4곳 이상을, 전쟁 중과 1919년 둘 다 확인해 보세요.',
-        params: [
-          {key:'r', type:'seg', label:'지역', cols:3, value:1, options:RG.map(function(x){ return x.n; })},
+        idle: '지역을 켜고 시점을 고른 뒤 <b>지도에 표시하기</b>를 누르세요. 여러 지역을 함께 켜면 동원 인원이 합산됩니다.',
+        shortHint: '여섯 지역 가운데 4곳 이상을, 전쟁 중과 1919년 둘 다 확인해 보세요. 지역을 하나씩 더 켜 가며 합계가 어떻게 커지는지 보세요.',
+        params: RG.map(function(g, i){ return {key:'g' + i, type:'seg', label:g.n, cols:2, value:i === 1 ? 1 : 0, options:ONOFF,
+          note:i === RG.length - 1 ? '켠 지역의 동원 인원이 더해집니다. 아프리카와 프랑스 식민지처럼 겹치는 지역이 있어 합계는 어림값입니다.' : undefined}; }).concat([
           {key:'v', type:'seg', label:'시점', cols:2, value:0, options:VW}
-        ],
-        compute: function(p){ var g = RG[p.r]; return {g:g, txt:p.v ? g.y19 : g.war}; },
-        draw: function(c, W, H, p, r, tau){
-          var sz = fz(W), g = RG[p.r], mx = 8, my = 8, mw = W - 16, mh = H - 110, k = r ? ease(tau / 0.8) : 0;
-          drawWorld(c, mx, my, mw, mh, function(kk){ return g.k.indexOf(kk) >= 0 ? (p.v ? 'rgba(217,142,4,.7)' : 'rgba(200,70,61,.55)') : null; }, true, W < 520 ? 9 : 11);
-          var eu = wbox('eu', mx, my, mw, mh);
-          if (r && p.v === 0 && g.mob) g.k.forEach(function(kk){ var b = wbox(kk, mx, my, mw, mh); arrow(c, b.cx, b.cy, lerp(b.cx, eu.cx, 0.85 * k), lerp(b.cy, eu.cy, 0.85 * k), PAL[4], 3); });
-          if (r && p.v === 1){ var b0 = wbox(g.k[0], mx, my, mw, mh); stamp(c, b0.cx, b0.cy, '1919', PAL[6], k, W < 520 ? 13 : 16); }
-          tx(c, g.n + ' · ' + VW[p.v], 14, H - 72, {bold:true, size:sz});
-          if (r && tau > 0.5){ c.globalAlpha = ease((tau - 0.5) / 0.4); wrapT(c, r.txt, 14, H - 48, W - 28, sz + 3, {size:sz - 2, max:2, color:'#3D4A5A'}); c.globalAlpha = 1; }
-          if (g.mob && p.v === 0) tx(c, g.mob[1], W - 14, 26, {align:'right', bold:true, size:sz - 1, color:PAL[4]});
+        ]),
+        compute: function(p){
+          var sel = selOf(p);
+          if (!sel.length) return {fail:'지역을 하나 이상 켜고 다시 눌러 보세요.'};
+          var tot = 0, names = [];
+          sel.forEach(function(i){ names.push(RG[i].n); if (RG[i].mob) tot += RG[i].mob[0]; });
+          var g = RG[sel[0]];
+          return {sel:sel, g:g, tot:tot, names:names, txt:p.v ? g.y19 : g.war, share:tot / (tot + EURO) * 100};
         },
-        stats: function(p, r){ return [['지역 · 시점', r.g.n + ' · ' + VW[p.v]], ['동원 규모 (대략)', r.g.mob ? r.g.mob[1] : '—', PAL[4]], [p.v ? '1919년의 결과' : '전장과 역할', r.txt, p.v ? PAL[6] : PAL[0]]]; },
-        columns: ['지역', '시점', '동원 규모'],
-        record: function(p, r){ return {r:p.r, v:p.v}; },
-        row: function(d){ var g = RG[d.r]; return [g.n, VW[d.v], g.mob ? g.mob[1].split(' (')[0] : '—']; },
+        draw: function(c, W, H, p, r, tau){
+          var sz = fz(W), sel = selOf(p), mx = 8, my = 8, mw = W - 16, mh = H - 110, k = r ? ease(tau / 0.8) : 0;
+          var g = RG[sel.length ? sel[0] : 1], keys = {};
+          sel.forEach(function(i){ RG[i].k.forEach(function(kk){ keys[kk] = 1; }); });
+          drawWorld(c, mx, my, mw, mh, function(kk){ return keys[kk] ? (p.v ? 'rgba(217,142,4,.7)' : 'rgba(200,70,61,.55)') : null; }, true, W < 520 ? 9 : 11);
+          var eu = wbox('eu', mx, my, mw, mh);
+          if (r && p.v === 0) sel.forEach(function(i){ if (!RG[i].mob) return; RG[i].k.forEach(function(kk){ var b = wbox(kk, mx, my, mw, mh); arrow(c, b.cx, b.cy, lerp(b.cx, eu.cx, 0.85 * k), lerp(b.cy, eu.cy, 0.85 * k), PAL[4], 3); }); });
+          if (r && p.v === 1){ var b0 = wbox(g.k[0], mx, my, mw, mh); stamp(c, b0.cx, b0.cy, '1919', PAL[6], k, W < 520 ? 13 : 16); }
+          tx(c, (sel.length > 1 ? sel.length + '개 지역' : g.n) + ' · ' + VW[p.v], 14, H - 72, {bold:true, size:sz});
+          if (r && tau > 0.5){ c.globalAlpha = ease((tau - 0.5) / 0.4); wrapT(c, r.txt, 14, H - 48, W - 28, sz + 3, {size:sz - 2, max:2, color:'#3D4A5A'}); c.globalAlpha = 1; }
+          if (r && p.v === 0) tx(c, '합계 약 ' + f(r.tot, 0) + '만 명', W - 14, 26, {align:'right', bold:true, size:sz - 1, color:PAL[4]});
+        },
+        stats: function(p, r){ return [['켠 지역 · 시점', r.names.join(', ') + ' · ' + VW[p.v]],
+          ['켠 지역의 동원 합계 (대략)', '약 ' + f(r.tot, 0) + '만 명', PAL[4]],
+          ['유럽 본토 동원과 견주면', '유럽 열강 본토 약 ' + EURO + '만 명 — 켠 지역이 전체의 약 ' + f(r.share, 1) + '%', PAL[6]],
+          ['지역별로 보면', r.sel.map(function(i){ return RG[i].n + ': ' + (RG[i].mob ? RG[i].mob[1] : '수치 없음'); }).join(' / ')],
+          [p.v ? '1919년의 결과 (' + r.g.n + ')' : '전장과 역할 (' + r.g.n + ')', r.txt, p.v ? PAL[6] : PAL[0]]]; },
+        columns: ['켠 지역', '시점', '동원 합계', '전체 중 몫'],
+        record: function(p, r){ return {sel:r.sel.slice(), v:p.v, tot:r.tot, share:r.share}; },
+        row: function(d){ return [d.sel.map(function(i){ return RG[i].n.split(' (')[0]; }).join('·'), VW[d.v], '약 ' + f(d.tot, 0) + '만', f(d.share, 1) + '%']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('유럽 밖에서 동원된 규모 (대략)', '<div id="w11"></div><p class="ask">유럽 지도만 그리면 사라지는 사람들은 누구인가요? 이 동원 규모로 "세계" 대전이라는 이름을 설명해 보세요.</p>') +
             card('1919년 — 약속과 결과', '<div id="w12"></div><p class="ask">과제: 제1차 세계 대전의 전장을 대륙별 지도에 표시하고, 식민지별 동원 병력·사망자 통계를 표로 만들어 보세요. 1919년에 일어난 식민지 저항 운동 5개를 찾아 "민족 자결"과의 관계를 설명해 보세요.</p>') + '</div>';
-          var seen = {}, s19 = {}; rec.forEach(function(d){ seen[d.r] = 1; if (d.v) s19[d.r] = 1; });
+          var seen = {}, s19 = {}; rec.forEach(function(d){ d.sel.forEach(function(i){ seen[i] = 1; if (d.v) s19[i] = 1; }); });
           var items = RG.map(function(g, i){ return g.mob ? {label:g.n + (seen[i] ? '' : ' (미확인)'), v:seen[i] ? g.mob[0] : 0, color:PAL[4], text:seen[i] ? g.mob[1].split(' (')[0] : '—'} : null; }).filter(function(x){ return x; });
-          $('w11').innerHTML = hbars(items, 210) + '<p class="msg">막대 길이는 대략값의 대표치(만 명)입니다.</p>';
+          var best = 0; rec.forEach(function(d){ if (d.tot > best) best = d.tot; });
+          var crows = [], cs = {};
+          rec.forEach(function(d){ var kk = d.sel.join('-'); if (cs[kk]) return; cs[kk] = 1;
+            crows.push([d.sel.length + '곳', d.sel.map(function(i){ return RG[i].n.split(' (')[0]; }).join('·'), '약 ' + f(d.tot, 0) + '만 명', f(d.share, 1) + '%']); });
+          crows.sort(function(a, b){ return parseInt(a[0], 10) - parseInt(b[0], 10); });
+          $('w11').innerHTML = hbars(items, 300) + '<p class="msg">막대 길이는 대략값의 대표치(만 명)입니다.</p>' +
+            '<p class="msg">켠 지역을 늘려 가며 더한 합계 (가장 큰 합계 약 ' + f(best, 0) + '만 명)</p>' +
+            tableHTML(['켠 수', '지역', '동원 합계', '유럽 본토를 포함한 전체 중 몫'], crows);
           $('w12').innerHTML = tableHTML(['지역', '1919년'], RG.map(function(g, i){ return [g.n, s19[i] ? g.y19 : '(전쟁 뒤 시점을 아직 확인하지 않음)']; }));
         }
       };
@@ -518,7 +543,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

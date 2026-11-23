@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -433,6 +435,8 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var NS = [20, 40, 100, 1000], PR = [10, 50, 70, 95], SEA = 0.71;
+      /* 가상 행성의 바다 비율은 지구와 견주기 위한 교육용 모형값 */
+      var PLN = [{n:'지구 (바다 약 70%)', s:'지구', sea:0.71}, {n:'가상 행성 가 (바다 약 55%)', s:'행성 가', sea:0.55}, {n:'가상 행성 나 (바다 약 85%)', s:'행성 나', sea:0.85}];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function near(v){ var best = 0; PR.forEach(function(x, i){ if (Math.abs(x - v) < Math.abs(PR[best] - v)) best = i; }); return best; }
       function globe(c, x, y, R){
@@ -450,17 +454,22 @@ var LAB = (function(){
         shortHint: '20번, 40번, 100번, 1000번을 모두 던져 보세요. 횟수가 많을수록 바다 비율이 어디에 가까워지나요?',
         params: [
           {key:'n', type:'seg', label:'던질 횟수', cols:4, value:2, options:NS.map(function(x){ return x + '번'; })},
-          {key:'g', type:'seg', label:'예측: 지구 겉면에서 바다가 차지하는 비율은 대략?', cols:4, value:0, options:PR.map(function(x){ return '약 ' + x + '%'; }),
-            note:'우리는 늘 땅 위에서 지내요. 그래도 지구 전체에서는 어떨까요?'}
+          {key:'g', type:'seg', label:'예측: 이 행성 겉면에서 바다가 차지하는 비율은 대략?', cols:4, value:0, options:PR.map(function(x){ return '약 ' + x + '%'; }),
+            note:'우리는 늘 땅 위에서 지내요. 그래도 지구 전체에서는 어떨까요?'},
+          {key:'pl', type:'seg', label:'어느 행성에서 던질까', cols:3, value:0, options:PLN.map(function(x){ return x.n; }),
+            note:'행성 가·나의 바다 비율은 교육용 모형값이에요. 두 행성을 가르려면 몇 번 던져야 할까요?'}
         ],
         compute: function(p){
-          var n = NS[p.n], sea = 0, flags = [];
-          for (var i = 0; i < n; i++){ var s = Math.random() < SEA; if (s) sea++; if (i < 100) flags.push(s); }
+          var n = NS[p.n], pln = PLN[p.pl], sea = 0, flags = [];
+          for (var i = 0; i < n; i++){ var s = Math.random() < pln.sea; if (s) sea++; if (i < 100) flags.push(s); }
           var pct = sea / n * 100;
-          return {n:n, sea:sea, land:n - sea, pct:pct, flags:flags, ok:p.g === 2, near:near(pct)};
+          /* 적게 던지면 비율이 많이 흔들린다 — 흔들림 폭은 어림한 교육용 모형값 */
+          var wob = Math.round(50 / Math.sqrt(n)), gap = 15;
+          return {n:n, pln:pln, truePct:Math.round(pln.sea * 100), sea:sea, land:n - sea, pct:pct, flags:flags,
+            wob:wob, gap:gap, tell:(2 * wob < gap), ok:(p.g === near(pln.sea * 100)), near:near(pct)};
         },
         draw: function(c, W, H, p, r, tau){
-          var narrow = W < 560, R = Math.min(70, W * 0.15), gx = 20 + R, gy = 40 + R;
+          var narrow = W < 560, R = Math.min(70, W * 0.15), gx = 20 + R, gy = 40 + R, SEAP = PLN[p.pl].sea;
           globe(c, gx, gy, R);
           T(c, '공 지구본(개략도)', gx, gy + R + 22, narrow ? 11 : 13, '#4A5868', 'center');
           var x0 = gx + R + 22, cs = Math.max(8, Math.min(22, (W - x0 - 20) / 10)), y0 = 30;
@@ -481,30 +490,36 @@ var LAB = (function(){
           if (r && tau >= 0.8){
             c.fillStyle = PAL[0]; c.fillRect(20, by, bw * r.pct / 100, 22);
             c.fillStyle = PAL[2]; c.fillRect(20 + bw * r.pct / 100, by, bw * (1 - r.pct / 100), 22);
-            seg(c, 20 + bw * 0.7, by - 8, 20 + bw * 0.7, by + 30, '#1E2833', 2, [4, 3]);
-            T(c, '실제 약 70%', 20 + bw * 0.7, by + 46, narrow ? 11 : 13, '#1E2833', 'center', true);
+            seg(c, 20 + bw * SEAP, by - 8, 20 + bw * SEAP, by + 30, '#1E2833', 2, [4, 3]);
+            T(c, '실제 약 ' + Math.round(SEAP * 100) + '%', 20 + bw * SEAP, by + 46, narrow ? 11 : 13, '#1E2833', 'center', true);
             T(c, '바다 ' + r.sea + '번 · 땅 ' + r.land + '번 → 바다 ' + f(r.pct, 0) + '%', 20, by + 74, narrow ? 14 : 17, PAL[0], 'left', true);
-            T(c, r.ok ? '○ 예측이 실제(약 70%)와 맞아요' : '✕ 예측과 달라요 — 실제는 약 70%', 20, by + 100, narrow ? 13 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
+            T(c, r.ok ? '○ 예측이 실제와 맞아요' : '✕ 예측과 달라요 — 실제 약 ' + r.truePct + '%', 20, by + 100, narrow ? 13 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
           } else {
             c.fillStyle = '#E6EBF1'; c.fillRect(20, by, bw, 22);
           }
         },
         stats: function(p, r){
-          return [['던진 횟수', r.n + '번'], ['바다에 닿음', r.sea + '번', PAL[0]], ['땅에 닿음', r.land + '번', PAL[2]],
-            ['바다 비율', f(r.pct, 1) + '% (실제 약 70%)', PAL[1]],
-            ['내 예측', '약 ' + PR[p.g] + '%' + (r.ok ? ' — ○' : ' — ✕ (실제 약 70%)'), r.ok ? PAL[1] : PAL[4]]];
+          return [['던진 행성', r.pln.n], ['던진 횟수', r.n + '번'], ['바다에 닿음', r.sea + '번', PAL[0]], ['땅에 닿음', r.land + '번', PAL[2]],
+            ['바다 비율', f(r.pct, 1) + '% (실제 약 ' + r.truePct + '%)', PAL[1]],
+            ['이 횟수의 흔들림 폭', '약 ±' + r.wob + '% (교육용 어림값)'],
+            ['두 행성을 가를 수 있나', r.tell ? '✅ 가를 수 있어요 — 흔들림 폭(±' + r.wob + '%)이 행성 사이 차이(' + r.gap + '%)보다 작아요' : '❌ 아직 못 가려요 — 흔들림 폭(±' + r.wob + '%)이 너무 커요. 더 많이 던져 보세요', r.tell ? PAL[1] : PAL[4]],
+            ['내 예측', '약 ' + PR[p.g] + '%' + (r.ok ? ' — ○' : ' — ✕ (실제 약 ' + r.truePct + '%)'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['던진 횟수', '바다', '땅', '바다 비율', '내 예측'],
-        record: function(p, r){ return {n:r.n, sea:r.sea, g:p.g}; },
-        row: function(d){ return [d.n + '번', d.sea + '번', (d.n - d.sea) + '번', f(d.sea / d.n * 100, 0) + '%', '약 ' + PR[d.g] + '%']; },
+        columns: ['행성', '던진 횟수', '바다', '땅', '바다 비율', '가를 수 있나', '내 예측'],
+        record: function(p, r){ return {n:r.n, sea:r.sea, g:p.g, pl:p.pl, truePct:r.truePct, wob:r.wob, tell:r.tell}; },
+        row: function(d){ return [PLN[d.pl].s, d.n + '번', d.sea + '번', (d.n - d.sea) + '번', f(d.sea / d.n * 100, 0) + '%', d.tell ? '✅ ±' + d.wob + '%' : '❌ ±' + d.wob + '%', '약 ' + PR[d.g] + '%']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('던질 때마다 나온 바다 비율', '<div id="gt1"></div><p class="ask">20번 던졌을 때와 1000번 던졌을 때, 어느 쪽이 70%에 더 가까웠나요? 많이 던질수록 왜 실제 비율에 가까워질까요?</p>') +
             card('웹툰의 100번 기록과 견주기', '<div id="gt2"></div><p class="ask">과제: 지구본이나 세계 지도에서 여섯 대륙과 다섯 대양을 찾아 색칠하고, 우리나라를 "어느 대륙의 어느 쪽, 어느 대양 옆"으로 한 문장에 써 보세요.</p>') + '</div>';
-          var items = rec.slice(-8).map(function(d){ var v = d.sea / d.n * 100; return {label:d._no + '. ' + d.n + '번', v:v, color:d.n >= 100 ? PAL[0] : PAL[5], text:f(v, 0) + '%'}; });
+          var items = rec.slice(-8).map(function(d){ var v = d.sea / d.n * 100; return {label:d._no + '. ' + PLN[d.pl].s + ' ' + d.n + '번', v:v, color:d.n >= 100 ? PAL[0] : PAL[5], text:f(v, 0) + '%'}; });
           var tn = 0, ts = 0; rec.forEach(function(d){ tn += d.n; ts += d.sea; });
-          items.push({label:'실제', v:70, color:PAL[1], text:'약 70%'});
-          $('gt1').innerHTML = hbars(items, 100) + '<p class="msg">지금까지 모두 ' + tn + '번 던져 바다 ' + ts + '번 — 바다 ' + f(ts / tn * 100, 1) + '%</p>';
+          PLN.forEach(function(x, i){ if (rec.some(function(d){ return d.pl === i; })) items.push({label:x.s + ' 실제', v:x.sea * 100, color:PAL[1], text:'약 ' + Math.round(x.sea * 100) + '%'}); });
+          $('gt1').innerHTML = hbars(items, 100) + '<p class="msg">지금까지 모두 ' + tn + '번 던져 바다 ' + ts + '번 — 바다 ' + f(ts / tn * 100, 1) + '%</p>'
+            + (function(){ var byN = {}; rec.forEach(function(d){ byN[d.n] = d; });
+              var ks = Object.keys(byN).map(Number).sort(function(a, b){ return a - b; });
+              var need = ks.filter(function(k){ return byN[k].tell; })[0];
+              return '<p class="msg">던진 횟수마다 흔들림 폭: ' + ks.map(function(k){ return k + '번 → ±' + byN[k].wob + '%' + (byN[k].tell ? ' (가름)' : ' (못 가름)'); }).join(' · ') + '. 행성끼리 바다 비율 차이는 ' + 15 + '% 인데, 흔들림 폭이 그보다 커지면 <b>지구인지 다른 행성인지 가를 수 없습니다</b>. ' + (need ? '이 기록에서는 <b>' + need + '번</b>부터 가를 수 있었습니다.' : '아직 가를 수 있는 횟수까지 던지지 않았어요 — 100번, 1000번도 던져 보세요.') + ' (흔들림 폭은 교육용 어림값)</p>'; })();
           $('gt2').innerHTML = tableHTML(['던진 횟수', '바다', '땅'], [['처음 20번', '15번', '5번'], ['다음 40번', '27번', '13번'], ['마지막 40번', '29번', '11번'], ['합계 100번', '71번 (71%)', '29번 (29%)']]) +
             '<p class="msg">웹툰 기록도 가상 실험이에요. 처음 20번은 75%, 합치면 71%로 실제 약 70%에 가까워졌어요.</p>';
         }
@@ -515,7 +530,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

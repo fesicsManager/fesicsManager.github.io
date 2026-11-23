@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -431,8 +433,8 @@ var LAB = (function(){
       var CW = 900; function tfit(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width, al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; if (mw > 40 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       var PO = [{n:'A 꼿꼿한 자세 고정', s:'꼿꼿 고정', a:0.170, e:0.807, k:1}, {n:'B 편한 자세 고정', s:'편한 고정', a:0.406, e:0.585, k:1}, {n:'자유롭게 자세 바꾸기', s:'자유롭게', a:0.10, e:0.95, k:0.6}];
       var BR = ['일어서기 없음', '25분마다 2분 일어서기'], SC = ['화면 눈높이 가까이', '화면이 많이 아래 (고개 숙임)'];
-      function sim(p){ var P = PO[p.po], s = 0, out = [0], stand = [];
-        for (var t = 1; t <= 100; t++){ var st = p.br === 1 && (t % 27 === 26 || t % 27 === 0); if (st){ s *= 0.85; stand.push(t); } else s += P.k;
+      function sim(p){ var P = PO[p.po], s = 0, out = [0], stand = [], TT = p.T || 100;
+        for (var t = 1; t <= TT; t++){ var st = p.br === 1 && (t % 27 === 26 || t % 27 === 0); if (st){ s *= 0.85; stand.push(t); } else s += P.k;
           out.push(Math.min(10, P.a * Math.pow(s, P.e) * (p.sc ? 1.25 : 1))); }
         return {d:out, stand:stand}; }
       return {
@@ -442,38 +444,72 @@ var LAB = (function(){
         params: [
           {key:'po', type:'seg', label:'자세', cols:3, value:0, options:PO.map(function(x){ return x.n; })},
           {key:'br', type:'seg', label:'일어서기 규칙', cols:2, value:0, options:BR},
-          {key:'sc', type:'seg', label:'화면 높이', cols:2, value:0, options:SC}
+          {key:'sc', type:'seg', label:'화면 높이', cols:2, value:0, options:SC},
+          {key:'T', type:'range', label:'공부 시간', min:30, max:180, step:10, value:100, fmt:function(v){ return v + '분'; },
+            note:'짧게도, 길게도 해 보세요. 자세 차이가 보이는 구간과 지속 시간이 이기는 구간이 갈립니다.'}
         ],
-        compute: function(p){ var s = sim(p); return {s:s, d50:s.d[50], d100:s.d[100]}; },
+        compute: function(p){
+          var s = sim(p), T = p.T;
+          var alt = p.po < 2 ? sim({po:1 - p.po, br:p.br, sc:p.sc, T:T}) : null;
+          return {s:s, d50:s.d[Math.min(50, T)], d100:s.d[T], T:T,
+            alt:alt ? alt.d[T] : null, otherName:p.po < 2 ? PO[1 - p.po].s : null, po:p.po};
+        },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var px = 66, py = 20, pw = W - px - 24, ph = H - py - 120;
-          var ax = plotBox(c, px, py, pw, ph, [0, 100, 25], [0, 10, 2], '공부 시간 (분)', '불편감 (0~10, 가상)');
+          var TT = r ? r.T : p.T, XM = TT > 100 ? 180 : 100, XS = XM === 180 ? 30 : 25;
+          var ax = plotBox(c, px, py, pw, ph, [0, XM, XS], [0, 10, 2], '공부 시간 (분)', '불편감 (0~10, 가상)');
           var s = r ? r.s : sim(p);
           s.stand.forEach(function(t){ c.fillStyle = 'rgba(46,158,120,.22)'; c.fillRect(ax.X(t - 1), py, ax.X(t) - ax.X(t - 1), ph); });
           if (!r){ tfit(c, '실행하면 100분 동안의 기록이 그려져요', px, H - 18, {color:'#4A5868'}); return; }
-          var upto = 100 * Math.min(1, tau / 0.85);
+          var upto = TT * Math.min(1, tau / 0.85);
           c.strokeStyle = r.d100 >= 6 ? PAL[4] : r.d100 >= 4 ? PAL[6] : PAL[1]; c.lineWidth = 3.5; c.beginPath();
           for (var t = 0; t <= upto; t++){ if (t === 0) c.moveTo(ax.X(t), ax.Y(s.d[t])); else c.lineTo(ax.X(t), ax.Y(s.d[t])); } c.stroke();
-          if (tau >= 1){ [50, 100].forEach(function(t){ c.fillStyle = '#26313D'; c.beginPath(); c.arc(ax.X(t), ax.Y(s.d[t]), 6, 0, Math.PI * 2); c.fill(); });
-            tfit(c, '50분 ' + f(r.d50, 0) + '점 · 100분 ' + f(r.d100, 0) + '점 (자기 기록 가상값)', px, H - 40, {bold:true, color:r.d100 >= 6 ? PAL[4] : PAL[1]});
+          if (tau >= 1){ [Math.min(50, TT), TT].forEach(function(t){ c.fillStyle = '#26313D'; c.beginPath(); c.arc(ax.X(t), ax.Y(s.d[t]), 6, 0, Math.PI * 2); c.fill(); });
+            tfit(c, Math.min(50, TT) + '분 ' + f(r.d50, 0) + '점 · ' + TT + '분 ' + f(r.d100, 0) + '점 (자기 기록 가상값)', px, H - 40, {bold:true, color:r.d100 >= 6 ? PAL[4] : PAL[1]});
             tfit(c, PO[p.po].s + ' · ' + (p.br ? '25분마다 일어섬' : '일어서기 없음') + (p.sc ? ' · 화면 낮음' : ''), px, H - 14, {color:'#4A5868'}); }
         },
         stats: function(p, r){
-          return [['조건', PO[p.po].n + ' · ' + BR[p.br] + ' · ' + SC[p.sc]], ['50분 시점 불편감 (가상)', f(r.d50, 1) + '점'],
-            ['100분 시점 불편감 (가상)', f(r.d100, 1) + '점', r.d100 >= 6 ? PAL[4] : r.d100 >= 4 ? PAL[6] : PAL[1]],
+          return [['조건', PO[p.po].n + ' · ' + BR[p.br] + ' · ' + SC[p.sc] + ' · ' + r.T + '분'],
+            [Math.min(50, r.T) + '분 시점 불편감 (가상)', f(r.d50, 1) + '점'],
+            [r.T + '분 시점 불편감 (가상)', f(r.d100, 1) + '점', r.d100 >= 6 ? PAL[4] : r.d100 >= 4 ? PAL[6] : PAL[1]],
+            ['같은 시간, 다른 자세', r.alt == null ? '자유롭게 바꾸기는 견줄 상대가 없습니다'
+              : r.otherName + ' 은 ' + f(r.alt, 1) + '점 — ' + (Math.abs(r.d100 - r.alt) < 0.3 ? '거의 같습니다 (자세보다 지속 시간이 이깁니다)'
+                : (r.d100 > r.alt ? '지금 자세가 더 높습니다' : '지금 자세가 더 낮습니다')),
+              Math.abs(r.d100 - r.alt) < 0.3 ? PAL[6] : PAL[3]],
             ['해석', p.po < 2 && p.br === 0 ? '모양은 달라도 한 자세로 오래 굳어 있으면 비슷하게 올라가요' : p.br === 1 ? '자주 일어서서 굳어 있던 시간이 끊겼어요 — 변수는 지속 시간' : '자세를 바꾸면 덜 쌓이지만, 일어서기를 더하면 더 낮아져요', PAL[3]],
             ['주의', '점수는 가상 모형이에요. 통증이나 저림이 계속되면 사진이나 이름표로 판단하지 말고 의료인과 상담하세요']];
         },
-        columns: ['자세', '일어서기', '화면', '50분', '100분'],
-        record: function(p, r){ return {po:p.po, br:p.br, sc:p.sc, d50:r.d50, d100:r.d100}; },
-        row: function(d){ return [PO[d.po].s, d.br ? '25분마다' : '없음', d.sc ? '낮음' : '눈높이', f(d.d50, 0), f(d.d100, 0)]; },
+        columns: ['자세', '일어서기', '화면', '공부 시간', '앞 시점', '끝 시점', '다른 자세'],
+        record: function(p, r){ return {po:p.po, br:p.br, sc:p.sc, d50:r.d50, d100:r.d100, T:r.T, alt:r.alt}; },
+        row: function(d){ return [PO[d.po].s, d.br ? '25분마다' : '없음', d.sc ? '낮음' : '눈높이',
+          (d.T || 100) + '분', f(d.d50, 1), f(d.d100, 1), d.alt == null ? '−' : f(d.alt, 1)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('웹툰 #4 표 재현 (화면 눈높이)', '<div id="e3a"></div><p class="ask">A와 B는 모양이 다른데 결과가 비슷하고 C만 낮았나요? 그렇다면 불편감을 가장 크게 바꾼 변수는 무엇인가요?</p>') +
+            card('시간이 길어지면 무엇이 이기나', '<div id="e3b"></div><p class="ask">짧게 공부할 때와 길게 공부할 때, 두 자세의 순서가 뒤집힌 지점이 있었나요? 그렇다면 "바른 자세"라는 말보다 먼저 정해야 할 것은 무엇인가요?</p>') +
             card('과제', '<p class="ask">과제: 이틀은 평소대로, 이틀은 25분마다 2분씩 일어서는 규칙으로 공부하며 50분·100분 시점의 목·허리 불편감을 0~10점으로 기록해 비교하세요. 일어서는 2분은 가볍게 걷거나 어깨를 돌리는 정도로 하세요. 운동 중 통증·어지럼이 있으면 즉시 중단하고 보호자·교사에게 알리세요. 강도·시간을 한꺼번에 늘리지 말고, 기저 질환이나 운동 제한이 있으면 실습 전에 의료인과 상담하세요. 통증이나 저림이 계속되면 의료인과 상담하세요.</p>') + '</div>';
           var CASES = [[0, 0, 'A 꼿꼿한 자세 고정', '4 → 7'], [1, 0, 'B 편한 자세 고정', '4 → 6'], [2, 1, 'C 25분마다 일어서기 + 자유롭게', '2 → 3']], rows = [];
           CASES.forEach(function(k){ var g = rec.filter(function(d){ return d.po === k[0] && d.br === k[1] && d.sc === 0; }); rows.push([k[2], k[3], g.length ? f(g[0].d50, 0) + ' → ' + f(g[0].d100, 0) : '—']); });
           $('e3a').innerHTML = tableHTML(['방식', '웹툰 표 (가상)', '이 실험'], rows);
+          (function(){
+            var two = rec.filter(function(d){ return d.po < 2 && d.alt != null; });
+            if (!two.length){ $('e3b').innerHTML = '<p class="msg">꼿꼿·편한 자세로 <b>공부 시간을 바꿔</b> 기록하면 여기에서 짝지어 보여 줍니다.</p>'; return; }
+            var rows2 = two.slice().sort(function(a, b){ return (a.T || 100) - (b.T || 100); }).map(function(d){
+              var diff = d.d100 - d.alt;
+              return [(d.T || 100) + '분', PO[d.po].s + ' ' + f(d.d100, 1) + '점', PO[1 - d.po].s + ' ' + f(d.alt, 1) + '점',
+                Math.abs(diff) < 0.3 ? '거의 같음' : (diff > 0 ? PO[d.po].s + ' 이 더 높음' : PO[1 - d.po].s + ' 이 더 높음')];
+            });
+            var shortOnes = two.filter(function(d){ return (d.T || 100) <= 60; }), longOnes = two.filter(function(d){ return (d.T || 100) >= 120; });
+            var note = '';
+            if (shortOnes.length && longOnes.length){
+              var sD = shortOnes[0].d100 - shortOnes[0].alt, lD = longOnes[0].d100 - longOnes[0].alt;
+              note = (sD * lD < 0)
+                ? '<p class="msg">짧게 할 때와 길게 할 때 <b>두 자세의 순서가 뒤집혔습니다</b>. 짧으면 자세 모양이 보이고, 길어지면 <b>지속 시간</b>이 이깁니다.</p>'
+                : '<p class="msg">두 구간에서 순서는 같았습니다. 30분과 180분처럼 더 벌려 보세요.</p>';
+            } else note = '<p class="msg">공부 시간을 <b>60분 이하</b>와 <b>120분 이상</b>으로 각각 기록해 보세요 — 순서가 뒤집히는지 볼 수 있습니다.</p>';
+            $('e3b').innerHTML = tableHTML(['공부 시간', '고른 자세', '다른 자세', '어느 쪽이 높나'], rows2, 'wrap') + note +
+              '<p class="msg">※ 불편감 점수는 모두 교육용 가상 모형값입니다.</p>';
+          })();
         }
       };
     })();
@@ -482,7 +518,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

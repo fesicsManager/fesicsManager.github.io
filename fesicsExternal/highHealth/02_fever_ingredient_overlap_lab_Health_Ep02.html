@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,14 +436,17 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var CW = 900; function tfit(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width, al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; if (mw > 40 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
-      var ING = [{n:'성분 가', col:'#C8463D'}, {n:'성분 나', col:'#2B5FA3'}, {n:'성분 다', col:'#2E9E78'}, {n:'성분 라', col:'#7657B3'}, {n:'성분 마', col:'#D98E04'}];
+      var CW = 900; function tfit(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width, al = o.align || 'left', mw = o.mw != null ? o.mw : (al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8); if (mw > 40 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
+      /* 1회 양·하루 최대량은 모두 교육용 모형값(mg). 해열 성분(성분 가)만 흔히 알려진 범위를 본떴고 나머지는 비교용으로 정한 값이다. */
+      var ING = [{n:'성분 가', col:'#C8463D', max:3000}, {n:'성분 나', col:'#2B5FA3', max:8}, {n:'성분 다', col:'#2E9E78', max:60}, {n:'성분 라', col:'#7657B3', max:240}, {n:'성분 마', col:'#D98E04', max:120}];
       var PR = [
-        {name:'해열진통제 제품A', ing:[0]},
-        {name:'종합감기약 제품B', ing:[0, 1, 2]},
-        {name:'코감기약 제품C', ing:[1, 3]},
-        {name:'기침약 제품D', ing:[4]}
+        {name:'해열진통제 제품A', ing:[0], dose:[500]},
+        {name:'종합감기약 제품B', ing:[0, 1, 2], dose:[325, 2, 10]},
+        {name:'코감기약 제품C', ing:[1, 3], dose:[4, 30]},
+        {name:'기침약 제품D', ing:[4], dose:[15]}
       ];
+      var PRED = ['성분이 안 겹친다', '겹치지만 하루 최대량 이내', '겹쳐서 하루 최대량을 넘는다'];
+      var KIND = ['겹치지 않음', '겹치지만 모형 최대량 이내', '모형 하루 최대량 초과'];
       var SIT = [
         {name:'열이 나지만 견딜 만하고 잘 먹고 잘 잔다', act:0},
         {name:'열이 나서 잠을 못 잔다', act:1},
@@ -456,6 +461,9 @@ var LAB = (function(){
         params: [
           {key:'a', type:'seg', label:'먹으려는 약 ①', cols:2, value:0, options:PR.map(function(x){ return x.name; })},
           {key:'b', type:'seg', label:'함께 먹으려는 약 ②', cols:2, value:1, options:PR.map(function(x){ return x.name; })},
+          {key:'n', type:'range', label:'하루에 몇 번 먹나 (약마다 똑같이)', min:1, max:6, step:1, value:3, fmt:function(v){ return v + '번'; }},
+          {key:'q', type:'seg', label:'펼치기 전 예측', cols:3, value:0, options:PRED,
+            note:'먼저 찍고 성분표를 펼쳐 보세요. 1회 양·하루 최대량은 모두 교육용 모형값이고, 실제 복용은 설명서·약사 안내를 따릅니다.'},
           {key:'s', type:'seg', label:'지금 상황', cols:2, value:1, options:SIT.map(function(x){ return x.name; }),
             note:'성분이 안 겹쳐도 상황에 따라 약보다 진료가 먼저일 수 있어요.'}
         ],
@@ -463,7 +471,19 @@ var LAB = (function(){
           var A = PR[p.a], B = PR[p.b], dup = [];
           if (p.a === p.b) dup = A.ing.slice();
           else A.ing.forEach(function(i){ if (B.ing.indexOf(i) >= 0) dup.push(i); });
-          return {A:A, B:B, dup:dup, same:p.a === p.b, act:SIT[p.s].act};
+          /* 두 약을 하루 p.n번씩 먹을 때 성분별 하루 양 = (약①+약②의 1회 양) × 횟수 */
+          var tot = {};
+          [A, B].forEach(function(P){ P.ing.forEach(function(ii, m){ tot[ii] = (tot[ii] || 0) + P.dose[m]; }); });
+          var lines = [], over = [];
+          Object.keys(tot).forEach(function(key){
+            var ii = +key, day = tot[ii] * p.n, mx = ING[ii].max;
+            lines.push({i:ii, per:tot[ii], day:day, max:mx, pct:day / mx * 100, over:day > mx, dup:dup.indexOf(ii) >= 0});
+            if (day > mx) over.push(ii);
+          });
+          lines.sort(function(x, y){ return y.pct - x.pct; });
+          var kind = over.length ? 2 : dup.length ? 1 : 0;
+          return {A:A, B:B, dup:dup, same:p.a === p.b, act:SIT[p.s].act,
+            lines:lines, over:over, worst:lines[0], kind:kind, hit:p.q === kind, n:p.n};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var A = PR[p.a], B = PR[p.b], k = r ? tau : 0, bw = (W - 60) / 2;
@@ -480,7 +500,7 @@ var LAB = (function(){
                 var chy = cy + 14 + m * 38, isDup = r.dup.indexOf(ii) >= 0;
                 c.globalAlpha = Math.min(1, (k - 0.25) / 0.2);
                 c.fillStyle = ING[ii].col; c.fillRect(x, chy, bw, 30);
-                tfit(c, ING[ii].n + (isDup && k > 0.55 ? ' ⚠ 중복' : ''), x + 10, chy + 21, {bold:true, color:'#fff'});
+                tfit(c, ING[ii].n + (isDup && k > 0.55 ? ' ⚠ 중복' : ''), x + 10, chy + 21, {bold:true, color:'#fff', mw:bw - 16});   /* 칸 안에만 */
                 c.globalAlpha = 1;
                 if (isDup && k > 0.55){ c.strokeStyle = '#1E2833'; c.lineWidth = 3; c.strokeRect(x - 2, chy - 2, bw + 4, 34); }
               });
@@ -488,28 +508,46 @@ var LAB = (function(){
           });
           if (!r){ tfit(c, '실행하면 성분표가 펼쳐져요', 20, H - 18, {color:'#4A5868'}); return; }
           if (tau >= 1){
-            tfit(c, r.dup.length ? '겹치는 성분 ' + r.dup.length + '개 — 함께 먹으면 과다 위험' : '겹치는 성분 없음 (가상 제품 기준)', 20, H - 46, {bold:true, color:r.dup.length ? PAL[4] : PAL[1]});
+            tfit(c, (r.dup.length ? '겹치는 성분 ' + r.dup.length + '개' : '겹치는 성분 없음') + (r.over.length ? ' · 하루 최대량 초과' : ' · 최대량 이내'), 20, H - 46, {bold:true, color:r.over.length ? PAL[4] : r.dup.length ? PAL[6] : PAL[1]});
             tfit(c, '상황 판단: ' + ['경과 관찰', '불편 완화 고려', '진료 받기'][r.act], 20, H - 18, {bold:true, color:r.act === 2 ? PAL[4] : '#1E2833'});
           }
         },
         stats: function(p, r){
+          var calc = r.lines.map(function(L){
+            return ING[L.i].n + (L.dup ? ' (겹침)' : '') + ' — 1회 ' + L.per + 'mg × ' + r.n + '번 = ' + L.day + 'mg / 최대 ' + L.max + 'mg' + (L.over ? ' ⚠ 초과' : '');
+          }).join('<br>');
           return [['조합', r.A.name + ' + ' + r.B.name], ['겹치는 성분', r.dup.length ? r.dup.map(function(i){ return ING[i].n; }).join(', ') + (r.same ? ' (같은 약을 두 번)' : '') : '없음', r.dup.length ? PAL[4] : PAL[1]],
-            ['중복 판단', r.dup.length ? '함께 먹지 않기 — 약사·의사에게 확인' : '성분 중복은 없지만 상호작용·기저 질환은 약사에게 확인', r.dup.length ? PAL[4] : PAL[0]],
-            ['지금 상황', SIT[p.s].name], ['무엇을 먼저', ACT[r.act], r.act === 2 ? PAL[4] : PAL[3]]];
+            ['하루 양 계산 (모형값)', calc, r.over.length ? PAL[4] : PAL[0]],
+            ['하루 최대량 판정', KIND[r.kind] + (r.over.length ? ' — ' + r.over.map(function(i){ return ING[i].n; }).join(', ') : ''), [PAL[1], PAL[6], PAL[4]][r.kind]],
+            ['내 예측', PRED[p.q] + (r.hit ? ' — 맞혔어요' : ' — 빗나갔어요 (실제: ' + KIND[r.kind] + ')'), r.hit ? PAL[1] : PAL[4]],
+            ['중복 판단', r.over.length ? '함께 먹지 않기 — 하루 최대량을 넘겨요' : r.dup.length ? '겹치는 성분이 있어요 — 횟수까지 세어 보고 약사·의사에게 확인' : '성분 중복은 없지만 상호작용·기저 질환은 약사에게 확인', r.dup.length ? PAL[4] : PAL[0]],
+            ['지금 상황', SIT[p.s].name], ['무엇을 먼저', ACT[r.act], r.act === 2 ? PAL[4] : PAL[3]],
+            ['※ 단서', '1회 양·하루 최대량은 교육용 모형값입니다. 실제 복용은 제품 설명서와 약사·의사 안내를 따르세요.']];
         },
-        columns: ['약 ①', '약 ②', '중복 성분', '상황 판단'],
-        record: function(p, r){ return {a:p.a, b:p.b, s:p.s, dup:r.dup.length, act:r.act}; },
-        row: function(d){ return [PR[d.a].name.split(' ')[1], PR[d.b].name.split(' ')[1], d.dup ? d.dup + '개' : '없음', ['경과 관찰', '불편 완화 고려', '진료 받기'][d.act]]; },
+        columns: ['약 ①', '약 ②', '하루 횟수', '중복 성분', '최대량', '예측', '상황 판단'],
+        record: function(p, r){ return {a:p.a, b:p.b, s:p.s, dup:r.dup.length, act:r.act, n:p.n, kind:r.kind, q:p.q, hit:r.hit,
+          wi:r.worst.i, wd:r.worst.day, wm:r.worst.max}; },
+        row: function(d){ return [PR[d.a].name.split(' ')[1], PR[d.b].name.split(' ')[1], d.n + '번', d.dup ? d.dup + '개' : '없음',
+          d.kind === 2 ? '초과' : '이내', d.hit ? '맞힘' : '빗나감', ['경과 관찰', '불편 완화 고려', '진료 받기'][d.act]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('조합별 성분 중복', '<div id="hh2a"></div><p class="ask">상품명만 봤을 때 "다른 약"이라고 생각했던 조합 중 실제로 성분이 겹친 것은 무엇인가요?</p>') +
-            card('상황별 판단', '<div id="hh2b"></div><p class="ask">과제: 집에 있는 해열진통제와 감기약 두 제품의 성분표를 비교해 공통 성분이 있는지 찾아보세요. 실제 복용은 약사·의사와 상의하세요.</p>') + '</div>';
+            card('상황별 판단', '<div id="hh2b"></div><p class="ask">과제: 집에 있는 해열진통제와 감기약 두 제품의 성분표를 비교해 공통 성분이 있는지 찾아보세요. 실제 복용은 약사·의사와 상의하세요.</p>') +
+            card('하루 최대량을 넘는 조건', '<div id="hh2c"></div><p class="ask">같은 조합인데도 하루 횟수에 따라 판정이 달라진 까닭은 무엇인가요? 겹치지 않아도 최대량을 넘을 수 있을까요? (모든 양은 교육용 모형값)</p>') + '</div>';
           var seen = {}, items = [];
           rec.forEach(function(d){ var key = Math.min(d.a, d.b) + '_' + Math.max(d.a, d.b); seen[key] = d; });
           Object.keys(seen).forEach(function(k){ var d = seen[k]; items.push({label:PR[d.a].name.split(' ')[1] + ' + ' + PR[d.b].name.split(' ')[1], v:d.dup, color:d.dup ? PAL[4] : PAL[1], text:d.dup ? d.dup + '개 중복' : '없음'}); });
           $('hh2a').innerHTML = hbars(items, 3);
           var rows = SIT.map(function(s, i){ var g = rec.filter(function(d){ return d.s === i; }); return [s.name, g.length + '회', ACT[s.act]]; });
           $('hh2b').innerHTML = tableHTML(['상황', '기록', '먼저 할 일'], rows);
+          var hit = rec.filter(function(d){ return d.hit; }).length;
+          var crows = rec.slice(-12).map(function(d){
+            return [PR[d.a].name.split(' ')[1] + ' + ' + PR[d.b].name.split(' ')[1], d.n + '번',
+              ING[d.wi].n + ' ' + d.wd + ' / ' + d.wm + 'mg', d.kind === 2 ? '초과' : d.kind === 1 ? '겹치나 이내' : '안 겹침', d.hit ? '맞힘' : '빗나감'];
+          });
+          $('hh2c').innerHTML = tableHTML(['조합', '하루 횟수', '가장 빠듯한 성분 (모형값)', '판정', '예측'], crows) +
+            '<p class="msg">예측 적중 ' + hit + ' / ' + rec.length + '회' +
+            (rec.filter(function(d){ return d.kind === 2; }).length ? ' · 최대량을 넘긴 기록이 있어요.' : ' · 아직 최대량을 넘긴 기록이 없어요. 하루 횟수를 올려 보세요.') + '</p>';
         }
       };
     })();
@@ -518,7 +556,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>전자기파의 발생과 이용 | 고3 과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -230,9 +231,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,6 +436,7 @@ return {
     }
     // 스펙트럼 띠
     var B = BAND[p.b];
+    var narrow = W < 560;
     var ax = 30, aw = W - 60, ay = 90;
     var lo = -13, hi = 3;
     var X = function(lam){ return ax + Math.max(0, Math.min(1, (Math.log10(lam) - lo) / (hi - lo))) * aw; };
@@ -441,13 +444,24 @@ return {
       var x1 = X(b.lam / 3.2), x2 = X(b.lam * 3.2), on = i === p.b;
       c.fillStyle = on ? PAL[i % 8] : 'rgba(140,153,168,.3)';
       c.fillRect(x1, ay, Math.max(4, x2 - x1), 30);
-      /* 띠가 촘촘해 이름이 겹치므로 두 줄에 번갈아 씀 */
-      txt(c, b.name, (x1 + x2) / 2, ay + 48 + (i % 2) * 22, {align:'center', color:on ? PAL[i % 8] : '#8C99A8', bold:on});
+      /* 띠가 촘촘해 이름이 겹치므로 두 줄에 번갈아 씀 (좁은 화면은 작은 글씨로 세 줄) */
+      if (narrow){
+        c.font = (on ? '700 ' : '') + '10px ' + FONT; c.fillStyle = on ? PAL[i % 8] : '#8C99A8';
+        c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+        c.fillText(b.name, (x1 + x2) / 2, ay + 46 + (i % 3) * 18);
+      } else txt(c, b.name, (x1 + x2) / 2, ay + 48 + (i % 2) * 22, {align:'center', color:on ? PAL[i % 8] : '#8C99A8', bold:on});
     });
     c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(ax, ay + 34); c.lineTo(ax + aw, ay + 34); c.stroke();
     /* 가로축은 왼쪽이 짧은 파장(log λ 가 오른쪽으로 커짐) */
-    txt(c, '짧은 파장 (높은 진동수)', ax, ay - 12, {color:'#4A5868'});
-    txt(c, '긴 파장 (낮은 진동수)', ax + aw, ay - 12, {align:'right', color:'#4A5868'});
+    if (narrow){
+      /* 좁은 화면에서는 두 줄로 나눠 겹치지 않게 */
+      c.font = '12px ' + FONT; c.fillStyle = '#4A5868'; c.textBaseline = 'alphabetic';
+      c.textAlign = 'left'; c.fillText('짧은 파장 (높은 진동수)', ax, ay - 32);
+      c.textAlign = 'right'; c.fillText('긴 파장 (낮은 진동수)', ax + aw, ay - 12);
+    } else {
+      txt(c, '짧은 파장 (높은 진동수)', ax, ay - 12, {color:'#4A5868'});
+      txt(c, '긴 파장 (낮은 진동수)', ax + aw, ay - 12, {align:'right', color:'#4A5868'});
+    }
     // 파형
     var wy = 210, amp = 24, wl = Math.max(8, Math.min(160, 40 * Math.pow(B.lam / 5.5e-7, 0.08)));
     c.strokeStyle = PAL[p.b % 8]; c.lineWidth = 2.5; c.beginPath();
@@ -504,7 +518,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

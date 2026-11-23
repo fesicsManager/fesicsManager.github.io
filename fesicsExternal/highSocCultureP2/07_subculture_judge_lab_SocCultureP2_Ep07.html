@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -467,14 +469,18 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 
 
       var CS = [
-        {n:'게임 동호회의 은어', s:'게임 은어', co:true, rj:false, ref:['하위문화', '하위문화']},
-        {n:'특정 지역의 방언', s:'지역 방언', co:true, rj:false, ref:['하위문화', '하위문화']},
-        {n:'병원 의료진의 전문 용어와 근무 문화', s:'의료진 문화', co:true, rj:false, ref:['하위문화(직업 문화)', '하위문화(직업 문화)']},
-        {n:'아이돌 팬덤의 응원 문화', s:'팬덤 응원', co:true, rj:false, ref:['하위문화', '하위문화']},
-        {n:'1960년대 일부 서구 청년층의 기성 질서 거부 운동', s:'1960년대 운동', co:false, rj:true, ref:['당시의 반문화로 흔히 분류', '옷차림·음악 등 일부 요소가 주류 대중문화로 흡수']},
-        {n:'처음 ‘요즘 애들이나 보는 것’이던 웹툰', s:'초기 웹툰', co:true, rj:false, ref:['하위문화(청소년 문화)', '많은 사람이 즐기는 주류 대중문화로 확산']}
+        {n:'게임 동호회의 은어', s:'게임 은어', co:true, rj:false, ar:0.6, ref:['하위문화', '하위문화']},
+        {n:'특정 지역의 방언', s:'지역 방언', co:true, rj:false, ar:0.2, ref:['하위문화', '하위문화']},
+        {n:'병원 의료진의 전문 용어와 근무 문화', s:'의료진 문화', co:true, rj:false, ar:0.1, ref:['하위문화(직업 문화)', '하위문화(직업 문화)']},
+        {n:'아이돌 팬덤의 응원 문화', s:'팬덤 응원', co:true, rj:false, ar:0.7, ref:['하위문화', '하위문화']},
+        {n:'1960년대 일부 서구 청년층의 기성 질서 거부 운동', s:'1960년대 운동', co:false, rj:true, ar:1.5, ref:['당시의 반문화로 흔히 분류', '옷차림·음악 등 일부 요소가 주류 대중문화로 흡수']},
+        {n:'처음 ‘요즘 애들이나 보는 것’이던 웹툰', s:'초기 웹툰', co:true, rj:false, ar:2.5, ref:['하위문화(청소년 문화)', '많은 사람이 즐기는 주류 대중문화로 확산']}
       ];
       var ERA = ['그 당시', '수십 년 뒤'];
+      /* 흡수 속도 = 그 문화가 퍼지는 빠르기 × 주류의 반응 (교육용 모형값, 단위 %/년) */
+      var MR = [{n:'막는다 · 단속', k:0.4}, {n:'내버려 둔다', k:1.0}, {n:'받아들여 상품화', k:1.8}];
+      function absorb(cs, yr, mr){ return Math.min(100, yr * cs.ar * MR[mr].k); }
+      function modelJudge(cs, ab){ return ab >= 60 ? '주류로 흡수' : (cs.rj ? '반문화' : (cs.co ? '하위문화' : '판정 보류(갈등 중)')); }
       function mine(co, rj, ab){ return ab ? '주류로 흡수' : rj ? '반문화' : co ? '하위문화' : '판정 보류(갈등 중)'; }
       function zoneOf(label){ return /반문화/.test(label) ? 2 : /주류/.test(label) ? 0 : /보류/.test(label) ? 3 : 1; }
       return {
@@ -483,15 +489,20 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         shortHint: '사례를 4개 이상 판정하고, 1960년대 운동과 초기 웹툰은 시대를 바꿔 한 번 더 판정해 보세요.',
         params: [
           {key:'c', type:'seg', label:'사례', cols:3, value:0, options:CS.map(function(x){ return x.s; })},
-          {key:'e', type:'seg', label:'시대', cols:2, value:0, options:ERA},
+          {key:'yr', type:'range', label:'그 뒤 지난 햇수', min:0, max:60, step:10, value:0, fmt:function(v){ return v ? '+' + f(v, 0) + '년 뒤' : '그 당시'; }},
+          {key:'mr', type:'seg', label:'주류의 반응', cols:3, value:1, options:MR.map(function(x){ return x.n; }),
+            note:'햇수와 주류의 반응이 흡수 정도를 정합니다. 흡수 정도가 60%를 넘으면 더 이상 하위문화·반문화로 보지 않습니다. (교육용 모형)'},
           {key:'co', type:'seg', label:'기준 1. 주류와 공존하는가', cols:2, value:0, options:['예', '아니요 · 갈등']},
           {key:'rj', type:'seg', label:'기준 2. 주류의 핵심 가치를 거부하는가', cols:2, value:0, options:['아니요', '예']},
-          {key:'ab', type:'seg', label:'기준 3. 주류 문화로 흡수되었는가 (‘수십 년 뒤’에만 적용)', cols:2, value:0, options:['아니요', '예 · 주류로 흡수']}
+          {key:'ab', type:'seg', label:'기준 3. 주류 문화로 흡수되었을까 (짐작)', cols:2, value:0, options:['아니요', '예 · 주류로 흡수']}
         ],
         compute: function(p){
-          var cs = CS[p.c], my = mine(p.co === 0, p.rj === 1, p.e === 1 && p.ab === 1), ref = cs.ref[p.e];
+          var cs = CS[p.c], ei = p.yr >= 30 ? 1 : 0;
+          var ab = absorb(cs, p.yr, p.mr), out = modelJudge(cs, ab);
+          var my = mine(p.co === 0, p.rj === 1, p.ab === 1), ref = cs.ref[ei];
           var critOk = (p.co === 0) === cs.co && (p.rj === 1) === cs.rj;
-          return {cs:cs, my:my, ref:ref, critOk:critOk, same:zoneOf(my) === zoneOf(ref), changed:cs.ref[0] !== cs.ref[1]};
+          return {cs:cs, ei:ei, ab:ab, out:out, my:my, ref:ref, critOk:critOk,
+            absOk:(p.ab === 1) === (ab >= 60), same:zoneOf(my) === zoneOf(out), changed:cs.ref[0] !== cs.ref[1]};
         },
         draw: function(c, W, H, p, r, tau){
           var s = fz(W), cx = W * 0.42, cy = H * 0.5, R = Math.min(W * 0.3, H * 0.38), k = r ? ease(tau) : 0;
@@ -505,27 +516,35 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           var spot = function(z){ return z === 0 ? {x:cx - R * 0.45, y:cy - R * 0.3} : z === 1 ? {x:cx, y:cy + R * 0.35} : z === 2 ? {x:cx + R * 1.35, y:cy} : {x:cx + R * 0.85, y:cy + R * 0.85}; };
           tx(c, CCS(p.c), W / 2, 22, {align:'center', bold:true, size:s});
           if (r){
-            var a = spot(zoneOf(r.my)), b = spot(zoneOf(r.ref)), st = {x:W / 2, y:40};
+            var bx = 16, bw2 = Math.max(40, W * 0.3);
+            rrect(c, bx, H - 58, bw2, 12, 6, '#E7EEF6', '#9DB0C4', 1);
+            c.fillStyle = r.ab >= 60 ? PAL[4] : PAL[1]; c.fillRect(bx + 1, H - 57, (bw2 - 2) * (r.ab / 100) * (r ? ease(tau) : 0), 10);
+            tx(c, '흡수 ' + f(r.ab, 0) + '%', bx + bw2 + 6, H - 48, {size:s - 3, color:'#4A5868'});
+            var a = spot(zoneOf(r.my)), b = spot(zoneOf(r.out)), st = {x:W / 2, y:40};
             disc(c, lerp(st.x, b.x + 10, k), lerp(st.y, b.y, k), 14, null, PAL[1]); c.lineWidth = 3; c.strokeStyle = PAL[1]; c.beginPath(); c.arc(lerp(st.x, b.x + 10, k), lerp(st.y, b.y, k), 14, 0, Math.PI * 2); c.stroke();
             disc(c, lerp(st.x, a.x - 10, k), lerp(st.y, a.y, k), 10, PAL[0]);
-            if (k > 0.9){ tx(c, '● 나: ' + r.my, 16, H - 30, {bold:true, size:s - 1, color:PAL[0]}); tx(c, '○ 웹툰: ' + r.ref, 16, H - 10, {size:s - 2, color:PAL[1]}); }
+            if (k > 0.9){ tx(c, '● 나: ' + r.my, 16, H - 30, {bold:true, size:s - 1, color:PAL[0]}); tx(c, '○ 모형: ' + r.out, 16, H - 10, {size:s - 2, color:PAL[1]}); }
           }
-          function CCS(i){ return CS[i].s + ' · ' + ERA[p.e]; }
+          function CCS(i){ return CS[i].s + ' · ' + (p.yr ? '+' + p.yr + '년' : '그 당시'); }
         },
         stats: function(p, r){
-          return [['사례', r.cs.n + ' (' + ERA[p.e] + ')'], ['나의 판단', '공존 ' + (p.co === 0 ? '예' : '아니요') + ' · 핵심 가치 거부 ' + (p.rj === 1 ? '예' : '아니요') + (p.e === 1 ? ' · 주류로 흡수 ' + (p.ab === 1 ? '예' : '아니요') : (p.ab === 1 ? ' · (흡수 기준은 ‘수십 년 뒤’에만 적용)' : ''))],
-            ['나의 판정', r.my, PAL[0]], ['웹툰 판정표', r.ref, PAL[1]], ['같은 판정인가', r.same ? '같아요' : '달라요 — 기준을 다시 따져 보세요', r.same ? PAL[2] : PAL[6]],
-            ['시대 변수', r.changed ? '시대에 따라 판정이 바뀌는 사례예요 — 문화 변동' : '시대를 바꿔도 판정이 같은 사례예요']];
+          return [['사례', r.cs.n + ' (' + (p.yr ? '+' + p.yr + '년 뒤' : '그 당시') + ')'],
+            ['나의 판단', '공존 ' + (p.co === 0 ? '예' : '아니요') + ' · 핵심 가치 거부 ' + (p.rj === 1 ? '예' : '아니요') + ' · 흡수 짐작 ' + (p.ab === 1 ? '예' : '아니요')],
+            ['흡수 정도 (교육용 모형)', f(r.ab, 0) + '% — ' + f(p.yr, 0) + '년 × 퍼지는 빠르기 ' + r.cs.ar + '%/년 × 주류 반응 ' + MR[p.mr].k + '배', r.ab >= 60 ? PAL[4] : PAL[1]],
+            ['흡수 짐작', r.absOk ? '맞았어요' : '빗나갔어요 (기준은 60%)', r.absOk ? PAL[2] : PAL[6]],
+            ['나의 판정', r.my, PAL[0]], ['이 값으로 나온 판정', r.out, PAL[1]],
+            ['같은 판정인가', r.same ? '같아요' : '달라요 — 기준을 다시 따져 보세요', r.same ? PAL[2] : PAL[6]],
+            ['웹툰 판정표', r.ref + (r.changed ? ' — 시대에 따라 판정이 바뀌는 사례' : '')]];
         },
-        columns: ['사례', '시대', '나의 판정', '웹툰 판정', '일치'],
-        record: function(p, r){ return {c:p.c, e:p.e, my:r.my, ref:r.ref, same:r.same}; },
-        row: function(d){ return [CS[d.c].s, ERA[d.e], d.my, d.ref, d.same ? '○' : '×']; },
+        columns: ['사례', '햇수·반응', '흡수', '나의 판정', '모형 판정', '일치'],
+        record: function(p, r){ return {c:p.c, e:r.ei, yr:p.yr, mr:p.mr, ab:r.ab, my:r.my, out:r.out, ref:r.ref, same:r.same}; },
+        row: function(d){ return [CS[d.c].s, (d.yr ? '+' + d.yr + '년' : '당시') + ' · ' + MR[d.mr].n.split(' ')[0], f(d.ab, 0) + '%', d.my, d.out, d.same ? '○' : '×']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('나의 판정 vs 웹툰 판정표', '<div id="v7a"></div><p class="ask">판정이 달랐던 사례가 있다면, 두 기준 가운데 어느 쪽 판단이 달랐나요? 하위문화 대부분이 주류와 공존한다는 말이 기록에서도 보이나요?</p>') +
             card('시대가 바뀌면', '<div id="v7b"></div><p class="ask">과제: 자신이 속한 하위문화 하나(학교·동아리·온라인)를 골라 그 집단의 언어·규범·상징을 정리하고, 주류 문화와 공존하는 지점과 부딪히는 지점을 각각 표시해 보세요.</p>') + '</div>';
-          var u = uniq(rec, function(d){ return d.c + '_' + d.e; }), same = u.filter(function(d){ return d.same; }).length;
-          $('v7a').innerHTML = tableHTML(['사례', '시대', '나', '웹툰', '일치'], u.map(function(d){ return [CS[d.c].s, ERA[d.e], d.my, d.ref, d.same ? '○' : '×']; })) + '<p class="msg">일치 ' + same + ' / ' + u.length + '</p>';
+          var u = uniq(rec, function(d){ return d.c + '_' + d.yr + '_' + d.mr; }), same = u.filter(function(d){ return d.same; }).length;
+          $('v7a').innerHTML = tableHTML(['사례', '햇수', '주류 반응', '흡수', '나', '모형', '일치'], u.map(function(d){ return [CS[d.c].s, d.yr ? '+' + d.yr + '년' : '당시', MR[d.mr].n, f(d.ab, 0) + '%', d.my, d.out, d.same ? '○' : '×']; })) + '<p class="msg">일치 ' + same + ' / ' + u.length + '</p>';
           var ch = [4, 5].map(function(i){ var a = u.filter(function(d){ return d.c === i; }); return [CS[i].s, a.some(function(d){ return d.e === 0; }) ? CS[i].ref[0] : '(아직 안 봄)', a.some(function(d){ return d.e === 1; }) ? CS[i].ref[1] : '(아직 안 봄)']; });
           $('v7b').innerHTML = tableHTML(['사례', '그 당시', '수십 년 뒤'], ch) + '<p class="msg">저항의 상징이 유행 상품이 되거나, 소수가 즐기던 문화가 주류가 되는 과정도 문화 변동입니다.</p>';
         }
@@ -537,7 +556,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

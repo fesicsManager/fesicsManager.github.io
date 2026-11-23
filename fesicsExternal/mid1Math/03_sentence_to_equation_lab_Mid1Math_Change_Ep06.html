@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -463,7 +465,7 @@ var LAB = (function(){
         if (line) txt(c, line, x, yy, {bold:true}); return yy;
       }
       return {
-        sceneHeight: function(w){ return w < 480 ? 490 : 440; },
+        sceneHeight: function(w){ return w < 480 ? 580 : 440; },
         idle: '문장과 방법을 고른 뒤 <b>식 세우고 검산하기</b>를 누르세요.',
         shortHint: '다섯 문장을 두 방법으로 모두 해 보세요. 두 방법의 답이 같은 문장도 있어요.',
         params: [
@@ -477,13 +479,15 @@ var LAB = (function(){
         draw: function(c, W, H, p, r, tau){
           var S = SS[p.s];
           var y = wrap(c, S.s, 14, 30, W - 28, 26) + 40;
+          /* 좁은 화면: 문장 조각과 바꾼 식을 나란히 두면 겹치므로 아래 줄에 적는다 */
+          var narrow = W < 480, rh = narrow ? 52 : 30;
           S.map.forEach(function(m, i){
             var show = r && tau > (i + 1) / (S.map.length + 3);
-            txt(c, '“' + m[0] + '”', 14, y + i * 30, {color:'#4A5868'});
-            if (show) txt(c, '→ ' + m[p.m + 1], W - 14, y + i * 30, {align:'right', bold:true, color:p.m ? PAL[1] : PAL[0]});
+            txt(c, '“' + m[0] + '”', 14, y + i * rh, {color:'#4A5868'});
+            if (show) txt(c, '→ ' + m[p.m + 1], W - 14, y + i * rh + (narrow ? 24 : 0), {align:'right', bold:true, color:p.m ? PAL[1] : PAL[0]});
           });
           if (!r) return;
-          var ey = y + S.map.length * 30 + 20;
+          var ey = y + S.map.length * rh + 20;
           if (tau > 0.6){ txt(c, '방정식: ' + r.eq, 14, ey, {bold:true, color:p.m ? PAL[1] : PAL[0]}); txt(c, '해: x = ' + r.xs, 14, ey + 30, {bold:true}); }
           if (tau >= 1){
             /* 좁은 화면: 띄어쓰기에서 두 줄로 나누고 아래 줄을 내림 */
@@ -516,7 +520,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

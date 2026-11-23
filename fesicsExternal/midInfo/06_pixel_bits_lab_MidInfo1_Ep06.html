@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,17 +438,30 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
 
-var SZ = [8, 16, 32], COL = [{name:'흑백 (2색)', bpp:1}, {name:'4색', bpp:2}, {name:'256색', bpp:8}, {name:'트루컬러 (1,670만 색)', bpp:24}];
+var SZ = [4, 8, 16, 32], COL = [{name:'흑백 (2색)', bpp:1}, {name:'4색', bpp:2}, {name:'256색', bpp:8}, {name:'트루컬러 (1,670만 색)', bpp:24}];
 var GLYPH = {'ㄱ':['11111110','00000010','00000010','00000010','00000010','00000010','00000010','00000000'], '하':['10100100','10100100','11100110','10100101','10100100','00000100','01110100','00000000'], 'A':['00011000','00100100','01000010','01111110','01000010','01000010','01000010','00000000'], '♥':['01100110','11111111','11111111','11111111','01111110','00111100','00011000','00000000']};
 var GN = ['ㄱ', '하', 'A', '♥'];
-function calc(gi, si, ci){ var w = SZ[si], bits = w * w * COL[ci].bpp; return {g:GN[gi], w:w, cn:COL[ci].name, bpp:COL[ci].bpp, px:w * w, bits:bits, bytes:bits / 8, kb:bits / 8 / 1024}; }
+/* 원본 글꼴은 8×8 이다. 그보다 작게 담으면 건너뛰며 줄이므로 점이 사라지고(정보 손실),
+   8×8 보다 크게 담아도 원본에 없던 점이 생기지는 않는다(용량만 늘어난다) */
+function detailOf(gi, w){
+  var G = GLYPH[GN[gi]], diff = 0, r, c;
+  for (r = 0; r < 8; r++) for (c = 0; c < 8; c++){
+    var sr = Math.floor(r * w / 8), sc = Math.floor(c * w / 8);          /* 담은 그림의 칸 */
+    var or_ = Math.floor(sr * 8 / w), oc = Math.floor(sc * 8 / w);        /* 그 칸이 베껴 온 원본 칸 */
+    if (G[r][c] !== G[or_][oc]) diff++;
+  }
+  return {kept:64 - diff, lost:diff, score:(64 - diff) / 64 * 100};
+}
+function calc(gi, si, ci){ var w = SZ[si], bits = w * w * COL[ci].bpp, d = detailOf(gi, w);
+  return {g:GN[gi], gi:gi, w:w, cn:COL[ci].name, bpp:COL[ci].bpp, px:w * w, bits:bits, bytes:bits / 8, kb:bits / 8 / 1024,
+    lost:d.lost, score:d.score, grow:(w > 8)}; }
 return {
   sceneHeight: 380,
-  idle: '글자·크기·색 수를 정한 뒤 <b>0과 1로 바꾸기</b>를 누르세요.',
+  idle: '글자·크기·색 수를 정한 뒤 <b>0과 1로 바꾸기</b>를 누르세요. 4×4 로 줄이면 점이 사라지고, 32×32 로 키워도 더 또렷해지지는 않습니다.',
   shortHint: '자유 탐구 탭에서 같은 글자로 크기와 색 수를 바꿔 가며 4번 이상 기록하세요.',
   params: [
     {key:'g', type:'seg', label:'글자', cols:4, value:0, options:GN},
-    {key:'s', type:'seg', label:'크기 (픽셀)', cols:3, value:0, options:SZ.map(function(v){ return v + '×' + v; })},
+    {key:'s', type:'seg', label:'크기 (픽셀)', cols:4, value:1, options:SZ.map(function(v){ return v + '×' + v; })},
     {key:'c', type:'seg', label:'색 수', cols:4, value:0, options:COL.map(function(x){ return x.name; }),
       note:'흑백은 픽셀당 1비트, 4색 2비트, 256색 8비트, 트루컬러 24비트입니다. 8비트 = 1바이트.'}
   ],
@@ -467,19 +482,30 @@ return {
     } else txt(c, bs, 12, H - 14, {bold:true});
   },
   stats: function(p, r){
-    return [['글자 · 크기 · 색', r.g + ' · ' + r.w + '×' + r.w + ' · ' + r.cn], ['픽셀 수', r.px.toLocaleString() + '개', PAL[0]], ['픽셀당 비트', r.bpp + '비트'], ['전체 비트', r.bits.toLocaleString() + '비트', PAL[1]], ['바이트', r.bytes.toLocaleString() + '바이트' + (r.kb >= 1 ? ' (' + f(r.kb, 1) + ' KB)' : ''), PAL[1]]];
+    return [['글자 · 크기 · 색', r.g + ' · ' + r.w + '×' + r.w + ' · ' + r.cn], ['픽셀 수', r.px.toLocaleString() + '개', PAL[0]], ['픽셀당 비트', r.bpp + '비트'], ['전체 비트', r.bits.toLocaleString() + '비트', PAL[1]], ['바이트', r.bytes.toLocaleString() + '바이트' + (r.kb >= 1 ? ' (' + f(r.kb, 1) + ' KB)' : ''), PAL[1]],
+      ['원본(8×8)과 같은 칸', r.lost === 0 ? '64 / 64 — 원본 그대로입니다' : (64 - r.lost) + ' / 64 — 점 ' + r.lost + '칸이 사라졌습니다', r.lost === 0 ? PAL[1] : PAL[4]],
+      ['알아보기 쉬움 (원본 대비)', f(r.score, 0) + '%' + (r.grow ? ' — 크게 담아도 원본에 없던 점이 생기지는 않습니다' : ''), r.score >= 100 ? PAL[1] : PAL[4]],
+      ['고를 거리', r.w < 8 ? '용량은 ' + r.bytes.toLocaleString() + '바이트로 작지만 글자가 뭉개집니다.'
+        : (r.grow ? '글자는 더 또렷해지지 않는데 용량만 ' + (r.w / 8) * (r.w / 8) + '배입니다. 8×8 로도 알아볼 수 있다면 그쪽이 낫습니다.'
+                  : '원본을 그대로 담은 가장 작은 크기입니다.'), PAL[3]]];
   },
-  columns: ['글자', '크기', '색', '픽셀', '비트', '바이트'],
-  record: function(p, r){ return {g:r.g, w:r.w, c:p.c, px:r.px, bits:r.bits, bytes:r.bytes}; },
-  row: function(d){ return [d.g, d.w + '×' + d.w, COL[d.c].name.split(' ')[0], d.px.toLocaleString(), d.bits.toLocaleString(), d.bytes.toLocaleString()]; },
+  columns: ['글자', '크기', '색', '바이트', '사라진 점', '알아보기 쉬움'],
+  record: function(p, r){ return {g:r.g, w:r.w, c:p.c, px:r.px, bits:r.bits, bytes:r.bytes, lost:r.lost, score:r.score}; },
+  row: function(d){ return [d.g, d.w + '×' + d.w, COL[d.c].name.split(' ')[0], d.bytes.toLocaleString(), (d.lost == null ? 0 : d.lost) + '칸', f(d.score == null ? 100 : d.score, 0) + '%']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('픽셀 수와 바이트', '<canvas class="chart" id="ch1" role="img" aria-label="픽셀 수에 따른 바이트"></canvas><ul class="readout" id="ro1"></ul><p class="ask">크기가 2배(8→16)가 되면 픽셀 수와 바이트는 몇 배가 되나요? 색 수가 흑백에서 트루컬러가 되면 몇 배인가요?</p>') +
+      card('용량과 알아보기 쉬움 — 어디서 고를까', '<div id="ro3"></div><p class="ask">같은 글자를 4×4 로 담으면 용량은 얼마나 줄고 점은 몇 칸 사라졌나요? 32×32 는 8×8 보다 또렷했나요? 용량과 알아보기 쉬움 사이에서 어디를 고르겠습니까?</p>') +
       card('크기 표', '<div id="ro2"></div><p class="ask">1920×1080 트루컬러 사진은 압축 전 몇 MB일까요? 그래도 사진 파일이 2~3 MB인 까닭은?</p>') + '</div>';
     var byC = groupBy(rec, function(d){ return d.c; }), s1 = [], r1 = [];
     Object.keys(byC).forEach(function(k){ var g = byC[k]; s1.push({color:PAL[+k], pts:g.map(function(d){ return {x:d.px, y:d.bytes}; })}); r1.push('<li>' + dot(PAL[+k]) + COL[k].name + ': 기록 ' + g.length + '개</li>'); });
     drawScatter($('ch1'), {xLabel:'픽셀 수', yLabel:'바이트', series:s1});
     $('ro1').innerHTML = legend(COL.map(function(x, i){ return {color:PAL[i], label:x.name}; })) + r1.join('');
+    var byW = {}; rec.forEach(function(d){ byW[d.w] = d; });
+    $('ro3').innerHTML = tableHTML(['크기', '바이트(흑백)', '사라진 점', '알아보기 쉬움'],
+      SZ.map(function(w){ var d = byW[w];
+        return [w + '×' + w, (w * w / 8) + ' B', d ? (d.lost == null ? 0 : d.lost) + '칸' : '—', d ? f(d.score == null ? 100 : d.score, 0) + '%' : '—']; }), 'center') +
+      '<p class="msg">원본 글꼴이 8×8 이라, 그보다 작게 담으면 점이 사라져 뭉개지고, 크게 담아도 또렷해지지 않으면서 용량만 늘어나요. “크면 좋다”가 아니라 <b>원본에 담긴 자료만큼</b>이 중요해요.</p>';
     $('ro2').innerHTML = tableHTML(['크기'].concat(COL.map(function(x){ return x.name.split(' ')[0]; })), SZ.map(function(w){ return [w + '×' + w].concat(COL.map(function(x){ var b = w * w * x.bpp / 8; return b >= 1024 ? f(b / 1024, 1) + ' KB' : b + ' B'; })); }), 'center');
   }
 };
@@ -489,7 +515,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

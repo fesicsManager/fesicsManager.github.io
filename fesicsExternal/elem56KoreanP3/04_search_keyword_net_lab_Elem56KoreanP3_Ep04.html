@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,65 +443,89 @@ var LAB = (function(){
         {n:'우유갑', s:'우유갑', k:1, list:'amoomaomoo'},
         {n:'우유갑 분리배출 방법', s:'우유갑 분리배출 방법', k:3, list:'mammmmommm'},
         {n:'우유갑 종이팩 분리배출 방법 씻기 말리기 펼치기 접기 버리기', s:'낱말 9개', k:9, list:'aomooomooo'},
-        {n:'종이팩 분리배출 방법 (낱말 바꿔 다시)', s:'종이팩 분리배출 방법', k:3, list:'mmomammomm'}
+        {n:'종이팩 분리배출 방법 (낱말 바꿔 다시)', s:'종이팩 분리배출 방법', k:3, list:'mmomammomm'},
+        {n:'⑥ 내가 낱말 수를 정한다 (아래 슬라이더)', s:'내가 정함', k:0, list:'', custom:true}
       ];
       var PK = ['맨 위 자료 하나만 믿는다', '첫 화면 10개를 훑어 목적에 맞는 것을 고른다'];
       var NET = ['아주 성김', '성김', '알맞음', '너무 촘촘함', '알맞음'];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function cnt(s, ch){ return s.split('').filter(function(x){ return x === ch; }).length; }
+      /* 낱말 수 → 첫 화면 10개 중 목적에 맞는 자료 수 (교육용 모형값: 핵심 낱말 2~3개에서 가장 많다) */
+      var MFIT = [0, 2, 5, 8, 7, 6, 4, 3, 2, 2];
+      function mk(k){
+        k = Math.max(1, Math.min(9, k));
+        var m = MFIT[k], a = Math.min(10 - m, k <= 2 ? 3 : (k <= 4 ? 1 : 2)), o = 10 - m - a, seq = [], i;
+        if (m >= 6){ while (seq.length < 10){ if (m > 0){ seq.push('m'); m--; } else if (a > 0){ seq.push('a'); a--; } else seq.push('o'); } }
+        else {
+          while (seq.length < 10){ if (a > 0){ seq.push('a'); a--; } else seq.push('o'); }
+          for (i = 9; i >= 0 && m > 0; i--){ if (seq[i] === 'o'){ seq[i] = 'm'; m--; } }
+        }
+        return seq.join('');
+      }
+      function netOf(k){ return k <= 1 ? '아주 성김' : (k <= 2 ? '성김' : (k <= 4 ? '알맞음' : (k <= 6 ? '촘촘함' : '너무 촘촘함'))); }
+      function listOf(p){ var kw = KW[p.k]; return kw.custom ? mk(p.kn) : kw.list; }
+      function knOf(p){ var kw = KW[p.k]; return kw.custom ? p.kn : kw.k; }
       return {
         sceneHeight: 430,
         idle: '검색어와 자료 고르는 방법을 정한 뒤 <b>검색하기</b>를 누르세요.',
         shortHint: '검색어 다섯 가지를 모두 넣어 보고, "쓰레기"에서 "맨 위 하나만 믿기"도 해 보세요.',
         params: [
           {key:'k', type:'seg', label:'검색어', cols:2, value:0, options:KW.map(function(x){ return x.n; })},
-          {key:'pk', type:'seg', label:'자료 고르기', cols:2, value:0, options:PK}
+          {key:'pk', type:'seg', label:'자료 고르기', cols:2, value:0, options:PK},
+          {key:'kn', type:'range', label:'⑥ 내가 넣을 낱말 수', min:1, max:9, step:1, value:3, fmt:function(x){ return x + '개'; }, note:'⑥ 을 고르면 낱말 수로 맞는 자료 수를 계산해요. 1개부터 9개까지 올려 보면 늘다가 줄어드는 그물코 곡선이 보여요 (교육용 모형값).'}
         ],
         compute: function(p){
-          var kw = KW[p.k], m = cnt(kw.list, 'm'), a = cnt(kw.list, 'a'), top = kw.list.charAt(0);
+          var kw = KW[p.k], LS = listOf(p), kn = knOf(p);
+          var m = cnt(LS, 'm'), a = cnt(LS, 'a'), top = LS.charAt(0);
           var got = p.pk === 0 ? (top === 'm') : (m > 0);
-          return {kw:kw, m:m, a:a, o:10 - m - a, top:top, got:got, net:NET[p.k]};
+          return {kw:kw, kn:kn, list:LS, m:m, a:a, o:10 - m - a, top:top, got:got, net:kw.custom ? netOf(kn) : NET[p.k]};
         },
         draw: function(c, W, H, p, r, tau){
-          var kw = KW[p.k], narrow = W < 560;
+          var kw = KW[p.k], narrow = W < 560, LS = listOf(p), KN = knOf(p);
           c.fillStyle = '#fff'; c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.rect(20, 14, W - 40, 34); c.fill(); c.stroke();
-          var q = kw.n.replace(' (낱말 바꿔 다시)', ''); if (q.length > (narrow ? 22 : 44)) q = q.slice(0, narrow ? 21 : 43) + '…';
+          var q = kw.custom ? ('내 검색어 — 낱말 ' + KN + '개') : kw.n.replace(' (낱말 바꿔 다시)', ''); if (q.length > (narrow ? 22 : 44)) q = q.slice(0, narrow ? 21 : 43) + '…';
           T(c, '🔍 ' + q, 30, 37, narrow ? 13 : 15, '#1E2833');
           var y0 = 62, rh = 24, col = {m:PAL[1], a:PAL[6], o:'#A8B4C2'}, lab = {m:'목적에 맞음', a:'광고', o:'상관없음'};
           for (var i = 0; i < 10; i++){
             var on = r && tau > i * 0.07;
-            c.fillStyle = on ? col[kw.list.charAt(i)] : '#EEF2F6'; c.fillRect(20, y0 + i * rh, narrow ? W - 40 : W * 0.55, rh - 4);
-            T(c, (i + 1) + '. ' + (on ? lab[kw.list.charAt(i)] : '…'), 28, y0 + i * rh + 15, 12, on ? '#fff' : '#8C99A8', 'left', true);
+            c.fillStyle = on ? col[LS.charAt(i)] : '#EEF2F6'; c.fillRect(20, y0 + i * rh, narrow ? W - 40 : W * 0.55, rh - 4);
+            T(c, (i + 1) + '. ' + (on ? lab[LS.charAt(i)] : '…'), 28, y0 + i * rh + 15, 12, on ? '#fff' : '#8C99A8', 'left', true);
             if (r && p.pk === 0 && i === 0 && tau > 0.3){ c.strokeStyle = PAL[4]; c.lineWidth = 3; c.strokeRect(18, y0 - 2, (narrow ? W - 40 : W * 0.55) + 4, rh); }
           }
           // 그물
           var nx = narrow ? 20 : W * 0.62, ny = narrow ? y0 + 10 * rh + 10 : 70, nw = narrow ? W - 40 : W * 0.34, nh = narrow ? 60 : 150;
-          var gap = [26, 18, 10, 3, 10][p.k] * (narrow ? 0.5 : 1);
+          var gap = (kw.custom ? Math.max(3, 30 - 3 * KN) : [26, 18, 10, 3, 10][p.k]) * (narrow ? 0.5 : 1);
           c.strokeStyle = '#5C6B7A'; c.lineWidth = 1;
           for (var x = nx; x <= nx + nw; x += gap){ seg(c, x, ny, x, ny + nh, '#9AA6B2', 1); }
           for (var y = ny; y <= ny + nh; y += gap){ seg(c, nx, y, nx + nw, y, '#9AA6B2', 1); }
-          if (!narrow) T(c, '그물: ' + NET[p.k] + ' (낱말 ' + kw.k + '개)', nx, ny + nh + 22, 14, '#4A5868', 'left', true);
+          if (!narrow) T(c, '그물: ' + (kw.custom ? netOf(KN) : NET[p.k]) + ' (낱말 ' + KN + '개)', nx, ny + nh + 22, 14, '#4A5868', 'left', true);
           if (r && tau >= 0.85){
             var msg = p.pk === 0 ? ('맨 위: ' + lab[r.top] + (r.got ? ' → 원하던 정보!' : ' → 원하던 정보 아님')) : ('목적에 맞는 자료 ' + r.m + '개 중에서 골랐어요');
             T(c, msg, 20, H - 10, narrow ? 13 : 16, r.got ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
-          return [['검색어', r.kw.n], ['낱말 수 · 그물', r.kw.k + '개 · ' + r.net],
+          return [['검색어', r.kw.custom ? ('내 검색어 — 낱말 ' + r.kn + '개') : r.kw.n], ['낱말 수 · 그물', r.kn + '개 · ' + r.net],
             ['목적에 맞는 자료 (10개 중)', '약 ' + r.m + '개', PAL[1]], ['광고', '약 ' + r.a + '개', PAL[6]], ['상관없는 자료', '약 ' + r.o + '개'],
             ['자료 고르기', PK[p.pk]], ['원하던 정보를 얻었나', r.got ? '얻었어요' : '못 얻었어요 (맨 위가 ' + (r.top === 'a' ? '광고' : '상관없는 자료') + ')', r.got ? PAL[1] : PAL[4]]];
         },
         columns: ['검색어', '낱말 수', '맞는 자료', '광고', '정보 얻음'],
-        record: function(p, r){ return {k:p.k, pk:p.pk, m:r.m, a:r.a, got:r.got}; },
-        row: function(d){ return [KW[d.k].s, KW[d.k].k + '개', d.m + '/10', d.a + '개', d.got ? '예' : '아니오']; },
+        record: function(p, r){ return {k:p.k, pk:p.pk, kn:r.kn, m:r.m, a:r.a, got:r.got}; },
+        row: function(d){ return [KW[d.k].custom ? ('내 검색어') : KW[d.k].s, d.kn + '개', d.m + '/10', d.a + '개', d.got ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('검색어별 목적에 맞는 자료 (10개 중)', '<div id="sk1"></div><p class="ask">낱말이 가장 적은 검색어와 가장 많은 검색어는 어땠나요? 왜 "핵심 낱말 두세 개"가 가장 좋았을까요?</p>') +
             card('맨 위 하나만 믿기 vs 훑어 고르기', '<div id="sk2"></div><p class="ask">과제: 궁금한 것 하나를 한 줄로 적고, 검색어를 세 가지로 바꿔 넣어 보세요. 검색어마다 첫 화면에서 목적에 맞는 자료가 몇 개였는지 표로 적고, 가장 좋았던 검색어에 동그라미를 쳐 보세요. 어른과 함께 해요.</p>') + '</div>';
           var items = [];
-          KW.forEach(function(kw, i){ if (!rec.some(function(d){ return d.k === i; })) return; var m = cnt(kw.list, 'm');
-            items.push({label:kw.s, v:m, color:m >= 7 ? PAL[1] : PAL[7], text:'약 ' + m + '개'}); });
-          $('sk1').innerHTML = hbars(items, 10);
+          KW.forEach(function(kw, i){ var g = rec.filter(function(d){ return d.k === i; }); if (!g.length) return;
+            var last = g[g.length - 1], m = kw.custom ? last.m : cnt(kw.list, 'm');
+            items.push({label:kw.custom ? ('내 검색어 (낱말 ' + last.kn + '개)') : kw.s, v:m, color:m >= 7 ? PAL[1] : PAL[7], text:'약 ' + m + '개'}); });
+          $('sk1').innerHTML = hbars(items, 10)
+            + (function(){ var cu = rec.filter(function(d){ return KW[d.k].custom; }); if (cu.length < 2) return '<p class="msg">⑥ <b>내가 낱말 수를 정한다</b>로 낱말 1개 → 3개 → 9개 를 차례로 넣어 보세요. 맞는 자료가 늘다가 다시 줄어드는 곳이 보입니다.</p>';
+              var byK = {}; cu.forEach(function(d){ byK[d.kn] = d.m; });
+              var ks = Object.keys(byK).map(Number).sort(function(a, b){ return a - b; });
+              var best = ks[0]; ks.forEach(function(k){ if (byK[k] > byK[best]) best = k; });
+              return '<p class="msg">내가 정한 낱말 수 → 맞는 자료: ' + ks.map(function(k){ return k + '개 → ' + byK[k] + '개'; }).join(' · ') + '. 가장 많았던 것은 낱말 <b>' + best + '개</b>였습니다. 낱말이 적으면 그물코가 성겨 쓸모없는 것이 많이 걸리고, 너무 많으면 그물코가 촘촘해 맞는 자료까지 걸러집니다. (교육용 모형값)</p>'; })();
           var g = groupBy(rec, function(d){ return d.pk; }), rows = [];
           [0, 1].forEach(function(k){ var x = g[k]; if (!x) return; rows.push([PK[k], x.length + '번', x.filter(function(d){ return d.got; }).length + '번']); });
           $('sk2').innerHTML = tableHTML(['고르는 방법', '해 본 횟수', '원하던 정보 얻음'], rows);
@@ -511,7 +537,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

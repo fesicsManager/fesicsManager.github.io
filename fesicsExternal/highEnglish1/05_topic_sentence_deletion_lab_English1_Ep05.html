@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>주제문은 언제나 문단의 첫 문장인가</h1>
-    <p>다섯 문장짜리 문단에서 문장을 하나씩 빼 보는 <b>삭제 실험</b>을 합니다. 어떤 문장을 빼면 문단이 무너지는지, <b>일반–구체 사다리</b>에서 그 문장이 어디에 있는지 확인하세요. 주제문은 정말 첫 문장일까요?<br><span style="font-size:.9em;color:#a86825">※ 지문과 (e)의 ‘한 반의 실험’은 수업용으로 지은 예입니다.</span></p>
+    <p>다섯 문장짜리 문단에서 <b>어느 문장이 주제문일지 먼저 찍고</b>, 문장을 하나씩 빼 보는 <b>삭제 실험</b>으로 채점합니다. 어떤 문장을 빼면 문단이 무너지는지, <b>일반–구체 사다리</b>에서 그 문장이 어디에 있는지 확인하세요. 주제문은 정말 첫 문장일까요?<br><span style="font-size:.9em;color:#a86825">※ 지문과 (e)의 ‘한 반의 실험’은 수업용으로 지은 예입니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -301,9 +302,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -451,13 +453,19 @@ var LAB = (function(){
         if (line){ c.fillText(line, x, y + n * lh); n++; } return n;
       }
       return {
-        sceneHeight: function(w){ return w < 560 ? (w < 400 ? 600 : 560) : 440; },
-        idle: '뺄 문장을 고른 뒤 <b>이 문장 빼 보기</b>를 누르세요.',
-        shortHint: '다섯 문장을 하나씩 모두 빼 보세요. 문단이 무너지는 문장은 몇 개인가요?',
+        sceneHeight: function(w){ return w < 560 ? (w < 400 ? 770 : 700) : 440; },
+        idle: '어느 문장이 주제문일지 <b>먼저 찍고</b>, 뺄 문장을 고른 뒤 <b>이 문장 빼 보기</b>를 누르세요.',
+        shortHint: '먼저 찍은 다음, 다섯 문장을 하나씩 모두 빼 보세요. 문단이 무너지는 문장은 몇 개인가요?',
         params: [
+          {key:'g', type:'seg', label:'먼저 찍기 — 어느 문장이 주제문일까?', cols:5, value:0, options:['(a)', '(b)', '(c)', '(d)', '(e)'],
+            note:'빼 보기 전에 먼저 찍으세요. 찍은 문장을 직접 빼 보면 채점됩니다. 다른 문장을 빼서 문단이 무너지면 그것만으로도 내 찍기가 틀렸다는 걸 알 수 있어요.'},
           {key:'d', type:'seg', label:'뺄 문장 (주제문 후보)', cols:5, value:0, options:['(a)', '(b)', '(c)', '(d)', '(e)']}
         ],
-        compute: function(p){ var s = SN[p.d]; return {s:s, collapse:!s.ok, topic:p.d === 2}; },
+        compute: function(p){
+          var s = SN[p.d];
+          var grade = (p.d === p.g) ? (s.ok ? 'x' : 'o') : (s.ok ? '-' : 'x');
+          return {s:s, collapse:!s.ok, topic:p.d === 2, g:p.g, grade:grade};
+        },
         draw: function(c, W, H, p, r, tau){
           var narrow = W < 560, lw = narrow ? W - 40 : (W - 60) * 0.66, y = 26, k = r ? Math.min(1, tau / 0.6) : 0;
           SN.forEach(function(s, i){
@@ -468,23 +476,24 @@ var LAB = (function(){
             c.globalAlpha = 1;
             y += n * 19 + 10;
           });
-          var lx = narrow ? 20 : 40 + lw, ly = narrow ? y + 10 : 40, lh = narrow ? 34 : 70, lwid = narrow ? W - 40 : W - 60 - lw;
+          var lx = narrow ? 20 : 40 + lw, ly = narrow ? y + 10 : 40, lh = narrow ? 30 : 70, lwid = narrow ? W - 40 : W - 60 - lw, lgap = narrow ? 4 : 6;
+          var rby = ly + 3 * (lh + lgap) + lh + 28;
           var LVN = ['도입 세부', '도입·증거', '이유', '주장'];
           for (var j = 3; j >= 0; j--){
-            var yy = ly + (3 - j) * (lh + 6);
+            var yy = ly + (3 - j) * (lh + lgap);
             c.fillStyle = '#F7F9FC'; c.fillRect(lx, yy, lwid, lh); c.strokeStyle = '#D0D7E0'; c.lineWidth = 1; c.strokeRect(lx, yy, lwid, lh);
-            c.font = '13px ' + FONT; c.fillStyle = '#8C99A8'; c.textAlign = 'left'; c.fillText(LVN[j], lx + 6, yy + (narrow ? 22 : 15));
+            c.font = '13px ' + FONT; c.fillStyle = '#8C99A8'; c.textAlign = 'left'; c.fillText(LVN[j], lx + 6, yy + (narrow ? 20 : 15));
             var ids = SN.filter(function(s){ return s.lv === j; });
             ids.forEach(function(s, q){ // 좁은 화면: 단계 이름은 왼쪽, 문장 상자는 그 오른쪽
-              var on = r && SN.indexOf(s) === p.d, bx = lx + (narrow ? 84 : 10) + q * 46, by = yy + (narrow ? 8 : 26);
-              c.fillStyle = on ? PAL[4] : SN.indexOf(s) === 2 ? PAL[0] : '#9AA6B4'; c.fillRect(bx, by, 38, narrow ? 22 : 30);
-              txt(c, '(' + s.id + ')', bx + 19, by + (narrow ? 17 : 21), {align:'center', color:'#fff', bold:true});
+              var on = r && SN.indexOf(s) === p.d, bx = lx + (narrow ? 84 : 10) + q * 46, by = yy + (narrow ? 6 : 26);
+              c.fillStyle = on ? PAL[4] : SN.indexOf(s) === 2 ? PAL[0] : '#9AA6B4'; c.fillRect(bx, by, 38, narrow ? 19 : 30);
+              txt(c, '(' + s.id + ')', bx + 19, by + (narrow ? 15 : 21), {align:'center', color:'#fff', bold:true});
             });
           }
           if (!narrow) txt(c, '일반 ↑', lx + lwid - 60, 32, {color:'#4A5868'});
           if (r && tau > 0.8 && narrow){ // 좁은 화면: 결과 글을 두 줄로 줄바꿈
-            c.save(); c.beginPath(); c.rect(10, H - 52, W - 20, 50); c.clip(); c.textBaseline = 'alphabetic';
-            wrap(c, '(' + r.s.id + ') 뺌 → ' + r.s.del, 20, H - 30, W - 40, 19, {size:14, bold:true, color:r.collapse ? PAL[4] : PAL[1]}); c.restore();
+            c.save(); c.beginPath(); c.rect(10, rby - 22, W - 20, 54); c.clip(); c.textBaseline = 'alphabetic';
+            wrap(c, '(' + r.s.id + ') 뺌 → ' + r.s.del, 20, rby, W - 40, 19, {size:14, bold:true, color:r.collapse ? PAL[4] : PAL[1]}); c.restore();
           } else if (r && tau > 0.8){
             c.save(); c.beginPath(); c.rect(10, H - 40, W - 20, 36); c.clip();
             txt(c, '(' + r.s.id + ') 뺌 → ' + r.s.del, 20, H - 14, {bold:true, color:r.collapse ? PAL[4] : PAL[1]}); c.restore();
@@ -492,17 +501,28 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['뺀 문장', '(' + r.s.id + ') ' + r.s.t], ['이 문장의 역할', r.s.role, PAL[3]], ['남은 문단', r.s.del, r.collapse ? PAL[4] : PAL[1]],
-            ['결과', r.collapse ? '문단이 무너짐 → 주제문' : '문단 유지 → 주제문 아님', r.collapse ? PAL[4] : PAL[1]], ['위치', ['첫 문장', '둘째', '셋째 (However 뒤)', '넷째', '마지막'][p.d]]];
+            ['결과', r.collapse ? '문단이 무너짐 → 주제문' : '문단 유지 → 주제문 아님', r.collapse ? PAL[4] : PAL[1]], ['위치', ['첫 문장', '둘째', '셋째 (However 뒤)', '넷째', '마지막'][p.d]],
+            ['내가 찍은 주제문', '(' + SN[p.g].id + ') ' + SN[p.g].t, PAL[3]],
+            ['찍기 채점', r.grade === 'o' ? '맞혔어요 — 빼 보니 문단이 무너졌습니다' :
+              r.grade === 'x' && p.d === p.g ? '틀렸어요 — 빼도 문단이 유지됩니다. 이 문장은 주제문이 아니에요' :
+              r.grade === 'x' ? '틀렸어요 — 빼서 무너진 (' + SN[p.d].id + ')가 주제문입니다. 주제문은 하나니까요' :
+              '아직 채점 전 — 내가 찍은 (' + SN[p.g].id + ')를 직접 빼 보세요',
+              r.grade === 'o' ? PAL[1] : r.grade === 'x' ? PAL[4] : PAL[7]]];
         },
-        columns: ['뺀 문장', '역할', '결과'],
-        record: function(p, r){ return {d:p.d, collapse:r.collapse}; },
-        row: function(d){ return ['(' + SN[d.d].id + ')', SN[d.d].role, d.collapse ? '무너짐' : '유지']; },
+        columns: ['뺀 문장', '역할', '결과', '내 찍기', '채점'],
+        record: function(p, r){ return {d:p.d, collapse:r.collapse, g:p.g, grade:r.grade}; },
+        row: function(d){ return ['(' + SN[d.d].id + ')', SN[d.d].role, d.collapse ? '무너짐' : '유지', '(' + SN[d.g].id + ')', d.grade === 'o' ? '○' : d.grade === 'x' ? '✕' : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('삭제 실험 결과표', '<div id="ts1"></div><p class="ask">빼면 문단이 무너지는 문장은 어디에 있었나요? 첫 문장 (a)는 누구의 생각이었나요? 마지막 문장 (e)는 왜 주제문이 될 수 없나요?</p>') +
+            card('내 찍기 성적', '<div id="ts3"></div><p class="ask">처음에 어느 문장을 주제문으로 찍었나요? "첫 문장이 주제문"이라는 생각 때문에 틀렸다면, 무엇을 보고 다시 찍었나요?</p>') +
             card('주제문이 놓이는 세 자리', '<div id="ts2"></div><p class="ask">과제: 영어 지문 다섯 편에서 주제문에 밑줄을 긋고 위치(첫머리·가운데·끝·없음)를 표시하세요. 주제문 바로 앞에 온 신호어도 모아 목록으로 만들어 보세요.</p>') + '</div>';
           $('ts1').innerHTML = tableHTML(['뺀 문장', '역할', '남은 문단', '결과'], SN.map(function(s, i){ var a = rec.some(function(d){ return d.d === i; });
             return ['(' + s.id + ')', s.role, a ? s.del : '?', a ? (s.ok ? '유지' : '<b style="color:' + PAL[4] + '">무너짐</b>') : '?']; }));
+          var go = rec.filter(function(d){ return d.grade === 'o'; }).length, gx = rec.filter(function(d){ return d.grade === 'x'; }).length;
+          $('ts3').innerHTML = tableHTML(['회', '내 찍기', '뺀 문장', '채점'], rec.map(function(d, i){
+            return [(i + 1), '(' + SN[d.g].id + ')', '(' + SN[d.d].id + ')', d.grade === 'o' ? '맞음' : d.grade === 'x' ? '틀림' : '채점 전'];
+          })) + '<p class="msg">맞음 ' + go + '회 · 틀림 ' + gx + '회</p>';
           $('ts2').innerHTML = tableHTML(['위치', '짜임', '자주 보이는 신호'], [['첫머리', '주장 → 근거들', '첫 문장이 가장 일반적'], ['가운데', '통념·질문 → 전환 → 주장 → 근거', 'However, But, In fact, Actually'], ['끝', '사례들 → 결론', 'Therefore, In short, This shows that']]);
         }
       };
@@ -512,7 +532,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -476,23 +478,33 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
 
       var ML = [{n:'가', m:[0, 4, 7, 4, 2, 2, 0], c:PAL[0]}, {n:'나', m:[7, 7, 9, 9, 7, 4, 2], c:PAL[4]},
         {n:'다', m:[9, 9, 7, 7, 4, 4, 2], c:PAL[6]}, {n:'라', m:[5, 4, 2, 4, 2, 0, 0], c:PAL[3]}];
-      var FM = [{n:'가 가 나 가', q:[0, 0, 1, 0]}, {n:'가 나 가 나', q:[0, 1, 0, 1]}, {n:'가 나 다 라', q:[0, 1, 2, 3]}, {n:'가 가 가 가', q:[0, 0, 0, 0]}];
       var LS = [{n:'한 번 들려주기', k:1}, {n:'두 번 들려주기', k:2}];
+      /* ※ 교육용 모형값: 한 가락을 들은 횟수(그 가락이 들어간 줄 수 × 들려준 횟수)에 따라
+         열 명 가운데 몇 명이 따라 부를 수 있는지 어림잡은 값입니다. 실제 조사 결과가 아닙니다. */
       var PEOPLE = [0, 2, 4, 6, 7, 8, 9, 9, 10];
+      var GP = ['안 찍음', '네 (7명 넘어요)', '아니요 (7명 못 넘어요)'];
+      function qOf(p){ return [p.q1, p.q2, p.q3, p.q4].map(function(v){ return Math.max(0, Math.min(3, v | 0)); }); }
+      function nameQ(q){ return q.map(function(i){ return ML[i].n; }).join(' '); }
       function calc(p){
-        var q = FM[p.f].q, k = LS[p.l].k, cnt = [0, 0, 0, 0];
+        var q = qOf(p), k = LS[p.l].k, cnt = [0, 0, 0, 0];
         q.forEach(function(i){ cnt[i]++; });
         var sing = q.map(function(i){ return PEOPLE[Math.min(8, cnt[i] * k)]; });
-        var kinds = distinct(q), rep = 4 - kinds, last = ML[q[3]].m[6];
-        return {q:q, sing:sing, avg:mean(sing), kinds:kinds, rep:rep, contrast:kinds > 1, homeEnd:last === 0, name:FM[p.f].n};
+        var kinds = distinct(q), rep = 4 - kinds, last = ML[q[3]].m[6], av = mean(sing), gp = p.gp || 0;
+        return {q:q, cnt:cnt, sing:sing, avg:av, kinds:kinds, rep:rep, contrast:kinds > 1, homeEnd:last === 0, name:nameQ(q),
+          easy:(av > 7), guess:gp, gtext:GP[gp], ok:(gp > 0 ? ((gp === 1) === (av > 7)) : null)};
       }
       return {
         sceneHeight: 400,
-        idle: '짜임과 들려줄 횟수를 고른 뒤 <b>친구들에게 들려주기</b>를 누르세요.',
-        shortHint: '웹툰 노래의 짜임(가 가 나 가)을 먼저 해 보고, 가 나 다 라와 비교해 보세요.',
+        idle: '줄마다 가락 카드를 놓고 들려줄 횟수를 고른 뒤 <b>친구들에게 들려주기</b>를 누르세요.',
+        shortHint: '웹툰 노래의 짜임(가 가 나 가)을 먼저 해 보고, 줄마다 다른 카드를 놓아 가 나 다 라로도 해 보세요.',
         params: [
-          {key:'f', type:'seg', label:'네 줄의 짜임', cols:4, value:0, options:FM.map(function(x){ return x.n; })},
-          {key:'l', type:'seg', label:'처음 듣는 친구 10명에게', cols:2, value:1, options:LS.map(function(x){ return x.n; })}
+          {key:'q1', type:'seg', label:'첫째 줄에 놓을 가락 카드', cols:4, value:0, options:ML.map(function(x){ return x.n; })},
+          {key:'q2', type:'seg', label:'둘째 줄에 놓을 가락 카드', cols:4, value:0, options:ML.map(function(x){ return x.n; })},
+          {key:'q3', type:'seg', label:'셋째 줄에 놓을 가락 카드', cols:4, value:1, options:ML.map(function(x){ return x.n; })},
+          {key:'q4', type:'seg', label:'넷째 줄에 놓을 가락 카드', cols:4, value:0, options:ML.map(function(x){ return x.n; })},
+          {key:'l', type:'seg', label:'처음 듣는 친구 10명에게', cols:2, value:1, options:LS.map(function(x){ return x.n; })},
+          {key:'gp', type:'seg', label:'먼저 찍기: 열 명 가운데 일곱 명 넘게 따라 부를까?', cols:3, value:0, options:GP,
+            note:'찍고 나서 들려주면 맞았는지 알려 줘요. ※ 따라 부르는 사람 수는 실제 조사가 아니고, 같은 가락을 여러 번 들으면 더 쉽게 외운다는 것을 보여 주는 교육용 모형값이에요.'}
         ],
         compute: function(p){
           var r = calc(p), S = session(2, 0.18);
@@ -515,22 +527,35 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
           txtF(c, q.homeEnd ? '마지막 줄이 도로 끝나요 → 끝난 느낌' : '마지막 줄이 레로 끝나요 → 덜 끝난 느낌', 12, by + 60, {color:'#4A5868'}, W - 24);
         },
         stats: function(p, r){
-          return [['짜임', r.name], ['외울 가락 수', r.kinds + '가지 (네 줄 중)', PAL[0]], ['반복된 줄', r.rep + '줄', PAL[1]],
+          var a = [['내가 놓은 짜임', r.name], ['외울 가락 수', r.kinds + '가지 (네 줄 중)', PAL[0]], ['반복된 줄', r.rep + '줄', PAL[1]],
             ['대조', r.contrast ? '있음 — 다른 가락이 끼어들어 귀가 번쩍' : '없음 — 같은 가락만 되풀이', r.contrast ? PAL[1] : PAL[4]],
-            ['따라 부른 친구 (줄마다)', r.sing.join(' · ') + ' 명', PAL[6]], ['끝맺음', r.homeEnd ? '도로 끝남 — 끝난 느낌' : '레로 끝남 — 덜 끝난 느낌']];
+            ['따라 부른 친구 (줄마다)', r.sing.join(' · ') + ' 명', PAL[6]],
+            ['따라 부르기', r.easy ? '쉬움 — 평균 ' + f(r.avg, 1) + '명 (7명 넘음)' : '어려움 — 평균 ' + f(r.avg, 1) + '명 (7명 못 넘음)', r.easy ? PAL[1] : PAL[4]],
+            ['끝맺음', r.homeEnd ? '도로 끝남 — 끝난 느낌' : '레로 끝남 — 덜 끝난 느낌']];
+          if (r.guess > 0) a.push(['내가 찍은 것 채점', r.gtext + ' → ' + (r.ok ? '맞았어요!' : '아니에요') + ' (평균 ' + f(r.avg, 1) + '명)', r.ok ? PAL[1] : PAL[3]]);
+          return a;
         },
-        columns: ['짜임', '들려준 횟수', '외울 가락', '따라 부름 (평균)', '끝맺음'],
-        record: function(p, r){ return {f:p.f, l:p.l, kinds:r.kinds, avg:r.avg, home:r.homeEnd, sing:r.sing.slice()}; },
-        row: function(d){ return [FM[d.f].n, LS[d.l].k + '번', d.kinds + '가지', f(d.avg, 1) + '명', d.home ? '도 (끝남)' : '레 (덜 끝남)']; },
+        columns: ['짜임', '들려준 횟수', '외울 가락', '따라 부름 (평균)', '따라 부르기', '끝맺음', '찍은 것'],
+        record: function(p, r){ return {name:r.name, l:p.l, kinds:r.kinds, avg:r.avg, home:r.homeEnd, sing:r.sing.slice(), easy:r.easy, guess:r.guess, ok:r.ok}; },
+        row: function(d){ return [d.name, LS[d.l].k + '번', d.kinds + '가지', f(d.avg, 1) + '명', d.easy ? '쉬움' : '어려움', d.home ? '도 (끝남)' : '레 (덜 끝남)',
+          d.guess > 0 ? (GP[d.guess] + (d.ok ? ' ○' : ' ×')) : '안 찍음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('짜임별 외울 가락 수와 따라 부른 친구', '<div id="m3a"></div><p class="ask">외울 가락이 적은 짜임일수록 따라 부른 친구는 어떻게 되었나요? "가 가 가 가"는 따라 부르기 쉽지만 어떤 점이 아쉬울까요?</p>') +
-            card('내가 해 본 짜임', '<div id="m3b"></div><p class="ask">과제: 아는 전래 동요 한 곡을 줄마다 나눠 부르고, 같은 가락에는 같은 글자(가·나·다)를 붙여 짜임을 적어 보세요.</p>') + '</div>';
-          var g = groupBy(rec, function(d){ return d.f + '_' + d.l; }), items = [];
-          Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; items.push({label:FM[d.f].n + ' (' + LS[d.l].k + '번)', v:d.avg, color:d.kinds <= 2 ? PAL[1] : PAL[4], text:f(d.avg, 1) + '명 · 외울 ' + d.kinds}); });
+            card('내가 해 본 짜임', '<div id="m3b"></div><p class="ask">과제: 아는 전래 동요 한 곡을 줄마다 나눠 부르고, 같은 가락에는 같은 글자(가·나·다)를 붙여 짜임을 적어 보세요.</p>') +
+            card('먼저 찍은 것 점수', '<div id="m3c"></div><p class="ask">찍고 나서 들려준 것만 점수에 들어가요. 어떤 짜임에서 일곱 명을 넘겼나요? 들려준 횟수를 한 번으로 줄이면 어떻게 되었나요?</p>') + '</div>';
+          var g = groupBy(rec, function(d){ return d.name + '_' + d.l; }), items = [];
+          Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; items.push({label:d.name + ' (' + LS[d.l].k + '번)', v:d.avg, color:d.kinds <= 2 ? PAL[1] : PAL[4], text:f(d.avg, 1) + '명 · 외울 ' + d.kinds}); });
           $('m3a').innerHTML = hbars(items, 10);
-          var rows = Object.keys(g).sort().map(function(k){ var d = g[k][0]; return [FM[d.f].n, LS[d.l].k + '번', d.sing.join('·'), d.home ? '끝남' : '덜 끝남']; });
-          $('m3b').innerHTML = tableHTML(['짜임', '들려준 횟수', '줄마다 따라 부름', '끝맺음'], rows);
+          var rows = Object.keys(g).sort().map(function(k){ var d = g[k][0]; return [d.name, LS[d.l].k + '번', d.sing.join('·'), d.easy ? '쉬움' : '어려움', d.home ? '끝남' : '덜 끝남']; });
+          $('m3b').innerHTML = tableHTML(['짜임', '들려준 횟수', '줄마다 따라 부름', '따라 부르기', '끝맺음'], rows);
+          var tried = rec.filter(function(d){ return d.guess > 0; }), hit = tried.filter(function(d){ return d.ok; }).length;
+          $('m3c').innerHTML = tableHTML(['항목', '수'], [
+            ['찍어 본 횟수', tried.length + '번'],
+            ['맞힌 횟수', hit + '번' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')],
+            ['일곱 명을 넘긴 짜임', rec.filter(function(d){ return d.easy; }).length + '번'],
+            ['일곱 명을 못 넘긴 짜임', rec.filter(function(d){ return !d.easy; }).length + '번']
+          ]);
         }
       };
     })();
@@ -539,7 +564,8 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -55,3 +55,50 @@
   C.prototype.fillText = fit(C.prototype.fillText);
   C.prototype.strokeText = fit(C.prototype.strokeText);
 })();
+
+/* 눈금 숫자 겹침 막기(261122): 같은 줄에 늘어선 눈금 숫자끼리 달라붙으면 뒤에 오는 것을 그리지 않는다.
+ * 숫자꼴 글자끼리, 밑줄 위치가 거의 같을 때만 건너뛴다(본문 글자는 손대지 않는다). */
+(function () {
+  'use strict';
+  var C = window.CanvasRenderingContext2D;
+  if (!C || C.prototype.__fxTick) return;
+  C.prototype.__fxTick = true;
+  var NUM = /^[-−+]?[0-9][0-9.,]*\s*%?$/;
+  var map = new WeakMap();
+  function slot(cv) { var a = map.get(cv); if (!a) { a = []; map.set(cv, a); } return a; }
+  function full(ctx, x, y, w, h) {
+    try {
+      var t = ctx.getTransform(), cv = ctx.canvas;
+      var L = t.a * x + t.e, T = t.d * y + t.f;
+      return L <= 1 && T <= 1 && L + t.a * w >= cv.width - 1 && T + t.d * h >= cv.height - 1;
+    } catch (e) { return false; }
+  }
+  var ocr = C.prototype.clearRect;
+  C.prototype.clearRect = function (x, y, w, h) { if (full(this, x, y, w, h)) map.set(this.canvas, []); return ocr.apply(this, arguments); };
+  var ofr = C.prototype.fillRect;
+  C.prototype.fillRect = function (x, y, w, h) { if (full(this, x, y, w, h)) map.set(this.canvas, []); return ofr.apply(this, arguments); };
+  var oft = C.prototype.fillText;
+  C.prototype.fillText = function (s, x, y, mw) {
+    try {
+      var str = String(s), t = this.getTransform(), cv = this.canvas;
+      if (Math.abs(t.b) > 1e-3 || Math.abs(t.c) > 1e-3) return oft.apply(this, arguments);
+      var m = this.measureText(str), w = m.width;
+      if (mw != null && mw < w) w = mw;
+      if (!(w > 0)) return oft.apply(this, arguments);
+      var al = this.textAlign;
+      var ox = al === 'center' ? -w / 2 : (al === 'right' || al === 'end') ? -w : 0;
+      var L = t.a * (x + ox) + t.e, R = L + t.a * w, Y = t.d * y + t.f;
+      var a = slot(cv), isn = NUM.test(str.trim()), i, b;
+      if (isn) {
+        for (i = a.length - 1; i >= 0; i--) {
+          b = a[i];
+          if (!b.n || Math.abs(b.y - Y) > 3) continue;
+          var ix = Math.min(R, b.R) - Math.max(L, b.L);
+          if (ix > 1 && ix > 0.25 * Math.min(R - L, b.R - b.L)) return;   // 달라붙으면 안 그림
+        }
+      }
+      if (a.length < 400) a.push({ L: L, R: R, y: Y, n: isn });
+    } catch (e) { }
+    return oft.apply(this, arguments);
+  };
+})();

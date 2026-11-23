@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>설날은 해마다 같은 날인가</h1>
-    <p>설날은 <b>음력 1월 1일</b>, 추석은 <b>음력 8월 15일</b>이에요. 해와 명절을 고르고, 양력 달력에서 설날이 어떻게 될지 예측한 뒤 <b>달력 펼치기</b>를 누르면 양력 날짜에 동그라미가 쳐져요.<br><span style="font-size:.9em;color:#a86825">※ 2025~2027년 설날·추석의 양력 날짜는 실제 달력 날짜예요.</span></p>
+    <p>설날은 <b>음력 1월 1일</b>, 추석은 <b>음력 8월 15일</b>이에요. 해와 명절을 고르고, 양력 달력에서 설날이 어떻게 될지 예측한 뒤 <b>달력 펼치기</b>를 누르면 양력 날짜에 동그라미가 쳐져요.<br><span style="font-size:.9em;color:#a86825">※ 2025~2027년 설날·추석의 양력 날짜는 실제 달력 날짜예요.</span><br><span style="font-size:.9em;color:#a86825">※ <b>음력 한 달씩 직접 쌓아 보기</b>를 켜면 큰달(30일)을 몇 달 둘지 정해 다음 설날을 직접 세어 볼 수 있어요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -301,9 +302,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,6 +443,15 @@ var LAB = (function(){
       var HD = [{n:'설날', lun:'음력 1월 1일', d:[[1, 29], [2, 17], [2, 7]], moon:0, c:PAL[4]}, {n:'추석', lun:'음력 8월 15일', d:[[10, 6], [9, 25], [9, 15]], moon:1, c:PAL[6]}];
       var PG = ['① 해마다 1월 1일', '② 해마다 날짜가 달라진다', '③ 해마다 2월 1일', '④ 해마다 12월 31일'];
       var WD = ['일', '월', '화', '수', '목', '금', '토'];
+      /* 음력 한 달을 29일(작은달)·30일(큰달)로 직접 쌓아 보는 셈.
+         실제 음력 열두 달은 큰달이 여섯 달쯤이라 354일이어서 양력 365일보다 11일쯤 짧다.
+         그래서 설날이 해마다 11일쯤 당겨지고, 두세 해에 한 번 윤달(한 달 더)을 넣어 되돌린다. */
+      function myLunar(bg, ly){
+        var len = 29 * 12 + bg + (ly ? 30 : 0);
+        var shift = 365 - len;
+        var base = new Date(2025, 0, 29), nx = new Date(base.getTime() + len * 86400000);
+        return {len:len, shift:shift, y:nx.getFullYear(), m:nx.getMonth() + 1, d:nx.getDate(), wd:nx.getDay()};
+      }
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       return {
         sceneHeight: 400,
@@ -450,14 +461,29 @@ var LAB = (function(){
           {key:'y', type:'seg', label:'해', cols:3, value:1, options:YR.map(function(x){ return x + '년'; })},
           {key:'h', type:'seg', label:'명절', cols:2, value:0, options:['설날 (음력 1월 1일)', '추석 (음력 8월 15일)']},
           {key:'g', type:'seg', label:'예측: 양력 달력에서 설날은?', cols:2, value:0, options:PG,
-            note:'뭉치는 "설날은 새해 첫날이니까 ①"이라고 했어요.'}
+            note:'뭉치는 "설날은 새해 첫날이니까 ①"이라고 했어요.'},
+          {key:'c', type:'seg', label:'음력 한 달씩 직접 쌓아 보기', cols:1, value:0, options:['안 함(달력 펼쳐 보기)', '2025년 설날부터 열두 달을 쌓아 다음 설날 찾기'],
+            note:'켜면 큰달(30일)을 몇 달 둘지 내가 정해요. 쌓은 날수가 365일보다 짧으면 설날이 당겨져요.'},
+          {key:'bg', type:'range', label:'큰달(30일)인 달 수 (나머지는 29일)', min:0, max:12, step:1, value:6, fmt:function(v){ return v + '달 (작은달 ' + (12 - v) + '달)'; }},
+          {key:'ly', type:'seg', label:'윤달(한 달 더) 넣기', cols:2, value:0, options:['안 넣음', '넣음']}
         ],
         compute: function(p){
+          if (p.c === 1){
+            var m2 = myLunar(p.bg, p.ly), drift = Math.round(Math.abs(m2.shift) * 10 / 30.4);
+            var msg;
+            if (p.ly) msg = '윤달을 넣어 ' + m2.len + '일 — 설날이 ' + Math.abs(m2.shift) + '일 밀려 다시 봄으로 돌아와요';
+            else if (m2.len >= 353 && m2.len <= 355) msg = '실제 음력 한 해(354일)와 비슷해요 — 설날이 ' + m2.shift + '일 당겨져요';
+            else if (m2.shift > 0) msg = m2.len + '일이라 설날이 ' + m2.shift + '일 당겨져요';
+            else msg = m2.len + '일이라 설날이 ' + (-m2.shift) + '일 밀려요';
+            return {mine:true, y:m2.y, hd:HD[0], m:m2.m, d:m2.d, wd:m2.wd, len:m2.len, shift:m2.shift, bg:p.bg, ly:p.ly,
+              drift:drift, ok:p.g === 1, msg:(p.g === 1 ? '○ ' : '✕ ') + msg};
+          }
           var hd = HD[p.h], md = hd.d[p.y], y = YR[p.y], wd = new Date(y, md[0] - 1, md[1]).getDay();
-          return {y:y, hd:hd, m:md[0], d:md[1], wd:wd, ok:p.g === 1};
+          return {y:y, hd:hd, m:md[0], d:md[1], wd:wd, ok:p.g === 1,
+            msg:(p.g === 1 ? '○ 예측이 맞았어요' : '✕ 예측과 달라요') + ' — 해마다 날짜가 달라져요'};
         },
         draw: function(c, W, H, p, r, tau){
-          var narrow = W < 560, y = YR[p.y], hd = HD[p.h], md = hd.d[p.y], m = md[0];
+          var narrow = W < 560, hd = (r && r.mine) ? HD[0] : HD[p.h], y = (r && r.mine) ? r.y : YR[p.y], md = (r && r.mine) ? [r.m, r.d] : hd.d[p.y], m = md[0];
           var cw = Math.min(54, (W - 40) / 7), ch = 34, X = 20, Y0 = narrow ? 100 : 82;
           T(c, y + '년 양력 ' + m + '월', X, 30, narrow ? 17 : 20, '#1E2833', 'left', true);
           T(c, hd.n + ' = ' + hd.lun, X, 56, narrow ? 13 : 15, hd.c, 'left', true);
@@ -479,20 +505,30 @@ var LAB = (function(){
           if (r && tau >= 0.8){
             var yy = Y0 + 6 * ch + 22;
             T(c, y + '년 ' + hd.n + ' → 양력 ' + r.m + '월 ' + r.d + '일 (' + WD[r.wd] + '요일)', X, yy, narrow ? 14 : 17, hd.c, 'left', true);
-            T(c, r.ok ? '○ 예측이 맞았어요 — 해마다 날짜가 달라져요' : '✕ 예측과 달라요 — 해마다 날짜가 달라져요', X, yy + 24, narrow ? 12 : 14, r.ok ? PAL[1] : PAL[4], 'left', true);
+            T(c, r.msg, X, yy + 24, narrow ? 12 : 14, r.ok ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
+          if (r.mine) return [['내가 쌓은 음력 한 해', '큰달 ' + r.bg + '달 · 작은달 ' + (12 - r.bg) + '달' + (r.ly ? ' · 윤달 있음' : ''), PAL[3]],
+            ['쌓은 날수', r.len + '일 (양력 한 해 365일)', PAL[0]],
+            ['양력과의 차이', r.shift > 0 ? r.shift + '일 짧음 → 설날이 그만큼 당겨짐' : (r.shift === 0 ? '같음' : (-r.shift) + '일 길음 → 설날이 그만큼 밀림'), PAL[4]],
+            ['2025년 설날(1월 29일)부터 열두 달 뒤', r.y + '년 ' + r.m + '월 ' + r.d + '일 (' + WD[r.wd] + '요일)', HD[0].c],
+            ['이대로 열 해가 지나면', r.shift === 0 ? '그 자리에 머물러요' : '설날이 약 ' + r.drift + '달쯤 ' + (r.shift > 0 ? '당겨져요' : '밀려요'), PAL[6]],
+            ['판정', r.msg, r.ok ? PAL[1] : PAL[4]]];
           var other = YR.map(function(y, i){ return y + '년 ' + r.hd.d[i][0] + '/' + r.hd.d[i][1]; }).join(' · ');
           return [['해', r.y + '년'], [r.hd.n, r.hd.lun, r.hd.c], ['양력 날짜', r.m + '월 ' + r.d + '일 (' + ['일', '월', '화', '수', '목', '금', '토'][r.wd] + '요일)', PAL[0]],
             ['1월 1일인가?', r.hd.n === '설날' ? '아니에요' : '추석은 가을이에요'], ['세 해의 ' + r.hd.n, other],
             ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['해', '명절', '양력 날짜', '내 예측', '맞음'],
-        record: function(p, r){ return {y:p.y, h:p.h, g:p.g, ok:r.ok}; },
-        row: function(d){ var md = HD[d.h].d[d.y]; return [YR[d.y] + '년', HD[d.h].n, md[0] + '월 ' + md[1] + '일', PG[d.g].slice(0, 1), d.ok ? '○' : '✕']; },
+        columns: ['해 · 쌓은 날수', '명절', '양력 날짜', '내 예측', '맞음'],
+        record: function(p, r){ if (r.mine) return {mine:true, bg:r.bg, ly:r.ly, len:r.len, shift:r.shift, m:r.m, d:r.d, yy:r.y, g:p.g, ok:r.ok}; return {y:p.y, h:p.h, g:p.g, ok:r.ok}; },
+        row: function(d){ if (d.mine) return ['쌓은 ' + d.len + '일 (큰달 ' + d.bg + ')', '설날' + (d.ly ? ' · 윤달' : ''), d.yy + '년 ' + d.m + '월 ' + d.d + '일', PG[d.g].slice(0, 1), d.ok ? '○' : '✕']; var md = HD[d.h].d[d.y]; return [YR[d.y] + '년', HD[d.h].n, md[0] + '월 ' + md[1] + '일', PG[d.g].slice(0, 1), d.ok ? '○' : '✕']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = rec.filter(function(d){ return d.mine; });
+          var mcard = !ms.length ? '' : card('내가 쌓은 음력 한 해', tableHTML(['큰달 수', '윤달', '쌓은 날수', '양력과 차이', '다음 설날'],
+              ms.map(function(d){ return [d.bg + '달', d.ly ? '넣음' : '안 넣음', d.len + '일', d.shift > 0 ? d.shift + '일 짧음' : (d.shift === 0 ? '같음' : (-d.shift) + '일 길음'), d.yy + '년 ' + d.m + '월 ' + d.d + '일']; })) +
+            '<p class="ask">큰달을 여섯 달로 두면 354일이 되어 양력보다 11일 짧아요. 그래서 설날이 해마다 11일쯤 당겨져요. 윤달을 넣으면 어떻게 되나요? 왜 두세 해에 한 번 윤달을 넣어야 할까요?</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('해마다 찾은 설날과 추석', '<div id="lc1"></div><p class="ask">설날이 양력 1월 1일인 해가 있었나요? 음력 날짜는 늘 같은데 왜 양력 날짜는 해마다 바뀔까요?</p>') +
             card('옛날 풍습과 오늘날', '<div id="lc2"></div><p class="ask">과제: 내년 달력에서 설날과 추석이 양력 며칠인지 찾아 적고, 할머니·할아버지나 어른께 어릴 적 명절에 무엇을 하셨는지 여쭤 보세요. 지금 우리 집 명절과 같은 점 하나, 다른 점 하나를 써 보세요.</p>') + '</div>';
           var rows = YR.map(function(y, i){
@@ -508,7 +544,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

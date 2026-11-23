@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -478,9 +480,18 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
       var PR = [{n:'(가) 한 칸에 한 글자', s:'(가)', c:[['황'], ['태'], ['중'], ['임'], ['남'], ['임'], ['중'], ['태']]},
         {n:'(나) 두 칸씩 이어 내기', s:'(나)', c:[['황'], ['ㅡ'], ['태'], ['ㅡ'], ['중'], ['ㅡ'], ['임'], ['ㅡ']]},
         {n:'(다) 반 박이 섞인 가락', s:'(다)', c:[['황', '태'], ['중'], ['임', '남'], ['임'], ['중', '태'], ['황'], ['ㅡ'], ['ㅡ']]},
-        {n:'(라) 뭉치의 정간보', s:'(라)', c:[['황'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ']]}];
+        {n:'(라) 뭉치의 정간보', s:'(라)', c:[['황'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ'], ['ㅡ']]},
+        {n:'(마) 내가 칸에 써 넣기', s:'(마)', c:null, custom:true}];
+      /* (마): 앞 네 칸에 율명을 직접 써 넣으면 뒤 네 칸이 그대로 되풀이된다.
+         'ㅡ'를 쓰면 앞 음이 그 칸까지 이어져 길어진다. 기본값은 (가)라서 처음 화면은 예전과 같다. */
+      var GL = ['황', '태', '중', '임', '남', 'ㅡ'];
       var VW = ['정간보만', '오선 악보처럼 나란히'];
-      function notes(i){ var out = [], t = 0; PR[i].c.forEach(function(cell){ var d = 1 / cell.length;
+      function cellsOf(p){
+        if (!PR[p.pr].custom) return PR[p.pr].c;
+        var a = [GL[p.c1 == null ? 0 : p.c1], GL[p.c2 == null ? 1 : p.c2], GL[p.c3 == null ? 2 : p.c3], GL[p.c4 == null ? 3 : p.c4]];
+        return a.concat(a).map(function(g){ return [g]; });
+      }
+      function notes(cells){ var out = [], t = 0; cells.forEach(function(cell){ var d = 1 / cell.length;
         cell.forEach(function(g){ if (g === 'ㅡ'){ if (out.length) out[out.length - 1].d += d; } else out.push({g:g, on:t, d:d}); t += d; }); }); return out; }
       return {
         sceneHeight: 420,
@@ -488,16 +499,22 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
         shortHint: '(가)와 (나)를 비교해 같은 글자가 몇 칸에 걸쳐 있는지 세어 보세요.',
         params: [
           {key:'pr', type:'seg', label:'정간보 8칸 가락', cols:2, value:0, options:PR.map(function(x){ return x.n; })},
-          {key:'v', type:'seg', label:'보는 방법', cols:2, value:1, options:VW}
+          {key:'v', type:'seg', label:'보는 방법', cols:2, value:1, options:VW},
+          {key:'c1', type:'seg', label:'(마) 첫째 칸', cols:3, value:0, options:GL},
+          {key:'c2', type:'seg', label:'(마) 둘째 칸', cols:3, value:1, options:GL},
+          {key:'c3', type:'seg', label:'(마) 셋째 칸', cols:3, value:2, options:GL},
+          {key:'c4', type:'seg', label:'(마) 넷째 칸', cols:3, value:3, options:GL,
+            note:'(마)를 고르고 네 칸을 채우면 뒤 네 칸이 그대로 되풀이돼요. ㅡ 는 앞 음을 이어 내는 표예요.'}
         ],
         compute: function(p){
-          var N = notes(p.pr), S = session(2, 0.17), B = 0.235;
+          var N = notes(cellsOf(p)), S = session(2, 0.17), B = 0.235;
           if (S) N.forEach(function(x){ tone(S, semi(YL[x.g]), x.on * B, Math.max(0.08, x.d * B - 0.02), 0.5, 'triangle'); });
           var lens = N.map(function(x){ return x.d; });
-          return {N:N, cnt:N.length, beats:8, longest:Math.max.apply(null, lens), shortest:Math.min.apply(null, lens)};
+          if (!N.length) return {N:N, cnt:0, beats:8, longest:0, shortest:0, empty:true, cu:!!PR[p.pr].custom};
+          return {N:N, cnt:N.length, beats:8, longest:Math.max.apply(null, lens), shortest:Math.min.apply(null, lens), cu:!!PR[p.pr].custom};
         },
         draw: function(c, W, H, p, r, tau){
-          var C = PR[p.pr].c, cs = 44, colX = [], j, i, cur = r ? 8 * Math.min(tau / 0.9, 1) : -1;
+          var C = cellsOf(p), cs = 44, colX = [], j, i, cur = r ? 8 * Math.min(tau / 0.9, 1) : -1;
           var jx = p.v === 1 ? 20 : W / 2 - cs - 6;
           colX = [jx + cs + 12, jx]; // 오른쪽 줄이 먼저
           for (j = 0; j < 8; j++){ var x = colX[Math.floor(j / 4)], y = 40 + (j % 4) * cs, on = cur >= j && cur < j + 1;
@@ -506,7 +523,7 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
             else txt(c, C[j][0], x + cs / 2, y + 29, {align:'center', bold:C[j][0] !== 'ㅡ', color:C[j][0] === 'ㅡ' ? '#8C99A8' : '#1E2833'}); }
           txtF(c, '① 오른쪽 줄', colX[0] - 4, 34, {color:'#4A5868'}, 110); txtF(c, '② 왼쪽 줄', colX[1] - 4, 236, {color:'#4A5868'}, 110);
           if (p.v === 1){
-            var sx = jx + 2 * cs + 40, sw = W - sx - 20, sy = 70, gap = 12, N = notes(p.pr);
+            var sx = jx + 2 * cs + 40, sw = W - sx - 20, sy = 70, gap = 12, N = notes(cellsOf(p));
             if (sw > 120){
               for (i = 0; i < 5; i++) seg(c, sx, sy + i * gap, sx + sw, sy + i * gap, '#5C6B7A', 1);
               N.forEach(function(x){ var nx = sx + 10 + (sw - 20) * (x.on + x.d / 2) / 8, ny = sy + 4 * gap - (YL[x.g] - 3) / 1.6 * (gap / 2) - gap / 2;
@@ -522,21 +539,40 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
           txtF(c, r && tau > 0.9 ? '8칸 = 8박 · 음 ' + r.cnt + '개 · 가장 긴 음 ' + f(r.longest, 1) + '박' : PR[p.pr].n, 20, H - 12, {bold:true, color:r ? PAL[4] : '#1E2833'}, W - 40);
         },
         stats: function(p, r){
-          return [['가락', PR[p.pr].n], ['칸 수 = 박 수', '8칸 = 8박', PAL[1]], ['음의 개수', r.cnt + '개', PAL[0]],
-            ['음 길이', r.N.map(function(x){ return x.g + ' ' + (x.d === 0.5 ? '½' : f(x.d, 0)) + '박'; }).join(' · '), PAL[4]],
-            ['읽는 순서', '위에서 아래로, 오른쪽 줄부터 왼쪽 줄로'],
-            ['살펴보기', p.pr === 3 ? '"황" 한 음이 여덟 칸 = 여덟 박이에요.' : '칸은 계단(높이)이 아니라 시간표(길이)예요.', PAL[3]]];
+          var s = [['가락', PR[p.pr].n], ['칸 수 = 박 수', '8칸 = 8박', PAL[1]], ['음의 개수', r.cnt + '개', PAL[0]],
+            ['음 길이', r.cnt ? r.N.map(function(x){ return x.g + ' ' + (x.d === 0.5 ? '½' : f(x.d, 0)) + '박'; }).join(' · ') : '첫 칸이 ㅡ 라서 아직 음이 없어요 — 첫 칸에 율명을 써 보세요.', PAL[4]],
+            ['읽는 순서', '위에서 아래로, 오른쪽 줄부터 왼쪽 줄로']];
+          if (r.cu){
+            s.push(['내가 써 넣은 네 칸', cellsOf(p).slice(0, 4).map(function(c2){ return c2[0]; }).join(' · ') + ' (뒤 네 칸은 되돌이)', PAL[6]]);
+            s.push(['판정', !r.cnt ? '첫 칸이 ㅡ 면 이어 낼 음이 없어요.'
+              : r.longest >= 2 ? '긴 음 ' + f(r.longest, 0) + '박이 생겼어요 — ㅡ 가 칸을 이어 주었습니다.'
+              : '여덟 칸을 ' + r.cnt + '개 음으로 고르게 나눴어요. ㅡ 를 섞으면 긴 음을 만들 수 있어요.',
+              !r.cnt ? PAL[4] : r.longest >= 2 ? PAL[1] : PAL[0]]);
+          } else s.push(['살펴보기', p.pr === 3 ? '"황" 한 음이 여덟 칸 = 여덟 박이에요.' : '칸은 계단(높이)이 아니라 시간표(길이)예요.', PAL[3]]);
+          return s;
         },
-        columns: ['가락', '칸 수', '음 개수', '가장 긴 음', '가장 짧은 음'],
-        record: function(p, r){ return {pr:p.pr, cnt:r.cnt, lo:r.longest, sh:r.shortest}; },
-        row: function(d){ return [PR[d.pr].s, '8칸', d.cnt + '개', f(d.lo, 1) + '박', f(d.sh, 1) + '박']; },
+        columns: ['가락', '쓴 칸', '칸 수', '음 개수', '가장 긴 음', '가장 짧은 음'],
+        record: function(p, r){ return {pr:p.pr, cnt:r.cnt, lo:r.longest, sh:r.shortest,
+          cells:r.cu ? cellsOf(p).slice(0, 4).map(function(c2){ return c2[0]; }).join('·') : null}; },
+        row: function(d){ return [PR[d.pr].s, d.cells || '—', '8칸', d.cnt + '개', f(d.lo, 1) + '박', f(d.sh, 1) + '박']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('칸 수와 음 개수', '<div id="jg1"></div><p class="ask">칸 수는 늘 8칸인데 음 개수는 왜 달라졌나요? 예측 게임에서 "칸 하나가 알려 주는 것"을 다시 골라 보세요.</p>') +
+            card('내가 써 넣은 가락 (내가 고른 글자로 계산)', '<div id="jg3"></div><p class="ask">같은 8칸인데 ㅡ 를 몇 개 넣었느냐에 따라 음 개수와 가장 긴 음이 어떻게 달라졌나요? 칸은 높이를 알려 주나요, 길이를 알려 주나요?</p>') +
             card('두 악보의 약속', '<div id="jg2"></div><p class="ask">과제: 종이에 세로로 정간 8칸을 그리고 "황·태·중·임·남" 다섯 글자로 짧은 가락을 적어 보세요. 같은 가락을 계이름이나 오선 악보로도 적어 두 악보를 비교해요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.pr; }), items = [];
           PR.forEach(function(x, i){ var a = g[i]; if (!a) return; items.push({label:x.s + ' 음 개수', v:a[0].cnt, color:PAL[0], text:a[0].cnt + '개 / 8칸'}); });
           $('jg1').innerHTML = hbars(items, 12);
+          var mine = rec.filter(function(x){ return x.cells; });
+          var seen2 = {}, rows3 = [];
+          mine.forEach(function(x){ if (seen2[x.cells]) return; seen2[x.cells] = 1;
+            var nd = x.cells.split('·').filter(function(g){ return g === 'ㅡ'; }).length;
+            rows3.push([x.cells, nd + '개', x.cnt + '개', f(x.lo, 1) + '박']); });
+          rows3.sort(function(a, b){ return parseInt(a[1], 10) - parseInt(b[1], 10); });
+          $('jg3').innerHTML = (rows3.length ? tableHTML(['내가 쓴 네 칸', 'ㅡ 의 수', '음 개수', '가장 긴 음'], rows3) : '')
+            + '<p class="msg">' + (rows3.length
+              ? 'ㅡ 를 많이 넣을수록 음 개수는 줄고 가장 긴 음은 길어졌어요. 정간보의 칸은 <b>시간</b>을 나누는 자리이고, 칸 안의 글자가 <b>높이</b>를 알려 줍니다.'
+              : '가락 "(마) 내가 칸에 써 넣기"를 고르고 네 칸을 바꿔 가며 연주해 보세요. 그 값은 내가 고른 글자로 계산한 값입니다.') + '</p>';
           $('jg2').innerHTML = tableHTML(['', '정간보', '오선 악보'], [['높이', '칸 안의 글자(율명)', '줄·칸의 위치'], ['길이', '칸 수(이어 내기·나누기)', '음표 모양'], ['읽는 방향', '위→아래, 오른쪽 줄부터', '왼쪽→오른쪽']]);
         }
       };
@@ -546,7 +582,8 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

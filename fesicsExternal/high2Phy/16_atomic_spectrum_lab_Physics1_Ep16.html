@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -262,7 +263,7 @@ tbody tr:hover{background:#F5F8FB}
       <div>
         <div class="card">
           <canvas id="scene" aria-label="선 스펙트럼과 에너지 준위 실험 장면"></canvas>
-          <p class="note">분광기의 파장 눈금은 1 nm 단위로 읽습니다. 선의 파장은 각 원소의 대표적인 가시광선 방출선이며, 광자 에너지는 hc ÷ λ (hc = 1240 eV·nm)로 계산합니다.</p>
+          <p class="note">분광기의 파장 눈금은 1 nm 단위로 읽습니다. 선의 파장은 각 원소의 대표적인 가시광선 방출선이며, 광자 에너지는 hc ÷ λ (hc = 1240 eV·nm)로 계산합니다. ‘가리개’를 끼우면 수소의 선 하나가 막혀 읽을 수 없습니다 — 그 선의 파장은 에너지 준위로 먼저 계산해 맞혀 보세요.</p>
         </div>
         <div class="card">
           <div id="controls"></div>
@@ -305,9 +306,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -454,6 +456,12 @@ function wl(nm){   // 파장 → 화면 색 (근사)
   var fct = nm < 420 ? 0.3 + 0.7 * (nm - 380) / 40 : nm > 700 ? 0.3 + 0.7 * (780 - nm) / 80 : 1;
   return 'rgb(' + [r, g, b].map(function(v){ return Math.round(255 * Math.pow(Math.max(v, 0) * fct, 0.8)); }).join(',') + ')';
 }
+function vis(p){   /* 가리개를 끼우면 수소의 왼쪽에서 셋째 선이 막힌다 */
+  var s = SRC[p.s];
+  if (!s.lines) return null;
+  if (p.fl && p.s === 1) return s.lines.filter(function(v, i){ return i !== 2; });
+  return s.lines;
+}
 function colorName(nm){ return nm < 425 ? '보라' : nm < 450 ? '남색' : nm < 495 ? '파랑' : nm < 520 ? '청록' : nm < 565 ? '초록' : nm < 590 ? '노랑' : nm < 625 ? '주황' : '빨강'; }
 function spectrum(c, x, y, w, h, lines, bright){
   c.fillStyle = '#0E1318'; c.fillRect(x, y, w, h);
@@ -468,16 +476,19 @@ return {
   shortHint: '자유 탐구 탭에서 광원마다 여러 선의 파장을 기록하세요. 수소의 선 4개는 꼭 기록해 보세요.',
   params: [
     {key:'s', type:'seg', label:'광원', cols:3, value:1, options:SRC.map(function(s){ return s.name; })},
-    {key:'n', type:'range', label:'눈금을 맞출 선 (왼쪽부터)', min:1, max:4, step:1, value:1, fmt:function(v){ return v + '번째'; }}
+    {key:'n', type:'range', label:'눈금을 맞출 선 (왼쪽부터)', min:1, max:4, step:1, value:1, fmt:function(v){ return v + '번째'; }},
+    {key:'fl', type:'seg', label:'가리개(필터)', value:0, options:['없음<small>선이 모두 보임</small>', '한 선 가리기<small>수소의 셋째 선</small>'],
+      note:'가리개는 <b>수소의 왼쪽에서 셋째 선</b>만 막는 필터입니다. 가려진 선의 파장은 알려 주지 않아요 — 나머지 선과 에너지 준위로 먼저 계산해 맞혀 보세요. 다른 광원에는 듣지 않습니다.'}
   ],
   compute: function(p){
-    var s = SRC[p.s];
-    if (!s.lines) return {fail:'백열전구는 모든 색이 끊김 없이 이어진 연속 스펙트럼이라, 따로 떨어진 밝은 선이 없습니다. 기체 방전관과 비교해 보세요.'};
-    var lam = Math.round(s.lines[p.n - 1]);   // 분광기 눈금 1 nm
+    var s = SRC[p.s], lines = vis(p);
+    if (!lines) return {fail:'백열전구는 모든 색이 끊김 없이 이어진 연속 스펙트럼이라, 따로 떨어진 밝은 선이 없습니다. 기체 방전관과 비교해 보세요.'};
+    if (p.n > lines.length) return {fail:'가리개를 끼우면 보이는 선이 ' + lines.length + '개입니다. ‘눈금을 맞출 선’을 ' + lines.length + '번째 이하로 줄이세요.'};
+    var lam = Math.round(lines[p.n - 1]);   // 분광기 눈금 1 nm
     return {lam:lam, E:HC / lam};
   },
   draw: function(c, W, H, p, r, tau){
-    var s = SRC[p.s], on = r || (s.lines === null);
+    var s = SRC[p.s], lines = vis(p), on = r || (s.lines === null);
     // 광원
     c.fillStyle = on ? s.glow : '#C9D3DE'; c.globalAlpha = on ? 0.9 : 0.35;
     c.fillRect(20, 60, 60, 16); c.globalAlpha = 1;
@@ -485,13 +496,13 @@ return {
     c.fillStyle = '#5B6776'; c.fillRect(110, 58, 90, 20); txt(c, '분광기', 155, 50, {align:'center', color:'#4A5868'});
     // 스펙트럼
     var sx = 20, sw = W - 40, sy = 120, bright = s.lines === null ? 1 : (r ? Math.min(tau / 0.4, 1) : 0);
-    var X = spectrum(c, sx, sy, sw, 60, s.lines, bright);
+    var X = spectrum(c, sx, sy, sw, 60, lines, bright);
     c.fillStyle = '#F4E7C3'; c.fillRect(sx, sy + 60, sw, 30);
     c.strokeStyle = '#6B5A2E'; c.lineWidth = 1;
     for (var nm = 380; nm <= 720; nm += 10){ var tx = X(nm); c.beginPath(); c.moveTo(tx, sy + 60); c.lineTo(tx, sy + 60 + (nm % 50 === 0 ? 12 : 6)); c.stroke(); if (nm % 100 === 0) txt(c, String(nm), tx, sy + 88, {align:'center', color:'#4A3C18'}); }
     txt(c, 'nm', sx + sw, sy + 118, {align:'right', color:'#4A5868'});
     if (r){
-      var target = s.lines[p.n - 1], k = Math.max(0, Math.min((tau - 0.4) / 0.5, 1)), cur = 380 + (target - 380) * k, cx = X(cur);
+      var target = lines[Math.min(p.n, lines.length) - 1], k = Math.max(0, Math.min((tau - 0.4) / 0.5, 1)), cur = 380 + (target - 380) * k, cx = X(cur);
       c.strokeStyle = '#fff'; c.lineWidth = 1.5; c.setLineDash([4, 3]); c.beginPath(); c.moveTo(cx, sy - 8); c.lineTo(cx, sy + 60); c.stroke(); c.setLineDash([]);
       c.fillStyle = '#1E2833'; c.beginPath(); c.moveTo(cx, sy - 2); c.lineTo(cx - 6, sy - 12); c.lineTo(cx + 6, sy - 12); c.closePath(); c.fill();
       if (tau >= 1) txt(c, '눈금 읽기: ' + r.lam + ' nm', 12, 28, {bold:true});
@@ -499,20 +510,49 @@ return {
   },
   stats: function(p, r){
     return [
-      ['광원', SRC[p.s].name], ['선의 색', colorName(r.lam)],
+      ['광원', SRC[p.s].name], ['가리개', p.fl ? (p.s === 1 ? '끼움 (수소의 셋째 선 막힘)' : '끼움 (이 광원에는 듣지 않음)') : '없음'],
+      ['선의 색', colorName(r.lam)],
       ['분광기로 읽은 파장', r.lam + ' nm', wl(r.lam)],
       ['이 빛의 광자 한 개의 에너지 hc ÷ λ', f(r.E, 3) + ' eV']
     ];
   },
-  columns: ['광원', '선 순서', '색', '파장 (nm)', '광자 에너지 (eV)'],
-  record: function(p, r){ return {s:p.s, n:p.n, lam:r.lam, E:r.E}; },
-  row: function(d){ return [SRC[d.s].name, d.n, '<span class="dotc" style="background:' + wl(d.lam) + '"></span>' + colorName(d.lam), d.lam, f(d.E, 3)]; },
+  columns: ['광원', '가리개', '선 순서', '색', '파장 (nm)', '광자 에너지 (eV)'],
+  record: function(p, r){ return {s:p.s, fl:p.fl, n:p.n, lam:r.lam, E:r.E}; },
+  row: function(d){ return [SRC[d.s].name, d.fl ? '끼움' : '없음', d.n, '<span class="dotc" style="background:' + wl(d.lam) + '"></span>' + colorName(d.lam), d.lam, f(d.E, 3)]; },
   verify: function(rec, box){
     var used = [1, 2, 3, 4].filter(function(i){ return rec.some(function(d){ return d.s === i; }); });
+    var hy = rec.filter(function(d){ return d.s === 1; });
+    var uq = {}; hy.forEach(function(d){ uq[d.lam] = d; });
+    var hl = Object.keys(uq).map(function(k){ return uq[k]; }).sort(function(a, b){ return a.lam - b.lam; });
+    var nOf = function(E){ return Math.round(1 / Math.sqrt(Math.max(0.25 - E / 13.6, 1e-9))); };
+    var ns = hl.map(function(d){ return nOf(d.E); });
+    var miss = [3, 4, 5, 6].filter(function(n){ return ns.indexOf(n) < 0; });
+    var CANDN = [450, 486, 530];
+    var quizCard = hl.length
+      ? tableHTML(['잰 파장 (nm)', '광자 에너지 (eV)', '에너지로 구한 n'],
+          hl.map(function(d){ return [d.lam, f(d.E, 3), nOf(d.E)]; }), 'center') +
+        '<ul class="readout"><li>수소의 이 선들은 모두 <b>n → 2 로 떨어질 때</b> 나오는 빛이에요. 광자 에너지는 13.6 × (1/4 − 1/n²) eV 입니다.</li>' +
+        '<li>기록한 선에서 구한 n: <b>' + (ns.length ? ns.join(', ') : '—') + '</b>' + (miss.length ? ' — 빠진 전이는 <b>n = ' + miss.join(', ') + '</b> 예요.' : ' — 네 전이가 모두 들어왔어요.') + '</li>' +
+        '<li>가리개가 막는 셋째 선은 <b>n = 4 → 2</b> 전이입니다. 에너지를 먼저 구하고 λ = 1240 ÷ (에너지) 로 파장을 계산해, 아래에서 골라 보세요.</li></ul>' +
+        '<div class="seg c3" id="lamQuiz">' + CANDN.map(function(v){ return '<button type="button" data-nm="' + v + '">' + v + ' nm</button>'; }).join('') + '</div>' +
+        '<p class="ask" id="lamFb">단추를 누르면 계산한 값과 견주어 알려 줄게요.</p>'
+      : '<p class="msg">광원을 <b>수소</b>로 하고 선을 기록해 보세요. 가리개를 끼워 한 선을 막고, 나머지 선과 에너지 준위로 가려진 선의 파장을 맞혀 볼 수 있어요.</p>';
     box.innerHTML = '<div class="vgrid">' +
       card('기록으로 다시 그린 스펙트럼', '<canvas class="chart" id="ch1" role="img" aria-label="선 스펙트럼과 에너지 준위 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><p class="ask">원소마다 선의 위치가 다릅니다. 이 선들을 원소의 지문처럼 쓸 수 있을까요? 백열전구의 스펙트럼과는 무엇이 다른가요?</p>') +
       card('수소의 선과 에너지 준위', '<canvas class="chart" id="ch2" role="img" aria-label="선 스펙트럼과 에너지 준위 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">수소 원자가 어떤 에너지든 가질 수 있다면 스펙트럼은 어떻게 보여야 할까요? 정해진 에너지의 빛만 나온다는 것은 원자 속 전자에 대해 무엇을 알려 주나요?</p>') +
+      card('가려진 선은 몇 nm일까? — 거꾸로 맞히기', quizCard) +
       '</div>';
+    var qd = $('lamQuiz');
+    if (qd) Array.prototype.forEach.call(qd.querySelectorAll('button'), function(b){
+      b.addEventListener('click', function(){
+        var v = parseFloat(b.getAttribute('data-nm'));
+        var E4 = 13.6 * (1 / 4 - 1 / 16), lam4 = HC / E4;
+        Array.prototype.forEach.call(qd.querySelectorAll('button'), function(x){ x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+        $('lamFb').innerHTML = Math.abs(v - lam4) < 10
+          ? '<b>맞았어요.</b> n = 4 → 2 의 에너지는 13.6 × (1/4 − 1/16) = ' + f(E4, 2) + ' eV 이고, λ = 1240 ÷ ' + f(E4, 2) + ' ≈ ' + f(lam4, 0) + ' nm 입니다. 가리개를 빼고 셋째 선을 기록해 확인해 보세요.'
+          : '<b>아니에요.</b> n = 4 → 2 의 에너지는 13.6 × (1/4 − 1/16) = ' + f(E4, 2) + ' eV 이므로 λ = 1240 ÷ ' + f(E4, 2) + ' ≈ ' + f(lam4, 0) + ' nm 입니다. 고른 ' + v + ' nm 는 ' + f(Math.abs(v - lam4), 0) + ' nm 나 어긋나요.';
+      });
+    });
     var cv = $('ch1'), o = fitCanvas(cv), c = o.c, W = o.W, rowH = 44, lx = 90, sw = W - lx - 12;
     cv.style.height = (used.length * rowH + 50) + 'px'; o = fitCanvas(cv); c = o.c; W = o.W; sw = W - lx - 12;
     used.forEach(function(si, i){
@@ -551,7 +591,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

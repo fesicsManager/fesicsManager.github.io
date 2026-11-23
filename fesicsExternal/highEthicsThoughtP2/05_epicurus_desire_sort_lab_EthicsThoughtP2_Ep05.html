@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,6 +446,15 @@ var LAB = (function(){
         {n:'자연적·비필수적', s:'비필수', cost:'높음, 끝이 없음', adv:'굳이 좇지 않는다'},
         {n:'자연적이지도 필수적이지도 않음', s:'헛된', cost:'매우 높음, 불안을 낳음', adv:'버린다'}
       ];
+      /* 내가 매긴 괴로움(못 채웠을 때 마음이 흔들리는 정도)과 채우는 비용으로
+         '이 욕구를 어떻게 다룰까'를 셈한다. 같은 욕구라도 사람에 따라 권고가 갈린다. */
+      function advise(pain, cost){
+        if (pain <= 1) return {t:'버려도 좋음', m:'못 채워도 마음이 거의 흔들리지 않아요 — 굳이 좇지 않아도 평정이 지켜져요'};
+        if (cost <= 1) return {t:'채우기', m:'싸게 채울 수 있고 못 채우면 괴로우니, 채워서 괴로움을 없애는 쪽이 평정에 가까워요'};
+        if (pain >= 4 && cost >= 4) return {t:'욕구 자체를 다시 보기', m:'비싸게 채워도 곧 다음 것을 원하게 되어 불안이 남아요 — 채우기보다 꼭 가져야 한다는 판단을 살펴보세요'};
+        if (pain >= cost) return {t:'싸게 채우는 길 찾기', m:'괴로움이 비용보다 크니, 같은 욕구를 덜 드는 방법으로 채우는 길을 찾아보세요'};
+        return {t:'없어도 괜찮다는 판단 기르기', m:'비용이 괴로움보다 커요 — 채우는 것보다 없어도 괜찮다고 보는 판단이 마음을 덜 흔들어요'};
+      }
       return {
         sceneHeight: 400,
         idle: '욕구·칸·괴로움 점수를 고른 뒤 <b>이 칸에 넣기</b>를 누르세요.',
@@ -451,11 +462,19 @@ var LAB = (function(){
         params: [
           {key:'d', type:'seg', label:'욕구', cols:4, value:0, options:DS.map(function(x){ return x.n; })},
           {key:'k', type:'seg', label:'내가 넣을 칸', cols:3, value:0, options:KD.map(function(x){ return x.n; })},
-          {key:'pain', type:'range', label:'채우지 못했을 때의 괴로움 (내가 매기기)', min:0, max:5, step:1, value:2, fmt:function(v){ return v + ' / 5'; }}
+          {key:'pain', type:'range', label:'채우지 못했을 때의 괴로움 (내가 매기기)', min:0, max:5, step:1, value:2, fmt:function(v){ return v + ' / 5'; }},
+          {key:'cost', type:'range', label:'내가 채우는 데 드는 비용 (돈·시간·마음 씀, 내가 매기기)', min:0, max:5, step:1, value:0,
+            fmt:function(v){ return v === 0 ? '안 매김' : v + ' / 5'; }}
         ],
         compute: function(p){
           var d = DS[p.d], ek = KD[d.k];
-          return {d:d, mine:KD[p.k], ek:ek, same:p.k === d.k};
+          var out = {d:d, mine:KD[p.k], ek:ek, same:p.k === d.k};
+          if (p.cost > 0){
+            var a = advise(p.pain, p.cost);
+            out.cost = p.cost; out.pain = p.pain; out.adv = a;
+            out.ratio = p.pain / p.cost;
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.7, 1) : 0, cw = (W - 40) / 3, top = 60, bh = H - 170;
@@ -483,13 +502,23 @@ var LAB = (function(){
             ['에피쿠로스의 분류', r.ek.n + (r.same ? ' — 같은 칸' : ' — 다른 칸'), r.same ? PAL[1] : PAL[3]],
             ['채우는 비용', r.ek.cost], ['에피쿠로스의 권고', r.ek.adv, PAL[2]],
             ['스토아의 관점', stoic(r.d), PAL[5]],
-            ['내가 매긴 괴로움', p.pain + ' / 5', PAL[4]]];
+            ['내가 매긴 괴로움', p.pain + ' / 5', PAL[4]]].concat(
+            r.cost ? [['내가 매긴 비용', r.cost + ' / 5', PAL[6]],
+              ['괴로움 ÷ 비용', f(r.ratio, 2), PAL[0]],
+              ['나에게 맞는 권고', r.adv.t + ' — ' + r.adv.m, PAL[1]],
+              ['에피쿠로스의 일반 권고와', r.adv.t === r.ek.adv ? '같아요' : '달라요 — 같은 욕구라도 괴로움과 비용을 어떻게 매기느냐에 따라 권고가 갈려요', r.adv.t === r.ek.adv ? PAL[1] : PAL[3]]] : []);
         },
-        columns: ['욕구', '내 칸', '에피쿠로스 칸', '괴로움'],
-        record: function(p, r){ return {d:p.d, k:p.k, ek:r.d.k, pain:p.pain}; },
-        row: function(d){ return [DS[d.d].n, KD[d.k].s, KD[d.ek].s, d.pain + '/5']; },
+        columns: ['욕구', '내 칸', '에피쿠로스 칸', '괴로움', '비용', '나에게 맞는 권고'],
+        record: function(p, r){ return {d:p.d, k:p.k, ek:r.d.k, pain:p.pain, cost:r.cost || 0, adv:r.adv ? r.adv.t : ''}; },
+        row: function(d){ return [DS[d.d].n, KD[d.k].s, KD[d.ek].s, d.pain + '/5', d.cost ? d.cost + '/5' : '—', d.adv || '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var cs = rec.filter(function(d){ return d.cost; });
+          var ccard = !cs.length ? '' : card('괴로움과 비용으로 갈리는 권고', tableHTML(['욕구', '괴로움', '비용', '괴로움÷비용', '나에게 맞는 권고', '에피쿠로스 칸의 일반 권고'],
+              cs.map(function(d){ return [DS[d.d].n, d.pain + '/5', d.cost + '/5', f(d.pain / d.cost, 2), d.adv, KD[d.ek].adv]; })) +
+            '<p class="ask">같은 욕구에 괴로움이나 비용을 다르게 매기면 권고가 바뀌었나요? ' +
+            '에피쿠로스의 칸은 ‘보통 이렇다’를 알려 주지만, 무엇을 할지는 <b>내가 매긴 괴로움과 비용</b>에 달려 있어요. ' +
+            '괴로움을 낮추는 길(판단을 바꾸는 것)과 비용을 낮추는 길(싸게 채우는 것) 가운데 어느 쪽이 평정에 가까울까요?</p>');
+          box.innerHTML = '<div class="vgrid">' + ccard +
             card('에피쿠로스 칸별 — 내가 매긴 괴로움 평균', '<div id="eq1"></div><p class="ask">어느 칸의 괴로움이 가장 높았나요? "채워도 금방 다음 걸 원하게 되는" 욕구가 어느 칸인지와 비교해 보세요.</p>') +
             card('나의 분류 vs 에피쿠로스의 분류', '<div id="eq2"></div><p class="ask">과제: 일주일 동안 소비나 여가 선택 다섯 건을 기록해 세 종류의 욕구로 분류하고, 에피쿠로스와 스토아의 관점에서 각각 어떤 조언이 나올지 비교해 보세요.</p>') + '</div>';
           var it = [];
@@ -506,7 +535,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

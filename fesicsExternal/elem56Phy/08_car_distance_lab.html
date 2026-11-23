@@ -223,6 +223,9 @@ tbody tr:nth-child(even){background:#fafcfb;}
             <div class="control-label">2. 달린 시간</div>
             <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">쉬지 않고 달릴 때</span><span class="slider-val"><span id="tVal">2.0</span> 시간</span></div>
             <input type="range" id="tSlider" min="0.5" max="5" step="0.5" value="2" aria-label="달린 시간">
+            <div class="control-label">3. 겨뤄 볼 다른 속력 (같은 거리를 간다면)</div>
+            <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">조금 빠르면 얼마나 일찍 닿을까요?</span><span class="slider-val"><span id="v2Val">80</span> km/h</span></div>
+            <input type="range" id="v2Slider" min="20" max="120" step="10" value="80" aria-label="겨뤄 볼 속력">
             <button class="action" id="goBtn">출발하기 ▶</button>
             <div class="readout" id="rd">속력과 시간을 정하고 출발하면, 자동차가 얼마나 멀리 갔는지 알 수 있습니다.</div>
           </div>
@@ -231,8 +234,8 @@ tbody tr:nth-child(even){background:#fafcfb;}
           <div class="table-title">기록 (<span id="cnt" class="mono">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>#</th><th>속력<br>(km/h)</th><th>시간<br>(h)</th><th>이동 거리<br>(km)</th><th>속력×시간</th></tr></thead>
-              <tbody id="tb"><tr><td colspan="5" class="empty-row">아직 기록이 없습니다.</td></tr></tbody>
+              <thead><tr><th>#</th><th>속력<br>(km/h)</th><th>시간<br>(h)</th><th>이동 거리<br>(km)</th><th>속력×시간</th><th>겨룬 속력<br>(km/h)</th><th>그때 걸린 시간</th><th>아낀 시간</th></tr></thead>
+              <tbody id="tb"><tr><td colspan="8" class="empty-row">아직 기록이 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box" style="margin-top:14px;">
@@ -830,7 +833,16 @@ function car(g,x,groundY,color,wheelPhase){
 }
 
 /* 이동 거리 = 속력 × 시간 */
-let spd=60, hrs=2, recs=[], busy=false;
+let spd=60, hrs=2, spd2=80, recs=[], busy=false;
+function raceTime(){
+  const d=spd*hrs, t2=d/spd2, saved=hrs-t2;
+  /* 아낀 시간이 30분을 넘으면 '많이 일찍', 5분도 안 되면 '거의 그대로' (교육용 기준) */
+  const lvl = Math.abs(saved)<1/12? 0 : (Math.abs(saved)<0.5? 1 : 2);
+  return {d:d, t2:t2, saved:saved, lvl:lvl};
+}
+function hm(h){ const s=h<0?'−':'', a=Math.abs(h), H=Math.floor(a+1e-9), M=Math.round((a-H)*60);
+  if(M===60) return s+(H+1)+'시간';
+  return s+(H? H+'시간'+(M? ' '+M+'분':'') : M+'분'); }
 const cv=document.getElementById('cv'), cx=cv.getContext('2d');
 const MAXD=600;                        /* 화면 오른쪽 끝 = 600 km */
 
@@ -873,7 +885,7 @@ function drawCar(p){
 
   cx.fillStyle='rgba(255,255,255,.95)'; cx.fillRect(0,294,440,36);
   cx.fillStyle='#173238'; cx.font="600 20px 'Noto Sans KR', sans-serif"; cx.textAlign='left';
-  cx.fillText(spd+' km/h · '+hrs.toFixed(1)+'시간', 12, 318);
+  cx.fillText(spd+' km/h · '+hrs.toFixed(1)+'시간 · 겨룸 '+spd2+' km/h', 12, 318);
   cx.textAlign='right'; cx.font="600 21px 'IBM Plex Mono', monospace"; cx.fillStyle='#a86825';
   cx.fillText(p>=1? d.toFixed(0)+' km' : '', 428, 318);
 }
@@ -881,26 +893,32 @@ document.getElementById('vSlider').addEventListener('input',e=>{
   spd=parseInt(e.target.value); document.getElementById('vVal').textContent=spd; drawCar(0);});
 document.getElementById('tSlider').addEventListener('input',e=>{
   hrs=parseFloat(e.target.value); document.getElementById('tVal').textContent=hrs.toFixed(1); drawCar(0);});
+document.getElementById('v2Slider').addEventListener('input',e=>{
+  spd2=parseInt(e.target.value); document.getElementById('v2Val').textContent=spd2; drawCar(0);});
 document.getElementById('goBtn').addEventListener('click',()=>{
   focusCanvas(cv);
   if(busy) return; busy=true;
   const b=document.getElementById('goBtn'); b.disabled=true;
-  document.getElementById('vSlider').disabled=true; document.getElementById('tSlider').disabled=true;
+  document.getElementById('vSlider').disabled=true; document.getElementById('tSlider').disabled=true; document.getElementById('v2Slider').disabled=true;
   const dur=800+hrs*340;                    /* 오래 달릴수록 길게 재생 */
   animate(dur, p=>drawCar(p), ()=>{
-    b.disabled=false; document.getElementById('vSlider').disabled=false; document.getElementById('tSlider').disabled=false; busy=false;
-    recs.push({v:spd, t:hrs, d:spd*hrs});
+    b.disabled=false; document.getElementById('vSlider').disabled=false; document.getElementById('tSlider').disabled=false; document.getElementById('v2Slider').disabled=false; busy=false;
+    const rt=raceTime();
+    recs.push({v:spd, t:hrs, d:spd*hrs, v2:spd2, t2:rt.t2, saved:rt.saved, lvl:rt.lvl});
     render();
     document.getElementById('rd').innerHTML=
-      `${spd} km/h로 ${hrs.toFixed(1)}시간 → 이동 거리 <span class="big">${(spd*hrs).toFixed(0)}</span> km`;
+      `${spd} km/h로 ${hrs.toFixed(1)}시간 → 이동 거리 <span class="big">${(spd*hrs).toFixed(0)}</span> km`+
+      `<br>같은 ${rt.d.toFixed(0)} km 를 ${spd2} km/h 로 가면 ${hm(rt.t2)} — ${rt.saved>0? '<b>'+hm(rt.saved)+' 일찍</b> 닿습니다' : (rt.saved<0? '<b>'+hm(-rt.saved)+' 늦게</b> 닿습니다' : '걸린 시간이 같습니다')}`+
+      `<br><small>${rt.lvl===0? '속력을 바꿔도 걸린 시간이 <b>거의 그대로</b>입니다.' : (rt.lvl===1? '아낀 시간이 30분이 안 됩니다 — <b>생각보다 적게</b> 줄어듭니다.' : '아낀 시간이 30분을 넘습니다 — <b>크게</b> 줄어듭니다.')} 같은 20 km/h 를 올려도 느릴 때 올리면 많이 아끼고, 빠를 때 올리면 얼마 못 아낍니다. 시간 = 거리 ÷ 속력이라 속력이 커질수록 줄어드는 폭이 작아지기 때문입니다.</small>`;
     maybeNudge(recs.length);
   });
 });
 function render(){
   document.getElementById('cnt').textContent=recs.length;
   const tb=document.getElementById('tb');
-  if(!recs.length){tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록이 없습니다.</td></tr>';return;}
-  tb.innerHTML=recs.map((r,i)=>`<tr><td>${i+1}</td><td>${r.v}</td><td>${r.t.toFixed(1)}</td><td><b>${r.d.toFixed(0)}</b></td><td>${r.v}×${r.t.toFixed(1)} = ${r.d.toFixed(0)}</td></tr>`).join('');
+  if(!recs.length){tb.innerHTML='<tr><td colspan="8" class="empty-row">아직 기록이 없습니다.</td></tr>';return;}
+  tb.innerHTML=recs.map((r,i)=>`<tr><td>${i+1}</td><td>${r.v}</td><td>${r.t.toFixed(1)}</td><td><b>${r.d.toFixed(0)}</b></td><td>${r.v}×${r.t.toFixed(1)} = ${r.d.toFixed(0)}</td>`+
+    `<td>${r.v2}</td><td>${hm(r.t2)}</td><td style="font-family:'Noto Sans KR';font-size:.86rem">${r.saved>0? hm(r.saved)+' 일찍' : (r.saved<0? hm(-r.saved)+' 늦게' : '같음')}</td></tr>`).join('');
 }
 function renderValidation(){
   document.getElementById('lockedCount').textContent=recs.length;
@@ -924,7 +942,11 @@ function renderValidation(){
   document.getElementById('i1').innerHTML='<div class="insight-box">모든 선이 <b>원점을 지나는 직선</b>입니다. 그리고 직선의 <b>기울기가 곧 속력</b>입니다. 빠른 자동차일수록 선이 가파릅니다. 같은 시간을 달려도 훨씬 멀리 가기 때문입니다.</div>';
   document.getElementById('i2').innerHTML='<div class="analysis-card">'+
     recs.map(r=>`<div class="mini-row"><span>${r.v} km/h · ${r.t.toFixed(1)}시간</span><span class="mono">${r.v} × ${r.t.toFixed(1)} = ${r.d.toFixed(0)} km</span></div>`).join('')+
-    '<div class="insight-box">속력에 시간을 곱하면 언제나 이동 거리가 나옵니다. 반대로 <b>거리 ÷ 시간 = 속력</b>, <b>거리 ÷ 속력 = 시간</b>입니다. 셋 중 둘만 알면 나머지 하나를 항상 구할 수 있습니다.</div></div>';
+    '<div class="insight-box">속력에 시간을 곱하면 언제나 이동 거리가 나옵니다. 반대로 <b>거리 ÷ 시간 = 속력</b>, <b>거리 ÷ 속력 = 시간</b>입니다. 셋 중 둘만 알면 나머지 하나를 항상 구할 수 있습니다.</div>'+
+    (function(){ const up=recs.filter(r=>r.v2>r.v); if(!up.length) return '<div class="insight-box">겨뤄 볼 속력을 지금 속력보다 <b>높게</b> 두고, 느린 속력(20~40 km/h)과 빠른 속력(100~120 km/h)에서 각각 재 보세요. 같은 20 km/h 를 올려도 아끼는 시간이 다릅니다.</div>';
+      const slow=up.filter(r=>r.v<=50), fast=up.filter(r=>r.v>=90);
+      return '<div class="insight-box">속력을 올려 겨뤄 본 기록 '+up.length+'개 — 아낀 시간: '+up.map(r=>r.v+'→'+r.v2+' km/h ('+r.d.toFixed(0)+'km) '+hm(r.saved)).join(' · ')+'. '+
+        (slow.length&&fast.length? '느린 속력에서 올렸을 때 평균 '+hm(slow.reduce((s,r)=>s+r.saved,0)/slow.length)+', 빠른 속력에서 올렸을 때 평균 '+hm(fast.reduce((s,r)=>s+r.saved,0)/fast.length)+' 를 아꼈습니다 — <b>같은 만큼 올려도 느릴 때 더 많이 아낍니다.</b>' : '느린 속력(20~40 km/h)과 빠른 속력(100~120 km/h)에서 각각 20 km/h 를 올려 보면 아끼는 시간이 크게 다릅니다.')+'</div>'; })()+'</div>';
 }
 document.getElementById('p1btn').addEventListener('click',()=>{
   const v=parseFloat(document.getElementById('p1').value), f=document.getElementById('fb1');

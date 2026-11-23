@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>휴전 회담은 금방 끝났나</h1>
-    <p>1951년 7월부터 1953년 7월까지 <b>달</b>을 옮기며, 회담 의제마다 언제 합의되었는지와 그동안 전선에서 벌어진 전투를 겹쳐 봅니다. 먼저 <b>가장 오래 걸린 의제</b>를 예상하고, 의제 하나를 골라 걸린 기간을 확인하세요.<br><span style="font-size:.9em;color:#a86825">※ 합의 시점은 대표 달로 단순화했습니다(정전 감시 기구는 "1952년 봄 무렵 대체로 합의"). 전투는 대표적인 것만 표시했어요.</span></p>
+    <p>1951년 7월부터 1953년 7월까지 <b>달</b>을 옮기며, 회담 의제마다 언제 합의되었는지와 그동안 전선에서 벌어진 전투를 겹쳐 봅니다. 먼저 <b>가장 오래 걸린 의제</b>를 예상하고, 의제 하나를 골라 걸린 기간을 확인하세요.<br><span style="font-size:.9em;color:#a86825">※ 합의 시점은 대표 달로 단순화했습니다(정전 감시 기구는 "1952년 봄 무렵 대체로 합의"). 전투는 대표적인 것만 표시했어요. 아래 "다른 안을 골랐다면"은 <b>역사적 사실이 아니라 가정 계산</b>이고, 그때 쓰는 달 수·사상자 수는 <b>교육용 모형값</b>입니다(실제 사상자 추계는 자료마다 크게 다릅니다). 연표 그림에는 사실만 그립니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -474,18 +476,33 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
       var BT = [[1, '펀치볼'], [15, '백마고지'], [24, '금성 전투']], PAUSE = [15, 21];
       var EV = {4:'군사 분계선 잠정 합의', 15:'백마고지 전투 · 회담 중단', 21:'회담 재개', 23:'포로 송환 합의 · 반공 포로 석방(6.18)', 24:'7.27 정전 협정 서명 (한국 정부는 서명 안 함)'};
       function lab(i){ var t = 6 + i, y = 1951 + Math.floor(t / 12), mo = t % 12 + 1; return y + '.' + mo; }
+      /* 포로 송환 쟁점의 두 안. OPT[0]이 실제로 합의된 안(1953.6)이고, OPT[1]은 '만약 이랬다면'의 가정이다.
+         가정 쪽 끝달(ASSUME_END=10, 정전 감시 기구가 대체로 합의된 1952년 봄 무렵)과 사상자 모형값은
+         사료에서 확인되는 사실이 아니라 따져 보기 위한 교육용 모형값이다. */
+      var OPT = ['본인 뜻대로 송환 (실제 합의)', '전원 송환을 받아들였다면 (가정)'];
+      var ASSUME_END = 10, REFUSED = 22;   /* REFUSED: 송환을 거부해 중립국 송환 위원회로 넘겨진 포로 약 2만 2천 명(천 명 단위) */
       function model(p){
         var ag = AG[p.ag], open = AG.filter(function(a){ return p.t >= a.a && p.t < a.b; }).map(function(a){ return a.n; }), longest = 2;
-        return {ag:ag, dur:ag.b - ag.a, open:open, ok:p.my === longest, ev:EV[p.t] || (p.t >= PAUSE[0] && p.t < PAUSE[1] ? '회담 중단 중 — 전선에서는 고지전 계속' : '회담·고지전이 함께 진행'), paused:p.t >= PAUSE[0] && p.t < PAUSE[1]};
+        var realEnd = AG[2].b, end = p.opt ? ASSUME_END : realEnd, cut = realEnd - end;
+        var saved = cut * p.rate;                 /* 가정: 교착이 줄면 그만큼 고지전 사상자가 줄었다는 모형 계산 */
+        var lessWar = saved >= REFUSED;
+        var verdict = !p.opt
+          ? '실제로 고른 안 — 포로 송환은 약 ' + (realEnd - AG[2].a) + '달 교착, 그 사이 고지전이 이어졌습니다 (사실)'
+          : (lessWar ? '가정 계산: 회담은 약 ' + cut + '달 빨리 끝나고 모형 사상자 약 ' + saved + '천 명이 줄지만, 송환을 거부한 약 ' + REFUSED + '천 명의 뜻은 꺾인다 — 줄어든 사상자가 더 많다고 셈'
+                     : '가정 계산: 회담은 약 ' + cut + '달 빨리 끝나지만 줄어드는 모형 사상자 약 ' + saved + '천 명보다, 뜻을 꺾인 약 ' + REFUSED + '천 명이 더 많다고 셈');
+        return {ag:ag, dur:ag.b - ag.a, open:open, ok:p.my === longest, ev:EV[p.t] || (p.t >= PAUSE[0] && p.t < PAUSE[1] ? '회담 중단 중 — 전선에서는 고지전 계속' : '회담·고지전이 함께 진행'), paused:p.t >= PAUSE[0] && p.t < PAUSE[1],
+          end:end, cut:cut, saved:saved, lessWar:lessWar, verdict:verdict};
       }
       return {
         sceneHeight: 420,
-        idle: '달, 볼 의제, 나의 예상을 고른 뒤 <b>이 달 확인</b>을 누르세요.',
-        shortHint: '1951.11, 1952.10, 1953.6을 차례로 골라 열려 있는 의제를 확인해 보세요.',
+        idle: '달, 볼 의제, 나의 예상과 포로 송환의 안을 고른 뒤 <b>이 달 확인</b>을 누르세요.',
+        shortHint: '1951.11, 1952.10, 1953.6을 차례로 골라 열려 있는 의제를 보고, 포로 송환의 두 안을 바꿔 가며 따져 보세요.',
         params: [
           {key:'t', type:'range', label:'달', min:0, max:24, step:1, value:4, fmt:function(v){ return lab(v); }},
           {key:'ag', type:'seg', label:'볼 의제', cols:3, value:0, options:AG.map(function(a){ return a.n; })},
-          {key:'my', type:'seg', label:'나의 예상: 가장 오래 걸린 의제', cols:3, value:0, options:AG.map(function(a){ return a.n; })}
+          {key:'my', type:'seg', label:'나의 예상: 가장 오래 걸린 의제', cols:3, value:0, options:AG.map(function(a){ return a.n; })},
+          {key:'opt', type:'seg', label:'포로 송환 — 어느 안으로 따져 볼까', cols:2, value:0, options:OPT, note:'두 번째는 역사적 사실이 아닌 "만약 이랬다면"의 가정 계산이에요.'},
+          {key:'rate', type:'range', label:'가정 계산용 — 교착 1달당 고지전 사상자 (교육용 모형값)', min:0.5, max:5, step:0.5, value:1, fmt:function(v){ return f(v, 1) + '천 명/달'; }}
         ],
         compute: function(p){ return model(p); },
         draw: function(c, W, H, p, r, tau){
@@ -499,6 +516,7 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
             if (!r || k >= 1){ tx(c, '✓', X(a.b) + 4, y + 32, {bold:true, size:sz, color:PAL[1]}); if (sel) tx(c, (a.b - a.a) + '달', X(a.b) + 22, y + 32, {bold:true, size:sz - 2, color:PAL[0]}); } });
           var by = top + 3 * rh + 20; tx(c, '전투', lx - 8, by + 6, {align:'right', size:sz - 3, color:PAL[4]});
           BT.forEach(function(b, j){ c.fillStyle = PAL[4]; c.beginPath(); c.arc(X(b[0] + 0.5), by, 7, 0, Math.PI * 2); c.fill(); if (W >= 560 || j !== 0) tx(c, b[1], X(b[0] + 0.5), by + 22, {align:'center', size:sz - 5, color:PAL[4]}); });
+          if (p.opt){ var ax = X(ASSUME_END + 0.5), ay = top + 2 * rh; seg(c, ax, ay + 6, ax, ay + rh - 6, PAL[6], 2.5, [6, 5]); }   /* 가정 끝달 표시(사실 막대는 그대로) */
           var cx = X(p.t + 0.5); seg(c, cx, top - 6, cx, top + rh * 4, '#1E2833', 2.5);
           var ty = top + rh * 4 + 30;
           tx(c, lab(p.t) + ' · ' + m.ev, 12, ty, {bold:true, size:sz - 2});
@@ -509,19 +527,31 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         stats: function(p, r){
           return [['고른 달', lab(p.t)], ['이 달', r.ev, r.paused ? PAL[6] : PAL[0]], ['열려 있는 의제', r.open.length ? r.open.join(', ') : '없음 (모두 합의)'],
             ['볼 의제', r.ag.n + ' — 약 ' + r.dur + '달', PAL[0]], ['합의 내용', r.ag.note], ['나의 예상', AG[p.my].n + (r.ok ? ' — 맞음' : ' — 실제는 포로 송환'), r.ok ? PAL[1] : PAL[4]],
-            ['정전 협정 서명', '유엔군 총사령관 · 북한군 최고 사령관 · 중국 인민 지원군 사령원 (한국 정부 서명 안 함)', PAL[3]]];
+            ['정전 협정 서명', '유엔군 총사령관 · 북한군 최고 사령관 · 중국 인민 지원군 사령원 (한국 정부 서명 안 함)', PAL[3]],
+            ['포로 송환 쟁점', '본인 의사 송환(유엔군 쪽 주장) ↔ 전원 송환(공산군 쪽 주장) — 1953.6 본인 의사 송환으로 합의, 거부 포로는 중립국 송환 위원회로 (사실)', PAL[0]],
+            ['고른 안', OPT[p.opt] + (p.opt ? ' — 아래는 가정 계산' : ''), p.opt ? PAL[6] : PAL[1]],
+            ['가정 계산 (교육용 모형값)', p.opt ? '합의가 ' + lab(ASSUME_END) + '쯤 났다면 회담은 약 ' + r.cut + '달 짧아짐 → 1달당 ' + f(p.rate, 1) + '천 명으로 치면 약 ' + r.saved + '천 명 적게 다침' : '실제 안을 골랐으니 가정 계산은 하지 않습니다', PAL[6]],
+            ['따져 본 판정', r.verdict, p.opt ? (r.lessWar ? PAL[6] : PAL[3]) : '#4A5868']];
         },
-        columns: ['달', '볼 의제', '걸린 기간', '열린 의제 수'],
-        record: function(p, r){ return {t:p.t, ag:p.ag, dur:r.dur, open:r.open.length, ok:r.ok}; },
-        row: function(d){ return [lab(d.t), AG[d.ag].n, '약 ' + d.dur + '달', d.open + '개']; },
+        columns: ['달', '볼 의제', '걸린 기간', '열린 의제 수', '고른 안', '가정 단축', '가정 사상자 변화'],
+        record: function(p, r){ return {t:p.t, ag:p.ag, dur:r.dur, open:r.open.length, ok:r.ok, opt:p.opt, cut:r.cut, saved:r.saved, rate:p.rate, lw:r.lessWar}; },
+        row: function(d){ return [lab(d.t), AG[d.ag].n, '약 ' + d.dur + '달', d.open + '개', d.opt ? '전원 송환(가정)' : '실제 합의', d.opt ? '약 ' + d.cut + '달 짧게' : '—',
+          d.opt ? '약 ' + d.saved + '천 명 적게 (모형)' : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('의제별 제안·쟁점·합의 시점', '<div id="ar1"></div><p class="ask">과제: 휴전 회담의 주요 의제를 표로 만들어 제안·쟁점·합의 시점을 적고, 같은 기간의 주요 고지 전투를 연표에 겹쳐 "협상이 멈춘 기간"과 "전투가 격렬했던 기간"이 어떻게 겹치는지 표시해 보세요.</p>') +
-            card('내가 확인한 달', '<div id="ar2"></div><p class="ask">정전 협정의 서명자와 서명하지 않은 쪽을 확인하고, "정전"과 "종전"이 어떻게 다른지 한 문장으로 써 보세요.</p>') + '</div>';
+            card('내가 확인한 달', '<div id="ar2"></div><p class="ask">정전 협정의 서명자와 서명하지 않은 쪽을 확인하고, "정전"과 "종전"이 어떻게 다른지 한 문장으로 써 보세요.</p>') +
+            card('가정 계산 — 다른 안을 골랐다면 (사실 아님)', '<div id="ar3"></div><p class="ask">아래 표는 <b>역사적 사실이 아닌 가정 계산</b>입니다. 1달당 사상자를 몇 명으로 잡느냐에 따라 "줄어든 사상자"와 "뜻이 꺾인 포로 수" 가운데 어느 쪽이 커지는지 달라집니다. 숫자만으로 정할 수 없는 문제는 무엇인지 한 문장으로 써 보세요.</p>') + '</div>';
           $('ar1').innerHTML = tableHTML(['의제', '쟁점', '합의'], [['군사 분계선', '38선이냐, 현재 접촉선이냐', '1951.11 (약 4달)'], ['정전 감시 기구', '감시의 방식과 구성', '1952 봄 무렵'], ['포로 송환', '본인 의사 송환 vs 전원 송환', '1953.6 (약 1년 반)']]) +
             hbars(AG.map(function(a){ return {label:a.n, v:a.b - a.a, color:a.n === '포로 송환' ? PAL[4] : PAL[0], text:'약 ' + (a.b - a.a) + '달'}; }), 24);
           var ts = {}; rec.forEach(function(d){ ts[d.t] = d.open; });
           $('ar2').innerHTML = tableHTML(['달', '열린 의제 수', '이 달'], Object.keys(ts).sort(function(a, b){ return a - b; }).slice(0, 12).map(function(t){ return [lab(+t), ts[t] + '개', EV[t] || ((+t >= PAUSE[0] && +t < PAUSE[1]) ? '회담 중단' : '회담·고지전')]; }));
+          var cut0 = AG[2].b - ASSUME_END;
+          var arows = [0.5, 1, 2, 3, 5].map(function(q){ var sv = cut0 * q;
+            return [f(q, 1) + '천 명/달', '약 ' + cut0 + '달', '약 ' + f(sv, 1) + '천 명', (sv >= REFUSED ? '줄어든 사상자가 더 많다고 셈' : '뜻이 꺾인 포로 ' + REFUSED + '천 명이 더 많다고 셈')]; });
+          var used = rec.filter(function(d){ return d.opt; }).length;
+          $('ar3').innerHTML = tableHTML(['모형값 (1달당)', '가정 단축', '가정 사상자 감소', '어느 쪽이 더 크다고 셈'], arows) +
+            '<p class="msg">사실: 포로 송환은 1952년 내내 교착해 1953년 6월에야 <b>본인 의사 송환</b>으로 합의됐고, 송환을 거부한 포로는 중립국 송환 위원회로 넘어갔습니다(약 2만 2천 명). 위 표의 사상자 수는 <b>교육용 모형값으로 한 가정 계산</b>이며 실제 기록이 아닙니다. 내 기록에서 가정 쪽으로 따져 본 것은 ' + used + '건이에요.</p>';
         }
       };
     
@@ -531,7 +561,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

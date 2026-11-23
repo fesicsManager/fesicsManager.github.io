@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,6 +439,15 @@ var LAB = (function(){
         {s:'y는 절댓값이 x인 수', X:[1, 2, 3], m:function(x){ return [x, -x]; }}
       ];
       var PR = ['함수이다', '함수가 아니다'];
+      /* 내가 화살표를 직접 긋는 대응 — x = 1, 2, 3 마다 어디로 갈지 고른다 */
+      var ARW = ['화살표 없음', '→ 1', '→ 2', '→ 3', '→ 1 과 2 (둘)'];
+      var ARWY = [[], [1], [2], [3], [1, 2]];
+      function mkMine(p){
+        var sel = [p.a1 == null ? 1 : p.a1, p.a2 == null ? 2 : p.a2, p.a3 == null ? 3 : p.a3];
+        return {s:'내가 그은 화살표 (1' + ARW[sel[0]] + ', 2' + ARW[sel[1]] + ', 3' + ARW[sel[2]] + ')',
+          X:[1, 2, 3], mine:true, sel:sel,
+          m:function(x){ return ARWY[sel[x - 1]].slice(); }};
+      }
       function nm(v){ return f(v, 0); }
       function analyse(R){
         var pairs = [], ys = {}, badX = [], inc = {};
@@ -447,16 +458,19 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 420,
-        idle: '관계와 예측을 고르고 <b>화살표 그리기</b>를 누르세요.',
+        idle: '관계와 예측을 고르고 <b>화살표 그리기</b>를 누르세요. “내가 화살표를 직접 긋기”를 고르면 어떤 화살표를 더하면 함수가 깨지는지 직접 부딪혀 볼 수 있습니다.',
         shortHint: '여섯 관계를 모두 해 보세요. “함수이지만 일대일은 아닌” 관계를 두 개 이상 찾을 수 있어요.',
         params: [
-          {key:'r', type:'seg', label:'대응 관계', cols:2, value:1, options:RL.map(function(x){ return x.s; })},
+          {key:'r', type:'seg', label:'대응 관계', cols:2, value:1, options:RL.map(function(x){ return x.s; }).concat(['내가 화살표를 직접 긋기'])},
+          {key:'a1', type:'seg', label:'내가 긋기 — x = 1 에서', cols:5, value:1, options:ARW},
+          {key:'a2', type:'seg', label:'내가 긋기 — x = 2 에서', cols:5, value:2, options:ARW},
+          {key:'a3', type:'seg', label:'내가 긋기 — x = 3 에서', cols:5, value:3, options:ARW},
           {key:'g', type:'seg', label:'나의 예측', cols:2, value:1, options:PR}
         ],
-        compute: function(p){ var R = RL[p.r], a = analyse(R); return {R:R, a:a, ok:(p.g === 0) === a.isF}; },
+        compute: function(p){ var R = (p.r === RL.length ? mkMine(p) : RL[p.r]), a = analyse(R); return {R:R, a:a, ok:(p.g === 0) === a.isF}; },
         draw: function(c, W, H, p, r, tau){
-          var R = RL[p.r], a = analyse(R), lx = W * 0.25, rx = W * 0.75, top = 70, bot = H - 50;
-          txt(c, R.s, 20, 32, {bold:true});
+          var R = (r && r.R) ? r.R : (p.r === RL.length ? mkMine(p) : RL[p.r]), a = analyse(R), lx = W * 0.25, rx = W * 0.75, top = 70, bot = H - 50;
+          txt(c, R.s, 20, 32, {bold:true, size:R.mine ? 15 : 18});
           c.strokeStyle = '#A8B4C2'; c.lineWidth = 2;
           c.beginPath(); c.ellipse(lx, (top + bot) / 2, Math.min(60, W * 0.12), (bot - top) / 2 + 14, 0, 0, Math.PI * 2); c.stroke();
           c.beginPath(); c.ellipse(rx, (top + bot) / 2, Math.min(60, W * 0.12), (bot - top) / 2 + 14, 0, 0, Math.PI * 2); c.stroke();
@@ -478,21 +492,29 @@ var LAB = (function(){
           return [['관계', r.R.s], ['함수?', (a.isF ? '함수이다 — ' : '함수가 아니다 — ') + why, a.isF ? PAL[1] : PAL[4]],
             ['y 쪽 겹침', a.multiY.length ? 'y = ' + a.multiY.map(nm).join(', ') + ' 에 여러 x가 모임 (함수 판정과 무관)' : '없음', PAL[6]],
             ['일대일 대응?', a.oneOne ? '예' : '아니오'],
-            ['나의 예측', PR[p.g] + (r.ok ? ' — 맞았어요' : ' — 결과와 달라요'), r.ok ? PAL[1] : PAL[4]]];
+            ['나의 예측', PR[p.g] + (r.ok ? ' — 맞았어요' : ' — 결과와 달라요'), r.ok ? PAL[1] : PAL[4]]]
+            .concat(r.R.mine ? [['내가 그은 화살표로 보면', a.isF ? '세 x 모두 y 를 딱 하나씩 가져서 함수입니다. 어느 x 에 “화살표 없음”이나 “둘”을 주면 함수가 깨집니다.'
+              : '함수가 깨졌습니다 — ' + why, a.isF ? PAL[1] : PAL[4]]] : []);
         },
         columns: ['관계', '함수', '일대일', '예측'],
-        record: function(p, r){ return {r:p.r, f:r.a.isF, o:r.a.oneOne, ok:r.ok}; },
-        row: function(d){ return [RL[d.r].s, d.f ? '예' : '아니오', d.o ? '예' : '아니오', d.ok ? '맞음' : '틀림']; },
+        record: function(p, r){ return {r:p.r, s:r.R.s, f:r.a.isF, o:r.a.oneOne, ok:r.ok, mine:!!r.R.mine}; },
+        row: function(d){ return [d.s, d.f ? '예' : '아니오', d.o ? '예' : '아니오', d.ok ? '맞음' : '틀림']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('관계 분류표', '<div id="fn1"></div><p class="ask">“함수 예 · 일대일 아니오”인 관계가 있나요? 그 관계를 “하나에 하나여야 함수”라는 생각으로 판정하면 어떻게 틀리게 되나요?</p>') +
+            card('내가 그은 화살표', '<div id="fn3"></div><p class="ask">어떤 화살표를 더하거나 빼면 함수가 깨졌나요? “화살표 없음”과 “둘”이 각각 어떤 뜻인지 적어 보세요.</p>') +
             card('예측 적중', '<div id="fn2"></div><p class="ask">과제: 우리 반 학생(x)과 생일이 있는 달(y), 달(x)과 그 달에 생일인 학생(y) — 두 대응을 화살표로 그리고 각각 함수인지 판정하세요.</p>') + '</div>';
           var seen = {}, rows = [];
-          rec.forEach(function(d){ if (seen[d.r]) return; seen[d.r] = 1; rows.push([RL[d.r].s, d.f ? '예' : '아니오', d.o ? '예' : '아니오']); });
+          rec.forEach(function(d){ var key = d.mine ? d.s : d.r; if (seen[key]) return; seen[key] = 1; rows.push([d.s, d.f ? '예' : '아니오', d.o ? '예' : '아니오']); });
           $('fn1').innerHTML = tableHTML(['관계', '함수', '일대일'], rows);
           var g = groupBy(rec, function(d){ return !d.f ? '함수 아님' : d.o ? '함수 · 일대일' : '함수 · 일대일 아님'; }), items = [];
           Object.keys(g).forEach(function(k, i){ var x = g[k], v = x.filter(function(d){ return d.ok; }).length / x.length * 100; items.push({label:k, v:v, color:PAL[i], text:f(v, 0) + '% (' + x.length + '회)'}); });
           $('fn2').innerHTML = hbars(items, 100);
+          var mine = rec.filter(function(d){ return d.mine; });
+          $('fn3').innerHTML = mine.length
+            ? tableHTML(['내가 그은 화살표', '함수', '일대일'], mine.map(function(d){ return [d.s, d.f ? '예' : '아니오', d.o ? '예' : '아니오']; })) +
+              '<p class="msg">함수가 되려면 <b>모든 x 가 y 를 딱 하나씩</b> 가져야 해요. “화살표 없음”은 그 x 에 짝이 없는 것이고, “둘”은 짝이 둘인 것이라 둘 다 함수가 아니에요. 반대로 여러 x 가 같은 y 로 모이는 것은 함수여도 괜찮아요(일대일만 아님).</p>'
+            : '<p class="msg">“내가 화살표를 직접 긋기”로 화살표를 바꿔 보세요.</p>';
         }
       };
     })();
@@ -501,7 +523,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

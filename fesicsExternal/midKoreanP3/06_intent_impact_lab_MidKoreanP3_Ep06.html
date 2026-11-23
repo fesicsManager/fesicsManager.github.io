@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,6 +479,11 @@ return (function(){
         {t:'왜 이렇게 늦어, 거북이야?', d:1.2, h:4.8, what:'늦은 행동을 동물에 빗대어', alt:'기다렸어. 다음엔 늦으면 미리 알려 줄래?'}
       ];
       var V = ['원래 말 (놀림)', '존중하는 표현으로 바꾼 말'];
+      /* 같은 말도 몇 번째로 듣는지에 따라 듣는 쪽 영향이 쌓인다 — 아래 숫자는 교육용 모형값 */
+      function hOf(s, alt, k){
+        if (alt) return Math.min(10, Math.max(0.3, s.d * 0.6) + 0.15 * (k - 1));
+        return Math.min(10, s.h + 0.7 * (k - 1));
+      }
       return {
         sceneHeight: 430,
         idle: '문장, 보기, 듣는 쪽 점수 짐작을 고른 뒤 <b>두 자리에서 재 보기</b>를 누르세요.',
@@ -484,11 +491,12 @@ return (function(){
         params: [
           {key:'s', type:'seg', label:'문장', cols:2, value:0, options:S.map(function(x){ return '“' + x.t + '”'; })},
           {key:'v', type:'seg', label:'보기', cols:2, value:0, options:V},
+          {key:'k', type:'range', label:'같은 말을 들은 횟수 (교육용 모형값)', min:1, max:5, step:1, value:1, fmt:function(v){ return v + '회'; }},
           {key:'e', type:'range', label:'나의 짐작 — 듣는 쪽 평균 (0~10)', min:0, max:10, step:0.5, value:3, fmt:function(v){ return f(v, 1) + '점'; }}
         ],
         compute: function(p){
-          var s = S[p.s];
-          return {s:s, alt:p.v === 1, gap:s.h - s.d, ratio:s.h / s.d, err:Math.abs(p.e - s.h)};
+          var s = S[p.s], alt = p.v === 1, hv = hOf(s, alt, p.k), dv = s.d;
+          return {s:s, alt:alt, k:p.k, dv:dv, hv:hv, gap:hv - dv, ratio:hv / dv, err:Math.abs(p.e - hv), heavy:hv >= 6};
         },
         draw: function(c, W, H, p, r, tau){
           var s = S[p.s], alt = r ? r.alt : p.v === 1, a = r ? ph(tau, 0, 0.3) : 1;
@@ -502,15 +510,15 @@ return (function(){
           person(c, lx, py, 34, PAL[0]); person(c, rx, py, 34, PAL[4]);
           tx(c, '하는 쪽 (의도)', lx, py + 36, {size:14, align:'center', color:'#4A5868'}); tx(c, '듣는 쪽 (영향)', rx, py + 36, {size:14, align:'center', color:'#4A5868'});
           arrow(c, lx + 30, py - 6, rx - 30, py - 6, alt ? PAL[1] : '#8C99A8', 2);
-          if (!r){ tx(c, '나의 짐작: 듣는 쪽 ' + f(p.e, 1) + '점', 20, H - 18, {color:'#4A5868'}); return; }
+          if (!r){ tx(c, '나의 짐작: 듣는 쪽 ' + f(p.e, 1) + '점 · ' + p.k + '회 들음', 20, H - 18, {color:'#4A5868'}); return; }
           var b = ph(tau, 0.3, 0.8), base = H - 60, top = py + 66, hh = base - top;
+          var cw = 50;
           if (alt){
             c.globalAlpha = b;
-            wrapT(c, '바꾼 말에는 조사 점수가 없어요. 원래 말(' + s.what + ' 놀림)과 달리 사람이 아니라 행동·상황에 대해 말했는지 확인하세요.', 20, top + 10, W - 40, 22, {color:'#4A5868'});
+            wrapT(c, r.k + '회 들어도 ' + f(r.hv, 1) + '점 — 사람이 아니라 행동·상황을 말했기 때문이에요.', 20, top + 10, W - 40, 22, {color:'#1E5E3F'});
             c.globalAlpha = 1; return;
           }
-          var cw = 50;
-          [[lx, s.d, PAL[0], '의도'], [rx, s.h, PAL[4], '영향']].forEach(function(q){
+          [[lx, r.dv, PAL[0], '의도'], [rx, r.hv, PAL[4], '영향']].forEach(function(q){
             c.fillStyle = '#E6EBF1'; c.fillRect(q[0] - cw / 2, top, cw, hh);
             var hv = hh * q[1] / 10 * b; c.fillStyle = q[2]; c.fillRect(q[0] - cw / 2, base - hv, cw, hv);
             tx(c, f(q[1] * b, 1), q[0], base - hv - 8, {bold:true, size:20, align:'center', color:q[2]});
@@ -525,26 +533,32 @@ return (function(){
           tx(c, '0', lx - cw / 2 - 14, base, {size:12, color:'#8C99A8'}); tx(c, '10', lx - cw / 2 - 20, top + 10, {size:12, color:'#8C99A8'});
         },
         stats: function(p, r){
-          var out = [['문장', '“' + r.s.t + '” — ' + r.s.what + ' 놀림거리로 삼음'], ['하는 쪽 평균', f(r.s.d, 1) + '점', PAL[0]], ['듣는 쪽 평균', f(r.s.h, 1) + '점', PAL[4]],
-            ['차이 / 배수', f(r.gap, 1) + '점 / 약 ' + f(r.ratio, 1) + '배', PAL[3]], ['나의 짐작', f(p.e, 1) + '점 (듣는 쪽과 차이 ' + f(r.err, 1) + '점)', r.err <= 1 ? PAL[1] : PAL[6]]];
-          if (r.alt) out.push(['존중하는 표현', '“' + r.s.alt + '” — 조사 점수 없음', PAL[1]]);
+          var out = [['문장', '“' + (r.alt ? r.s.alt : r.s.t) + '”' + (r.alt ? '' : ' — ' + r.s.what + ' 놀림거리로 삼음')],
+            ['들은 횟수', r.k + '회 (1회일 때 듣는 쪽 ' + f(hOf(r.s, r.alt, 1), 1) + '점)'],
+            ['하는 쪽 평균', f(r.dv, 1) + '점', PAL[0]], ['듣는 쪽 평균', f(r.hv, 1) + '점', PAL[4]],
+            ['차이 / 배수', f(r.gap, 1) + '점 / 약 ' + f(r.ratio, 1) + '배', PAL[3]],
+            ['판정', r.heavy ? '6점을 넘었어요 — 한 번은 장난이어도 되풀이되면 괴롭힘이 됩니다' : '아직 6점 아래예요 — 횟수를 늘려 보고 어디서 넘는지 찾아보세요', r.heavy ? PAL[4] : PAL[1]],
+            ['나의 짐작', f(p.e, 1) + '점 (듣는 쪽과 차이 ' + f(r.err, 1) + '점)', r.err <= 1 ? PAL[1] : PAL[6]]];
+          if (r.alt) out.push(['존중하는 표현', '되풀이해도 ' + f(r.hv, 1) + '점에 머물러요 (교육용 모형값)', PAL[1]]);
           return out;
         },
-        columns: ['문장', '하는 쪽', '듣는 쪽', '배수', '내 짐작'],
-        record: function(p, r){ return {s:p.s, e:p.e, v:p.v}; },
-        row: function(d){ var s = S[d.s]; return [s.t.length > 9 ? s.t.slice(0, 8) + '…' : s.t, f(s.d, 1), f(s.h, 1), f(s.h / s.d, 1) + '배', f(d.e, 1)]; },
+        columns: ['문장', '말', '횟수', '하는 쪽', '듣는 쪽', '배수', '내 짐작'],
+        record: function(p, r){ return {s:p.s, e:p.e, v:p.v, k:p.k, hv:r.hv}; },
+        row: function(d){ var s = S[d.s], k = d.k || 1, hv = d.hv != null ? d.hv : hOf(s, d.v === 1, k);
+          return [s.t.length > 9 ? s.t.slice(0, 8) + '…' : s.t, d.v === 1 ? '바꾼 말' : '원래 말', k + '회', f(s.d, 1), f(hv, 1), f(hv / s.d, 1) + '배', f(d.e, 1)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('문장별 — 하는 쪽 vs 듣는 쪽 (0~10)', '<div id="mq6a"></div><p class="ask">모든 줄에서 듣는 쪽 숫자가 더 컸나요? 이 차이 때문에 ‘장난이었어’가 왜 사과가 되지 못하는지 설명해 보세요.</p>') +
-            card('나의 짐작과 실제 듣는 쪽 평균', '<div id="mq6b"></div><p class="ask">과제: 내가 자주 쓰는 장난 섞인 말 세 개를 적고, 듣는 사람 자리에서 0~10점으로 다시 매겨 보세요. 5점 넘는 말은 존중하는 표현으로 바꿔 적으세요.</p>') + '</div>';
+            card('문장별 — 하는 쪽 vs 듣는 쪽 (1회 들었을 때, 0~10)', '<div id="mq6a"></div><p class="ask">모든 줄에서 듣는 쪽 숫자가 더 컸나요? 이 차이 때문에 ‘장난이었어’가 왜 사과가 되지 못하는지 설명해 보세요.</p>') +
+            card('횟수가 쌓이면 — 6점을 넘는 곳 찾기', '<div id="mq6b"></div><p class="ask">가장 가벼운 말도 몇 회째에 6점을 넘었나요? 과제: 내가 자주 쓰는 장난 섞인 말 세 개를 적고, 듣는 사람 자리에서 0~10점으로 다시 매겨 보세요. 5점 넘는 말은 존중하는 표현으로 바꿔 적으세요.</p>') + '</div>';
           var items = [];
           S.forEach(function(s, i){ var tried = rec.some(function(d){ return d.s === i; }); if (!tried) return;
             items.push({label:s.t + ' · 하는 쪽', v:s.d, color:PAL[0], text:f(s.d, 1)});
             items.push({label:s.t + ' · 듣는 쪽', v:s.h, color:PAL[4], text:f(s.h, 1) + ' (약 ' + f(s.h / s.d, 1) + '배)'}); });
           $('mq6a').innerHTML = items.length ? hbars(items, 10) : '<p class="msg">기록이 없어요.</p>';
-          var rows = S.map(function(s, i){ var mine = rec.filter(function(d){ return d.s === i; });
-            return [s.t, f(s.h, 1), mine.length ? f(mean(mine.map(function(d){ return d.e; })), 1) : '—', f(s.h - s.d, 1)]; });
-          $('mq6b').innerHTML = tableHTML(['문장', '듣는 쪽', '내 짐작(평균)', '하는 쪽과 차이'], rows);
+          var rows = S.map(function(s, i){ var mine = rec.filter(function(d){ return d.s === i; }), over = 0;
+            for (var k = 1; k <= 5; k++){ if (hOf(s, false, k) >= 6){ over = k; break; } }
+            return [s.t, f(s.h, 1), f(hOf(s, false, 5), 1), over ? over + '회째' : '5회 안에 안 넘음', mine.length ? f(mean(mine.map(function(d){ return d.e; })), 1) : '—']; });
+          $('mq6b').innerHTML = tableHTML(['문장', '1회', '5회', '6점을 넘는 때', '내 짐작(평균)'], rows) + '<p class="msg">※ 횟수에 따른 숫자는 실제 조사가 아니라 교육용 모형값이에요.</p>';
         }
       };
     })();
@@ -554,7 +568,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

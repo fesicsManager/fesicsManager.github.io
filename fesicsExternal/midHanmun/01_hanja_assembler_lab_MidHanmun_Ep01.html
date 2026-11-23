@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -214,7 +215,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>한자 조립기 — 뜻 조각 + 소리 조각</h1>
-    <p>뜻을 나타내는 조각(부수)과 소리를 나타내는 조각을 하나씩 골라 붙여 보세요. 만들어진 글자의 <b>뜻 분야</b>와 <b>음</b>을 조각만 보고 먼저 짐작한 뒤, 실제 훈음과 비교합니다. 대부분의 한자는 이렇게 조립된 <b>형성자</b>예요.<br><span style="font-size:.9em;color:#a86825">※ 이 실험은 교육용 기초한자 가운데 형성 원리가 뚜렷한 14자만 다룹니다. 목록에 없는 조합은 실제로 쓰이지 않거나 아주 드문 글자예요.</span></p>
+    <p>뜻을 나타내는 조각(부수)과 소리를 나타내는 조각을 하나씩 골라 붙여 보세요. 만들어진 글자의 <b>뜻 분야</b>와 <b>음</b>을 조각만 보고 먼저 짐작한 뒤, 실제 훈음과 비교합니다. 대부분의 한자는 이렇게 조립된 <b>형성자</b>예요.<br><span style="font-size:.9em;color:#a86825">※ 이 실험은 교육용 기초한자 가운데 형성 원리가 뚜렷한 14자만 다룹니다. 목록에 없는 조합은 실제로 쓰이지 않거나 아주 드문 글자예요. 소리 조각 규칙을 어디까지 인정할지는 <b>기준</b>으로 직접 고르고, 그 기준으로 14자 전체에서 규칙이 몇 %나 통하는지 세어 줍니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,6 +479,10 @@ var LAB = (function anonymous(
       function fam(s){ var o = []; for (var k in CH){ if (+k.split(',')[1] === s) o.push({r:+k.split(',')[0], c:CH[k]}); } return o; }
       function cmp(a, b){ if (a === b) return 0; var x = hsplit(a), y = hsplit(b); return (x.jung === y.jung && x.jong === y.jong) ? 1 : 2; }
       var MT = ['같음', '비슷함', '다름'], MC = [PAL[1], PAL[6], PAL[4]];
+      var TOL = ['모음·받침만 같아도 통함', '음이 완전히 같아야 통함'];
+      function pass(m, tol){ return tol === 0 ? m <= 1 : m === 0; }
+      function allRate(tol){ var n = 0, t = 0; for (var k in CH){ t++; if (pass(cmp(SND[+k.split(',')[1]].eum, CH[k][2]), tol)) n++; } return {n:n, t:t}; }
+      function famRate(s, tol){ var n = 0, a = fam(s); a.forEach(function(o){ if (pass(cmp(SND[s].eum, o.c[2]), tol)) n++; }); return {n:n, t:a.length}; }
       return {
         sceneHeight: 400,
         idle: '뜻 조각과 소리 조각을 고른 뒤 <b>두 조각 조립하기</b>를 누르세요.',
@@ -484,16 +490,19 @@ var LAB = (function anonymous(
         params: [
           {key:'r', type:'seg', label:'뜻 조각 (부수)', cols:4, value:0, options:RAD.map(function(x){ return '<b>' + x.ch + '</b> ' + x.field; })},
           {key:'s', type:'seg', label:'소리 조각', cols:5, value:0, options:SND.map(function(x){ return '<b>' + x.ch + '</b> ' + x.eum; }),
-            note:'靑과 짝이 되는 뜻 조각은 네 개나 있어요. 다른 소리 조각은 어떤 뜻 조각과 붙을까요?'}
+            note:'靑과 짝이 되는 뜻 조각은 네 개나 있어요. 다른 소리 조각은 어떤 뜻 조각과 붙을까요?'},
+          {key:'tol', type:'seg', label:'소리 조각 규칙을 인정하는 기준', cols:2, value:0, options:['모음·받침만 같아도', '음이 완전히 같아야'],
+            note:'기준을 바꾸면 "소리 조각이 음을 알려 준다"는 말이 통하는지 판정과 비율이 함께 달라집니다.'}
         ],
         compute: function(p){
           var c = CH[p.r + ',' + p.s];
           if (!c){
             var ok = fam(p.s).map(function(o){ return RAD[o.r].ch; }).join('·');
-            return {fail:'이 조합은 실험 목록에 없어요(쓰이지 않거나 아주 드문 글자). 소리 조각 ' + SND[p.s].ch + '에는 뜻 조각 ' + ok + (ok.indexOf('·') >= 0 ? ' 가운데 하나를' : '만') + ' 붙여 보세요.'};
+            var nAll = RAD.length * SND.length, nUse = Object.keys(CH).length;
+            return {fail:'이 조합은 실험 목록에 없어요(쓰이지 않거나 아주 드문 글자). 소리 조각 ' + SND[p.s].ch + '에는 뜻 조각 ' + ok + (ok.indexOf('·') >= 0 ? ' 가운데 하나를' : '만') + ' 붙여 보세요. — 막히는 것도 자료예요: ' + RAD.length + '×' + SND.length + '=' + nAll + ' 조합 가운데 실제로 쓰이는 것은 ' + nUse + '개(' + f(nUse / nAll * 100, 0) + '%)뿐입니다. 조각을 아무렇게나 붙여서는 글자가 되지 않아요.'};
           }
           var m = cmp(SND[p.s].eum, c[2]);
-          return {c:c, rad:RAD[p.r], snd:SND[p.s], m:m, fam:fam(p.s)};
+          return {c:c, rad:RAD[p.r], snd:SND[p.s], m:m, fam:fam(p.s), tol:p.tol, pass:pass(m, p.tol), ar:allRate(p.tol), fr:famRate(p.s, p.tol)};
         },
         draw: function(c, W, H, p, r, tau){
           var R = RAD[p.r], S = SND[p.s], g = Math.min(96, W * 0.2), cy = 112;
@@ -528,15 +537,20 @@ var LAB = (function anonymous(
             ['뜻 조각이 알려 준 분야', r.rad.ch + ' ' + r.rad.name + ' → ' + r.rad.field],
             ['소리 조각으로 짐작한 음', r.snd.ch + '(' + r.snd.hun + ' ' + r.snd.eum + ') → ' + r.snd.eum],
             ['실제 음과 비교', MT[r.m] + (r.m === 1 ? ' — 모음·받침은 같고 첫소리만 달라요' : r.m === 0 ? ' — 소리 조각의 음 그대로' : ''), MC[r.m]],
-            ['같은 소리 조각 가족', r.fam.map(function(o){ return o.c[0] + '(' + o.c[1] + ' ' + o.c[2] + ')'; }).join(' · '), PAL[3]]];
+            ['같은 소리 조각 가족', r.fam.map(function(o){ return o.c[0] + '(' + o.c[1] + ' ' + o.c[2] + ')'; }).join(' · '), PAL[3]],
+            ['고른 기준', TOL[r.tol]],
+            ['이 기준으로 본 판정', r.pass ? '소리 조각 규칙이 통함' : '규칙이 통하지 않음 — 세월이 흘러 소리가 변한 글자', r.pass ? PAL[1] : PAL[4]],
+            ['이 소리 조각 가족에서 통한 비율', r.fr.n + '자 / ' + r.fr.t + '자 = ' + f(r.fr.n / r.fr.t * 100, 0) + '%', PAL[6]],
+            ['실험에 담긴 14자 전체에서', r.ar.n + '자 / ' + r.ar.t + '자 = ' + f(r.ar.n / r.ar.t * 100, 0) + '%', PAL[0]]];
         },
-        columns: ['뜻 조각', '소리 조각', '글자', '추정 음', '실제 음', '음 비교'],
-        record: function(p, r){ return {r:p.r, s:p.s, m:r.m}; },
-        row: function(d){ var c = CH[d.r + ',' + d.s]; return [RAD[d.r].ch, SND[d.s].ch, c[0], SND[d.s].eum, c[2], MT[d.m]]; },
+        columns: ['뜻 조각', '소리 조각', '글자', '추정 음', '실제 음', '음 비교', '기준', '규칙'],
+        record: function(p, r){ return {r:p.r, s:p.s, m:r.m, tol:r.tol, pass:r.pass}; },
+        row: function(d){ var c = CH[d.r + ',' + d.s]; return [RAD[d.r].ch, SND[d.s].ch, c[0], SND[d.s].eum, c[2], MT[d.m], d.tol ? '완전히' : '모음·받침', d.pass ? '통함' : '안 통함']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('소리 조각으로 음을 맞힌 정도', '<div id="mh1a"></div><p class="ask">"같음"과 "비슷함"을 합치면 몇 %인가요? 소리 조각이 음을 알려 준다는 말이 어느 정도 맞는지 판단해 보세요.</p>') +
-            card('소리 조각별 가족', '<div id="mh1b"></div><p class="ask">과제: 교과서에서 한자 열 자를 골라 뜻 부분과 소리 부분으로 나누고, 같은 소리 부분을 가진 다른 글자를 두 개씩 찾아보세요.</p>') + '</div>';
+            card('소리 조각별 가족', '<div id="mh1b"></div><p class="ask">과제: 교과서에서 한자 열 자를 골라 뜻 부분과 소리 부분으로 나누고, 같은 소리 부분을 가진 다른 글자를 두 개씩 찾아보세요.</p>') +
+            card('기준을 바꾸면 규칙이 얼마나 통하나', '<div id="mh1c"></div><p class="ask">기준을 엄격하게 바꾸면 통하는 비율이 얼마나 떨어지나요? 그 차이를 보고 소리 조각을 "정답"이라고 부를 수 있을지 판단해 보세요.</p>') + '</div>';
           var n = [0, 0, 0]; rec.forEach(function(d){ n[d.m]++; });
           $('mh1a').innerHTML = hbars(MT.map(function(t, i){ return {label:t, v:n[i], color:MC[i], text:n[i] + '회 (' + f(n[i] / rec.length * 100, 0) + '%)'}; }), rec.length);
           var by = groupBy(rec, function(d){ return d.s; }), rows = [];
@@ -545,6 +559,15 @@ var LAB = (function anonymous(
             rows.push([s.ch + ' ' + s.eum, all.map(function(o){ return o.c[0] + ' ' + o.c[2]; }).join(', '), seen + ' / ' + all.length]);
           });
           $('mh1b').innerHTML = tableHTML(['소리 조각', '가족 글자와 음', '만들어 본 수'], rows);
+          var rows2 = [], t0 = allRate(0), t1 = allRate(1);
+          SND.forEach(function(s, i){ var a = famRate(i, 0), b = famRate(i, 1);
+            rows2.push([s.ch + ' ' + s.eum, a.n + '/' + a.t + ' (' + f(a.n / a.t * 100, 0) + '%)', b.n + '/' + b.t + ' (' + f(b.n / b.t * 100, 0) + '%)']); });
+          rows2.push(['<b>14자 전체</b>', '<b>' + t0.n + '/' + t0.t + ' (' + f(t0.n / t0.t * 100, 0) + '%)</b>', '<b>' + t1.n + '/' + t1.t + ' (' + f(t1.n / t1.t * 100, 0) + '%)</b>']);
+          var mine = [0, 0], mt = [0, 0]; rec.forEach(function(d){ mt[d.tol]++; if (d.pass) mine[d.tol]++; });
+          $('mh1c').innerHTML = tableHTML(['소리 조각', '모음·받침만 같아도', '음이 완전히 같아야'], rows2) +
+            '<p class="msg">두 기준의 차이가 바로 "첫소리만 다르고 모음·받침은 같은" 글자들이에요. 내가 조립해 본 것만 세면 ' +
+            (mt[0] ? '느슨한 기준 ' + mine[0] + '/' + mt[0] + '회' : '느슨한 기준은 아직 안 써 봤고') + ', ' +
+            (mt[1] ? '엄격한 기준 ' + mine[1] + '/' + mt[1] + '회' : '엄격한 기준은 아직 안 써 봤어요') + ' 통했습니다.</p>';
         }
       };
     
@@ -554,7 +577,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

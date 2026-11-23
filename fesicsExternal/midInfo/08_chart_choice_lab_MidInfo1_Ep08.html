@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -455,7 +457,13 @@ return {
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, D = DATA[p.d], C = r || calc(p.d, p.c), n = D.vals.length, px = 70, py = 40, pw = W - px - 20, ph = H - py - 90;
     txt(c, D.name + ' — ' + CH[p.c], 12, 26, {bold:true});
-    if (p.c === 0){ var cx = W / 2, cy = py + ph / 2, R = Math.min(pw, ph) / 2 - 10, a0 = -Math.PI / 2; if (C.neg){ txt(c, '음수는 원그래프로 그릴 수 없어요', cx, cy, {align:'center', color:'#C8463D', bold:true}); } else { D.vals.forEach(function(v, i){ var a1 = a0 + v / C.total * Math.PI * 2 * k; c.fillStyle = PAL[i % PAL.length]; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R, a0, a1); c.closePath(); c.fill(); var am = (a0 + a1) / 2; txt(c, D.labels[i] + ' ' + f(v / C.total * 100, 0) + '%', cx + Math.cos(am) * R * 0.65, cy + Math.sin(am) * R * 0.65, {align:'center', color:'#fff', bold:true}); a0 = a1; }); } }
+    if (p.c === 0){ var cx = W / 2, cy = py + ph / 2, R = Math.min(pw, ph) / 2 - 10, a0 = -Math.PI / 2; if (C.neg){ txt(c, '음수는 원그래프로 그릴 수 없어요', cx, cy, {align:'center', color:'#C8463D', bold:true}); } else { D.vals.forEach(function(v, i){ var a1 = a0 + v / C.total * Math.PI * 2 * k; c.fillStyle = PAL[i % PAL.length]; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R, a0, a1); c.closePath(); c.fill(); var am = (a0 + a1) / 2;
+      /* 좁은 화면: 조각 안에는 비율만 작게 적고 이름은 아래 설명 줄에 둔다 */
+      if (W < 480){ c.font = '700 13px ' + FONT; c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(f(v / C.total * 100, 0) + '%', cx + Math.cos(am) * R * 0.7, cy + Math.sin(am) * R * 0.7);
+        c.fillStyle = PAL[i % PAL.length]; c.fillRect(16, py + ph - 70 + i * 20 - 10, 12, 12);
+        c.font = '13px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.fillText(D.labels[i] + ' ' + f(v / C.total * 100, 0) + '%', 34, py + ph - 70 + i * 20, W - 50); }
+      else txt(c, D.labels[i] + ' ' + f(v / C.total * 100, 0) + '%', cx + Math.cos(am) * R * 0.65, cy + Math.sin(am) * R * 0.65, {align:'center', color:'#fff', bold:true});
+      a0 = a1; }); } }
     else if (p.c === 3){ if (C.neg){ txt(c, '음수는 그림그래프로 그리기 어려워요', px, py + 40, {color:'#C8463D', bold:true}); } else { var unit = C.max > 20 ? 5 : 1; D.vals.forEach(function(v, i){ txt(c, D.labels[i], px - 8, py + 30 + i * 44, {align:'right'}); var cnt = Math.round(v / unit * k); for (var j = 0; j < cnt; j++) txt(c, '●', px + j * 22, py + 30 + i * 44, {color:PAL[i % PAL.length]}); }); txt(c, '● = ' + unit + D.unit, px, py + 30 + n * 44, {color:'#4A5868'}); } }
     else { var lo = Math.min(0, Math.floor(Math.min.apply(null, D.vals) / 5) * 5), hi = Math.ceil(C.max / 5) * 5 + 5; var ax = plotBox(c, px, py, pw, ph, [0, n, 1], [lo, hi, hi - lo > 20 ? 10 : 5], '', D.unit);
       if (p.c === 1){ D.vals.forEach(function(v, i){ var bw = pw / n * 0.5, x = ax.X(i + 0.5); c.fillStyle = PAL[i % PAL.length]; c.fillRect(x - bw / 2, Math.min(ax.Y(0), ax.Y(v * k)), bw, Math.abs(ax.Y(v * k) - ax.Y(0))); txt(c, D.labels[i], x, py + ph + 24, {align:'center', color:'#4A5868'}); }); }
@@ -483,7 +491,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

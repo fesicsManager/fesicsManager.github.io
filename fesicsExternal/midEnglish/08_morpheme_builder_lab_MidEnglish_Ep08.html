@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -460,20 +462,26 @@ var LAB = (function(){
         if (line){ txt(c, line, x, y + n * lh, o); n++; } return n;
       }
       return {
-        sceneHeight: 400,
+        sceneHeight: function(w){ return w < 560 ? 490 : 400; },
         idle: '접두사·어근·접미사를 고른 뒤 <b>조립하기</b>를 누르세요.',
         shortHint: '한 어근을 정해 접두사와 접미사를 바꿔 가며 단어 가족을 넓혀 보세요. 세 어근 모두 해 보면 더 좋아요.',
         params: [
           {key:'pre', type:'seg', label:'접두사', cols:4, value:1, options:PRE.map(function(x){ return x[1] + (x[2] ? ' <small>' + x[2] + '</small>' : ''); })},
           {key:'root', type:'seg', label:'어근', cols:3, value:0, options:ROOT.map(function(x){ return x[0] + ' <small>' + x[1] + '</small>'; })},
-          {key:'suf', type:'seg', label:'접미사', cols:4, value:0, options:SUF.map(function(x){ return x[1] + (x[2] ? ' <small>' + x[2] + '</small>' : ''); })}
+          {key:'suf', type:'seg', label:'접미사', cols:4, value:0, options:SUF.map(function(x){ return x[1] + (x[2] ? ' <small>' + x[2] + '</small>' : ''); })},
+          {key:'gm', type:'seg', label:'먼저 짐작: 조각 뜻을 더하면 실제 뜻과', cols:2, value:0, options:['맞을 것 같다', '어긋날 것 같다'],
+            note:'조립하기를 누르면 실제 뜻과 맞춰 채점해 줘요. 어느 접두사에서 짐작이 자주 빗나가는지 쌓입니다.'}
         ],
         compute: function(p){
           var key = PRE[p.pre][0] + '|' + ROOT[p.root][0] + '|' + SUF[p.suf][0], e = D[key];
           var guess = [PRE[p.pre][2], ROOT[p.root][1], SUF[p.suf][2]].filter(function(x){ return x; }).join(' + ');
           var raw = PRE[p.pre][0] + '-' + ROOT[p.root][0] + '-' + SUF[p.suf][0];
           raw = raw.replace(/^-/, '').replace(/-$/, '');
-          return {key:key, found:!!e, word:e ? e[0] : raw, mean:e ? e[1] : '이 목록에 없는 조합 — 사전에 없거나 거의 쓰이지 않아요', note:e && e[2] ? e[2] : '', guess:guess, root:p.root, fake:key === '|port|ion'};
+          var note = e && e[2] ? e[2] : '', fake = (key === '|port|ion');
+          /* 조각 뜻을 더한 짐작이 실제 뜻과 어긋나는 경우: 목록에 없거나, 가짜 친구거나, 주의 표시가 붙은 것 */
+          var mismatch = (!e) || fake || !!note;
+          return {key:key, found:!!e, word:e ? e[0] : raw, mean:e ? e[1] : '이 목록에 없는 조합 — 사전에 없거나 거의 쓰이지 않아요', note:note, guess:guess, root:p.root, fake:fake,
+            mismatch:mismatch, gm:p.gm, hit:((p.gm === 0) === !mismatch)};
         },
         draw: function(c, W, H, p, r, tau){
           var parts = [PRE[p.pre], ROOT[p.root], SUF[p.suf]], k = r ? Math.min(tau / 0.5, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.5) / 0.4, 1)) : 0;
@@ -488,19 +496,24 @@ var LAB = (function(){
           if (r){
             c.globalAlpha = k2;
             txt(c, r.word, W / 2, 180, {align:'center', bold:true, color:r.found && !r.fake ? PAL[1] : r.fake ? PAL[6] : '#8C99A8'});
-            wrap(c, '조각 뜻: ' + r.guess, 20, 230, W - 40, 22, {color:'#4A5868'});
-            wrap(c, (r.found ? '실제 뜻: ' : '') + r.mean, 20, 262, W - 40, 22, {bold:true, color:r.found ? '#1E2833' : '#8C99A8'});
-            if (r.note) wrap(c, '※ ' + r.note, 20, 318, W - 40, 22, {color:PAL[6]});
+            /* 줄 수만큼 내려 적어 아래 글과 겹치지 않게 한다 */
+            var n1 = wrap(c, '조각 뜻: ' + r.guess, 20, 230, W - 40, 22, {color:'#4A5868'});
+            var y2 = 230 + n1 * 22 + 10;
+            var n2 = wrap(c, (r.found ? '실제 뜻: ' : '') + r.mean, 20, y2, W - 40, 22, {bold:true, color:r.found ? '#1E2833' : '#8C99A8'});
+            if (r.note) wrap(c, '※ ' + r.note, 20, y2 + n2 * 22 + 12, W - 40, 22, {color:PAL[6]});
             c.globalAlpha = 1;
           }
         },
         stats: function(p, r){
-          return [['조립한 단어', r.word, r.found ? PAL[1] : PAL[7]], ['조각 뜻 합', r.guess], ['실제 뜻', r.mean, r.found ? PAL[0] : null]]
+          return [['조립한 단어', r.word, r.found ? PAL[1] : PAL[7]], ['조각 뜻 합', r.guess], ['실제 뜻', r.mean, r.found ? PAL[0] : null],
+            ['내 짐작', r.gm === 0 ? '조각 뜻과 맞을 것 같다' : '어긋날 것 같다'],
+            ['채점', r.hit ? '✅ 맞혔어요' : '❌ 틀렸어요 — 실제로는 ' + (r.mismatch ? '어긋납니다' : '잘 맞습니다'), r.hit ? PAL[1] : PAL[4]],
+            ['어긋난 까닭', r.mismatch ? (!r.found ? '이런 조합의 단어가 쓰이지 않습니다' : (r.fake ? '철자는 같지만 다른 뿌리에서 온 가짜 친구입니다' : '조각이 붙으면서 소리·철자·뜻이 틀어집니다')) : '조각 뜻을 더한 그대로 쓰입니다']]
             .concat(r.note ? [['주의', r.note, PAL[6]]] : []);
         },
-        columns: ['어근', '조립', '단어', '있음'],
-        record: function(p, r){ return {root:p.root, pre:p.pre, suf:p.suf, word:r.word, found:r.found, fake:r.fake}; },
-        row: function(d){ return [ROOT[d.root][0], [PRE[d.pre][0], ROOT[d.root][0], SUF[d.suf][0]].filter(function(x){ return x; }).join(' + '), d.word, d.found ? (d.fake ? '가짜 친구' : '○') : '—']; },
+        columns: ['어근', '조립', '단어', '있음', '내 짐작', '실제', '채점'],
+        record: function(p, r){ return {root:p.root, pre:p.pre, suf:p.suf, word:r.word, found:r.found, fake:r.fake, mismatch:r.mismatch, gm:r.gm, hit:r.hit}; },
+        row: function(d){ return [ROOT[d.root][0], [PRE[d.pre][0], ROOT[d.root][0], SUF[d.suf][0]].filter(function(x){ return x; }).join(' + '), d.word, d.found ? (d.fake ? '가짜 친구' : '○') : '—', d.gm === 0 ? '맞을 것' : '어긋날 것', d.mismatch ? '어긋남' : '맞음', d.hit ? '✅' : '❌']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('어근별 단어 가족 (내가 찾은 것)', '<div id="mb1"></div><p class="ask">어근 하나로 단어를 몇 개 찾았나요? 목록에 없던 조합은 조각 뜻으로 짐작하면 무슨 뜻일지 적어 보세요.</p>') +
@@ -514,7 +527,15 @@ var LAB = (function(){
             items.push({label:rt[0], v:w.length / total, color:PAL[i], text:w.length + ' / ' + total});
           });
           $('mb1').innerHTML = tableHTML(['어근', '찾은 단어'], rows);
-          $('mb2').innerHTML = hbars(items, 1) + (rec.some(function(d){ return d.fake; }) ? '<p class="note">portion은 "가짜 친구"라서 port 가족에서 뺐어요.</p>' : '');
+          $('mb2').innerHTML = hbars(items, 1) + (rec.some(function(d){ return d.fake; }) ? '<p class="note">portion은 "가짜 친구"라서 port 가족에서 뺐어요.</p>' : '')
+            + (function(){ var hit = rec.filter(function(d){ return d.hit; });
+              var byP = groupBy(rec, function(d){ return d.pre; });
+              var lines = Object.keys(byP).map(function(k){ var g = byP[k], ms = g.filter(function(d){ return d.mismatch; });
+                return {label:(PRE[k][1] || '(없음)'), v:ms.length / g.length, text:ms.length + ' / ' + g.length, color:ms.length ? PAL[4] : PAL[1]}; });
+              lines.sort(function(a, b){ return b.v - a.v; });
+              return '<p class="msg">짐작 채점: 맞힌 기록 <b>' + hit.length + '개</b> / ' + rec.length + '개. 접두사별로 <b>조각 뜻과 어긋난 비율</b>은 아래와 같았습니다 — 조각을 더하는 것만으로는 안 되는 자리가 어디인지 쌓입니다.</p>'
+                + hbars(lines, 1)
+                + '<p class="msg">sub-는 sus-·sup-로 모습이 바뀌고(suspect, support), ex-는 뒤의 s를 삼키고(expect), in|dict 는 소리까지 달라집니다(인다이트). 조각 뜻은 <b>출발점</b>이지 정답이 아닙니다.</p>'; })();
         }
       };
     })();
@@ -523,7 +544,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

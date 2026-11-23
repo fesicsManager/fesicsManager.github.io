@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -487,50 +489,83 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
       function val(arr, y){ for (var i = 0; i < YR.length - 1; i++){ if (y <= YR[i + 1]) return arr[i] + (arr[i + 1] - arr[i]) * (y - YR[i]) / (YR[i + 1] - YR[i]); } return arr[arr.length - 1]; }
       function shares(y, m){ return RG.map(function(g){ return val(m ? g.pop : g.gdp, y); }); }
       function isKey(y){ return YR.indexOf(y) >= 0; }
+      var QY = [1000, 1500, 1700, 1870, 1950, 1998], QN = ['문제 ①', '문제 ②', '문제 ③', '문제 ④', '문제 ⑤', '문제 ⑥'];
+      function effYear(p){ return (p.mode === 1) ? QY[p.q || 0] : p.y; }
+      /* 서유럽의 GDP 비중이 중국을 처음 넘어서는 해를 2년 간격으로 찾아본다 */
+      function crossYear(){
+        for (var y = 1000; y <= 1998; y += 2){
+          var s2 = shares(y, 0);
+          if (s2[2] > s2[0]) return y;
+        }
+        return null;
+      }
       return {
         sceneHeight: 440,
         idle: '연도와 지표를 고른 뒤 <b>이 해의 세계 보기</b>를 누르세요. 슬라이더를 움직이면 원 크기가 바로 바뀝니다.',
         shortHint: '1000년, 1500년, 1820년, 1913년, 1998년처럼 시대를 넓게 골라 5번 이상 기록해 보세요.',
         params: [
           {key:'y', type:'range', label:'연도', min:1000, max:1998, step:2, value:1500, fmt:function(v){ return v + '년'; }},
-          {key:'m', type:'seg', label:'지표', cols:2, value:0, options:['경제 규모 (GDP) 비중', '인구 비중']}
+          {key:'m', type:'seg', label:'지표', cols:2, value:0, options:['경제 규모 (GDP) 비중', '인구 비중']},
+          {key:'mode', type:'seg', label:'어떻게 볼까', cols:2, value:0, options:['연도를 보고 보기', '연도를 가리고 맞히기'],
+            note:'“가리고 맞히기”에서는 연도를 알려 주지 않습니다. 네 지역의 비중 그림만 보고 몇 년쯤일지 짐작해 적어 보세요.'},
+          {key:'q', type:'seg', label:'가린 문제', cols:6, value:0, options:QN},
+          {key:'gy', type:'range', label:'내 짐작 연도', min:1000, max:1998, step:10, value:1500, fmt:function(v){ return v + '년'; }}
         ],
         compute: function(p){
-          var s = shares(p.y, p.m), top = 0; s.forEach(function(v, i){ if (v > s[top]) top = i; });
-          var routes = RT.filter(function(r){ return p.y >= r.a && p.y <= r.b; }).map(function(r){ return r.n; });
-          return {s:s, top:top, routes:routes, asia:s[0] + s[1], key:isKey(p.y)};
+          var yy = effYear(p), hide = (p.mode === 1);
+          var s = shares(yy, p.m), top = 0; s.forEach(function(v, i){ if (v > s[top]) top = i; });
+          var routes = RT.filter(function(r){ return yy >= r.a && yy <= r.b; }).map(function(r){ return r.n; });
+          var gy = (p.gy == null ? 1500 : p.gy), gap = Math.abs(gy - yy);
+          return {s:s, top:top, routes:routes, asia:s[0] + s[1], key:isKey(yy), y:yy, hide:hide,
+            qn:QN[p.q || 0], gy:gy, gap:gap, ok:(gap <= 60), cross:crossYear()};
         },
         draw: function(c, W, H, p, r, tau){
-          var sz = fz(W), mx = 8, my = 8, mw = W - 16, mh = H - 70, s = shares(p.y, p.m), k = r ? ease(tau / 0.8) : 1;
+          var yy = effYear(p), hide = (p.mode === 1);
+          var sz = fz(W), mx = 8, my = 8, mw = W - 16, mh = H - 70, s = shares(yy, p.m), k = r ? ease(tau / 0.8) : 1;
           drawWorld(c, mx, my, mw, mh, null, true, W < 520 ? 9 : 11);
-          RT.forEach(function(rt){ if (p.y < rt.a || p.y > rt.b) return;
+          RT.forEach(function(rt){ if (yy < rt.a || yy > rt.b) return;
             rt.p.forEach(function(pr){ var a = wbox(pr[0], mx, my, mw, mh), b = wbox(pr[1], mx, my, mw, mh); c.globalAlpha = 0.8; arrow(c, a.cx, a.cy, lerp(a.cx, b.cx, 0.9 * k), lerp(a.cy, b.cy, 0.9 * k), rt.col, 2.5); c.globalAlpha = 1; }); });
           var sx = 0, sy = 0, sw = 0, sc = Math.min(mw, mh * 2) / 190;
           RG.forEach(function(g, i){ var b = wbox(g.k, mx, my, mw, mh), rad = Math.sqrt(s[i]) * sc * 3.2 * (r ? 0.6 + 0.4 * k : 1);
             c.globalAlpha = 0.55; c.fillStyle = g.col; c.beginPath(); c.arc(b.cx, b.cy, Math.max(2, rad), 0, Math.PI * 2); c.fill(); c.globalAlpha = 1;
             if (W < 520 && g.k === RG[1].k) tx(c, f(s[i], 1) + '%', b.cx + Math.max(2, rad) + 3, b.cy + 4, {bold:true, size:11, color:g.col});
+            else if (W < 520 && g.k === RG[0].k) tx(c, f(s[i], 1) + '%', b.cx - Math.max(2, rad) - 3, b.cy + 4, {align:'right', bold:true, size:11, color:g.col});   /* 좁은 화면: 지역 이름과 겹치지 않게 공 왼쪽에 */
             else tx(c, f(s[i], 1) + '%', b.cx, b.cy - rad - 4, {align:'center', bold:true, size:W < 520 ? 11 : 13, color:g.col});
             sx += b.cx * s[i]; sy += b.cy * s[i]; sw += s[i]; });
           var gx = sx / sw, gy = sy / sw;
           c.fillStyle = '#1E2833'; c.beginPath(); for (var j = 0; j < 10; j++){ var a2 = -Math.PI / 2 + j * Math.PI / 5, rr = j % 2 ? 5 : 11; c.lineTo(gx + Math.cos(a2) * rr, gy + Math.sin(a2) * rr); } c.closePath(); c.fill();
-          tx(c, p.y + '년', 14, H - 36, {bold:true, size:sz + 6, color:PAL[4]});
-          tx(c, (p.m ? '인구' : 'GDP') + ' 비중 · ' + (isKey(p.y) ? '추정 기준 연도' : '기준 연도 사이 보간값'), 14, H - 12, {size:sz - 2, color:'#4A5868'});
-          var rs = RT.filter(function(rt){ return p.y >= rt.a && p.y <= rt.b; });
-          if (W > 520) rs.forEach(function(rt, i){ tx(c, '━ ' + rt.n, W - 14, H - 50 + i * 16 - (rs.length - 1) * 8, {align:'right', size:12, color:rt.col}); });
+          if (hide && !(r && tau > 0.85)) tx(c, QN[p.q || 0] + ' — 연도를 가렸습니다', 14, H - 36, {bold:true, size:sz + 4, color:PAL[4]});
+          else tx(c, yy + '년', 14, H - 36, {bold:true, size:sz + 6, color:PAL[4]});
+          if (hide) tx(c, '내 짐작 ' + (p.gy == null ? 1500 : p.gy) + '년' + ((r && tau > 0.85) ? (Math.abs((p.gy == null ? 1500 : p.gy) - yy) <= 60 ? ' — 맞혔습니다' : ' — ' + Math.abs((p.gy == null ? 1500 : p.gy) - yy) + '년 차이') : ''), 14, H - 12, {size:sz - 2, color:'#4A5868'});
+          else tx(c, (p.m ? '인구' : 'GDP') + ' 비중 · ' + (isKey(yy) ? '추정 기준 연도' : '기준 연도 사이 보간값'), 14, H - 12, {size:sz - 2, color:'#4A5868'});
+          var rs = RT.filter(function(rt){ return yy >= rt.a && yy <= rt.b; });
+          if (W > 520 && !hide) rs.forEach(function(rt, i){ tx(c, '━ ' + rt.n, W - 14, H - 50 + i * 16 - (rs.length - 1) * 8, {align:'right', size:12, color:rt.col}); });
         },
-        stats: function(p, r){ return [['연도 · 지표', p.y + '년 · ' + (p.m ? '인구 비중' : 'GDP 비중') + (r.key ? ' (추정 기준 연도)' : ' (보간값)')],
+        stats: function(p, r){ return (r.hide ? [['문제', r.qn + ' — 연도를 가렸습니다'],
+            ['내 짐작', r.gy + '년', PAL[3]],
+            ['채점', r.ok ? '맞혔습니다 — 실제는 ' + r.y + '년 (' + r.gap + '년 차이)' : '빗나갔습니다 — 실제는 ' + r.y + '년 (' + r.gap + '년 차이). 중국·인도의 합과 서유럽·미국의 비중을 함께 보세요.', r.ok ? PAL[1] : PAL[4]]] : [])
+          .concat([['연도 · 지표', r.y + '년 · ' + (p.m ? '인구 비중' : 'GDP 비중') + (r.key ? ' (추정 기준 연도)' : ' (보간값)')],
           ['중국 · 인도', f(r.s[0], 1) + '% · ' + f(r.s[1], 1) + '% (합 ' + f(r.asia, 1) + '%)', PAL[4]], ['서유럽 · 미국', f(r.s[2], 1) + '% · ' + f(r.s[3], 1) + '%', PAL[0]],
-          ['네 지역 중 1위', RG[r.top].n, RG[r.top].col], ['이 해의 주요 교역로', r.routes.join(' · ') || '—']]; },
-        columns: ['연도', '지표', '중국', '인도', '서유럽', '미국', '1위'],
-        record: function(p, r){ return {y:p.y, m:p.m, s:r.s, top:r.top}; },
-        row: function(d){ return [d.y, d.m ? '인구' : 'GDP', f(d.s[0], 1), f(d.s[1], 1), f(d.s[2], 1), f(d.s[3], 1), RG[d.top].n]; },
+          ['네 지역 중 1위', RG[r.top].n, RG[r.top].col], ['이 해의 주요 교역로', r.routes.join(' · ') || '—'],
+          ['서유럽이 중국을 앞서는 첫 해 (이 자료에서)', r.cross ? r.cross + '년 무렵 — 이 해보다 앞이면 중국이, 뒤면 서유럽이 큽니다' : '이 자료 범위에서는 앞서지 않습니다', PAL[0]]]); },
+        columns: ['연도', '지표', '중국', '인도', '서유럽', '1위', '짐작'],
+        record: function(p, r){ return {y:r.y, m:p.m, s:r.s, top:r.top, hide:r.hide, gy:r.gy, gap:r.gap, ok:r.ok, qn:r.qn}; },
+        row: function(d){ return [d.hide ? (d.qn + ' → ' + d.y) : d.y, d.m ? '인구' : 'GDP', f(d.s[0], 1), f(d.s[1], 1), f(d.s[2], 1), RG[d.top].n,
+          d.hide ? (d.gy + '년 ' + (d.ok ? '○' : '✕ ' + d.gap + '년')) : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
+            card('연도를 가리고 맞히기', '<div id="cs3"></div><p class="ask">비중 그림만 보고 몇 년쯤인지 알아맞혔나요? 무엇을 보고 알았는지(중국·인도의 합, 서유럽·미국의 비중) 적어 보세요. 서유럽이 중국을 앞서는 해는 몇 년 무렵이었나요?</p>') +
             card('연도별 비중 (내 기록)', '<canvas class="chart" id="cs1"></canvas>' + legend(RG.map(function(g){ return {label:g.n, color:g.col}; })) + '<p class="ask">서유럽이 중국을 처음 앞선 것은 어느 두 기록 사이인가요? 그 뒤 중국이 다시 올라오기 시작한 시점은 언제인가요?</p>') +
             card('기록 요약', '<div id="cs2"></div><p class="ask">과제: 1000년·1500년·1800년·2000년 세계 GDP 비중 추정치(매디슨 자료)를 찾아 지역별 그래프로 그리고, 유럽이 아시아를 앞선 시점과 다시 역전되는 시점을 표시해 보세요. 은의 흐름 지도도 직접 그려 보세요.</p>') + '</div>';
           var gd = rec.filter(function(d){ return d.m === 0; }), use = gd.length ? gd : rec;
           drawScatter($('cs1'), {series:RG.map(function(g, i){ return {color:g.col, pts:use.map(function(d){ return {x:d.y - 1000, y:d.s[i]}; })}; }), xLabel:'1000년부터 지난 햇수' + (gd.length ? ' (GDP 기록)' : ' (인구 기록)'), yLabel:'비중 (%)', xHi:1000, xStep:200});
           var srt = rec.slice().sort(function(a, b){ return a.y - b.y; });
+          var hid = rec.filter(function(d){ return d.hide; });
+          $('cs3').innerHTML = (hid.length
+            ? tableHTML(['문제', '내 짐작', '실제', '차이', '맞음'], hid.map(function(d){ return [d.qn, d.gy + '년', d.y + '년', d.gap + '년', d.ok ? '○' : '✕']; })) +
+              '<p class="msg">맞힌 횟수 ' + hid.filter(function(d){ return d.ok; }).length + ' / ' + hid.length + '회 (60년 안이면 맞힌 것으로 봅니다).</p>'
+            : '<p class="msg">“연도를 가리고 맞히기”를 골라 비중 그림만 보고 맞혀 보세요.</p>') +
+            '<p class="msg">이 자료에서 서유럽의 GDP 비중이 중국을 처음 넘어서는 해는 <b>' + (crossYear() || '-') + '년</b> 무렵이에요. 그 전에는 세계 경제의 가운데가 아시아에 있었어요.</p>';
           $('cs2').innerHTML = tableHTML(['연도', '지표', '1위', '중국+인도', '서유럽'], srt.map(function(d){ return [d.y, d.m ? '인구' : 'GDP', RG[d.top].n, f(d.s[0] + d.s[1], 1) + '%', f(d.s[2], 1) + '%']; }));
         }
       };
@@ -541,7 +576,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

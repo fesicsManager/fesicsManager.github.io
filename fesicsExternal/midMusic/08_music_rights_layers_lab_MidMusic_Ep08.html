@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -492,21 +494,50 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
       ];
       var SS = [{n:'보호 기간 중인 곡', s:'보호 중'}, {n:'보호 기간이 끝난 곡 (전래 민요 등)', s:'만료'}, {n:'자유 이용 표시(CC 등) 음원', s:'자유 이용 표시'}, {n:'내가 직접 만든 곡', s:'내 곡'}];
       var COL = ['#E6EBF1', PAL[1], PAL[6], PAL[4]], WORD = ['해당 없음', '자유·예외 가능', '요건 확인', '허락 필요'];
+      /* 사용 목적·공개 범위에 따른 조정 (교육용 단순화 기준).
+         근거가 되는 생각: 수업 목적 이용·비영리 무료 공연 예외는 누구나 볼 수 있는 공개 전송이나
+         영리 목적에는 적용되지 않고, 짧은 인용은 목적·분량·출처 표시 등 요건을 함께 본다.
+         ※ '몇 초까지 괜찮다'는 법 기준은 없다. 아래 10초는 수업에서 쓰는 모형 기준일 뿐이다. */
+      var PUR = ['따지지 않기 (원래 설명대로)', '수업 중 교실에서만 (비영리)', '교내 무료 행사 (무보수)',
+        '누구나 볼 수 있게 공개 업로드', '광고·수익 창출', '비평·소개를 위해 짧게 인용'];
+      var GV = ['안 찍음', '해당 권리 없음', '사용 가능(조건 확인)', '요건·조건 확인 필요', '원칙적으로 허락 필요'];
+      function purAdj(L, pur, len){
+        var note = '';
+        if (pur === 1){ L = L.map(function(v){ return v === 2 ? 1 : v; }); note = '수업 목적 이용 규정이 적용될 여지가 있음 — 범위·조건 확인'; }
+        else if (pur === 2){ note = '비영리·청중 무료·출연 무보수 요건을 모두 지켜야 함'; }
+        else if (pur === 3){ L = L.map(function(v){ return v === 1 ? 2 : (v === 2 ? 3 : v); }); note = '누구나 볼 수 있게 올리면 수업·비영리 공연 예외가 적용되지 않아 허락 쪽으로 올라감'; }
+        else if (pur === 4){ L = L.map(function(v){ return v ? 3 : 0; }); note = '영리·수익 목적에는 예외 규정이 거의 적용되지 않음'; }
+        else if (pur === 5){ var q = len <= 10 ? 2 : 3; L = L.map(function(v){ return v ? q : 0; });
+          note = len <= 10 ? '짧은 인용으로 인정될 여지 — 출처 표시와 정당한 범위가 필요 (※ 10초는 교육용 모형 기준)' : '쓰는 분량이 길어 인용으로 보기 어려움 → 허락 쪽 (※ 10초는 교육용 모형 기준)'; }
+        return {L:L, note:note};
+      }
       function calc(p){
         var U = US[p.u], L = U.L.slice(), extra = '';
         if (p.st === 1){ L[0] = L[0] ? 1 : 0; if (U.rec){ L[1] = L[1] ? 2 : 0; extra = '곡은 자유롭지만 이 음원의 편곡·실연·음반 권리는 따로 확인해야 해요'; } else { L[1] = L[1] ? 2 : 0; extra = '곡 자체는 자유 — 남의 편곡 악보를 쓰면 편곡 권리 확인'; } }
         if (p.st === 2){ L = L.map(function(v){ return v ? 2 : 0; }); extra = 'CC 표시 조건(출처 표시, 비영리, 변경 금지 등)을 지키면 사용 가능'; }
         if (p.st === 3){ L = L.map(function(v){ return v ? 1 : 0; }); extra = '작사·작곡·편곡·실연·녹음을 모두 내가 했다면 내가 권리자'; }
-        var worst = Math.max.apply(null, L);
-        return {U:U, L:L, worst:worst, verdict:worst === 3 ? '원칙적으로 허락 필요' : worst === 2 ? '요건·조건 확인 필요' : worst === 1 ? '사용 가능(조건 확인)' : '해당 권리 없음', extra:extra || U.note};
+        var pur = p.pur || 0, pnote = '';
+        if (pur > 0){
+          if (p.st === 0){ var ad = purAdj(L, pur, p.len); L = ad.L; pnote = ad.note; }
+          else pnote = '곡·음원 상태가 이미 자유로운 쪽이라 사용 목적 조정은 적용하지 않음';
+        }
+        var worst = Math.max.apply(null, L), gv = p.gv || 0;
+        var lenMatters = (pur === 5 && p.st === 0);
+        return {U:U, L:L, worst:worst, pur:pur, pnote:pnote, lenMatters:lenMatters, len:p.len,
+          verdict:worst === 3 ? '원칙적으로 허락 필요' : worst === 2 ? '요건·조건 확인 필요' : worst === 1 ? '사용 가능(조건 확인)' : '해당 권리 없음',
+          guess:gv, gtext:GV[gv], ok:(gv > 0 ? (gv - 1 === worst) : null), extra:extra || U.note};
       }
       return {
         sceneHeight: function(w){ return w < 560 ? 470 : 430; },   // 좁으면 사용 길이 설명이 두 줄
         idle: '사용 방식과 곡의 상태를 고르고 <b>권리 확인하기</b>를 누르세요.',
-        shortHint: '사용 방식 여섯 가지를 모두 확인하고, 샘플링은 길이를 바꿔 두 번 이상 기록해 보세요.',
+        shortHint: '판정을 먼저 찍고 확인해 보세요. 같은 사용 방식에서 목적·범위를 「교내 무료 행사」와 「공개 업로드」로 바꿔 보고, 「짧게 인용」에서는 길이를 5초와 20초로 바꿔 기록해 보세요.',
         params: [
           {key:'u', type:'seg', label:'사용 방식', cols:2, value:3, options:US.map(function(x){ return x.n; })},
           {key:'st', type:'seg', label:'곡·음원의 상태', cols:2, value:0, options:SS.map(function(x){ return x.n; })},
+          {key:'gv', type:'seg', label:'먼저 찍기: 이 경우의 판정은 무엇일까?', cols:2, value:0, options:GV,
+            note:'찍고 나서 확인하면 채점해 기록 표에 남깁니다.'},
+          {key:'pur', type:'seg', label:'무엇을 위해, 어디까지 쓰나', cols:2, value:0, options:PUR,
+            note:'「따지지 않기」가 기본값입니다. 보호 기간 중인 곡에서만 조정됩니다. 아래 사용 길이는 「짧게 인용」을 골랐을 때만 판정을 가릅니다(10초 넘으면 허락 쪽). ※ 몇 초까지 괜찮다는 법 기준은 없고, 10초는 교육용 모형 기준입니다.'},
           {key:'len', type:'range', label:'사용 길이', min:1, max:31, step:1, value:5, fmt:function(v){ return v + '초'; }}
         ],
         compute: function(p){ return calc(p); },
@@ -534,23 +565,37 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           else txt(c, '예상: 어느 층이 걸릴까요?', x0, H - 14, {bold:true});
         },
         stats: function(p, r){
-          return [['사용', r.U.n], ['곡·음원 상태', SS[p.st].n], ['걸리는 권리 층', r.L.map(function(v, i){ return v ? LY[i] : null; }).filter(Boolean).join(', ') || '없음', PAL[3]],
-            ['판정', r.verdict, COL[r.worst] === '#E6EBF1' ? PAL[7] : COL[r.worst]], ['설명', r.extra], ['사용 길이', p.len + '초 — 판정에 영향 없음', PAL[7]]];
+          var a5 = [['사용', r.U.n], ['곡·음원 상태', SS[p.st].n], ['걸리는 권리 층', r.L.map(function(v, i){ return v ? LY[i] : null; }).filter(Boolean).join(', ') || '없음', PAL[3]],
+            ['판정', r.verdict, COL[r.worst] === '#E6EBF1' ? PAL[7] : COL[r.worst]], ['설명', r.extra]];
+          if (r.pur > 0) a5.push(['무엇을 위해, 어디까지', PUR[r.pur] + ' — ' + r.pnote, PAL[6]]);
+          a5.push(['사용 길이', r.lenMatters ? (p.len + '초 — ' + (p.len <= 10 ? '10초까지라 인용 요건을 따지는 쪽' : '10초를 넘어 허락 쪽') + ' (교육용 모형 기준)')
+            : (p.len + '초 — 이 경우에는 판정에 영향 없음 (몇 초까지 괜찮다는 일반 규칙은 없음)'), r.lenMatters ? PAL[3] : PAL[7]]);
+          if (r.guess > 0) a5.push(['먼저 찍은 판정 채점', r.gtext + ' → ' + (r.ok ? '맞음' : '틀림 (답: ' + r.verdict + ')'), r.ok ? PAL[1] : PAL[3]]);
+          return a5;
         },
-        columns: ['사용', '상태', '길이', '걸리는 층 수', '판정'],
-        record: function(p, r){ return {u:p.u, st:p.st, len:p.len, n:r.L.filter(function(v){ return v; }).length, worst:r.worst, verdict:r.verdict}; },
-        row: function(d){ return [US[d.u].s, SS[d.st].s, d.len + '초', d.n + '개', d.verdict]; },
+        columns: ['사용', '상태', '목적·범위', '길이', '걸리는 층 수', '판정', '찍은 판정'],
+        record: function(p, r){ return {u:p.u, st:p.st, len:p.len, n:r.L.filter(function(v){ return v; }).length, worst:r.worst, verdict:r.verdict,
+          pur:r.pur, lenMatters:r.lenMatters, guess:r.guess, ok:r.ok}; },
+        row: function(d){ return [US[d.u].s, SS[d.st].s, d.pur ? PUR[d.pur].split(' (')[0] : '따지지 않기', d.len + '초' + (d.lenMatters ? ' *' : ''), d.n + '개', d.verdict,
+          d.guess > 0 ? (GV[d.guess] + (d.ok ? ' ○' : ' ×')) : '안 찍음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('사용 방식별 판정 (보호 중인 곡 기준)', '<div id="m8a"></div><p class="ask">"멜로디만 안 베끼면 된다", "출처만 쓰면 된다"는 말은 어느 행에서 틀렸나요?</p>') +
-            card('길이를 바꾸면 판정이 바뀌나', '<div id="m8b"></div><p class="ask">과제: 만들고 싶은 영상 하나를 정해 쓸 음악의 권리 관계를 정리하고, 합법적으로 쓸 수 있는 대안 음원 세 개를 찾아보세요.</p>') + '</div>';
-          var a = rec.filter(function(d){ return d.st === 0; }), g = groupBy(a, function(d){ return d.u; }), rows = [];
+            card('길이를 바꾸면 판정이 바뀌나', '<div id="m8b"></div><p class="ask">과제: 만들고 싶은 영상 하나를 정해 쓸 음악의 권리 관계를 정리하고, 합법적으로 쓸 수 있는 대안 음원 세 개를 찾아보세요.</p>') +
+            card('목적·범위를 바꾸면 · 먼저 찍기 채점', '<div id="m8c"></div><p class="ask">같은 사용 방식인데 「교내 무료 행사」와 「공개 업로드」의 판정이 어디서 갈렸나요? 어떤 판정을 가장 많이 틀렸나요?</p>') + '</div>';
+          var a = rec.filter(function(d){ return d.st === 0 && !d.pur; }), g = groupBy(a, function(d){ return d.u; }), rows = [];
           US.forEach(function(u, i){ var x = g[i]; rows.push([u.s, x ? x[0].n + '층' : '—', x ? x[0].verdict : '아직 기록 없음']); });
           $('m8a').innerHTML = tableHTML(['사용', '걸리는 층', '판정'], rows);
-          var gl = groupBy(rec, function(d){ return d.u + '_' + d.st; }), rows2 = [];
+          var gl = groupBy(rec, function(d){ return d.u + '_' + d.st + '_' + (d.pur || 0); }), rows2 = [];
           Object.keys(gl).forEach(function(k){ var x = gl[k]; if (distinct(x.map(function(d){ return d.len; })) < 2) return;
-            rows2.push([US[x[0].u].s + ' · ' + SS[x[0].st].s, x.map(function(d){ return d.len; }).sort(function(m, n){ return m - n; }).join(', ') + '초', distinct(x.map(function(d){ return d.verdict; })) === 1 ? '같음 — ' + x[0].verdict : '달라짐']); });
+            rows2.push([US[x[0].u].s + ' · ' + SS[x[0].st].s + ' · ' + (x[0].pur ? PUR[x[0].pur].split(' (')[0] : '따지지 않기'), x.map(function(d){ return d.len; }).sort(function(m, n){ return m - n; }).join(', ') + '초', distinct(x.map(function(d){ return d.verdict; })) === 1 ? '같음 — ' + x[0].verdict : '달라짐']); });
           $('m8b').innerHTML = rows2.length ? tableHTML(['조건', '시험한 길이', '판정'], rows2) : '<p class="msg">같은 조건에서 길이만 바꾼 기록을 두 개 이상 남겨 보세요.</p>';
+          var tried = rec.filter(function(d){ return d.guess > 0; }), hit = tried.filter(function(d){ return d.ok; }).length;
+          var prows = PUR.map(function(nm, i){ var x = rec.filter(function(d){ return (d.pur || 0) === i; });
+            return [i ? nm : '따지지 않기 (기본)', x.length + '회', x.length ? distinct(x.map(function(d){ return d.verdict; })) + '가지 판정' : '—']; });
+          $('m8c').innerHTML = tableHTML(['목적·범위', '기록 수', '나온 판정'], prows) +
+            tableHTML(['먼저 찍기', '값'], [['찍어 본 횟수', tried.length + '회'],
+              ['맞힌 횟수', hit + '회' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')]]);
         }
       };
     })();
@@ -559,7 +604,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -447,12 +449,20 @@ var LAB = (function(){
           {key:'d', type:'range', label:'주민 요구 수', min:4, max:20, step:1, value:12, fmt:function(v){ return v + '개'; }},
           {key:'n', type:'range', label:'후보 수', min:2, max:10, step:1, value:6, fmt:function(v){ return v + '명'; }},
           {key:'m', type:'seg', label:'후보가 나오는 방식', cols:3, value:0, options:MD},
-          {key:'a', type:'seg', label:'함께 비교할 정치 주체', cols:3, value:0, options:AC.map(function(x){ return x.n; })}
+          {key:'a', type:'seg', label:'함께 비교할 정치 주체', cols:3, value:0, options:AC.map(function(x){ return x.n; })},
+          {key:'pack', type:'range', label:'정당이 한 묶음(공약)에 담는 요구 수', min:1, max:20, step:1, value:8, fmt:function(v){ return v + '개'; },
+            note:'정당은 요구를 묶어 비교를 쉽게 해 주지만, 묶음에 담기지 않은 요구는 선거에서 물을 통로가 사라집니다. 줄인 비교 항목 수와 빠진 요구 수를 함께 재어 득실을 따져 보세요.'}
         ],
         compute: function(p){
           var cost = p.m === 0 ? p.n * p.d : p.m + 1;
+          var covered = p.m === 0 ? p.d : Math.min(p.d, p.pack);
+          var dropped = p.d - covered;
+          var saved = p.n * p.d - cost;
           var resp = p.m === 0 ? '누가 무엇을 약속했는지 흩어짐 — 후보 ' + p.n + '명을 한 명씩 따져야 함' : '정당 단위로 평가 가능 — 묶음 ' + (p.m + 1) + '개를 비교';
-          return {cost:cost, resp:resp, ind:p.n * p.d, ac:AC[p.a]};
+          var verdict = p.m === 0 ? '묶지 않았으니 빠지는 요구는 없지만, 비교할 항목이 ' + cost + '개로 많습니다'
+            : (dropped === 0 ? '잃는 것 없이 비교 항목을 ' + saved + '개 줄였습니다' : '비교 항목을 ' + saved + '개 줄인 대신 내 요구가 ' + dropped + '개 빠질 수 있습니다');
+          return {cost:cost, resp:resp, ind:p.n * p.d, ac:AC[p.a], pack:p.pack, covered:covered, dropped:dropped, saved:saved, verdict:verdict,
+            lossy:(p.m !== 0 && dropped > 0)};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, x0 = 30, y0 = 50, gw = W - 60, gh = H - 140;
@@ -474,19 +484,27 @@ var LAB = (function(){
           return [['조건', '주민 요구 ' + p.d + '개, 후보 ' + p.n + '명'], ['방식', MD[p.m]],
             ['유권자가 비교할 것', r.cost + (p.m === 0 ? '개 항목 (' + p.n + '명 × ' + p.d + '개)' : '개 정책 묶음'), p.m === 0 ? PAL[4] : PAL[1]],
             ['무소속일 때와 비교', p.m === 0 ? '기준' : r.ind + '개 → ' + r.cost + '개', PAL[3]],
+            ['정당이 묶음에 담는 요구', p.m === 0 ? '묶음이 없음 (무소속)' : r.pack + '개 → 담긴 요구 ' + r.covered + '개 / 전체 ' + p.d + '개'],
+            ['묶음에서 빠지는 내 요구', p.m === 0 ? '0개' : r.dropped + '개' + (r.dropped ? ' — 선거로 물을 통로가 없습니다' : ''), r.lossy ? PAL[4] : PAL[1]],
+            ['득실', r.verdict, r.lossy ? PAL[6] : PAL[1]],
             ['다음 선거에서 책임 묻기', r.resp],
             [r.ac.n + ' — 목표 / 선거 / 정치적 책임', r.ac.goal + ' / ' + r.ac.el + ' / ' + r.ac.resp, PAL[5]]];
         },
-        columns: ['요구', '후보', '방식', '비교할 것'],
-        record: function(p, r){ return {d:p.d, n:p.n, m:p.m, cost:r.cost, a:p.a}; },
-        row: function(d){ return [d.d + '개', d.n + '명', MD[d.m], d.cost + (d.m === 0 ? '개 항목' : '개 묶음')]; },
+        columns: ['요구', '후보', '방식', '비교할 것', '묶음 크기', '빠진 요구', '줄인 항목'],
+        record: function(p, r){ return {d:p.d, n:p.n, m:p.m, cost:r.cost, a:p.a, pack:r.pack, dropped:r.dropped, saved:r.saved, lossy:r.lossy}; },
+        row: function(d){ return [d.d + '개', d.n + '명', MD[d.m], d.cost + (d.m === 0 ? '개 항목' : '개 묶음'), d.m === 0 ? '—' : d.pack + '개', d.m === 0 ? '0개' : d.dropped + '개', d.m === 0 ? '—' : d.saved + '개']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('방식별 정보 비용 (최근 기록)', '<div id="pv1"></div><p class="ask">정당은 유권자의 정보 비용을 얼마나 줄였나요? 줄어든 대신 무엇을 잃을 수 있을지(예: 묶음에 없는 요구)도 생각해 보세요.</p>') +
             card('정치 주체 비교', '<div id="pv2"></div><p class="ask">과제: 같은 의제에 대한 두 정당의 공약을 비교하고, 그 의제에 의견을 낸 이익 집단과 시민 단체를 찾아 행위자 지도를 그려 보세요. 어느 쪽이 옳은지가 아니라 누가 어떤 통로로 움직였는지를 적으세요.</p>') + '</div>';
           var it = rec.slice(-6).map(function(d){ return {label:d.d + '×' + d.n + ' · ' + MD[d.m], v:d.cost, color:d.m ? PAL[1] : PAL[4], text:d.cost + '개'}; });
           var mx = Math.max.apply(null, it.map(function(x){ return x.v; }).concat([1]));
-          $('pv1').innerHTML = hbars(it, mx);
+          $('pv1').innerHTML = hbars(it, mx)
+            + (function(){ var pt = rec.filter(function(d){ return d.m !== 0; });
+              if (!pt.length) return '<p class="msg">정당 2개·3개로도 계산해 보고, <b>묶음에 담는 요구 수</b>를 줄여 보세요. 비교는 쉬워지는데 빠지는 요구가 늘어납니다.</p>';
+              var k = {}; pt.forEach(function(d){ k[d.pack] = d; }); var ks = Object.keys(k).map(Number).sort(function(a, b){ return a - b; });
+              var lossy = pt.filter(function(d){ return d.lossy; });
+              return '<p class="msg">묶음 크기별 득실 — ' + ks.map(function(x){ return x + '개 담음 → 비교 항목 ' + k[x].saved + '개 줄임 / 요구 ' + k[x].dropped + '개 빠짐'; }).join(' · ') + '. 내 요구가 빠진 기록은 ' + lossy.length + '개였습니다. 정당의 이점(정보 비용을 크게 줄임)과 값(묶음에 없는 요구는 선거로 묻기 어려움)은 <b>같은 구조에서 함께 나옵니다</b> — 그래서 이익 집단·시민 단체 같은 다른 통로가 함께 필요합니다.</p>'; })();
           $('pv2').innerHTML = tableHTML(['구분', '목표', '선거', '정치적 책임'], AC.map(function(a){ return [a.n, a.goal, a.el, a.resp]; }));
         }
       };
@@ -496,7 +514,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

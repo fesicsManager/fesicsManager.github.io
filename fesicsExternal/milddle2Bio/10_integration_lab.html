@@ -251,6 +251,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>운동 강도 <b id="xVal">30</b></label>
         <input type="range" id="xSlider" min="0" max="100" step="1" value="30" aria-label="운동 강도">
       </div>
+      <div class="control-row">
+        <label for="zSel">이 사람의 최대 산소 섭취량</label>
+        <select id="zSel" aria-label="이 사람의 최대 산소 섭취량" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">아주 높음 (기본)</option><option value="1">보통 — 35단위에서 한계</option><option value="2">낮음 — 25단위에서 한계</option></select>
+      </div>
       <div class="readout"><span>산소 소비량</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -260,7 +264,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>산소 소비량(상댓값)</th></tr></thead>
+          <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>최대 산소 섭취량</th><th>산소 소비량(상댓값)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -277,7 +281,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>산소 소비량(상댓값)</th><th>안정 시 대비 증가율(%)</th></tr></thead>
+        <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>최대 산소 섭취량</th><th>산소 소비량(상댓값)</th><th>안정 시 대비 증가율(%)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -409,7 +413,11 @@ let _t0=performance.now(), _dt=16;
 
 /* 산소 소비량(상댓값) = 5 + 0.5 × 운동 강도 — 상댓값 1 ≈ 50 mL/분(안정 시 5 ≈ 250 mL/분)
    운동을 세게 할수록 근육이 산소를 더 많이 쓰고, 폐·심장도 함께 바빠진다 */
-function o2Of(x){ return 5+0.5*x; }   /* 교육용 직선 모형. 실제는 최대 산소 섭취량에서 포화 */
+/* 최대 산소 섭취량에 닿으면 강도를 더 올려도 산소 소비량은 더 늘지 않는다.
+   그 위의 힘은 산소 없이 젖산을 만드는 쪽에서 나온다. '아주 높음'은 한계가 사실상 없어 예전 식과 같다.
+   ※ 숫자는 교육용 모형값. */
+var ZOPT=[{n:'최대 산소 섭취량 아주 높음', s:'아주 높음', cap:1e9},{n:'보통 (35단위에서 한계)', s:'보통 35', cap:35},{n:'낮음 (25단위에서 한계)', s:'낮음 25', cap:25}];
+function o2Of(x){ return Math.min(ZOPT[curZ].cap, 5+0.5*x); }   /* 교육용 직선 모형. 실제는 최대 산소 섭취량에서 포화 */
 let o2dots=[], usedTotal=0, winStart=performance.now();
 
 function drawDevice(){
@@ -507,21 +515,36 @@ function drawDevice(){
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>최대 산소 섭취량을 바꿔 보면 (내 기록으로 계산)</b> 보통·낮음으로도 몇 개 더 재 보면, 직선이 어디서 꺾이는지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>최대 산소 섭취량을 바꿔 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'최대 산소 섭취량에 닿으면 강도를 더 올려도 산소 소비량이 <b>더 늘지 않고 평평해졌습니다</b>. 그 위의 힘은 산소를 쓰지 않고 젖산을 만드는 쪽에서 나오고, 그래서 오래 버틸 수 없어요 — 호흡계·순환계·근육이 여기서 맞물립니다.';
+}
 let curX=30;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   const y=Math.max(0, o2Of(curX)+(Math.random()*4-2));
   yVal.textContent=y.toFixed(1)+' (상댓값)';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -532,7 +555,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -621,7 +644,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -658,9 +681,9 @@ document.getElementById('checkBtn').addEventListener('click', () => {
   if (isNaN(input)) {
     result.innerHTML = '값을 입력해 주세요.';
   } else if (ok) {
-    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   } else {
-    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   }
 });
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -303,6 +305,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -428,13 +437,30 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var S = [
-        {en:'I brushed my teeth. Then I ate breakfast.', a:'이 닦기', b:'아침 먹기', first:0, w:'Then'},
-        {en:'First I washed my hands. Next I ate lunch.', a:'손 씻기', b:'점심 먹기', first:0, w:'First · Next'},
-        {en:'I ate breakfast before I went to school.', a:'아침 먹기', b:'학교 가기', first:0, w:'before'},
-        {en:'After I played soccer, I took a shower.', a:'축구하기', b:'샤워하기', first:0, w:'After'},
-        {en:'Before I went to bed, I read a book.', a:'잠자리 들기', b:'책 읽기', first:1, w:'Before'},
-        {en:'I watched TV after I did my homework.', a:'TV 보기', b:'숙제하기', first:1, w:'after'}
+        {en:'I brushed my teeth. Then I ate breakfast.', a:'이 닦기', b:'아침 먹기', first:0, w:'Then',
+          ea:'I brushed my teeth', eb:'I ate breakfast'},
+        {en:'First I washed my hands. Next I ate lunch.', a:'손 씻기', b:'점심 먹기', first:0, w:'First · Next',
+          ea:'I washed my hands', eb:'I ate lunch'},
+        {en:'I ate breakfast before I went to school.', a:'아침 먹기', b:'학교 가기', first:0, w:'before',
+          ea:'I ate breakfast', eb:'I went to school'},
+        {en:'After I played soccer, I took a shower.', a:'축구하기', b:'샤워하기', first:0, w:'After',
+          ea:'I played soccer', eb:'I took a shower'},
+        {en:'Before I went to bed, I read a book.', a:'잠자리 들기', b:'책 읽기', first:1, w:'Before',
+          ea:'I went to bed', eb:'I read a book'},
+        {en:'I watched TV after I did my homework.', a:'TV 보기', b:'숙제하기', first:1, w:'after',
+          ea:'I watched TV', eb:'I did my homework'}
       ];
+      /* 두 사건과 순서 말을 학생이 직접 조합해 문장을 만든다 */
+      var MK = ['카드 그대로', 'A before B', 'A after B', 'Before B, A', 'After B, A', 'A. Then B.'];
+      function build(s, mk){
+        if (!mk) return s;
+        var A = s.a, B = s.b, ea = s.ea, eb = s.eb;
+        if (mk === 1) return {en:ea + ' before ' + eb + '.', a:A, b:B, first:0, w:'before'};
+        if (mk === 2) return {en:ea + ' after ' + eb + '.', a:A, b:B, first:1, w:'after'};
+        if (mk === 3) return {en:'Before ' + eb + ', ' + ea + '.', a:B, b:A, first:1, w:'Before'};
+        if (mk === 4) return {en:'After ' + eb + ', ' + ea + '.', a:B, b:A, first:0, w:'After'};
+        return {en:ea + '. Then ' + eb + '.', a:A, b:B, first:0, w:'Then'};
+      }
       var G = ['앞에 적힌 일을 먼저 했다', '뒤에 적힌 일을 먼저 했다'];
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
@@ -449,16 +475,21 @@ var LAB = (function(){
         idle: '문장과 예측을 고른 뒤 <b>시간줄에 놓기</b>를 누르세요.',
         shortHint: '여섯 문장을 모두 해 보세요. 적힌 순서와 실제 순서가 반대인 문장은 몇 개인가요?',
         params: [
-          {key:'s', type:'seg', label:'영어 문장', cols:2, value:5, options:S.map(function(x){ return x.en; })},
+          {key:'s', type:'seg', label:'두 가지 일 (카드)', cols:2, value:5, options:S.map(function(x){ return x.en; })},
+          {key:'mk', type:'seg', label:'내가 만들 문장 — A는 앞의 일, B는 뒤의 일', cols:3, value:0, options:MK},
           {key:'g', type:'seg', label:'예측: 먼저 한 일은?', cols:2, value:0, options:G,
             note:'뭉치는 "적힌 순서가 곧 일어난 순서야!"라고 했어요.'}
         ],
         compute: function(p){
-          var s = S[p.s], ok = p.g === s.first;
-          return {s:s, ok:ok, same:s.first === 0, firstLabel:s.first === 0 ? s.a : s.b, lastLabel:s.first === 0 ? s.b : s.a};
+          var base = S[p.s], s = build(base, p.mk), ok = p.g === s.first;
+          var flip = p.mk > 0 && (s.first === 0) !== (base.first === 0);
+          return {s:s, ok:ok, same:s.first === 0, firstLabel:s.first === 0 ? s.a : s.b, lastLabel:s.first === 0 ? s.b : s.a,
+            mkName:MK[p.mk], flip:flip,
+            mkMsg:p.mk === 0 ? '카드에 적힌 문장 그대로예요.'
+              : '내가 「' + MK[p.mk] + '」로 만든 문장이에요. ' + (s.first === 0 ? '적힌 순서가 그대로 실제 순서' : '적힌 순서와 실제 순서가 반대') + '예요.'};
         },
         draw: function(c, W, H, p, r, tau){
-          var s = S[p.s], k = r ? Math.min(tau / 0.8, 1) : 0, bw = Math.min(150, (W - 60) / 2);
+          var s = build(S[p.s], p.mk), k = r ? Math.min(tau / 0.8, 1) : 0, bw = Math.min(150, (W - 60) / 2);
           var n = wrap(c, s.en, 20, 30, W - 40, 24, {bold:true});
           var yt = 50 + n * 24;
           txt(c, '적힌 순서', 20, yt, {color:'#8C99A8'});
@@ -468,26 +499,32 @@ var LAB = (function(){
           if (r){ c.globalAlpha = 0.25; box(c, ax, yb, bw, s.a, '①', '#C5CDD6'); box(c, bx, yb, bw, s.b, '②', '#C5CDD6'); c.globalAlpha = 1; }
           arrow(c, 20, yl + 70, W - 20, yl + 70, '#5C6B7A', 3);
           txt(c, '먼저', 20, yl + 96, {color:'#4A5868'}); txt(c, '나중', W - 20, yl + 96, {align:'right', color:'#4A5868'});
-          box(c, axn, r ? ya : yb, bw, s.a, '①', PAL[0]); box(c, bxn, r ? ya : yb, bw, s.b, '②', PAL[6]);
+          /* 자리를 맞바꾸는 동안 두 상자가 겹쳐 글자가 포개지지 않게 위아래로 비켜 간다 */
+          var bow = r ? Math.sin(Math.PI * k) * 28 : 0;
+          box(c, axn, (r ? ya : yb) - bow, bw, s.a, '①', PAL[0]); box(c, bxn, (r ? ya : yb) + bow, bw, s.b, '②', PAL[6]);
           if (r && k >= 1) txt(c, r.same ? '적힌 순서 = 실제 순서' : '적힌 순서와 실제 순서가 반대!', W / 2, yl - 14, {align:'center', bold:true, color:r.same ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
           return [['순서 말', r.s.w], ['먼저 한 일', r.firstLabel, PAL[0]], ['나중 한 일', r.lastLabel],
             ['적힌 순서와 비교', r.same ? '같아요' : '반대예요', r.same ? PAL[1] : PAL[4]],
+            ['내가 만든 문장', r.s.en, PAL[0]],
+            ['만들기', r.mkMsg, r.flip ? PAL[6] : '#4A5868'],
             ['내 예측', G[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
             ['규칙', /fter/.test(r.s.w) ? 'after 바로 뒤에 붙은 일이 먼저' : /efore/.test(r.s.w) ? 'before 바로 뒤에 붙은 일이 나중' : '적힌 순서 그대로 따라가요']];
         },
-        columns: ['순서 말', '먼저 한 일', '적힌 순서와', '내 예측'],
-        record: function(p, r){ return {s:p.s, g:p.g, ok:r.ok, same:r.same}; },
-        row: function(d){ var s = S[d.s]; return [s.w, s.first === 0 ? s.a : s.b, d.same ? '같다' : '반대', d.ok ? '○' : '✕']; },
+        columns: ['만든 꼴', '순서 말', '먼저 한 일', '적힌 순서와', '내 예측'],
+        record: function(p, r){ return {s:p.s, mk:p.mk, g:p.g, ok:r.ok, same:r.same, w:r.s.w, fl:r.firstLabel}; },
+        row: function(d){ return [MK[d.mk || 0], d.w || S[d.s].w, d.fl || (S[d.s].first === 0 ? S[d.s].a : S[d.s].b), d.same ? '같다' : '반대', d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('적힌 순서 = 실제 순서?', '<div id="ba1"></div><p class="ask">반대였던 문장에는 어떤 순서 말이 있었나요? 같은 before·after라도 문장 앞에 올 때와 가운데 올 때를 비교해 보세요.</p>') +
             card('문장별 기록', '<div id="ba2"></div><p class="ask">과제: 내 아침 일과를 before 문장 하나, after 문장 하나로 써 보고, 가족에게 무엇을 먼저 했는지 맞혀 보게 하세요.</p>') + '</div>';
-          var by = groupBy(rec, function(d){ return d.s; }), keys = Object.keys(by), same = keys.filter(function(k){ return S[k].first === 0; }).length;
+          var by = groupBy(rec, function(d){ return d.s + '|' + (d.mk || 0); }), keys = Object.keys(by);
+          var same = keys.filter(function(k){ return by[k][0].same; }).length;
           $('ba1').innerHTML = hbars([{label:'같다', v:same, color:PAL[1], text:same + '개'}, {label:'반대', v:keys.length - same, color:PAL[4], text:(keys.length - same) + '개'}], Math.max(1, keys.length)) +
-            (keys.length < 6 ? '<p class="msg">아직 ' + (6 - keys.length) + '개 문장을 해 보지 않았어요.</p>' : '');
-          $('ba2').innerHTML = tableHTML(['순서 말', '먼저 한 일', '기록', '맞힘'], keys.map(function(k){ var s = S[k], a = by[k]; return [s.w, s.first === 0 ? s.a : s.b, a.length + '번', a.filter(function(d){ return d.ok; }).length + '번']; }));
+            (keys.length < 6 ? '<p class="msg">아직 ' + (6 - keys.length) + '가지를 해 보지 않았어요. 같은 두 가지 일로 문장 꼴만 바꿔 보세요.</p>' : '');
+          $('ba2').innerHTML = tableHTML(['만든 꼴', '순서 말', '먼저 한 일', '기록', '맞힘'], keys.map(function(k){ var a = by[k], d = a[0];
+            return [MK[d.mk || 0], d.w || S[d.s].w, d.fl, a.length + '번', a.filter(function(x){ return x.ok; }).length + '번']; }));
         }
       };
     })();
@@ -496,7 +533,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

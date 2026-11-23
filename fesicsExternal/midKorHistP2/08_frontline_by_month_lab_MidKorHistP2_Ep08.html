@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -490,9 +492,16 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         shortHint: '1950.6부터 몇 달씩 건너뛰며 기록해 보고, 1951.7 이후 달도 여러 개 기록해 이동 거리를 비교해 보세요.',
         params: [
           {key:'m', type:'range', label:'달', min:0, max:37, step:1, value:0, fmt:function(v){ return lab(v); }},
-          {key:'ov', type:'seg', label:'겹쳐 볼 선', cols:3, value:2, options:OV}
+          {key:'ov', type:'seg', label:'겹쳐 볼 선', cols:3, value:2, options:OV},
+          {key:'gm', type:'seg', label:'짐작 — 이 달의 전선은', cols:2, value:0, options:['크게 움직였다 (50km 이상)', '거의 멈춰 있었다'],
+            note:'달을 고른 뒤 먼저 짚어 보세요. 전선이 한 달에 움직인 거리를 자동으로 재어 채점합니다.'}
         ],
-        compute: function(p){ return model(p); },
+        compute: function(p){
+          var m = model(p);
+          var real = m.mv > 50 ? 0 : 1;
+          m.gm = p.gm; m.real = real; m.hit = (p.gm === real);
+          return m;
+        },
         draw: function(c, W, H, p, r, tau){
           var m = r || model(p), sz = fz(W), wide = W >= 560, mw = wide ? W * 0.42 : W * 0.5, mh = wide ? H - 40 : H - 40, x0 = 6, y0 = 10;
           var lo0 = 124, lo1 = 131, la0 = 34, la1 = 43, sc = Math.min(mw / (lo1 - lo0), mh / (la1 - la0));
@@ -533,17 +542,20 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         },
         stats: function(p, r){
           var s = [['시점', lab(p.m)], ['전선 가운데 위치 (대략)', '북위 약 ' + f(r.lat, 1) + '°'], ['전달 대비 이동 (대략)', '약 ' + f(r.mv, 0) + 'km', r.mv > 50 ? PAL[4] : PAL[1]],
+            ['짐작 → 재어 본 결과', ['크게 움직였다', '거의 멈춰 있었다'][r.gm] + ' → ' + ['크게 움직임', '거의 멈춤'][r.real] + (r.hit ? ' · 맞힘' : ' · 빗나감'), r.hit ? PAL[1] : PAL[4]],
             ['국면', r.phase, r.i <= 12 ? PAL[0] : PAL[3]], ['회담', r.talk], ['이 달', r.note],
             ['누적 이동 (모형)', '처음 13달 약 ' + f(r.cum1, 0) + 'km · 나머지 25달 약 ' + f(r.cum2, 0) + 'km', PAL[6]]];
           if (p.ov === 2) s.push(['두 선 사이에서 바뀐 도시', '개성: 38선 남 → 휴전선 북 · 속초: 38선 북 → 휴전선 남', PAL[0]]);
           return s;
         },
-        columns: ['시점', '전선 위도', '전달 대비', '국면'],
-        record: function(p, r){ return {m:p.m, lat:r.lat, mv:r.mv}; },
-        row: function(d){ return [lab(d.m), f(d.lat, 1) + '°', '약 ' + f(d.mv, 0) + 'km', d.m <= 12 ? '기동전' : '고지전·회담']; },
+        columns: ['시점', '전선 위도', '전달 대비', '국면', '짐작', '맞힘'],
+        record: function(p, r){ return {m:p.m, lat:r.lat, mv:r.mv, gm:r.gm, real:r.real, hit:r.hit}; },
+        row: function(d){ return [lab(d.m), f(d.lat, 1) + '°', '약 ' + f(d.mv, 0) + 'km', d.m <= 12 ? '기동전' : '고지전·회담',
+          d.gm == null ? '−' : ['크게', '멈춤'][d.gm], d.gm == null ? '−' : (d.hit ? '○' : '×')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('크게 움직인 기간 vs 거의 멈춘 기간', '<div id="fl1"></div><p class="ask">과제: 1950년 6월부터 1953년 7월까지 전선의 대략적 위치를 달별로 찍어 꺾은선 그래프로 그리고, 크게 움직인 기간과 거의 멈춘 기간을 색으로 나눠 보세요.</p>') +
+            card('짐작 채점 — 어느 달이 크게 움직였나', '<div id="fl3"></div><p class="ask">빗나간 달은 언제였나요? "3년 내내 밀고 밀렸다"는 말이 어디까지 맞는지, 달별 이동 거리로 고쳐 말해 보세요.</p>') +
             card('내가 기록한 달', '<div id="fl2"></div><p class="ask">38선과 휴전선을 한 지도에 겹쳐, 두 선 사이에서 남북이 바뀐 도시를 2곳씩 찾아보세요. 선이 멈춘 뒤 2년 동안 무엇이 다투어졌나요?</p>') + '</div>';
           var a = rec.filter(function(d){ return d.m <= 12; }), b = rec.filter(function(d){ return d.m > 12; });
           var c1 = 0, c2 = 0;
@@ -553,6 +565,20 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
             {label:'내 기록 · 뒤 기간 달 평균', v:b.length ? mean(b.map(function(d){ return d.mv; })) : 0, color:PAL[3], text:b.length ? '약 ' + f(mean(b.map(function(d){ return d.mv; })), 0) + 'km' : '기록 없음'}], Math.max(c1, 1));
           var last = rec.slice(-12).sort(function(x, y){ return x.m - y.m; });
           $('fl2').innerHTML = tableHTML(['시점', '위도(대략)', '이동'], last.map(function(d){ return [lab(d.m), f(d.lat, 1) + '°', '약 ' + f(d.mv, 0) + 'km']; })) + (b.length ? '' : '<p class="msg">1951.7 이후의 달도 기록해 보세요.</p>');
+          (function(){
+            var gr = rec.filter(function(d){ return d.gm != null; });
+            if (!gr.length){ $('fl3').innerHTML = '<p class="msg">달마다 먼저 짚고 확인하면 여기에서 채점해 줍니다.</p>'; return; }
+            var hit = gr.filter(function(d){ return d.hit; }).length;
+            var big = gr.filter(function(d){ return d.real === 0; }), stop = gr.filter(function(d){ return d.real === 1; });
+            var top = gr.slice().sort(function(x, y){ return y.mv - x.mv; })[0];
+            $('fl3').innerHTML = '<p>맞힌 달 <b>' + hit + ' / ' + gr.length + '</b> · 크게 움직인 달 ' + big.length + '개, 거의 멈춘 달 ' + stop.length + '개</p>' +
+              tableHTML(['시점', '재어 본 이동', '나의 짐작', '맞힘'],
+                gr.slice(-10).sort(function(x, y){ return x.m - y.m; }).map(function(d){
+                  return [lab(d.m), '약 ' + f(d.mv, 0) + 'km', ['크게 움직였다', '거의 멈춤'][d.gm], d.hit ? '○' : '×']; })) +
+              (top ? '<p class="msg">기록한 달 가운데 가장 크게 움직인 달은 <b>' + lab(top.m) + '</b> (약 ' + f(top.mv, 0) + 'km)였습니다.</p>' : '') +
+              (stop.length ? '<p class="msg">거의 멈춘 달이 ' + stop.length + '개 나왔습니다 — 전쟁의 뒤 2년은 선이 거의 그 자리였고, 그 자리에서 사람이 가장 많이 죽었습니다.</p>'
+                           : '<p class="msg">1952년의 달도 짚어 보세요 — 거의 멈춘 달이 어떤 모습인지 보입니다.</p>');
+          })();
         }
       };
     
@@ -562,7 +588,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

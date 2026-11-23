@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -305,9 +306,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -318,11 +320,11 @@ function axisFrom(lo, hi){
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
-function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다
+function wtxt(c, s, x, y, o, mw, lh){ // 폭 mw 를 넘으면 띄어쓰기에서 줄을 나눠 쓴다. 쓴 줄 수를 돌려준다(o.dry 면 세기만)
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
   var ws = String(s).split(/ (?!\d{3}\b|[%°℃‰]|(?:MW|kW|W|K|m|km|kg|g|mL|L|s|eV|nm|cm|mm|Hz|kJ|J|ppm|kbar|bar|atm|hPa|kPa|Pa|mol|M|명|개|번|회|원|년|초|분)(?![A-Za-z]))/), line = '', n = 0;
-  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
-  txt(c, line, x, y + n * lh, o); return n + 1;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (line && c.measureText(t).width > mw){ if (!o.dry) txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
+  if (!o.dry) txt(c, line, x, y + n * lh, o); return n + 1;
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -457,7 +459,7 @@ function rate(cs, ch, T, ci){
   return {k:k, v:k * cs * ch, Ea:C.Ea};
 }
 return {
-  sceneHeight: function(w){ return w < 480 ? 474 : 450; },
+  sceneHeight: function(w){ return w < 480 ? 522 : 450; },
   idle: '농도와 온도, 촉매를 정한 뒤 <b>반응 시작</b>을 누르세요. 십자 표시가 보이지 않을 때까지 걸린 시간을 잽니다.',
   shortHint: '자유 탐구 탭에서 농도와 온도를 하나씩만 바꿔 가며 기록하세요.',
   params: [
@@ -490,7 +492,9 @@ return {
     meter(c, mx, my, Math.min(180, W - mx - 12), (r ? f(r.t * k, r.t < 1 ? 3 : r.t < 10 ? 2 : 1) : '0.0') + ' 초');
     txt(c, '스톱워치', mx, my - 10, {color:'#4A5868'});
     // 에너지 곡선
-    var P = plotBox(c, 82, 236, W - 112, H - (nar ? 344 : 320), [0, 100, 25], [-60, 80, 20], '반응 진행', '에너지 (kJ/mol)');
+    var ks = r ? '속도 상수 k = ' + r.k.toExponential(3) + ', 반응 속도 ' + r.v.toExponential(3) + ' M/s' : '';
+    var nks = (nar && r) ? wtxt(c, ks, 12, 0, {dry:true}, W - 24, 24) : 1;   /* 좁은 화면: 아래 글 줄 수를 먼저 재서 그래프 높이를 줄인다 */
+    var P = plotBox(c, 82, 236, W - 112, H - (nar ? 344 + (nks - 1) * 24 : 320), [0, 100, 25], [-60, 80, 20], '반응 진행', '에너지 (kJ/mol)');
     [0, 1].forEach(function(ci){
       var on = p.c === ci, Ea = CAT[ci].Ea / 1000;
       c.strokeStyle = on ? (ci ? '#2E9E78' : '#C8463D') : 'rgba(140,153,168,.45)'; c.lineWidth = on ? 3 : 2;
@@ -502,13 +506,20 @@ return {
       }
       c.stroke();
       if (W < 520){
-        c.font = (on ? '700 ' : '') + '14px ' + FONT; c.fillStyle = on ? (ci ? '#2E9E78' : '#C8463D') : '#8C99A8'; c.textAlign = ci ? 'left' : 'right'; c.textBaseline = 'alphabetic';
-        c.fillText(ci ? '촉매 있음' : '촉매 없음', P.X(ci ? 56 : 44), P.Y(Ea) - 26); c.fillText('Ea = ' + f(Ea, 0), P.X(ci ? 56 : 44), P.Y(Ea) - 10);
+        c.font = (on ? '700 ' : '') + '14px ' + FONT; c.fillStyle = on ? (ci ? '#2E9E78' : '#C8463D') : '#8C99A8'; c.textBaseline = 'alphabetic';
+        if (W < 400){   /* 아주 좁은 화면: 세로 눈금 숫자와 겹치지 않게 그래프 안 왼쪽에 위아래로 나눠 쓴다 */
+          c.textAlign = 'left';
+          var lxx = P.X(0) + 2, lyy = P.Y(Ea) + (ci ? 24 : -26);
+          c.fillText(ci ? '촉매 있음' : '촉매 없음', lxx, lyy); c.fillText('Ea = ' + f(Ea, 0), lxx, lyy + 16);
+        } else {
+          c.textAlign = ci ? 'left' : 'right';
+          c.fillText(ci ? '촉매 있음' : '촉매 없음', P.X(ci ? 56 : 44), P.Y(Ea) - 26); c.fillText('Ea = ' + f(Ea, 0), P.X(ci ? 56 : 44), P.Y(Ea) - 10);
+        }
       } else
       txt(c, (ci ? '촉매 있음' : '촉매 없음') + ' Ea = ' + f(Ea, 0), P.X(ci ? 56 : 44), P.Y(Ea) - 10, {align:ci ? 'left' : 'right', color:on ? (ci ? '#2E9E78' : '#C8463D') : '#8C99A8', bold:on});
     });
-    if (r){ var ks = '속도 상수 k = ' + r.k.toExponential(3) + ', 반응 속도 ' + r.v.toExponential(3) + ' M/s';
-      if (nar) wtxt(c, ks, 12, H - 36, {color:'#4A5868'}, W - 24, 24); else txt(c, ks, 12, H - 12, {color:'#4A5868'}); }
+    if (r){
+      if (nar) wtxt(c, ks, 12, H - 14 - (nks - 1) * 24, {color:'#4A5868'}, W - 24, 24); else txt(c, ks, 12, H - 12, {color:'#4A5868'}); }
   },
   stats: function(p, r){
     return [['조건', f(r.cs, 2) + ' M · ' + f(r.ch, 1) + ' M · ' + r.T + ' ℃ · ' + CAT[r.cat].name],
@@ -556,7 +567,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

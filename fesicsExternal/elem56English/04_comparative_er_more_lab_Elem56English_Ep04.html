@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,36 +439,60 @@ var LAB = (function(){
         {w:'happy', sy:['hap', 'py'], b:0, er:'happier', y:true}, {w:'easy', sy:['ea', 'sy'], b:0, er:'easier', y:true},
         {w:'beautiful', sy:['beau', 'ti', 'ful'], b:1, er:'beautifuler'}, {w:'interesting', sy:['in', 'ter', 'est', 'ing'], b:1, er:'interestinger'},
         {w:'delicious', sy:['de', 'li', 'cious'], b:1, er:'deliciouser'}, {w:'expensive', sy:['ex', 'pen', 'sive'], b:1, er:'expensiver'},
-        {w:'smart', sy:['smart'], b:0, er:'smarter'}, {w:'good', sy:['good'], b:2, er:'gooder', irr:'better'}, {w:'bad', sy:['bad'], b:2, er:'badder', irr:'worse'}
+        {w:'smart', sy:['smart'], b:0, er:'smarter'}, {w:'good', sy:['good'], b:2, er:'gooder', irr:'better'}, {w:'bad', sy:['bad'], b:2, er:'badder', irr:'worse'},
+        /* 2칸인데 -er 과 more 를 둘 다 쓰는 낱말 — '칸 수만 보면 정해진다'가 깨지는 자리 */
+        {w:'clever', sy:['clev', 'er'], b:3, er:'cleverer'}, {w:'quiet', sy:['qui', 'et'], b:3, er:'quieter'},
+        {w:'simple', sy:['sim', 'ple'], b:3, er:'simpler'}, {w:'gentle', sy:['gen', 'tle'], b:3, er:'gentler'},
+        {w:'narrow', sy:['nar', 'row'], b:3, er:'narrower'}, {w:'common', sy:['com', 'mon'], b:3, er:'commoner'},
+        {w:'polite', sy:['po', 'lite'], b:3, er:'politer'}, {w:'friendly', sy:['friend', 'ly'], b:3, er:'friendlier'}
       ];
+      var DICT = {}; WD.forEach(function(x){ DICT[x.w] = x; });
+      /* 칸 수 어림셈 — 모음 덩어리를 세는 교육용 어림이에요. 실제 발음과 다를 수 있어요 */
+      function guessSy(w){ var m = w.replace(/e$/, '').match(/[aeiouy]+/g); return m ? Math.max(1, m.length) : 1; }
       var MD = ['-er 붙이기', 'more 붙이기', '특별한 모양'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
       function say(t, rate){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = rate || 0.9; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
       function wrap(c, s, x, y, maxW, lh, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var ws = String(s).split(' '), line = '', n = 0; for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (c.measureText(t).width > maxW && line){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; } if (line){ txt(c, line, x, y + n * lh, o); n++; } return n; }
       function form(d, m){ return m === 0 ? d.er : m === 1 ? 'more ' + d.w : d.irr || '(특별한 모양 없음)'; }
-      function best(d){ return d.b === 0 ? d.er : d.b === 1 ? 'more ' + d.w : d.irr; }
+      function best(d){ return d.b === 0 ? d.er : d.b === 1 ? 'more ' + d.w : d.b === 3 ? d.er : d.irr; }
       function judge(d, m){
         if (d.b === 2) return m === 2 ? ['○', '자주 쓰는 단어의 예외 — 따로 익혀요'] : ['✕', d.w + (d.w === 'good' ? '은' : '는') + ' 규칙을 따르지 않아요. ' + d.irr + '!'];
+        if (d.b === 3) return m === 2 ? ['✕', '이 단어는 특별한 모양이 없어요'] :
+          ['○', '2칸이지만 ' + d.er + ' 와 more ' + d.w + ' 를 둘 다 써요 — 어느 쪽을 골라도 맞아요'];
         if (m === 2) return ['✕', '이 단어는 특별한 모양이 없어요. 규칙대로 만들어요'];
         if (d.b === 0) return m === 0 ? ['○', d.sy.length === 1 ? '1칸 짧은 단어는 -er' + (d.dbl ? ' (끝 자음 한 번 더)' : '') : '-y로 끝나는 2칸 단어는 y를 i로 바꾸고 -er'] :
           d.y ? ['△', '가끔 쓰지만 ' + d.er + '가 보통이에요'] : ['✕', '짧은 단어에는 more를 붙이지 않아요'];
         return m === 1 ? ['○', d.sy.length + '칸 긴 단어는 앞에 more'] : ['✕', '혀가 꼬여요 — 긴 단어에는 -er을 붙이지 않아요'];
       }
       return {
-        sceneHeight: 360,
-        idle: '형용사와 만드는 방법을 고른 뒤 <b>비교하는 말 만들기</b>를 누르세요.',
-        shortHint: '1칸, 2칸, 3칸 이상 단어를 골고루 해 보고, good·bad도 꼭 해 보세요.',
+        sceneHeight: function(w){ return w < 560 ? 440 : 360; },
+        idle: '형용사와 만드는 방법을 고른 뒤 <b>비교하는 말 만들기</b>를 누르세요. clever·quiet 처럼 <b>둘 다 쓰는 2칸 낱말</b>도 있어요.',
+        shortHint: '1칸, 2칸, 3칸 이상 단어를 골고루 해 보고, good·bad 와 clever·quiet(둘 다 쓰는 말)도 꼭 해 보세요.',
         params: [
           {key:'w', type:'seg', label:'형용사', cols:4, value:8, options:WD.map(function(x){ return x.w; })},
+          {key:'q', type:'text', label:'아니면 내가 직접 넣어 보기 (영어 형용사)', value:'', ph:'예: quiet',
+            note:'여기에 적으면 위에서 고른 낱말 대신 이 낱말로 해 봅니다. 비워 두면 위 목록을 씁니다.'},
           {key:'m', type:'seg', label:'예측: 비교하는 말 만드는 방법', cols:3, value:0, options:MD},
           {key:'s', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
-          var d = WD[p.w], j = judge(d, p.m), out = form(d, p.m), b = best(d);
+          var typed = String(p.q || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+          var d = WD[p.w], isTyped = false;
+          if (typed){
+            if (DICT[typed]){ d = DICT[typed]; isTyped = true; }
+            else return {fail:'\u2018' + typed + '\u2019 는 이 실험실에 자료가 없는 낱말이에요. 모음 덩어리로 어림해 보면 '
+              + guessSy(typed) + '칸으로 보이지만, 2칸 낱말은 -er 과 more 를 둘 다 쓰는 경우가 많아 <b>칸 수만으로는 정할 수 없어요</b>. '
+              + '사전에서 확인하거나, 목록에 있는 낱말로 해 보세요.'};
+          }
+          var j = judge(d, p.m), out = form(d, p.m), b = best(d);
           var played = p.s === 0 ? say(d.w + '. ' + b + '.', 0.85) : false;
-          return {d:d, v:j[0], msg:j[1], out:out, best:b, played:played};
+          return {d:d, v:j[0], msg:j[1], out:out, best:b, played:played, typed:isTyped};
+        },
+        cur: function(p){
+          var typed = String(p.q || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+          return (typed && DICT[typed]) ? DICT[typed] : WD[p.w];
         },
         draw: function(c, W, H, p, r, tau){
-          var d = WD[p.w], k = r ? Math.min(tau / 0.5, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.5) / 0.4, 1)) : 0;
+          var d = this.cur(p), k = r ? Math.min(tau / 0.5, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.5) / 0.4, 1)) : 0;
           txt(c, d.w, 20, 40, {bold:true});
           var n = d.sy.length, show = r ? Math.round(n * k) : n;
           for (var i = 0; i < n; i++){
@@ -480,33 +506,53 @@ var LAB = (function(){
           if (r){
             c.globalAlpha = k2;
             var col = r.v === '○' ? PAL[1] : r.v === '△' ? PAL[6] : PAL[4];
-            wrap(c, 'A is ' + r.out + ' than B.', 20, 190, W - 40, 24, {bold:true, color:col});
-            var nl = wrap(c, r.v + ' ' + r.msg, 20, 226, W - 40, 22, {color:col});
-            if (r.v !== '○') txt(c, '바른 말: ' + r.best, 20, 226 + nl * 22 + 12, {bold:true, color:PAL[1]});
+            var n1 = wrap(c, 'A is ' + r.out + ' than B.', 20, 190, W - 40, 24, {bold:true, color:col});
+            var y2 = 190 + n1 * 24 + 12;
+            var nl = wrap(c, r.v + ' ' + r.msg, 20, y2, W - 40, 22, {color:col});
+            if (r.v !== '○') txt(c, '바른 말: ' + r.best, 20, y2 + nl * 22 + 12, {bold:true, color:PAL[1]});
             c.globalAlpha = 1;
           } else txt(c, '만드는 방법: ' + MD[p.m], 20, 200, {color:'#4A5868'});
         },
         stats: function(p, r){
           var col = r.v === '○' ? PAL[1] : r.v === '△' ? PAL[6] : PAL[4];
-          return [['형용사', r.d.w + ' (' + r.d.sy.join('-') + ', ' + r.d.sy.length + '칸)'], ['내가 만든 말', r.out], ['판정', r.v + ' ' + r.msg, col],
-            ['바른 비교하는 말', r.best, PAL[1]], ['소리', p.s === 1 ? '끔' : r.played ? '원래 말 → 비교하는 말 순서로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']];
+          var a = [['형용사', r.d.w + ' (' + r.d.sy.join('-') + ', ' + r.d.sy.length + '칸)' + (r.typed ? ' — 내가 직접 넣은 낱말' : '')],
+            ['내가 만든 말', r.out], ['판정', r.v + ' ' + r.msg, col]];
+          if (r.d.b === 3) a.push(['바른 비교하는 말', r.d.er + ' 와 more ' + r.d.w + ' — <b>둘 다 씁니다</b>', PAL[1]]);
+          else a.push(['바른 비교하는 말', r.best, PAL[1]]);
+          a.push(['소리', p.s === 1 ? '끔' : r.played ? '원래 말 → 비교하는 말 순서로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']);
+          return a;
         },
-        columns: ['형용사', '칸 수', '만든 말', '판정'],
-        record: function(p, r){ return {w:p.w, m:p.m, n:r.d.sy.length, out:r.out, v:r.v}; },
-        row: function(d){ return [WD[d.w].w, d.n + '칸', d.out, d.v]; },
+        columns: ['형용사', '칸 수', '만든 말', '판정', '바른 말'],
+        record: function(p, r){ return {wd:r.d.w, b:r.d.b, er:r.d.er, irr:r.d.irr || '', m:p.m, n:r.d.sy.length, y:!!r.d.y, out:r.out, v:r.v, typed:!!r.typed}; },
+        row: function(d){ return [d.wd + (d.typed ? ' ✍' : ''), d.n + '칸', d.out, d.v,
+          d.b === 3 ? (d.er + ' / more ' + d.wd) : (d.b === 2 ? d.irr : (d.b === 0 ? d.er : 'more ' + d.wd))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('칸 수별로 ○를 받은 방법', '<div id="cm1"></div><p class="ask">짧은 단어와 긴 단어에서 ○를 받은 방법이 달랐나요? 규칙을 한 문장으로 말해 보세요.</p>') +
-            card('규칙에 안 맞는 단어', '<div id="cm2"></div><p class="ask">과제: 우리 가족이나 반려동물 둘을 골라 키, 나이, 크기를 비교하는 영어 문장 세 개를 쓰고, 쓴 형용사의 칸 수를 옆에 적어 보세요.</p>') + '</div>';
-          var gs = [['1칸', function(d){ return d.n === 1 && WD[d.w].b !== 2; }], ['2칸 (-y)', function(d){ return d.n === 2; }], ['3칸 이상', function(d){ return d.n >= 3; }]], rows = [];
+            card('규칙이 깨지는 단어', '<div id="cm2"></div><p class="ask">과제: 우리 가족이나 반려동물 둘을 골라 키, 나이, 크기를 비교하는 영어 문장 세 개를 쓰고, 쓴 형용사의 칸 수를 옆에 적어 보세요.</p>') + '</div>';
+          var gs = [['1칸', function(d){ return d.n === 1 && d.b !== 2; }],
+            ['2칸 (-y로 끝남)', function(d){ return d.n === 2 && d.y; }],
+            ['2칸 (둘 다 쓰는 말)', function(d){ return d.n === 2 && d.b === 3; }],
+            ['3칸 이상', function(d){ return d.n >= 3; }]], rows = [];
           gs.forEach(function(g){ var a = rec.filter(g[1]); if (!a.length) return;
             var ok = {}; a.forEach(function(d){ if (d.v === '○') ok[MD[d.m]] = 1; });
-            var ws = {}; a.forEach(function(d){ ws[WD[d.w].w] = 1; });
+            var ws = {}; a.forEach(function(d){ ws[d.wd] = 1; });
             rows.push([g[0], Object.keys(ws).join(', '), Object.keys(ok).join(', ') || '(아직 ○ 없음)']); });
-          $('cm1').innerHTML = tableHTML(['칸 수', '해 본 단어', '○ 받은 방법'], rows);
-          var ir = rec.filter(function(d){ return WD[d.w].b === 2; }), r2 = {};
-          ir.forEach(function(d){ var x = WD[d.w]; r2[x.w] = [x.w, x.irr, '✕ ' + x.er + ', more ' + x.w]; });
-          $('cm2').innerHTML = Object.keys(r2).length ? tableHTML(['단어', '바른 말', '틀린 말'], Object.keys(r2).map(function(k){ return r2[k]; })) : '<p class="msg">good이나 bad를 아직 해 보지 않았어요.</p>';
+          var both = rec.filter(function(d){ return d.b === 3 && d.v === '○'; });
+          var bm = {}; both.forEach(function(d){ bm[MD[d.m]] = 1; });
+          $('cm1').innerHTML = tableHTML(['칸 수', '해 본 단어', '○ 받은 방법'], rows)
+            + (Object.keys(bm).length > 1
+               ? '<p class="note"><b>규칙이 갈렸습니다.</b> 2칸 낱말 가운데는 ' + Object.keys(bm).join(' 와 ') + ' 가 <b>둘 다</b> ○ 를 받은 것이 있어요. '
+                 + '그러니 "칸 수만 보면 -er 인지 more 인지 정해진다"는 말은 <b>늘 맞지는 않습니다</b>.</p>'
+               : '<p class="note">clever·quiet·simple 같은 <b>2칸 낱말</b>에 -er 과 more 를 <b>둘 다</b> 넣어 보세요. 한쪽만 맞는지, 둘 다 맞는지 여기에서 가려 줍니다.</p>');
+          var r2 = {};
+          rec.forEach(function(d){
+            if (d.b === 2) r2[d.wd] = [d.wd, '특별한 모양', d.irr, '✕ ' + d.er + ', more ' + d.wd];
+            else if (d.b === 3) r2[d.wd] = [d.wd, '둘 다 쓰임', d.er + ' / more ' + d.wd, '✕ 특별한 모양은 없음'];
+          });
+          $('cm2').innerHTML = Object.keys(r2).length
+            ? tableHTML(['단어', '어느 자리', '바른 말', '틀린 말'], Object.keys(r2).map(function(k){ return r2[k]; }))
+            : '<p class="msg">good·bad(특별한 모양)나 clever·quiet(둘 다 쓰는 말)를 아직 해 보지 않았어요.</p>';
         }
       };
     })();
@@ -515,7 +561,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
@@ -530,6 +577,14 @@ function buildControls(){
       box.appendChild(wrap);
       var el = $('r_' + q.key);
       el.addEventListener('input', function(){ p[q.key] = parseFloat(el.value); onParamChange(); });
+    } else if (q.type === 'text'){
+      wrap.innerHTML = '<div class="row"><label for="t_' + q.key + '">' + q.label + '</label></div>' +
+        '<input type="text" id="t_' + q.key + '" value="" placeholder="' + (q.ph || '') + '" autocomplete="off" spellcheck="false" ' +
+        'style="width:100%;padding:.55rem .7rem;border:1px solid #CFD8E3;border-radius:10px;font-size:1rem;font-family:inherit">' +
+        (q.note ? '<p class="note">' + q.note + '</p>' : '');
+      box.appendChild(wrap);
+      var te = $('t_' + q.key);
+      te.addEventListener('input', function(){ p[q.key] = te.value; onParamChange(); });
     } else {
       wrap.innerHTML = '<div class="row"><span>' + q.label + '</span></div><div class="seg' + (q.cols ? ' c' + q.cols : '') + '" id="seg_' + q.key + '"></div>' +
         (q.note ? '<p class="note">' + q.note + '</p>' : '');

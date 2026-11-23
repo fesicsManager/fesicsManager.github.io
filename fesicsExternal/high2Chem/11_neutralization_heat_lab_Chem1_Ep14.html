@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,15 +443,26 @@ function hbars(items, max){
 var LAB = (function(){
 var DH = 57000, CP = 4.18, T0 = 25.0;   // H⁺ + OH⁻ → H₂O, 약 57 kJ/mol 방출 (교과서 대표값; 표준 생성 엔탈피로는 55.84), 용액 비열 J/(g·℃)
 function btb(h, oh){ return h > 1e-6 ? '#E8C23A' : oh > 1e-6 ? '#3A6FC8' : '#4FA85A'; }
+/* 산·염기의 농도와 산의 가수를 바꿀 수 있게 한다.
+   기본값(산 1.0 M·1가, 염기 1.0 M)에서는 예전과 똑같이 25 mL 에서 꼭짓점이 나온다. */
+var CC = [0.5, 1.0, 2.0];
+var AK = [{n:'염산 HCl (1가)', s:'HCl', z:1}, {n:'황산 H₂SO₄ (2가)', s:'H₂SO₄', z:2}];
 return {
   sceneHeight: 380,
   idle: '1.0 M 염산의 부피를 정한 뒤 <b>섞기</b>를 누르세요. 1.0 M 수산화 나트륨 수용액을 더해 전체가 50 mL가 되게 섞습니다. 두 용액 모두 처음 온도는 25.0 ℃입니다.',
   shortHint: '자유 탐구 탭에서 염산 부피를 5 mL부터 45 mL까지 바꿔 가며 기록하세요.',
-  params: [{key:'x', type:'range', label:'1.0 M 염산 부피 (나머지는 1.0 M NaOH)', min:5, max:45, step:5, value:20, fmt:function(v){ return v + ' mL + ' + (50 - v) + ' mL'; }}],
+  params: [{key:'x', type:'range', label:'산 수용액 부피 (나머지는 NaOH 수용액)', min:5, max:45, step:5, value:20, fmt:function(v){ return v + ' mL + ' + (50 - v) + ' mL'; }},
+    {key:'ak', type:'seg', label:'쓰는 산', cols:2, value:0, options:AK.map(function(x){ return x.n; })},
+    {key:'ca', type:'seg', label:'산의 농도', cols:3, value:1, options:CC.map(function(v){ return f(v, 1) + ' M'; })},
+    {key:'cb', type:'seg', label:'NaOH 의 농도', cols:3, value:1, options:CC.map(function(v){ return f(v, 1) + ' M'; }),
+      note:'농도나 가수를 바꾸면 꼭짓점(중화점)이 25 mL 가 아닌 곳으로 옮겨 갑니다. 어디로 가는지 먼저 짐작해 보세요.'}],
   compute: function(p){
-    var nH = p.x, nOH = 50 - p.x, nw = Math.min(nH, nOH);                   // mmol
+    var A = AK[p.ak || 0], ca = CC[p.ca == null ? 1 : p.ca], cb = CC[p.cb == null ? 1 : p.cb];
+    var nH = p.x * ca * A.z, nOH = (50 - p.x) * cb, nw = Math.min(nH, nOH);  // mmol
     var dT = Math.round(nw / 1000 * DH / (50 * CP) * 10) / 10;               // 용액 50 g, 온도계 0.1 ℃
-    return {nH:nH, nOH:nOH, nw:nw, dT:dT, Tmax:T0 + dT, leftH:nH - nw, leftOH:nOH - nw};
+    var xeq = 50 * cb / (ca * A.z + cb);                                     // 중화점이 되는 산 부피 (mL)
+    return {nH:nH, nOH:nOH, nw:nw, dT:dT, Tmax:T0 + dT, leftH:nH - nw, leftOH:nOH - nw,
+      A:A, ca:ca, cb:cb, xeq:xeq};
   },
   draw: function(c, W, H, p, r, tau){
     var nar = W < 520, k = r ? Math.min(tau / 0.6, 1) : 0, bx = nar ? 20 : 40, by = nar ? 90 : 70, bw = nar ? Math.min(150, W - bx - 126) : 150, bh = nar ? 160 : 180;
@@ -472,20 +485,43 @@ return {
   },
   stats: function(p, r){
     var colName = r.leftH > 1e-6 ? '노랑 (산성)' : r.leftOH > 1e-6 ? '파랑 (염기성)' : '초록 (중성)';
-    return [['섞은 HCl : NaOH', p.x + ' mL : ' + (50 - p.x) + ' mL'], ['가장 높은 온도', f(r.Tmax, 1) + ' ℃', PAL[4]], ['온도 변화 ΔT', f(r.dT, 1) + ' ℃', PAL[4]],
-      ['BTB 용액 색', colName, btb(r.leftH, r.leftOH)], ['남은 H⁺ / OH⁻', f(r.leftH, 0) + ' / ' + f(r.leftOH, 0) + ' mmol']];
+    return [['섞은 ' + r.A.s + ' : NaOH', p.x + ' mL : ' + (50 - p.x) + ' mL'],
+      ['농도 · 가수', r.A.s + ' ' + f(r.ca, 1) + ' M (' + r.A.z + '가) · NaOH ' + f(r.cb, 1) + ' M'],
+      ['넣은 H⁺ / OH⁻', f(r.nH, 0) + ' / ' + f(r.nOH, 0) + ' mmol'],
+      ['가장 높은 온도', f(r.Tmax, 1) + ' ℃', PAL[4]], ['온도 변화 ΔT', f(r.dT, 1) + ' ℃', PAL[4]],
+      ['BTB 용액 색', colName, btb(r.leftH, r.leftOH)], ['남은 H⁺ / OH⁻', f(r.leftH, 0) + ' / ' + f(r.leftOH, 0) + ' mmol'],
+      ['이 조건의 중화점', '산 ' + f(r.xeq, 1) + ' mL (= 50 × ' + f(r.cb, 1) + ' ÷ (' + f(r.ca, 1) + '×' + r.A.z + ' + ' + f(r.cb, 1) + '))', PAL[1]],
+      ['판정', Math.abs(p.x - r.xeq) < 2.5 ? '거의 중화점이에요 — 온도가 가장 높고 BTB 가 초록입니다.'
+        : r.leftH > 0 ? '산이 남았어요. 산 부피를 ' + f(r.xeq, 1) + ' mL 쪽으로 줄여 보세요.'
+        : '염기가 남았어요. 산 부피를 ' + f(r.xeq, 1) + ' mL 쪽으로 늘려 보세요.',
+        Math.abs(p.x - r.xeq) < 2.5 ? PAL[1] : PAL[6]]];
   },
-  columns: ['HCl (mL)', 'NaOH (mL)', 'ΔT (℃)', 'BTB 색', '남은 H⁺ (mmol)', '남은 OH⁻ (mmol)'],
-  record: function(p, r){ return {x:p.x, dT:r.dT, lh:r.leftH, lo:r.leftOH}; },
-  row: function(d){ return [d.x, 50 - d.x, f(d.dT, 1), d.lh > 0 ? '노랑' : d.lo > 0 ? '파랑' : '초록', f(d.lh, 0), f(d.lo, 0)]; },
+  columns: ['산', '산 (mL)', 'NaOH (mL)', '농도 (산/염기)', 'ΔT (℃)', 'BTB 색', '중화점 (mL)'],
+  record: function(p, r){ return {x:p.x, dT:r.dT, lh:r.leftH, lo:r.leftOH, nw:r.nw,
+    ak:p.ak || 0, ca:r.ca, cb:r.cb, xeq:r.xeq, z:r.A.z}; },
+  row: function(d){ return [AK[d.ak || 0].s, d.x, 50 - d.x, f(d.ca == null ? 1 : d.ca, 1) + ' / ' + f(d.cb == null ? 1 : d.cb, 1),
+    f(d.dT, 1), d.lh > 0 ? '노랑' : d.lo > 0 ? '파랑' : '초록', d.xeq == null ? '25.0' : f(d.xeq, 1)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('염산 부피와 온도 변화', '<canvas class="chart" id="ch1" role="img" aria-label="중화 반응의 양적 관계 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">온도가 가장 많이 오른 비율은 얼마인가요? 이 비율에서 H⁺와 OH⁻의 몰수는 어떤 관계인가요?</p>') +
+      card('중화점은 어디로 옮겨 가나 (내 기록으로 계산)', '<div id="ch3"></div><p class="ask">농도나 가수를 바꾸면 꼭짓점이 어디로 갔나요? 꼭짓점은 "부피가 반반"일 때가 아니라 무엇이 같을 때 생기나요?</p>') +
       card('생성된 물의 양과 온도 변화', '<canvas class="chart" id="ch2" role="img" aria-label="중화 반응의 양적 관계 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">생성된 물의 몰수는 H⁺와 OH⁻ 중 적은 쪽으로 정해집니다. 기울기로 물 1몰이 생길 때 나오는 열을 구해 보세요 (용액 50 g, 비열 4.18 J/(g·℃)).</p>') + '</div>';
     var pts = rec.map(function(d){ return {x:d.x, y:d.dT}; }), best = rec.slice().sort(function(a, b){ return b.dT - a.dT; })[0];
     drawScatter($('ch1'), {xLabel:'HCl 부피 (mL)', yLabel:'ΔT (℃)', xHi:50, xStep:10, series:[{color:PAL[4], pts:pts}]});
     $('ro1').innerHTML = '<li>가장 큰 온도 변화: HCl ' + best.x + ' mL + NaOH ' + (50 - best.x) + ' mL에서 <b>' + f(best.dT, 1) + ' ℃</b></li>';
-    var pw = rec.map(function(d){ return {x:Math.min(d.x, 50 - d.x), y:d.dT}; }), k = fit0(pw);
+    /* 조건(산 종류·농도)별로 꼭짓점이 어디였는지 내 기록으로 모은다 */
+    var byC = groupBy(rec, function(d){ return (d.ak || 0) + '_' + (d.ca == null ? 1 : d.ca) + '_' + (d.cb == null ? 1 : d.cb); });
+    var rows3 = Object.keys(byC).map(function(key){
+      var a = byC[key], b0 = a.slice().sort(function(x, y){ return y.dT - x.dT; })[0], d0 = a[0];
+      return [AK[d0.ak || 0].s + ' ' + f(d0.ca == null ? 1 : d0.ca, 1) + ' M · NaOH ' + f(d0.cb == null ? 1 : d0.cb, 1) + ' M',
+        a.length + '회', b0.x + ' mL (ΔT ' + f(b0.dT, 1) + ' ℃)', d0.xeq == null ? '25.0 mL' : f(d0.xeq, 1) + ' mL'];
+    });
+    var moved = rows3.length > 1;
+    $('ch3').innerHTML = tableHTML(['조건', '기록', '내 기록 중 꼭짓점', '식으로 구한 중화점'], rows3)
+      + '<p class="msg">' + (moved
+        ? '조건을 바꾸자 꼭짓점이 25 mL 가 아닌 곳으로 <b>옮겨 갔습니다</b>. 꼭짓점은 부피가 반반일 때가 아니라 <b>H⁺ 의 몰수와 OH⁻ 의 몰수가 같을 때</b> 생깁니다. 황산은 한 분자가 H⁺ 를 둘 내므로 더 적은 부피에서 중화됩니다.'
+        : '산의 농도나 가수, NaOH 의 농도를 바꿔서도 기록해 보면, 꼭짓점이 25 mL 를 벗어나는 것을 볼 수 있어요.') + '</p>';
+    var pw = rec.map(function(d){ return {x:d.nw == null ? Math.min(d.x, 50 - d.x) : d.nw, y:d.dT}; }), k = fit0(pw);
     drawScatter($('ch2'), {xLabel:'생성된 물 (mmol)', yLabel:'ΔT (℃)', series:[{color:PAL[4], pts:pw}], lines:[{k:k, color:PAL[4]}]});
     $('ro2').innerHTML = '<li>기울기 <b>' + f(k, 3) + ' ℃/mmol</b></li><li>물 1몰당 나온 열 = 기울기 × 1000 × 50 g × 4.18 ÷ 1000 = <b>' + f(k * 50 * 4.18, 1) + ' kJ/mol</b></li>';
   }
@@ -496,7 +532,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

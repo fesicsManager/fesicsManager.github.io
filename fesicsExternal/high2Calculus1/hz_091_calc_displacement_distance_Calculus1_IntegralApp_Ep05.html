@@ -157,13 +157,17 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="변위와 거리 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="T">끝 시각 T (×0.5) <b><span id="T_v">8.0</span></b></label><input type="range" id="T" min="1" max="12" step="1" value="8" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">🚗 시간만큼 움직이기</button></div>
+      <div class="ctl"><label>속도 그래프를 골라 보기</label>
+<label><input type="radio" name="vp" value="A" checked> A. v = 3t − t² (방향 전환 1번)</label>
+<label><input type="radio" name="vp" value="B"> B. v = −(t³ − 9t² + 23t − 15)/5 (방향 전환 2번)</label>
+<label><input type="radio" name="vp" value="C"> C. v = 2 (방향 전환 없음)</label></div>
+<div class="ctl"><label for="T">끝 시각 T (×0.5) <b><span id="T_v">8.0</span></b></label><input type="range" id="T" min="1" max="12" step="1" value="8" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">🚗 시간만큼 움직이기</button></div>
       <div class="readout" id="readout"></div>
       <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>시간 구간</th><th>변위 ∫v</th><th>이동 거리 ∫|v|</th><th>되돌아온 구간</th><th>뒤로 간 거리</th><th>같나</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>v</th><th>시간 구간</th><th>변위 ∫v</th><th>이동 거리 ∫|v|</th><th>되돌아온 구간</th><th>뒤로 간 거리</th><th>같나</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -242,12 +246,20 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function v2(t){return 3*t-t*t;}
-function st(){var T=v('T')/2;
+/* 속도 그래프를 바꾸면 v 의 부호가 바뀌는 횟수(= 되돌아오는 횟수)가 달라진다 */
+var VP=[
+  {k:'A', n:'v = 3t − t²', v:function(t){return 3*t-t*t;}, z:[3]},
+  {k:'B', n:'v = −(t³ − 9t² + 23t − 15)/5', v:function(t){return -(t*t*t-9*t*t+23*t-15)/5;}, z:[1,3,5]},
+  {k:'C', n:'v = 2', v:function(t){return 2;}, z:[]}
+];
+function cvp(){var k=rv('vp')||'A';for(var i=0;i<VP.length;i++)if(VP[i].k===k)return VP[i];return VP[0];}
+function v2(t){return cvp().v(t);}
+function st(){var T=v('T')/2, P=cvp();
 var disp=nint(v2,0,T);
 var dist=nint(function(t){return Math.abs(v2(t));},0,T);
-var back=(T>3);
-return{T:T,disp:disp,dist:dist,back:back,same:(Math.abs(disp-dist)<1e-6)};}
+var zIn=P.z.filter(function(z){return z<T-1e-9;});
+return{T:T,P:P,zAll:P.z,zIn:zIn,turns:zIn.length,disp:disp,dist:dist,back:zIn.length>0,
+same:(Math.abs(disp-dist)<1e-6)};}
 function draw(){clr();var o=st();
 var pl=plot(0,6.2,-9,3.5,46);axes(pl,'t','v');
 for(var t=0;t<o.T*gr;t+=0.01){
@@ -259,10 +271,11 @@ ctx.strokeStyle='#7aa2ff';ctx.lineWidth=3;ctx.beginPath();
 for(var t2=0;t2<=6.2;t2+=0.01){var py=pl.Y(v2(t2));if(py<-30||py>H+30)continue;
 if(t2===0)ctx.moveTo(pl.X(t2),py);else ctx.lineTo(pl.X(t2),py);}
 ctx.stroke();
+o.zAll.forEach(function(z){
 ctx.strokeStyle='rgba(255,184,107,.7)';ctx.lineWidth=1.8;ctx.setLineDash([5,4]);
-ctx.beginPath();ctx.moveTo(pl.X(3),pl.Y(-9));ctx.lineTo(pl.X(3),pl.Y(3.5));ctx.stroke();ctx.setLineDash([]);
-label('t = 3 에서 방향 전환',pl.X(3)+8,72,'#ffb86b',12,'left');
-label('v(t) = 3t − t²',W/2,26,'#e9eefb',16);
+ctx.beginPath();ctx.moveTo(pl.X(z),pl.Y(-9));ctx.lineTo(pl.X(z),pl.Y(3.5));ctx.stroke();ctx.setLineDash([]);});
+label(o.zAll.length?('방향 전환 t = '+o.zAll.join(' · ')):'방향 전환 없음',pl.X(3)+8,72,'#ffb86b',12,'left');
+label('v(t) = '+o.P.n.replace('v = ',''),W/2,26,'#e9eefb',16);
 label('초록 = 앞으로',70,H-136,'#5ee0c8',12);
 label('빨강 = 뒤로',W-70,H-136,'#ff7a8a',12);
 panel(24,H-118,W-48,102);
@@ -270,8 +283,8 @@ label('구간 [0, '+nf(o.T,1)+']',W/2,H-92,'#9db0d4',13);
 label('변위  ∫v dt = '+mn(nf(o.disp,5)),W/2,H-62,'#5ee0c8',17);
 label('이동 거리  ∫|v| dt = '+nf(o.dist,5)+(o.same?'   같음':'   ← 더 큽니다'),
 W/2,H-30,'#ffb86b',17);
-ro(kv('변위',mn(nf(o.disp,5)))+' &nbsp;'+kv('이동 거리',nf(o.dist,5))+'<br>'+
-kv('차이',nf(o.dist-o.disp,5))+' &nbsp;'+kv('되돌아옴',o.back?'예':'아니오'));
+ro(kv('v',o.P.k+'. '+o.P.n)+'<br>'+kv('변위',mn(nf(o.disp,5)))+' &nbsp;'+kv('이동 거리',nf(o.dist,5))+'<br>'+
+kv('차이',nf(o.dist-o.disp,5))+' &nbsp;'+kv('되돌아온 횟수',o.turns+'번'));
 whyBox(o);}
 /* 음수는 진짜 빼기 기호로 */
 function mn(x){return String(x).replace('-','−');}
@@ -283,26 +296,26 @@ function fb(o){return{F:(o.dist+o.disp)/2,B:(o.dist-o.disp)/2};}
 function whyBox(o){var el=$('why');if(!el)return;var q=fb(o),T=nf(o.T,1),h;
 if(o.same){el.className='why same';
 h='✅ <b>이번엔 같네요. 왜 그럴까요?</b><br>'
-+'· v(t) = 3t − t² = t(3 − t) 는 0 &lt; t &lt; 3 에서 양수라, t = '+T+'까지는 <b>앞으로만</b> 움직였어요'+(o.T===3?' (t = 3 에서 딱 멈춘 순간이라 아직 뒤로 가지 않았어요)':'')+'.<br>'
-+'· 뒤로 간 조각이 없으니 부호를 뒤집을 것도 없어서 변위 = 이동 거리 = <b>'+jo(nf(o.dist,3),'</b>이에요.','</b>예요.')+'<br>'
-+'· 끝 시각 T 를 3 보다 크게 하면 t = 3 이후에 <b>뒤로 가는</b> 구간이 생겨 두 값이 달라져요.';}
++'· '+o.P.n+' 는 t = '+T+'까지 부호가 바뀌지 않아 <b>한 방향으로만</b> 움직였어요'+(o.zAll.length&&Math.abs(o.T-o.zAll[0])<1e-9?' (방향 전환 시각에 딱 멈춘 순간이라 아직 되돌아가지 않았어요)':'')+'.<br>'
++'· 되돌아온 조각이 없으니 부호를 뒤집을 것도 없어서 변위 = 이동 거리 = <b>'+jo(nf(o.dist,3),'</b>이에요.','</b>예요.')+'<br>'
++'· '+(o.zAll.length?('끝 시각 T 를 '+o.zAll[0]+' 보다 크게 하면 되돌아오는 구간이 생겨 두 값이 달라져요.'):'이 속도 그래프는 부호가 바뀌지 않아 T 를 아무리 늘려도 두 값이 같아요 — 되돌아오지 않기 때문이에요.');}
 else{el.className='why diff';
 h='🤔 <b>왜 같지 않을까요?</b><br>'
-+'· v(t) = 3t − t² 는 t = 3 에서 0 이 되고, 그 뒤로는 <b>음수</b>라 차가 <b>뒤로</b> 가요.<br>'
-+'· 앞으로 간 거리(0 ~ 3) = <span class="hl">'+nf(q.F,3)+'</span>, 뒤로 간 거리(3 ~ '+T+') = <span class="hl">'+nf(q.B,3)+'</span>.<br>'
++'· '+o.P.n+' 는 t = '+o.zIn.join(' · ')+' 에서 0 이 되고, 그 사이사이 부호가 바뀌어 <b>되돌아가요</b> (되돌아온 횟수 '+o.turns+'번).<br>'
++'· 앞으로 간 거리 = <span class="hl">'+nf(q.F,3)+'</span>, 뒤로 간 거리 = <span class="hl">'+nf(q.B,3)+'</span>.<br>'
 +'· <b>변위</b>는 뒤로 간 것을 <b>빼서</b> '+nf(q.F,3)+' − '+nf(q.B,3)+' = '+mn(nf(o.disp,3))+', <b>이동 거리</b>는 <b>더해서</b> '+nf(q.F,3)+' + '+nf(q.B,3)+' = '+nf(o.dist,3)+'.<br>'
 +'· 그래서 차이는 뒤로 간 거리의 <b>2배</b>('+nf(q.B,3)+' × 2 = '+nf(o.dist-o.disp,3)+')예요.'
 +(Math.abs(o.disp)<5e-4?' 지금은 앞뒤로 간 거리가 같아 <b>제자리</b>로 돌아왔어요(변위 0).':(o.disp<0?' 뒤로 간 거리가 더 길어서 변위가 음수, 출발점보다 <b>뒤</b>에 있어요.':''));}
 el.innerHTML=h;}
 function record(){var o=st(),q=fb(o);
 var reason=o.same?'<small>앞으로만 감</small>':'<small>차이 = 뒤로 '+nf(q.B,2)+' × 2</small>';
-return{cells:['[0, '+nf(o.T,1)+']',mn(nf(o.disp,4)),nf(o.dist,4),o.back?'있음':'없음',
+return{cells:[o.P.k,'[0, '+nf(o.T,1)+']',mn(nf(o.disp,4)),nf(o.dist,4),o.turns?o.turns+'번':'없음',
 nf(q.B,3),(o.same?'✅ 같음':'❌ 다름')+reason],
-T:o.T,disp:o.disp,dist:o.dist,same:o.same,back:o.back,gap:o.dist-o.disp};}
+k:o.P.k,vn:o.P.n,turns:o.turns,T:o.T,disp:o.disp,dist:o.dist,same:o.same,back:o.back,gap:o.dist-o.disp};}
 function analyze(){var dif=rows.filter(function(r){return !r.same;}).length;
 var zero=rows.filter(function(r){return Math.abs(r.disp)<0.2&&r.dist>1;}).length;
-var t='<table><thead><tr><th>구간</th><th>변위</th><th>이동 거리</th><th>차이</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>[0, '+nf(r.T,1)+']</td><td>'+mn(nf(r.disp,3))+'</td>'+
+var t='<table><thead><tr><th>v</th><th>구간</th><th>되돌아온 횟수</th><th>변위</th><th>이동 거리</th><th>차이</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+r.k+'</td><td>[0, '+nf(r.T,1)+']</td><td>'+(r.turns||0)+'번</td><td>'+mn(nf(r.disp,3))+'</td>'+
 '<td class="ok">'+nf(r.dist,3)+'</td><td class="'+(r.same?'':'no')+'">'+nf(r.gap,3)+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+

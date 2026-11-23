@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>줄넘기는 힘으로 하는 걸까 — 30초 기록표</h1>
-    <p>뛰는 방법과 연습 단계를 고르고 <b>30초 줄넘기</b>를 해요. 성공 횟수, 걸린 횟수, 숨찬 정도를 비교해 보세요.<br><span style="font-size:.9em;color:#a86825">※ 횟수는 웹툰 예시(높이 세게: 성공 약 25·걸림 4, 박자 낮게: 성공 약 45·걸림 1)를 바탕으로 만든 가상 자료예요. 할 때마다 조금씩 달라요.</span></p>
+    <p><b>뛰는 높이</b>와 <b>줄 한 바퀴 도는 시간</b>을 따로 정하고 연습 단계를 골라 <b>30초 줄넘기</b>를 해요. 둘의 짝이 어긋나면 어떻게 되는지, 성공 횟수·걸린 횟수·숨찬 정도를 비교해 보세요.<br><span style="font-size:.9em;color:#a86825">※ 횟수는 웹툰 예시(높이 세게: 성공 약 25·걸림 4, 박자 낮게: 성공 약 45·걸림 1)를 바탕으로 만든 가상 자료예요. 공중에 있는 시간과 걸릴 확률은 <b>교육용 모형값</b>이고(높이 h cm 로 뛰면 공중에 있는 시간은 약 2×√(2h÷981)초), 할 때마다 조금씩 달라요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -428,29 +430,43 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var MT = [{n:'높이 세게 뛰기', s:'높이 세게', cyc:0.85, pm:0.14, h:30, c:PAL[4]}, {n:'박자 맞춰 낮게 뛰기', s:'박자 낮게', cyc:0.63, pm:0.022, h:6, c:PAL[1]}];
       var PR = [{n:'처음 해 볼 때', s:'처음', k:1}, {n:'박자 먼저 연습한 뒤', s:'연습 뒤', k:0.6}];
       var S = 505;
       function R(){ S = (S * 1664525 + 1013904223) >>> 0; return S / 4294967296; }
+      /* 교육용 모형 — 높이 h cm 로 뛰면 공중에 있는 시간(초) */
+      function tAir(h){ return 2 * Math.sqrt(2 * h / 981); }
+      /* 높이와 줄 빠르기가 어긋난 정도 */
+      function fitOf(h, cyc){
+        var ta = tAir(h);
+        var slow = Math.max(0, cyc * 0.25 - ta);   // 줄이 발밑에 올 때 벌써 땅에 있음
+        var fast = Math.max(0, ta - cyc * 0.70);   // 내려오기 전에 줄이 또 옴
+        var pm = Math.min(0.9, 0.14 * Math.pow(h / 30, 1.15) + 3 * (slow + fast));
+        return {ta:ta, slow:slow, fast:fast, pm:pm,
+          st:slow > 0.005 ? 'slow' : fast > 0.005 ? 'fast' : 'ok'};
+      }
+      function stName(st){ return st === 'slow' ? '줄이 너무 느려요' : st === 'fast' ? '줄이 너무 빨라요' : '짝이 맞아요'; }
+      function stColor(st){ return st === 'ok' ? PAL[1] : PAL[4]; }
+      function cycName(v){ return (+v).toFixed(2) + '초 (1분 약 ' + Math.round(60 / v) + '번)'; }
       return {
         sceneHeight: 440,
-        idle: '방법과 연습 단계를 고르고 <b>30초 줄넘기</b>를 누르세요.',
-        shortHint: '두 방법을 모두 해 보고, "박자 먼저 연습한 뒤"도 해 보세요.',
+        idle: '뛰는 높이와 줄 돌리는 빠르기를 <b>따로</b> 정하고 <b>30초 줄넘기</b>를 누르세요.',
+        shortHint: '높이를 그대로 두고 줄 빠르기만 바꿔 보고, 거꾸로도 해 보세요. 짝이 어긋나면 어떻게 되나요?',
         params: [
-          {key:'m', type:'seg', label:'어떻게 뛰나요?', cols:2, value:0, options:MT.map(function(x){ return x.n; })},
+          {key:'h', type:'range', label:'뛰는 높이', min:4, max:30, step:2, value:30, fmt:function(v){ return (+v) + ' cm'; }},
+          {key:'cyc', type:'range', label:'줄 한 바퀴 도는 시간', min:0.4, max:1, step:0.01, value:0.85, fmt:function(v){ return cycName(v); }},
           {key:'pr', type:'seg', label:'연습 단계', cols:2, value:0, options:PR.map(function(x){ return x.n; })}
         ],
         compute: function(p){
-          var m = MT[p.m], pm = m.pm * PR[p.pr].k, t = 0, ok = 0, miss = 0, ev = [];
-          while (t + m.cyc <= 30){
-            if (R() < pm){ miss++; ev.push({t:t, ok:false}); t += m.cyc + 1.5; }
-            else { ok++; ev.push({t:t, ok:true}); t += m.cyc; }
+          var hh = +p.h, cyc = +p.cyc, q = fitOf(hh, cyc), pm = q.pm * PR[p.pr].k, t = 0, ok = 0, miss = 0, ev = [];
+          while (t + cyc <= 30){
+            if (R() < pm){ miss++; ev.push({t:t, ok:false}); t += cyc + 1.5; }
+            else { ok++; ev.push({t:t, ok:true}); t += cyc; }
           }
-          var effort = ok * m.h;
-          return {m:m, ok:ok, miss:miss, ev:ev, effort:effort, per:ok / 30};
+          var effort = ok * hh;
+          return {h:hh, cyc:cyc, q:q, pm:pm, ok:ok, miss:miss, ev:ev, effort:effort, per:ok / 30};
         },
         draw: function(c, W, H, p, r, tau){
-          var m = MT[p.m], now = r ? 30 * tau : 0, cx = W / 2, gy = 250;
+          var m = {cyc:+p.cyc, h:+p.h}, now = r ? 30 * tau : 0, cx = W / 2, gy = 250;
           var j = 0, ph = 0, okN = 0, missN = 0, last = null;
           if (r){ r.ev.forEach(function(e){ if (e.t <= now){ last = e; if (e.ok) okN++; else missN++; } });
             if (last){ ph = Math.min(1, (now - last.t) / m.cyc); } }
@@ -482,27 +498,37 @@ var LAB = (function(){
           c.fillStyle = e > 0.5 ? PAL[4] : PAL[1]; c.fillRect(tx + 90, H - 34, (tw - 90) * e, 20);
         },
         stats: function(p, r){
-          return [['방법', r.m.n, r.m.c], ['연습 단계', PR[p.pr].n],
+          return [['뛰는 높이', r.h + ' cm', r.h >= 20 ? PAL[4] : PAL[1]],
+            ['줄 한 바퀴', cycName(r.cyc)], ['연습 단계', PR[p.pr].n],
             ['성공 횟수', r.ok + '번', PAL[1]], ['걸린 횟수', r.miss + '번', PAL[4]],
+            ['공중에 있는 시간 (모형)', f(r.q.ta, 2) + '초 — 줄은 ' + f(r.cyc * 0.25, 2) + '초 뒤 발밑에 와요'],
+            ['높이와 줄 빠르기의 짝', stName(r.q.st) + (r.q.st === 'slow' ? ' — 줄이 올 때 벌써 땅에 있어요' : r.q.st === 'fast' ? ' — 내려오기 전에 줄이 또 와요' : ' — 공중에 있는 동안 줄이 지나가요'), stColor(r.q.st)],
+            ['걸릴 확률 (모형)', f(r.pm * 100, 1) + '%', r.q.st === 'ok' ? PAL[3] : PAL[4]],
             ['숨찬 정도 (뛴 횟수 × 높이)', r.effort > 450 ? '많이 참' : '조금 참', r.effort > 450 ? PAL[4] : PAL[1]]];
         },
-        columns: ['방법', '연습', '성공', '걸림', '숨참'],
-        record: function(p, r){ return {m:p.m, pr:p.pr, ok:r.ok, miss:r.miss, hard:r.effort > 450}; },
-        row: function(d){ return [MT[d.m].s, PR[d.pr].s, d.ok + '번', d.miss + '번', d.hard ? '많이' : '조금']; },
+        columns: ['높이', '줄 한 바퀴', '연습', '성공', '걸림', '짝', '숨참'],
+        record: function(p, r){ return {h:r.h, cyc:r.cyc, pr:p.pr, ok:r.ok, miss:r.miss, st:r.q.st, hard:r.effort > 450}; },
+        row: function(d){ return [d.h + ' cm', (+d.cyc).toFixed(2) + '초', PR[d.pr].s, d.ok + '번', d.miss + '번', stName(d.st), d.hard ? '많이' : '조금']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('방법별 평균 성공·걸림', '<div id="jr1"></div><p class="ask">높이 세게 뛰었을 때와 박자 맞춰 낮게 뛰었을 때, 어느 쪽이 더 많이 넘고 덜 걸렸나요? 왜 그럴까요?</p>') +
+            card('높이·줄 빠르기별 성공과 걸림', '<div id="jr1"></div><p class="ask">높이만 바꿨을 때와 줄 빠르기만 바꿨을 때, 걸린 횟수는 어떻게 달라졌나요? 힘을 세게 쓰는 것과 짝을 맞추는 것 가운데 무엇이 더 중요했나요?</p>') +
+            card('짝이 맞았을 때와 어긋났을 때', '<div id="jr3"></div><p class="ask">※ 공중에 있는 시간과 걸릴 확률은 교육용 모형값이에요. 실제로는 사람마다 달라요.</p>') +
             card('박자를 먼저 연습하면?', '<div id="jr2"></div><p class="ask">과제: 넓고 평평한 곳에서 "높이 세게"와 "박자 맞춰 낮게"로 30초씩 줄넘기를 하고, 성공 횟수와 걸린 횟수를 표에 적어 보세요. 두 번 사이에는 충분히 쉬기. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
-          var items = [];
-          MT.forEach(function(m, i){ var g = rec.filter(function(d){ return d.m === i; }); if (!g.length) return;
+          var items = [], seen = {}, keys = [];
+          rec.forEach(function(d){ var k = d.h + '|' + d.cyc; if (!seen[k]){ seen[k] = []; keys.push(k); } seen[k].push(d); });
+          keys.forEach(function(k){ var g = seen[k], lb = g[0].h + ' cm · ' + (+g[0].cyc).toFixed(2) + '초';
             var o = mean(g.map(function(d){ return d.ok; })), x = mean(g.map(function(d){ return d.miss; }));
-            items.push({label:m.s + ' 성공', v:o, color:PAL[1], text:f(o, 0) + '번'});
-            items.push({label:m.s + ' 걸림', v:x, color:PAL[4], text:f(x, 1) + '번'}); });
-          $('jr1').innerHTML = hbars(items, 50);
+            items.push({label:lb + ' 성공', v:o, color:PAL[1], text:f(o, 0) + '번'});
+            items.push({label:lb + ' 걸림', v:x, color:PAL[4], text:f(x, 1) + '번'}); });
+          $('jr1').innerHTML = items.length ? hbars(items, 50) : '<p class="msg">기록이 아직 없어요.</p>';
+          var srows = [];
+          ['ok', 'slow', 'fast'].forEach(function(st){ var g = rec.filter(function(d){ return d.st === st; }); if (!g.length) return;
+            srows.push([stName(st), g.length + '번', f(mean(g.map(function(d){ return d.ok; })), 0) + '번', f(mean(g.map(function(d){ return d.miss; })), 1) + '번']); });
+          $('jr3').innerHTML = srows.length ? tableHTML(['짝', '해 본 횟수', '평균 성공', '평균 걸림'], srows) : '<p class="msg">기록이 아직 없어요.</p>';
           var rows = [];
-          MT.forEach(function(m, i){ PR.forEach(function(q, j){ var g = rec.filter(function(d){ return d.m === i && d.pr === j; }); if (!g.length) return;
-            rows.push([m.s, q.s, f(mean(g.map(function(d){ return d.ok; })), 0) + '번', f(mean(g.map(function(d){ return d.miss; })), 1) + '번']); }); });
-          $('jr2').innerHTML = tableHTML(['방법', '연습', '성공', '걸림'], rows);
+          keys.forEach(function(k){ PR.forEach(function(q, j){ var g = seen[k].filter(function(d){ return d.pr === j; }); if (!g.length) return;
+            rows.push([g[0].h + ' cm · ' + (+g[0].cyc).toFixed(2) + '초', q.s, f(mean(g.map(function(d){ return d.ok; })), 0) + '번', f(mean(g.map(function(d){ return d.miss; })), 1) + '번']); }); });
+          $('jr2').innerHTML = rows.length ? tableHTML(['높이 · 줄 한 바퀴', '연습', '성공', '걸림'], rows) : '<p class="msg">기록이 아직 없어요.</p>';
         }
       };
     })();
@@ -511,7 +537,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

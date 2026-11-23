@@ -250,6 +250,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">관찰할 식물의 구조를 고르세요</div>
             <div class="btn-row" id="mRow"><button class="btn-choice active" data-i="0">연잎</button><button class="btn-choice" data-i="1">도꼬마리 씨</button><button class="btn-choice" data-i="2">민들레 씨</button><button class="btn-choice" data-i="3">단풍나무 씨</button></div>
+            <div class="control-label" id="sLabel">크기를 바꿔 보세요</div>
+            <div class="btn-row" id="sRow"><button class="btn-choice" data-s="0">작게</button><button class="btn-choice active" data-s="1">보통</button><button class="btn-choice" data-s="2">크게</button></div>
             <button class="btn-main" id="obsBtn">구조를 보고 제품으로 시험하기 ▶</button>
             <div class="result-box" id="obsResult">구조를 고르고 시험 버튼을 눌러보세요.</div>
           </div>
@@ -258,8 +260,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">생체모방 기록 (<span class="mono" id="cnt">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>식물의 구조</th><th>본뜬 물건</th><th>어떤 점을 본떴나</th></tr></thead>
-              <tbody id="tb"><tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>식물의 구조</th><th>크기</th><th>성능</th><th>본뜬 물건</th></tr></thead>
+              <tbody id="tb"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box warm" style="margin-top:14px;">🔎 <b>이렇게 보세요</b> — 왼쪽은 식물의 구조를 확대한 모습, 오른쪽은 그것을 본떠 만든 물건입니다. 물건이 <b>어떻게 움직이는지</b>까지 지켜보면 무엇을 본떴는지 알 수 있어요.</div>
@@ -576,7 +578,23 @@ const ITEMS=[
   note:'단풍나무 씨는 날개가 <b>한쪽으로만</b> 뻗어 있어 떨어질 때 빙글빙글 돕니다. 회전하면 공기를 더 오래 붙잡아 천천히 내려와요. 프로펠러가 씨앗을 그대로 본뜬 것은 아니지만, <b>비스듬한 날개가 돌면서 공기를 밀어내는 원리</b>가 서로 닮았습니다.'}
 ];
 
-let idx=0, records=[];
+/* 크기를 바꾸면 성능이 달라진다 — 숫자는 교육용 모형값 */
+const SIZES=[
+ {label:'돌기가 얼마나 촘촘한지 바꿔 보세요', vals:[10,50,200], unit:'개/mm',
+  perf:function(v){ return {n:Math.round(60*Math.pow(10/v,0.6)), u:'°', name:'물방울이 굴러떨어지기 시작하는 기울기'}; },
+  why:'돌기가 촘촘할수록 물방울이 표면에 덜 닿아 조금만 기울여도 또르르 굴러떨어져요.'},
+ {label:'갈고리 수를 바꿔 보세요', vals:[10,40,120], unit:'개',
+  perf:function(v){ return {n:v*8, u:'g중', name:'떼어 내는 데 드는 힘'}; },
+  why:'갈고리가 많을수록 실 고리에 더 많이 걸려 떼기 어려워져요.'},
+ {label:'갓털 지름을 바꿔 보세요', vals:[5,10,20], unit:'mm',
+  perf:function(v){ return {n:(6.7*v/10).toFixed(1), u:'초', name:'2m 높이에서 떨어지는 데 걸린 시간'}; },
+  why:'갓털이 넓을수록 공기를 더 많이 붙잡아 천천히 떨어지고 멀리 날아가요.'},
+ {label:'날개 길이를 바꿔 보세요', vals:[10,30,60], unit:'mm',
+  perf:function(v){ return {n:(2.0*Math.sqrt(v/30)).toFixed(1), u:'초', name:'2m 높이에서 떨어지는 데 걸린 시간'}; },
+  why:'날개가 길수록 더 크게 돌면서 공기를 오래 붙잡아 천천히 내려와요.'}
+];
+const SNAME=['작게','보통','크게'];
+let idx=0, sIdx=1, records=[];
 const canvas=document.getElementById(CANVAS_ID), ctx=canvas.getContext('2d');
 const W=400, H=300;
 let running=false, shown=0;
@@ -610,35 +628,55 @@ document.querySelectorAll('#'+ROW_ID+' .btn-choice').forEach(b=>{
   b.addEventListener('click',()=>{
     document.querySelectorAll('#'+ROW_ID+' .btn-choice').forEach(x=>x.classList.remove('active'));
     b.classList.add('active'); idx=parseInt(b.dataset.i); shown=0;
+    syncSize();
     const r=document.getElementById('obsResult'); r.className='result-box';
     r.innerHTML='구조를 고르고 시험 버튼을 눌러보세요.';
     NOTE(NOTE_ID,'구조를 고르고 시험 버튼을 눌러보세요.');
   });
 });
+function syncSize(){
+  const S=SIZES[idx];
+  document.getElementById('sLabel').textContent=S.label;
+  document.querySelectorAll('#sRow .btn-choice').forEach(x=>{
+    const i=parseInt(x.dataset.s);
+    x.classList.toggle('active', i===sIdx);
+    x.textContent=SNAME[i]+' ('+S.vals[i]+S.unit+')';
+  });
+}
+document.querySelectorAll('#sRow .btn-choice').forEach(b=>{
+  b.addEventListener('click',()=>{
+    sIdx=parseInt(b.dataset.s); shown=0; syncSize();
+    const r=document.getElementById('obsResult'); r.className='result-box';
+    r.innerHTML='구조와 크기를 고르고 시험 버튼을 눌러보세요.';
+  });
+});
+syncSize();
 document.getElementById('obsBtn').addEventListener('click',()=>{
   const btn=document.getElementById('obsBtn');
   running=true;
   NOTE(NOTE_ID,'구조를 확대해 보고, 그것을 본떠 만든 물건이 어떻게 쓰이는지 지켜보는 중입니다.');
   runAnim(btn, canvas, 3200, (p)=>{ shown=p; frame(p); }, ()=>{
     running=false;
-    const it=ITEMS[idx];
-    if(!records.some(r=>r.name===it.name)){
-      records.push({name:it.name, structure:it.structure, product:it.product, why:it.why});
+    const it=ITEMS[idx], S=SIZES[idx], v=S.vals[sIdx], pf=S.perf(v);
+    if(!records.some(r=>r.name===it.name && r.size===v)){
+      records.push({name:it.name, structure:it.structure, product:it.product, why:it.why,
+                    size:v, unit:S.unit, perf:pf.n, pu:pf.u, pname:pf.name, swhy:S.why});
       renderTable();
     }
     const r=document.getElementById('obsResult');
     r.className='result-box ok';
-    r.innerHTML=it.structure+' → <span class="big-val">'+it.product+'</span>';
-    NOTE(NOTE_ID, it.note);
+    r.innerHTML=it.structure+' ('+v+S.unit+') → <span class="big-val">'+it.product+'</span><br>'+
+      pf.name+': <b>약 '+pf.n+pf.u+'</b> <span style="font-size:.9rem;color:var(--ink-soft);">(교육용 모형값)</span>';
+    NOTE(NOTE_ID, it.note+'<br>'+S.why);
     afterRecord();
   });
 });
 function renderTable(){
   document.getElementById('cnt').textContent=records.length;
   const tb=document.getElementById('tb');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td class="kr">'+r.name+'</td><td class="kr">'+r.product+
-    '</td><td class="kr" style="font-size:.9rem;">'+r.why+'</td></tr>').join('');
+  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td class="kr">'+r.name+'</td><td class="kr">'+r.size+r.unit+
+    '</td><td class="kr" style="font-size:.9rem;">약 '+r.perf+r.pu+'</td><td class="kr">'+r.product+'</td></tr>').join('');
 }
 
 countFn=()=>records.length;
@@ -649,14 +687,24 @@ function renderVerify(){
   document.getElementById('lockedMsg').style.display=ok?'none':'block';
   document.getElementById('verifyContent').style.display=ok?'block':'none';
   if(!ok) return;
-  document.getElementById('pairBox').innerHTML=records.map(r=>
-    '<div class="analysis-card" style="margin-bottom:12px;"><h3>'+esc(r.name)+' → '+esc(r.product)+'</h3>'+
-    '<div class="insight-box">'+esc(r.why)+'</div></div>').join('');
-  const target=records[Math.floor(Math.random()*records.length)];
+  const byName={};
+  records.forEach(r=>{ (byName[r.name]=byName[r.name]||[]).push(r); });
+  document.getElementById('pairBox').innerHTML=Object.keys(byName).map(nm=>{
+    const a=byName[nm].slice().sort((x,y)=>x.size-y.size), r0=a[0];
+    return '<div class="analysis-card" style="margin-bottom:12px;"><h3>'+esc(nm)+' → '+esc(r0.product)+'</h3>'+
+    '<div class="insight-box">'+esc(r0.why)+'</div>'+
+    '<div class="insight-box warm">'+esc(r0.pname)+' (교육용 모형값)<br>'+
+    a.map(r=>esc(r.size+r.unit)+' → 약 '+esc(r.perf+r.pu)).join('<br>')+
+    (a.length>1 ? '<br>'+esc(r0.swhy) : '<br><span style="font-size:.92rem;">크기를 바꿔 한 번 더 해 보면 달라지는 것을 볼 수 있어요.</span>')+
+    '</div></div>';
+  }).join('');
+  const uniq=[]; const seenN={};
+  records.forEach(r=>{ if(!seenN[r.name]){ seenN[r.name]=1; uniq.push(r); } });
+  const target=uniq[Math.floor(Math.random()*uniq.length)];
   matchAnswer=target.name;
   document.getElementById('matchQ').innerHTML='<b>'+esc(target.product)+'</b>은(는) 무엇을 본떠 만들었을까요?';
   const row=document.getElementById('matchRow');
-  row.innerHTML=records.map(r=>'<button class="btn-choice" data-m="'+esc(r.name)+'">'+esc(r.name)+'</button>').join('');
+  row.innerHTML=uniq.map(r=>'<button class="btn-choice" data-m="'+esc(r.name)+'">'+esc(r.name)+'</button>').join('');
   row.querySelectorAll('.btn-choice').forEach(b=>{
     b.addEventListener('click',()=>{
       row.querySelectorAll('.btn-choice').forEach(x=>x.classList.remove('active'));

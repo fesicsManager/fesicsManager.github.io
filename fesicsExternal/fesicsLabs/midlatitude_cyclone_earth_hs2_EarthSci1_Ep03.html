@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>중위도 저기압과 날씨 변화 | 고2 지구과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -395,7 +397,7 @@ function sim(y, v){
   return out;
 }
 return {
-  sceneHeight: 520,
+  sceneHeight: function (w){ return w < 560 ? 700 : 520; },
   idle: '관측소 위치와 저기압 이동 속도를 정한 뒤 <b>48시간 관측하기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 관측소 위치를 바꿔 가며 기록하세요.',
   params: [
@@ -410,6 +412,7 @@ return {
     return {s:s, seq:seq, minP:mp, minH:mh, Tmax:Math.max.apply(null, s.map(function(o){ return o.T; })), Tmin:Math.min.apply(null, s.map(function(o){ return o.T; }))};
   },
   draw: function(c, W, H, p, r, tau){
+    var narrow = W < 560;
     var y = LATS[p.lat].y, mx = 14, my = 26, mw = W - 28, mh = 230, sc = mw / 3000;
     c.fillStyle = '#EAF2F8'; c.fillRect(mx, my, mw, mh);
     var k = r ? Math.min(tau / 0.9, 1) : 0, idx = r ? Math.round(k * (r.s.length - 1)) : 0, o = r ? r.s[idx] : {dx:900};
@@ -425,16 +428,26 @@ return {
     txt(c, '한랭 전선', lx - 400 * 0.8 * sc - 4, ly + 400 * sc + 18, {color:'#2B5FA3', bold:true, align:'right'});
     c.fillStyle = '#C8463D'; c.font = '700 20px ' + FONT; c.textAlign = 'center'; c.fillText('L', lx, ly + 7);
     c.fillStyle = '#1E2833'; c.fillRect(sx - 6, sy - 6, 12, 12);
-    txt(c, '관측소', sx, sy - 12, {align:'center', bold:true});
+    /* 좁은 화면: 저기압 중심 L 과 겹치지 않게 관측소 이름을 네모 아래에 */
+    txt(c, '관측소', sx, sy + (narrow ? 54 : -12), {align:'center', bold:true});
     txt(c, '저기압은 서쪽에서 동쪽으로 이동합니다', mx + 4, my - 8, {color:'#4A5868'});
     // 계기
     var cy = my + mh + 14;
-    meter(c, mx, cy, Math.min(150, W / 3 - 12), (r ? o.T : 8) + ' ℃');
-    meter(c, mx + W / 3, cy, Math.min(150, W / 3 - 12), (r ? o.P : 1012) + ' hPa');
-    meter(c, mx + 2 * W / 3, cy, Math.min(W / 3 - 20, 150), (r ? o.dir : '동') + '풍');
-    if (r) txt(c, ZN[o.zone] + ' · ' + o.wx, mx, cy + 62, {bold:true});
+    if (narrow){
+      /* 좁은 화면: 계기 셋을 가로로 두면 숫자가 붙으므로 아래로 쌓는다 */
+      var mwN = Math.min(200, W - 28);
+      meter(c, mx, cy, mwN, (r ? o.T : 8) + ' ℃');
+      meter(c, mx, cy + 40, mwN, (r ? o.P : 1012) + ' hPa');
+      meter(c, mx, cy + 80, mwN, (r ? o.dir : '동') + '풍');
+    } else {
+      meter(c, mx, cy, Math.min(150, W / 3 - 12), (r ? o.T : 8) + ' ℃');
+      meter(c, mx + W / 3, cy, Math.min(150, W / 3 - 12), (r ? o.P : 1012) + ' hPa');
+      meter(c, mx + 2 * W / 3, cy, Math.min(W / 3 - 20, 150), (r ? o.dir : '동') + '풍');
+    }
+    if (r) txt(c, ZN[o.zone] + ' · ' + o.wx, mx, cy + (narrow ? 142 : 62), {bold:true});
     // 그래프 (기온과 기압)
-    var P = plotBox(c, 74, cy + 96, W - 104, H - cy - 164, [0, 48, 12], [0, 24, 6], '관측 시작 뒤 시간 (h)', '기온 (℃)');
+    var P = narrow ? plotBox(c, 56, cy + 190, W - 76, 180, [0, 48, 12], [0, 24, 6], '관측 시작 뒤 시간 (h)', '기온 (℃)')
+      : plotBox(c, 74, cy + 96, W - 104, H - cy - 164, [0, 48, 12], [0, 24, 6], '관측 시작 뒤 시간 (h)', '기온 (℃)');
     if (!r) return;
     c.strokeStyle = '#C8463D'; c.lineWidth = 2.5; c.beginPath();
     for (var i = 0; i <= idx; i++){ var X = P.X(r.s[i].h), Y = P.Y(r.s[i].T); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); }
@@ -442,7 +455,7 @@ return {
     c.strokeStyle = '#2B5FA3'; c.lineWidth = 2.5; c.beginPath();
     for (var j = 0; j <= idx; j++){ var X2 = P.X(r.s[j].h), Y2 = P.Y((r.s[j].P - 988) * 24 / 26); if (j) c.lineTo(X2, Y2); else c.moveTo(X2, Y2); }
     c.stroke();
-    txt(c, '빨강: 기온, 파랑: 기압(988~1014 hPa)', 74, cy + 88, {color:'#4A5868'});
+    txt(c, '빨강: 기온, 파랑: 기압(988~1014 hPa)', narrow ? 14 : 74, cy + (narrow ? 176 : 88), {color:'#4A5868'});
   },
   stats: function(p, r){
     var a = [['가장 낮은 기압', r.minP + ' hPa (' + f(r.minH, 1) + '시간째)', PAL[0]], ['기온 범위', r.Tmin + ' ~ ' + r.Tmax + ' ℃', PAL[4]]];
@@ -474,7 +487,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -473,18 +475,40 @@ return (function(){
         {n:'(나) 모든 문장에 ‘그래서’', s:['우리 동아리는 텃밭을 가꾼다.', '그래서 상추가 잘 자랐다.', '그래서 여름 방학에는 물을 줄 사람이 없었다.', '그래서 그것이 다 시들었다.'], c:['그래서', '그래서', '그래서'], ok:[false, false, true], ref:0, conn:3, good:1, sum:6},
         {n:'(다) 관계에 맞는 접속어 + 대상 밝힘', s:['우리 동아리는 텃밭을 가꾼다.', '봄에 심은 상추는 잘 자랐다.', '그런데 여름 방학에는 물을 줄 사람이 없었다.', '그래서 상추가 다 시들었다.'], c:['', '그런데', '그래서'], ok:[null, true, true], ref:1, conn:2, good:2, sum:18}
       ];
-      var NM = ['(가)', '(나)', '(다)'];
+      var NM = ['(가)', '(나)', '(다)', '(라)'];
+      /* (라) — 학생이 문장 사이 접속어를 직접 골라 넣는 판본 */
+      var CH = ['(없음)', '그리고', '그런데', '그래서'];
+      var OKSET = [[0, 1], [2], [3]];
+      function allowed(i, k){ return OKSET[i].indexOf(k) >= 0; }
+      function mkMine(p){
+        var keys = [p.c1 || 0, p.c2 || 0, p.c3 || 0];
+        var cc = keys.map(function(k){ return k === 0 ? '' : CH[k]; });
+        var ok = keys.map(function(k, i){ return cc[i] ? allowed(i, k) : null; });
+        var mis = keys.filter(function(k, i){ return !allowed(i, k); }).length;
+        var base = ['봄에 심은 상추는 잘 자랐다.', '여름 방학에는 물을 줄 사람이 없었다.', '상추가 다 시들었다.'];
+        var ss = ['우리 동아리는 텃밭을 가꾼다.'].concat(base.map(function(t, i){ return (cc[i] ? cc[i] + ' ' : '') + t; }));
+        var conn = cc.filter(function(x){ return x; }).length;
+        var good = ok.filter(function(x){ return x === true; }).length;
+        /* 요약 인원은 어긋난 칸 하나마다 4명씩 줄어든다고 본 교육용 모형값 */
+        return {n:'(라) 내가 고른 접속어', s:ss, c:cc, ok:ok, ref:1, conn:conn, good:good,
+          sum:Math.max(0, Math.min(20, 18 - 4 * mis)), mis:mis, mine:true};
+      }
       return {
-        sceneHeight: 470,
-        idle: '판본과 나의 예측을 고른 뒤 <b>이 판본을 읽히기</b>를 누르세요.',
+        sceneHeight: function(w){ return w < 560 ? 560 : 470; },
+        idle: '판본과 나의 예측을 고른 뒤 <b>이 판본을 읽히기</b>를 누르세요. (라) 를 고르면 접속어를 직접 골라 넣고, 실제 관계와 어긋난 칸을 세어 줍니다.',
         shortHint: '세 판본을 모두 읽혀 보세요. 접속어가 가장 많은 판본이 가장 잘 요약되었나요?',
         params: [
-          {key:'v', type:'seg', label:'판본 (내용은 같음)', cols:1, value:1, options:V.map(function(x){ return x.n; })},
+          {key:'v', type:'seg', label:'판본 (내용은 같음)', cols:1, value:1, options:V.map(function(x){ return x.n; }).concat(['(라) 내가 접속어를 골라 넣기'])},
+          {key:'c1', type:'seg', label:'(라) 1→2 사이 접속어 — 배경 다음에 사실', cols:4, value:0, options:CH},
+          {key:'c2', type:'seg', label:'(라) 2→3 사이 접속어 — 기대와 어긋남', cols:4, value:0, options:CH},
+          {key:'c3', type:'seg', label:'(라) 3→4 사이 접속어 — 원인 다음에 결과', cols:4, value:0, options:CH},
           {key:'g', type:'range', label:'나의 예측 — 내용을 바르게 요약할 사람 (20명 중)', min:0, max:20, step:1, value:10, fmt:function(v){ return v + '명'; }}
         ],
-        compute: function(p){ var x = V[p.v]; return {x:x, diff:p.g - x.sum}; },
+        compute: function(p){ var x = (p.v === 3 ? mkMine(p) : V[p.v]); return {x:x, diff:p.g - x.sum, mis:(x.mis == null ? null : x.mis)}; },
         draw: function(c, W, H, p, r, tau){
-          var x = V[p.v], a = r ? ph(tau, 0, 0.5) : 0, y = 34, lh = 66;
+          /* 좁은 화면: 이음말 조각을 아래 줄에 두므로 문장 사이를 넓힌다 */
+          var narrow = W < 560;
+          var x = (r && r.x) ? r.x : (p.v === 3 ? mkMine(p) : V[p.v]), a = r ? ph(tau, 0, 0.5) : 0, y = 34, lh = narrow ? 92 : 66;
           x.s.forEach(function(s, i){
             var yy = y + i * lh;
             rbox(c, 20, yy - 22, W - 40, 34, '#F7F9FC', '#D3DAE3', 1);
@@ -492,14 +516,18 @@ return (function(){
             if (i < 3){
               var my = yy + 33;
               tx(c, '↓ ' + REL[i], 40, my, {size:13, color:'#4A5868'});
-              if (r && x.c[i]){ c.globalAlpha = a; chip(c, W - 150, my - 18, x.c[i], x.ok[i] ? PAL[1] : PAL[4], '#fff', {size:14}); tx(c, x.ok[i] ? '맞음' : '어긋남', W - 34, my, {size:13, bold:true, color:x.ok[i] ? PAL[1] : PAL[4], align:'right'}); c.globalAlpha = 1; }
+              if (r && x.c[i]){ c.globalAlpha = a; chip(c, narrow ? 20 : W - 150, narrow ? my + 8 : my - 18, x.c[i], x.ok[i] ? PAL[1] : PAL[4], '#fff', {size:14}); tx(c, x.ok[i] ? '맞음' : '어긋남', narrow ? W - 24 : W - 34, narrow ? my + 28 : my, {size:13, bold:true, color:x.ok[i] ? PAL[1] : PAL[4], align:'right'}); c.globalAlpha = 1; }
             }
           });
           var ry = y + 3 * lh + 34;
           if (r){
             c.globalAlpha = a;
-            if (x.ref === 0){ var rsp = Math.min(80, (W - 160) / 2);   /* 좁은 화면: 세 후보가 폭 안에 들게 */
-              ['상추', '텃밭', '동아리'].forEach(function(k, i){ c.setLineDash([4, 4]); seg(c, 60, ry - 8, 60 + 70 + i * rsp, ry + 22, PAL[4], 1.5); c.setLineDash([]); tx(c, k + '?', 60 + 70 + i * rsp, ry + 40, {size:14, color:PAL[4], align:'center', bold:true}); }); tx(c, '‘그것’ →', 20, ry - 4, {size:14, bold:true, color:PAL[4]}); }
+            if (x.ref === 0){ var rsp = Math.min(80, (W - 160) / 2);
+              /* 좁은 화면: 세 후보를 나란히 두면 붙으므로 위아래로 쌓는다 */
+              ['상추', '텃밭', '동아리'].forEach(function(k, i){ c.setLineDash([4, 4]);
+                if (narrow){ seg(c, 60, ry - 8, 104, ry + 24 + i * 22, PAL[4], 1.5); c.setLineDash([]); tx(c, k + '?', 110, ry + 30 + i * 22, {size:14, color:PAL[4], bold:true}); }
+                else { seg(c, 60, ry - 8, 60 + 70 + i * rsp, ry + 22, PAL[4], 1.5); c.setLineDash([]); tx(c, k + '?', 60 + 70 + i * rsp, ry + 40, {size:14, color:PAL[4], align:'center', bold:true}); }
+              }); tx(c, '‘그것’ →', 20, ry - 4, {size:14, bold:true, color:PAL[4]}); }
             else { tx(c, '‘상추’를 다시 써서 대상이 분명함', 20, ry + 10, {size:15, bold:true, color:PAL[1]}); }
             c.globalAlpha = 1;
           }
@@ -509,23 +537,32 @@ return (function(){
           pbar(c, 20, by, bw, 22, x.sum / 20 * b, x.sum >= 15 ? PAL[1] : x.sum >= 10 ? PAL[6] : PAL[4]);
           tx(c, Math.round(x.sum * b) + ' / 20', 30 + bw, by + 18, {bold:true});
           if (tau > 0.9) tx(c, '예측 ' + p.g + '명', W - 20, by - 6, {size:14, bold:true, color:PAL[3], align:'right'});
+          if (x.mine && tau > 0.9) tx(c, x.mis === 0 ? '어긋난 칸 없음' : '어긋난 칸 ' + x.mis + '개', 20, by + 42, {size:14, bold:true, color:x.mis === 0 ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
           var x = r.x;
           return [['판본', x.n], ['접속어 수', x.conn + '개'], ['관계와 맞게 쓴 접속어', x.conn ? x.good + '개 / ' + x.conn + '개' : '—', x.good === x.conn ? PAL[1] : PAL[4]],
             ['‘그것’이 가리키는 대상', x.ref ? '‘상추’로 밝혀 씀' : '불분명(상추? 텃밭? 동아리?)', x.ref ? PAL[1] : PAL[4]],
-            ['바르게 요약한 사람', x.sum + '명 / 20명', PAL[0]], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[3]]];
+            ['바르게 요약한 사람 (교육용 모형값)', x.sum + '명 / 20명', PAL[0]], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[3]]]
+            .concat(x.mine ? [['실제 관계와 어긋난 칸', x.mis + '개 / 3개' + (x.mis === 0 ? ' — 세 칸 모두 관계에 맞습니다' : ' — 어긋난 칸 하나마다 요약 인원이 4명씩 줄어듭니다'), x.mis === 0 ? PAL[1] : PAL[4]]] : []);
         },
-        columns: ['판본', '접속어', '맞게 쓴 수', '요약', '나의 예측'],
-        record: function(p, r){ return {v:p.v, g:p.g}; },
-        row: function(d){ var x = V[d.v]; return [NM[d.v], x.conn + '개', x.conn ? x.good + '개' : '—', x.sum + '/20', d.g + '명']; },
+        columns: ['판본', '접속어', '어긋난 칸', '요약', '나의 예측'],
+        record: function(p, r){ return {v:p.v, g:p.g, conn:r.x.conn, good:r.x.good, sum:r.x.sum,
+          mis:(r.x.mis == null ? (r.x.conn - r.x.good) : r.x.mis), c:(r.x.c || []).join('/')}; },
+        row: function(d){ return [NM[d.v], d.conn + '개', d.mis + '개', d.sum + '/20', d.g + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('판본별 바르게 요약한 사람 (20명 중)', '<div id="sl2a"></div><p class="ask">(나)는 접속어가 셋이나 있는데 아무것도 넣지 않은 (가)보다도 요약 인원이 적어요. ‘표지판’이라는 말로 그 까닭을 설명해 보세요.</p>') +
+            card('내가 골라 넣은 접속어', '<div id="sl2c"></div><p class="ask">어긋난 칸을 하나라도 두면 요약 인원이 떨어집니다. 접속어를 많이 넣는 것보다 <b>관계에 맞게</b> 넣는 것이 중요한 까닭을 적어 보세요.</p>') +
             card('접속어 수 · 맞게 쓴 수 · 나의 예측', '<div id="sl2b"></div><p class="ask">과제: 자기가 쓴 글 한 편에서 접속어에 모두 동그라미를 치고, 각각 앞뒤 관계(원인·대조·첨가·전환)와 맞는지 표로 확인하세요. 맞지 않는 접속어는 고치거나 지워 보세요.</p>') + '</div>';
           $('sl2a').innerHTML = hbars(V.map(function(x, i){ return {label:x.n, v:x.sum, color:[PAL[7], PAL[4], PAL[1]][i], text:x.sum + '명'}; }), 20);
           var g = groupBy(rec, function(d){ return d.v; });
           $('sl2b').innerHTML = tableHTML(['판본', '접속어', '맞게 쓴 수', '‘그것’', '요약', '내 예측 평균'], V.map(function(x, i){ var a = g[i] || []; return [NM[i], x.conn, x.conn ? x.good : '—', x.ref ? '상추로 밝힘' : '불분명', x.sum + '명', a.length ? f(mean(a.map(function(d){ return d.g; })), 1) + '명' : '—']; }));
+          var mine = rec.filter(function(d){ return d.v === 3; });
+          $('sl2c').innerHTML = mine.length
+            ? tableHTML(['내가 넣은 접속어 (1→2 / 2→3 / 3→4)', '어긋난 칸', '요약'], mine.map(function(d){ return [d.c.split('/').map(function(x){ return x || '(없음)'; }).join(' / '), d.mis + '개', d.sum + '/20']; })) +
+              '<p class="msg">세 칸 모두 관계에 맞게 넣은 기록은 ' + mine.filter(function(d){ return d.mis === 0; }).length + '판이에요.</p>'
+            : '<p class="msg">(라) 판본으로 접속어를 직접 골라 넣어 보세요.</p>';
         }
       };
     })();
@@ -535,7 +572,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,6 +446,7 @@ var E0 = 8.854e-12;
 // 유전 상수는 실온 대표값
 var DIE = [{name:'진공(공기)', k:1.0}, {name:'종이', k:3.7}, {name:'유리', k:5.6}, {name:'물', k:80.1}];
 var AREA = [50, 100, 200], DGAP = [0.5, 1.0, 2.0], VOLT = [5, 10, 20];
+var MODE = ['전원을 연결한 채 넣기 (전압 고정)', '전원을 끊고 넣기 (전하 고정)'];
 function calc(A, d, k, V){
   var C = E0 * k * (A * 1e-4) / (d * 1e-3);
   return {C:C, Q:C * V, U:0.5 * C * V * V, E:V / (d * 1e-3), sig:C * V / (A * 1e-4)};
@@ -457,11 +460,21 @@ return {
     {key:'d', type:'seg', label:'극판 사이 간격', cols:3, value:1, options:DGAP.map(function(v){ return f(v, 1) + ' mm'; })},
     {key:'k', type:'seg', label:'사이에 넣는 물질 (유전체)', cols:4, value:0, options:DIE.map(function(x){ return x.name + '<small>κ ' + f(x.k, 1) + '</small>'; })},
     {key:'v', type:'seg', label:'걸어 준 전압', cols:3, value:1, options:VOLT.map(function(v){ return v + ' V'; }),
-      note:'평행판 축전기의 전기 용량 C = κε₀A ÷ d입니다. 유전 상수 κ는 실온에서의 대표값이고, ε₀ = 8.854×10⁻¹² F/m입니다.'}
+      note:'평행판 축전기의 전기 용량 C = κε₀A ÷ d입니다. 유전 상수 κ는 실온에서의 대표값이고, ε₀ = 8.854×10⁻¹² F/m입니다.'},
+    {key:'mode', type:'seg', label:'유전체를 언제 넣을까', cols:2, value:0, options:MODE,
+      note:'전원을 연결한 채 넣으면 전압이 붙잡히고 전하가 늘어납니다. 전원을 끊고 넣으면 전하가 붙잡히고 전압이 내려갑니다. 같은 유전체인데 무엇이 그대로인지가 갈립니다.'}
   ],
   compute: function(p){
     var A = AREA[p.a], d = DGAP[p.d], K = DIE[p.k], V = VOLT[p.v], c0 = calc(A, d, K.k, V), vac = calc(A, d, 1, V);
-    return {A:A, d:d, K:K, V:V, c:c0, vac:vac, ratio:c0.C / vac.C};
+    var out;
+    if (p.mode === 0){ out = {C:c0.C, Q:c0.Q, U:c0.U, E:c0.E, V:V, sig:c0.sig}; }
+    else {
+      /* 전원을 끊고 넣으면 전하가 그대로이고 전압이 κ배 내려간다 */
+      var Q0 = vac.Q, Vn = Q0 / c0.C;
+      out = {C:c0.C, Q:Q0, U:0.5 * Q0 * Q0 / c0.C, E:Vn / (d * 1e-3), V:Vn, sig:Q0 / (A * 1e-4)};
+    }
+    return {A:A, d:d, K:K, V:V, c:out, vac:vac, ratio:out.C / vac.C, mode:p.mode,
+      Vn:out.V, qRat:out.Q / vac.Q, uRat:out.U / vac.U, eRat:out.E / vac.E};
   },
   draw: function(c, W, H, p, r, tau){
     var K = DIE[p.k], k = r ? Math.min(tau / 0.85, 1) : 0;
@@ -525,25 +538,35 @@ return {
   },
   stats: function(p, r){
     return [['극판 넓이 · 간격', r.A + ' cm², ' + f(r.d, 1) + ' mm'], ['유전체', r.K.name + ' (κ = ' + f(r.K.k, 1) + ')'],
+      ['넣는 방식', MODE[r.mode], r.mode ? PAL[3] : PAL[1]],
+      ['무엇이 그대로인가', r.mode ? '전하 Q 가 그대로 — 전압이 ' + f(r.K.k, 1) + '배 내려감 (' + r.V + ' V → ' + f(r.Vn, 2) + ' V)' : '전압 V 가 그대로 — 전하가 ' + f(r.K.k, 1) + '배 늘어남', r.mode ? PAL[3] : PAL[1]],
+      ['전압', f(r.Vn, 3) + ' V'],
       ['전기 용량 C = κε₀A ÷ d', (r.c.C * 1e12).toFixed(3) + ' pF', PAL[1]], ['저장된 전하 Q = CV', (r.c.Q * 1e9).toFixed(3) + ' nC', PAL[0]],
       ['저장된 에너지 U = ½CV²', (r.c.U * 1e9).toFixed(2) + ' nJ', PAL[3]], ['극판 사이 전기장 E = V ÷ d', Math.round(r.c.E).toLocaleString() + ' V/m'],
-      ['진공일 때의 몇 배', f(r.ratio, 1) + '배']];
+      ['진공일 때와 견주면', '용량 ' + f(r.ratio, 1) + '배 · 전하 ' + f(r.qRat, 2) + '배 · 에너지 ' + f(r.uRat, 2) + '배 · 전기장 ' + f(r.eRat, 2) + '배', PAL[6]],
+      ['에너지는 어디로', r.mode ? '전하가 그대로인데 에너지가 줄어듭니다 — 유전체가 극판 사이로 <b>빨려 들어가며</b> 일을 받습니다' : '전원이 전하를 더 밀어 넣어 에너지가 늘어납니다 — 전지가 일을 해 줍니다', PAL[4]]];
   },
-  columns: ['넓이 (cm²)', '간격 (mm)', '유전체', 'κ', 'V (V)', 'C (pF)', 'Q (nC)', 'U (nJ)', 'E (V/m)'],
-  record: function(p, r){ return {A:r.A, d:r.d, kn:r.K.name, kk:r.K.k, V:r.V, C:r.c.C, Q:r.c.Q, U:r.c.U, E:r.c.E}; },
-  row: function(d){ return [d.A, f(d.d, 1), d.kn, f(d.kk, 1), d.V, (d.C * 1e12).toFixed(3), (d.Q * 1e9).toFixed(3), (d.U * 1e9).toFixed(2), Math.round(d.E).toLocaleString()]; },
+  columns: ['넓이 (cm²)', '간격 (mm)', '유전체', 'κ', '넣는 방식', '걸어 준 V', '나중 V', 'C (pF)', 'Q (nC)', 'U (nJ)', 'E (V/m)'],
+  record: function(p, r){ return {A:r.A, d:r.d, kn:r.K.name, kk:r.K.k, V:r.V, C:r.c.C, Q:r.c.Q, U:r.c.U, E:r.c.E, mode:r.mode, Vn:r.Vn, qRat:r.qRat, uRat:r.uRat}; },
+  row: function(d){ return [d.A, f(d.d, 1), d.kn, f(d.kk, 1), d.mode ? '끊고' : '연결한 채', d.V, f(d.Vn, 2), (d.C * 1e12).toFixed(3), (d.Q * 1e9).toFixed(3), (d.U * 1e9).toFixed(2), Math.round(d.E).toLocaleString()]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('유전 상수와 전기 용량', '<canvas class="chart" id="ch1" role="img" aria-label="유전 분극과 축전기 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">유전체를 넣으면 전기 용량이 왜 커질까요? 유전 분극으로 극판 사이 전기장이 어떻게 되는지와 연결해 보세요.</p>') +
       card('극판 간격·넓이와 전기 용량', '<canvas class="chart" id="ch2" role="img" aria-label="유전 분극과 축전기 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">간격을 반으로 줄이면 전기 용량은 몇 배가 되나요? 넓이를 두 배로 하면 어떻게 되나요?</p>') +
       card('전압과 저장 에너지', '<div id="ro3"></div><p class="ask">전압을 두 배로 하면 전하는 2배, 에너지는 4배가 됩니다. 그 까닭을 Q = CV와 U = ½CV²로 설명해 보세요. 카메라 플래시가 축전기를 쓰는 까닭도 생각해 보세요.</p>') + '</div>';
-    var g1 = groupBy(rec, function(d){ return d.A + '|' + d.d + '|' + d.V; }), s1 = [], r1 = [];
+    var g1 = groupBy(rec, function(d){ return d.A + '|' + d.d + '|' + d.V + '|' + d.mode; }), s1 = [], r1 = [];
     Object.keys(g1).forEach(function(k, i){ var g = g1[k]; if (distinct(g.map(function(d){ return d.kk; })) >= 2){
       s1.push({color:PAL[i % 8], pts:g.map(function(d){ return {x:d.kk, y:d.C * 1e12}; })});
       r1.push('<li>' + dot(PAL[i % 8]) + g[0].A + ' cm², ' + f(g[0].d, 1) + ' mm: 기울기 <b>' + f(fit0(g.map(function(d){ return {x:d.kk, y:d.C * 1e12}; })), 3) + ' pF</b> (κ = 1일 때의 용량)</li>'); } });
     drawScatter($('ch1'), {xLabel:'유전 상수 κ', yLabel:'전기 용량 (pF)', tightX:true, series:s1});
-    $('ro1').innerHTML = r1.length ? r1.join('') : '<li>같은 조건에서 유전체만 바꿔 2번 이상 기록하세요.</li>';
-    var g2 = groupBy(rec, function(d){ return d.A + '|' + d.kn; }), s2 = [], r2 = [];
+    $('ro1').innerHTML = (r1.length ? r1.join('') : '<li>같은 조건에서 유전체만 바꿔 2번 이상 기록하세요.</li>')
+      + (function(){ var byM = groupBy(rec.filter(function(d){ return d.kk > 1; }), function(d){ return d.mode; });
+        if (!byM[0] || !byM[1]) return '<li>같은 유전체를 <b>전원을 연결한 채</b>와 <b>전원을 끊고</b> 각각 넣어 보세요. 용량은 같은 κ배로 커지는데, 전압과 전하 가운데 무엇이 붙잡히는지가 갈립니다.</li>';
+        var a = byM[0][byM[0].length - 1], b = byM[1][byM[1].length - 1];
+        return '<li><b>연결한 채</b>: 전압 그대로 ' + a.V + ' V, 전하 ' + f(a.qRat, 2) + '배, 에너지 ' + f(a.uRat, 2) + '배 — 전지가 전하를 더 밀어 넣었습니다.</li>'
+          + '<li><b>끊고</b>: 전하 그대로(' + f(b.qRat, 2) + '배), 전압 ' + b.V + ' V → ' + f(b.Vn, 2) + ' V, 에너지 ' + f(b.uRat, 2) + '배 — 전압과 에너지가 κ배 내려갔습니다.</li>'
+          + '<li>같은 유전체를 넣어도 <b>무엇을 붙잡아 두었는지</b>에 따라 결론이 반대로 갈립니다. C = κε₀A ÷ d 만 외우면 이 차이를 놓칩니다.</li>'; })();
+    var g2 = groupBy(rec, function(d){ return d.A + '|' + d.kn + '|' + d.mode; }), s2 = [], r2 = [];
     Object.keys(g2).forEach(function(k, i){ var g = g2[k]; if (distinct(g.map(function(d){ return d.d; })) >= 2){
       s2.push({color:PAL[i % 8], pts:g.map(function(d){ return {x:1 / d.d, y:d.C * 1e12}; })});
       r2.push('<li>' + dot(PAL[i % 8]) + g[0].A + ' cm², ' + g[0].kn + ': 1/d에 비례하는지 확인</li>'); } });
@@ -552,7 +575,7 @@ return {
     Object.keys(byA).forEach(function(k){ var g = byA[k]; if (distinct(g.map(function(d){ return d.A; })) >= 2)
       r2.push('<li>간격 ' + f(g[0].d, 1) + ' mm, ' + g[0].kn + ': 넓이 ' + g.map(function(d){ return d.A; }).join(', ') + ' cm² → 용량 ' + g.map(function(d){ return (d.C * 1e12).toFixed(2); }).join(', ') + ' pF</li>'); });
     $('ro2').innerHTML = r2.length ? r2.join('') : '<li>간격이나 넓이만 바꿔 2번 이상 기록하세요.</li>';
-    var g3 = groupBy(rec, function(d){ return d.A + '|' + d.d + '|' + d.kn; }), ks = Object.keys(g3).filter(function(k){ return distinct(g3[k].map(function(d){ return d.V; })) >= 2; });
+    var g3 = groupBy(rec, function(d){ return d.A + '|' + d.d + '|' + d.kn + '|' + d.mode; }), ks = Object.keys(g3).filter(function(k){ return distinct(g3[k].map(function(d){ return d.V; })) >= 2; });
     $('ro3').innerHTML = ks.length ? tableHTML(['조건', 'V (V)', 'Q (nC)', 'U (nJ)'], [].concat.apply([], ks.map(function(k){
       return g3[k].slice().sort(function(a, b){ return a.V - b.V; }).map(function(d){ return [d.A + ' cm², ' + f(d.d, 1) + ' mm, ' + d.kn, d.V, (d.Q * 1e9).toFixed(2), (d.U * 1e9).toFixed(2)]; }); })))
       : '<p class="msg">같은 축전기에서 전압만 바꿔 2번 이상 기록하세요.</p>';
@@ -564,7 +587,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>댓글이 많으면 모두의 생각인가</h1>
-    <p>학교 누리집 게시판의 ‘체육 대회 종목 정하기’ 글에 댓글 120개가 달렸고, 그중 100개가 ‘줄다리기 빼자’입니다. 같은 자료를 <b>댓글 수로 볼지, 쓴 사람별로 셀지, 같은 학생들의 설문과 견줄지</b> 바꿔 가며 확인하세요. ‘빼자’ 댓글 100개를 몇 명이 썼을지 먼저 예상해 봐요.<br><span style="font-size:.9em;color:#a86825">※ 게시판과 설문은 제로 랩 안의 가상 자료입니다. ‘빼자’를 쓴 6명 가운데 한 사람이 최대 31개를 쓴 것은 웹툰 자료이고, 나머지 다섯 명의 개수(18·15·14·12·10)는 합이 100이 되도록 정한 가상 값이에요.</span></p>
+    <p>학교 누리집 게시판의 ‘체육 대회 종목 정하기’ 글에 댓글 120개가 달렸고, 그중 100개가 ‘줄다리기 빼자’입니다. 같은 자료를 <b>댓글 수로 볼지, 쓴 사람별로 셀지, 설문과 견줄지</b> 바꾸고, 게시판 규칙인 <b>한 사람이 쓸 수 있는 댓글 수</b>와 <b>‘빼자’를 쓴 학생 수</b>도 직접 바꿔 보세요. 몇 명이 몇 개씩 쓰면 여론이 뒤집혀 보이는지, 한 사람당 댓글 수를 제한하면 어떻게 되는지 스스로 만들어 봅니다.<br><span style="font-size:.9em;color:#a86825">※ 게시판과 설문은 <b>교육용 모형값</b>이에요. ‘빼자’를 쓴 학생들의 개수는 31·18·15·14·12·10개(합 100, 31개는 웹툰 자료)에서 시작하고, 나머지 아홉 명은 4·3·3·2·2·2·2·1·1개(합 20)로 둡니다. 한 사람당 한도를 낮추면 한도를 넘는 개수가 깎여 비율이 다시 계산돼요. 설문(유지 62%·빼자 24%·상관없음 14%)은 견주는 기준으로 그대로 둡니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -471,16 +473,34 @@ var LAB = (function anonymous(
 return (function(){
       var VW = ['댓글 수로 보기 (120개)', '쓴 사람별로 세기 (600명 중)', '같은 학생 설문 보기 (480명 응답)'];
       var WR = [31, 18, 15, 14, 12, 10];
+      var OTH = [4, 3, 3, 2, 2, 2, 2, 1, 1];   /* ‘빼자’가 아닌 댓글 20개를 쓴 아홉 명 — 교육용 모형값 */
+      /* 한 사람당 한도(cap)와 ‘빼자’를 쓴 학생 수(nw)로 댓글 수와 비율을 다시 센다 */
+      function CNT(p){
+        var cap = p.cap, nw = p.nw, bae = [], i;
+        for (i = 0; i < nw; i++) bae.push(Math.min(i < WR.length ? WR[i] : 10, cap));
+        var oth = OTH.map(function(w){ return Math.min(w, cap); });
+        var sum = function(a){ return a.reduce(function(t, x){ return t + x; }, 0); };
+        var sb = sum(bae), so = sum(oth), tot = sb + so;
+        return {cap:cap, nw:nw, bae:bae, oth:oth, sb:sb, so:so, tot:tot,
+          pct:tot ? sb / tot * 100 : 0, writers:nw + OTH.length,
+          max:Math.max.apply(null, bae), quiet:600 - (nw + OTH.length)};
+      }
       var SV = [['유지', 62, PAL[1]], ['빼자', 24, PAL[6]], ['상관없음', 14, '#8C99A8']];
       return {
         sceneHeight: 470,
-        idle: '보기와 예상을 고른 뒤 <b>이 보기로 세어 보기</b>를 누르세요.',
-        shortHint: '세 가지 보기를 모두 해 보세요. 댓글로 본 ‘빼자’ 비율과 설문의 ‘빼자’ 비율은 얼마나 다른가요?',
+        idle: '보기와 게시판 규칙(한 사람당 댓글 수·쓴 학생 수), 예상을 고른 뒤 <b>이 보기로 세어 보기</b>를 누르세요.',
+        shortHint: '한 사람당 댓글 수를 31개에서 3개까지 내려 보세요. 댓글로 본 ‘빼자’ 비율이 설문의 24%에 가까워지는 지점은 어디인가요?',
         params: [
           {key:'v', type:'seg', label:'보기', cols:3, value:0, options:VW},
-          {key:'e', type:'range', label:'나의 예상 — ‘빼자’ 댓글 100개를 쓴 학생 수', min:1, max:100, step:1, value:50, fmt:function(v){ return v + '명'; }}
+          {key:'cap', type:'range', label:'게시판 규칙 — 한 사람이 쓸 수 있는 댓글 수', min:1, max:31, step:1, value:31, fmt:function(v){ return v + '개까지'; }},
+          {key:'nw', type:'range', label:'‘빼자’를 쓴 학생 수', min:1, max:20, step:1, value:6, fmt:function(v){ return v + '명'; }},
+          {key:'e', type:'range', label:'나의 예상 — ‘빼자’ 댓글을 쓴 학생 수', min:1, max:100, step:1, value:50, fmt:function(v){ return v + '명'; }}
         ],
-        compute: function(p){ return {err:Math.abs(p.e - 6), close:Math.abs(p.e - 6) <= 3}; },
+        compute: function(p){
+          var cm = CNT(p);
+          return {cm:cm, err:Math.abs(p.e - cm.nw), close:Math.abs(p.e - cm.nw) <= 3,
+            flip:cm.pct >= 50, gap:cm.pct - 24};
+        },
         draw: function(c, W, H, p, r, tau){
           var sm = W < 520;
           tx(c, '게시판: 체육 대회 종목 정하기', 20, 26, {bold:true, size:sm ? 15 : 17});
@@ -488,62 +508,81 @@ return (function(){
           if (!r){ var es = '나의 예상: ‘빼자’ 댓글 100개를 ' + p.e + '명이 썼다', eo = {size:16, color:'#4A5868'};
             if (lines(c, es, W - 32, eo).length > 1) wrapT(c, es, 20, H - 40, W - 32, 22, eo); else tx(c, es, 20, H - 18, eo);   /* 좁은 화면: 두 줄 */
             return; }
-          var a = ph(tau, 0, 0.8), y = 70;
+          var a = ph(tau, 0, 0.8), y = 70, cm = r.cm;
           if (p.v === 0){
-            var per = Math.max(10, Math.floor((W - 40) / 15)), n = Math.round(120 * a);
-            for (var i = 0; i < n; i++){ c.fillStyle = i < 100 ? PAL[6] : '#CBD3DD'; c.fillRect(20 + (i % per) * 15, y + Math.floor(i / per) * 15, 12, 12); }
-            var y1 = y + Math.ceil(120 / per) * 15 + 26;
-            y1 += 22 * (wrapT(c, '주황 ‘빼자’ 100개 · 회색 나머지 20개 → 83%', 20, y1, W - 40, 22, {bold:true, size:15, color:PAL[6]}) - 1);
+            var per = Math.max(10, Math.floor((W - 40) / 15)), n = Math.round(cm.tot * a);
+            for (var i = 0; i < n; i++){ c.fillStyle = i < cm.sb ? PAL[6] : '#CBD3DD'; c.fillRect(20 + (i % per) * 15, y + Math.floor(i / per) * 15, 12, 12); }
+            var y1 = y + Math.ceil(cm.tot / per) * 15 + 26;
+            y1 += 22 * (wrapT(c, '주황 ‘빼자’ ' + cm.sb + '개 · 회색 나머지 ' + cm.so + '개 → ' + Math.round(cm.pct) + '%', 20, y1, W - 40, 22, {bold:true, size:15, color:PAL[6]}) - 1);
             if (tau > 0.8){ c.globalAlpha = ph(tau, 0.8, 1);
-              tx(c, '공감 순 맨 위 댓글 5개: 모두 ‘빼자’', 20, y1 + 28, {size:15, color:'#26313D'});
-              var cg = sm ? Math.min(58, (W - 20 - 12 - 48) / 4) : 70;   /* 좁은 화면: 다섯 번째 칩이 잘리지 않게 */
-              for (var t = 0; t < 5; t++) chip(c, (sm && cg < 58 ? 12 : 20) + t * cg, y1 + 40, '빼자', PAL[6], '#fff', {size:sm && cg < 58 ? 12 : 13});
+              if (cm.pct >= 50){
+                tx(c, '공감 순 맨 위 댓글 5개: 모두 ‘빼자’', 20, y1 + 28, {size:15, color:'#26313D'});
+                var cg = sm ? Math.min(58, (W - 20 - 12 - 48) / 4) : 70;   /* 좁은 화면: 다섯 번째 칩이 잘리지 않게 */
+                for (var t = 0; t < 5; t++) chip(c, (sm && cg < 58 ? 12 : 20) + t * cg, y1 + 40, '빼자', PAL[6], '#fff', {size:sm && cg < 58 ? 12 : 13});
+              } else {
+                wrapT(c, '맨 위 5개에도 ‘빼자’가 다수로 몰리지 않아요.', 20, y1 + 28, W - 40, 22, {size:15, color:PAL[1]});
+              }
               c.globalAlpha = 1; }
           } else if (p.v === 1){
             var cols = Math.max(20, Math.min(40, Math.floor((W - 40) / 8))), dsz = Math.min(8, (W - 40) / cols), shown = Math.round(600 * a);
-            for (var j = 0; j < shown; j++){ c.fillStyle = j < 6 ? PAL[6] : j < 15 ? PAL[0] : '#DDE3EA'; var s = j < 15 ? dsz : dsz - 2; c.fillRect(20 + (j % cols) * dsz, y + Math.floor(j / cols) * dsz, s - 1, s - 1); }
+            for (var j = 0; j < shown; j++){ c.fillStyle = j < cm.nw ? PAL[6] : j < cm.writers ? PAL[0] : '#DDE3EA'; var s = j < cm.writers ? dsz : dsz - 2; c.fillRect(20 + (j % cols) * dsz, y + Math.floor(j / cols) * dsz, s - 1, s - 1); }
             var y2 = y + Math.ceil(600 / cols) * dsz + 22;
-            y2 += 20 * (wrapT(c, '주황 6명 = ‘빼자’ 100개 · 파랑 9명 = 나머지 · 회색 585명 = 쓰지 않음', 20, y2, W - 40, 20, {size:14, bold:true, color:'#26313D'}) - 1);
-            if (tau > 0.6){ var b = ph(tau, 0.6, 1), bw = (W - 40) / 6;
-              WR.forEach(function(w, i){ var hh = 70 * w / 31 * b; c.fillStyle = PAL[6]; c.fillRect(20 + i * bw + 4, y2 + 96 - hh, bw - 8, hh); tx(c, w + '개', 20 + i * bw + bw / 2, y2 + 112, {size:13, align:'center', bold:i === 0}); });
-              tx(c, '‘빼자’를 쓴 6명이 쓴 개수 (31개만 웹툰 값)', 20, y2 + 134, {size:13, color:'#4A5868'}); }
+            y2 += 20 * (wrapT(c, '주황 ' + cm.nw + '명 = ‘빼자’ ' + cm.sb + '개 · 파랑 ' + OTH.length + '명 = 나머지 · 회색 ' + cm.quiet + '명 = 쓰지 않음', 20, y2, W - 40, 20, {size:14, bold:true, color:'#26313D'}) - 1);
+            if (tau > 0.6){ var b = ph(tau, 0.6, 1), bw = (W - 40) / Math.max(1, cm.bae.length);
+              cm.bae.forEach(function(w, i){ var hh = 70 * w / Math.max(1, cm.max) * b; c.fillStyle = PAL[6]; c.fillRect(20 + i * bw + 4, y2 + 96 - hh, Math.max(2, bw - 8), hh); if (bw > 26) tx(c, w + '개', 20 + i * bw + bw / 2, y2 + 112, {size:13, align:'center', bold:i === 0}); });
+              tx(c, '‘빼자’를 쓴 ' + cm.nw + '명이 쓴 개수 (한 사람 ' + cm.cap + '개까지)', 20, y2 + 134, {size:13, color:'#4A5868'}); }
           } else {
             var bw2 = W - 40, x = 20;
             SV.forEach(function(o){ var w = bw2 * o[1] / 100 * a; c.fillStyle = o[2]; c.fillRect(x, y + 10, w, 40); if (w > 50) tx(c, o[0] + ' ' + o[1] + '%', x + 6, y + 36, {size:14, bold:true, color:'#fff'}); x += w; });
             tx(c, '같은 600명 중 480명 응답', 20, y + 76, {size:14, color:'#4A5868'});
             if (tau > 0.8){ c.globalAlpha = ph(tau, 0.8, 1);
-              wrapT(c, '댓글에서는 ‘빼자’가 83%였지만, 설문에서는 24%예요. 유지가 62%로 훨씬 많아요.', 20, y + 110, W - 40, 22, {bold:true, size:15, color:PAL[1]});
+              wrapT(c, '댓글에서는 ‘빼자’가 ' + Math.round(cm.pct) + '%였지만, 설문에서는 24%예요. 유지가 62%로 훨씬 많아요.', 20, y + 110, W - 40, 22, {bold:true, size:15, color:PAL[1]});
               c.globalAlpha = 1; }
           }
-          if (tau > 0.95) tx(c, '내 예상 ' + p.e + '명 → 실제 6명', W - 20, H - 14, {size:14, align:'right', bold:true, color:r.close ? PAL[1] : PAL[6]});
+          if (tau > 0.95) tx(c, '내 예상 ' + p.e + '명 → 실제 ' + cm.nw + '명', W - 20, H - 14, {size:14, align:'right', bold:true, color:r.close ? PAL[1] : PAL[6]});
         },
         stats: function(p, r){
-          var out = [['보기', VW[p.v]]];
-          if (p.v === 0) out.push(['‘빼자’ 댓글', '100 / 120개 (약 83%)', PAL[6]], ['공감 순 맨 위 5개', '모두 ‘빼자’']);
-          if (p.v === 1) out.push(['댓글을 쓴 학생', '15 / 600명'], ['‘빼자’ 100개를 쓴 학생', '6명 (600명 중 1%) · 한 사람이 최대 31개', PAL[6]]);
+          var cm = r.cm;
+          var judge = r.flip
+            ? '댓글만 보면 ‘빼자’가 과반(' + Math.round(cm.pct) + '%)이라 여론이 뒤집혀 보여요 — 설문은 24%예요'
+            : '댓글로도 ‘빼자’가 과반이 아니라(' + Math.round(cm.pct) + '%) 여론이 뒤집혀 보이지 않아요';
+          var out = [['보기', VW[p.v]],
+            ['게시판 규칙', '한 사람이 ' + cm.cap + '개까지 · ‘빼자’를 쓴 학생 ' + cm.nw + '명', PAL[3]],
+            ['‘빼자’ 댓글', cm.sb + ' / ' + cm.tot + '개 (약 ' + Math.round(cm.pct) + '%)', PAL[6]]];
+          if (p.v === 1) out.push(['댓글을 쓴 학생', cm.writers + ' / 600명'],
+            ['‘빼자’를 쓴 학생', cm.nw + '명 (600명 중 ' + f(cm.nw / 6, 1) + '%) · 한 사람이 최대 ' + cm.max + '개', PAL[6]]);
           if (p.v === 2) out.push(['설문 (480명 응답)', '유지 62% · 빼자 24% · 상관없음 14%', PAL[1]]);
-          out.push(['나의 예상', p.e + '명 (실제 6명, 차이 ' + r.err + '명)', r.close ? PAL[1] : PAL[6]]);
+          out.push(['설문보다 부풀려 보인 정도', (r.gap >= 0 ? '+' : '') + f(r.gap, 0) + '%p', Math.abs(r.gap) <= 10 ? PAL[1] : PAL[4]],
+            ['판정', judge, r.flip ? PAL[4] : PAL[1]],
+            ['나의 예상', p.e + '명 (실제 ' + cm.nw + '명, 차이 ' + r.err + '명)', r.close ? PAL[1] : PAL[6]]);
           return out;
         },
-        columns: ['보기', '‘빼자’로 보이는 정도', '내 예상'],
-        record: function(p, r){ return {v:p.v, e:p.e}; },
-        row: function(d){ return [['댓글 수', '쓴 사람', '설문'][d.v], ['댓글 83%', '본 학생 중 1%', '응답자 24%'][d.v], d.e + '명']; },
+        columns: ['보기', '한도', '쓴 학생', '‘빼자’ 비율', '설문과 차이'],
+        record: function(p, r){ return {v:p.v, e:p.e, cap:r.cm.cap, nw:r.cm.nw, sb:r.cm.sb, tot:r.cm.tot, pct:r.cm.pct, gap:r.gap, flip:r.flip}; },
+        row: function(d){ return [['댓글 수', '쓴 사람', '설문'][d.v], d.cap + '개', d.nw + '명', Math.round(d.pct) + '%', (d.gap >= 0 ? '+' : '') + f(d.gap, 0) + '%p']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('같은 게시판, 세 가지 숫자 — ‘빼자’', '<div id="mk4_8a"></div><p class="ask">댓글 100개를 6명이 썼고 설문에서는 유지가 62%였어요. 댓글 수가 ‘생각을 가진 사람 수’가 아니라 ‘참여한 횟수’에 가깝다는 말을 이 표로 설명해 보세요.</p>') +
+            card('내가 만든 게시판들 — ‘빼자’ 비율', '<div id="mk4_8a"></div><p class="ask">한 사람당 댓글 수를 몇 개로 내렸을 때 ‘빼자’가 과반에서 내려왔나요? 댓글 수가 ‘생각을 가진 사람 수’가 아니라 ‘참여한 횟수’에 가깝다는 말을 그 숫자로 설명해 보세요.</p>') +
             card('세 물음으로 다시 읽기', '<div id="mk4_8b"></div><p class="ask">과제: 관심 있는 게시글이나 영상 하나를 골라 댓글 30개를 살펴보세요. 쓴 사람 수, 한 사람이 쓴 가장 많은 댓글 수, 맨 위 댓글이 정해진 방식을 적고, ‘이 댓글들이 대표하는 사람은 누구인가’를 한 문단으로 써 보세요.</p>') + '</div>';
-          var seen = function(v){ return rec.some(function(d){ return d.v === v; }); };
-          $('mk4_8a').innerHTML = hbars([
-            {label:'댓글 120개 중 ‘빼자’', v:83.3, color:seen(0) ? PAL[6] : '#CBD3DD', text:'100개 (약 83%)'},
-            {label:'글을 본 600명 중 ‘빼자’ 댓글을 쓴 학생', v:1, color:seen(1) ? PAL[6] : '#CBD3DD', text:'6명 (1%)'},
-            {label:'설문 480명 응답 중 ‘빼자’', v:24, color:seen(2) ? PAL[6] : '#CBD3DD', text:'24%'},
-            {label:'설문 480명 응답 중 ‘유지’', v:62, color:seen(2) ? PAL[1] : '#CBD3DD', text:'62%'}], 100);
+          var items = rec.map(function(d){
+            return {label:'한 사람 ' + d.cap + '개까지 · ' + d.nw + '명', v:d.pct,
+              color:d.flip ? PAL[6] : PAL[1], text:d.sb + '/' + d.tot + '개 (' + Math.round(d.pct) + '%)'};
+          });
+          items.push({label:'설문 480명 응답 중 ‘빼자’', v:24, color:'#8C99A8', text:'24%'});
+          items.push({label:'설문 480명 응답 중 ‘유지’', v:62, color:PAL[1], text:'62%'});
+          var fl = rec.filter(function(d){ return d.flip; }), nf = rec.filter(function(d){ return !d.flip; });
+          var msg = fl.length && nf.length
+            ? '한 사람당 ' + Math.max.apply(null, nf.map(function(d){ return d.cap; })) + '개까지로 내렸을 때 ‘빼자’가 과반에서 내려왔어요(가장 낮은 과반 기록은 한 사람당 ' + Math.min.apply(null, fl.map(function(d){ return d.cap; })) + '개). 여론이 뒤집혀 보이게 한 것은 사람 수가 아니라 <b>한 사람이 몇 개 썼는지</b>였어요.'
+            : fl.length
+              ? '아직 과반에서 내려온 기록이 없어요. 한 사람당 댓글 수를 더 낮춰 보세요.'
+              : '아직 ‘빼자’가 과반으로 보인 기록이 없어요. 한 사람당 댓글 수를 올려 보세요.';
           var es = rec.map(function(d){ return d.e; });
-          $('mk4_8b').innerHTML = tableHTML(['물음', '이 게시판에서'], [
-            ['누가, 몇 명이, 몇 번 참여했나?', '15명이 120개 · ‘빼자’는 6명이 100개 (한 사람 최대 31개)'],
-            ['무엇이 위에 보이도록 정해졌나?', '공감 순 — 맨 위 5개 모두 ‘빼자’'],
-            ['말하지 않은 사람은 누구인가?', '글을 본 600명 중 585명 — 설문에서는 유지 62%']]) +
-            '<p class="msg">나의 예상(쓴 학생 수) 평균: ' + f(mean(es), 0) + '명 → 실제 6명. 댓글은 수가 아니라 내용(예: ‘작년에 손바닥이 쓸려서 다쳤다’)으로 읽어요.</p>';
+          $('mk4_8a').innerHTML = hbars(items, 100) + '<p class="msg">' + msg + '</p>';
+          $('mk4_8b').innerHTML = tableHTML(['물음', '내가 마지막으로 만든 게시판에서'], [
+            ['누가, 몇 명이, 몇 번 참여했나?', rec[rec.length - 1].nw + '명이 ‘빼자’ ' + rec[rec.length - 1].sb + '개 (한 사람 ' + rec[rec.length - 1].cap + '개까지) · 모두 ' + rec[rec.length - 1].tot + '개'],
+            ['무엇이 위에 보이도록 정해졌나?', '공감 순 — 많이 쓴 쪽이 위로 몰려요'],
+            ['말하지 않은 사람은 누구인가?', '글을 본 600명 가운데 대부분 — 설문에서는 유지 62%']]) +
+            '<p class="msg">나의 예상(쓴 학생 수) 평균: ' + f(mean(es), 0) + '명. 댓글은 수가 아니라 내용(예: ‘작년에 손바닥이 쓸려서 다쳤다’)으로 읽어요.</p>';
         }
       };
     })();
@@ -553,7 +592,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

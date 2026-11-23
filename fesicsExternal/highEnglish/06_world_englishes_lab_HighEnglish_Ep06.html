@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,10 +440,19 @@ var LAB = (function(){
         {n:'호주', lang:'en-AU', it:['대체로 영국식 (colour)', 'arvo = 오후', '모음 소리 변화, 모음 뒤 r 발음 안 함'], say:'See you this arvo.'}
       ];
       var IT = ['철자', '어휘', '발음 특징'];
+      /* 거꾸로 맞히기 — 예문만 보고 어느 변이가 쓴 말인지 찾아낸다 */
       function say(t, lang){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return 0; SS.cancel();
           var u = new U(t); u.lang = lang; u.rate = 0.95; u.volume = 0.8; var has = 1;
           try { var vs = SS.getVoices ? SS.getVoices() : []; var hit = []; for (var i = 0; vs && i < vs.length; i++){ if (String(vs[i].lang).replace('_', '-') === lang) hit.push(vs[i]); } if (hit.length) { u.voice = hit[0]; has = 2; } } catch(e2){}
           SS.speak(u); return has; } catch(e){ return 0; } }
+      /* 좁은 화면에서 칸 높이를 글 줄 수에 맞추려고 줄 수를 먼저 센다 */
+      function lineCount(c, s, maxW, o){
+        o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+        var ws = String(s).split(' '), line = '', k = 0;
+        for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i];
+          if (c.measureText(t).width > maxW && line){ k++; line = ws[i]; } else line = t; }
+        if (line) k++; return k;
+      }
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
         var ws = String(s).split(' '), line = '', n = 0;
@@ -450,46 +461,62 @@ var LAB = (function(){
         if (line){ txt(c, line, x, y + n * lh, o); n++; } return n;
       }
       return {
-        sceneHeight: function(w){ return w < 560 ? 520 : 400; },
+        sceneHeight: function(w){ return w < 560 ? 720 : 400; },
         idle: '변이와 비교 항목을 고른 뒤 <b>비교하기</b>를 누르세요.',
         shortHint: '세 항목(철자·어휘·발음)을 모두 비교하고, 여러 변이를 골라 예문을 들어 보세요.',
         params: [
           {key:'v', type:'seg', label:'영어 변이', cols:5, value:1, options:V.map(function(x){ return x.n; })},
           {key:'it', type:'seg', label:'비교 항목', cols:3, value:1, options:IT},
+          {key:'cl', type:'seg', label:'거꾸로 맞히기 — 이 말을 누가 썼을까', cols:1, value:2, options:V.map(function(x){ return '「' + x.say + '」'; })},
+          {key:'qz', type:'seg', label:'내 짐작 — 어느 변이?', cols:5, value:0, options:V.map(function(x){ return x.n; })},
           {key:'snd', type:'seg', label:'예문 소리', cols:2, value:0, options:['소리 없이', '그 지역 억양으로 듣기'], note:'소리는 버튼을 누를 때만 재생됩니다.'}
         ],
         compute: function(p){
           var v = V[p.v], played = p.snd === 1 ? say(v.say, v.lang) : 0;
           var others = V.filter(function(x, i){ return i !== p.v; }).map(function(x){ return x.n + ': ' + x.it[p.it]; }).join(' / ');
-          return {v:v, feat:v.it[p.it], others:others, played:played};
+          var ans = p.cl, qok = p.qz === ans, cv = V[ans];
+          var clue = cv.it[1] !== '대체로 영국식 (colour)' ? cv.it[1] : cv.it[0];
+          return {v:v, feat:v.it[p.it], others:others, played:played,
+            qsay:cv.say, qans:cv.n, qok:qok, qguess:V[p.qz].n,
+            qwhy:qok ? '맞았어요 — 단서는 「' + clue + '」 입니다'
+              : '아니에요 — 「' + cv.say + '」 는 ' + cv.n + ' 영어예요. 단서는 「' + clue + '」 입니다'};
         },
         draw: function(c, W, H, p, r, tau){
-          var narrow = W < 560, cw = narrow ? W - 40 : (W - 40) / 5 - 8, ch = narrow ? 70 : 220;
+          var narrow = W < 560, cw = narrow ? W - 40 : (W - 40) / 5 - 8, ch;
+          if (narrow){ var ml = 1;
+            V.forEach(function(v){ ml = Math.max(ml, lineCount(c, v.it[p.it], cw - 20)); });
+            ch = Math.max(70, 30 + 22 * ml + 8);
+          } else ch = 220;
           V.forEach(function(v, i){
             var x = narrow ? 20 : 20 + i * (cw + 8), y = narrow ? 20 + i * (ch + 8) : 30, sel = i === p.v;
             var k = r ? Math.max(0, Math.min((tau * 1.4 - i * 0.12) / 0.3, 1)) : 0;
             c.fillStyle = sel ? '#E3ECF8' : '#F7F9FC'; c.fillRect(x, y, cw, ch); c.strokeStyle = sel ? PAL[0] : '#D5DDE6'; c.lineWidth = sel ? 3 : 1.5; c.strokeRect(x, y, cw, ch);
-            txt(c, v.n, x + 10, y + 26, {bold:true, color:sel ? PAL[0] : '#1E2833'});
-            c.globalAlpha = k; wrap(c, v.it[p.it], narrow ? x + 100 : x + 10, narrow ? y + 26 : y + 60, narrow ? cw - 110 : cw - 16, 22, {color:'#4A5868'}); c.globalAlpha = 1;
+            txt(c, v.n, x + 10, y + 24, {bold:true, color:sel ? PAL[0] : '#1E2833'});
+            c.globalAlpha = k; wrap(c, v.it[p.it], x + 10, narrow ? y + 48 : y + 60, narrow ? cw - 20 : cw - 16, 22, {color:'#4A5868'}); c.globalAlpha = 1;
           });
-          var yb = narrow ? H - 60 : 290;
+          var yb = narrow ? 20 + 5 * (ch + 8) + 26 : 290;
           txt(c, '비교 항목: ' + IT[p.it], 20, yb, {bold:true});
           if (r && tau >= 1) wrap(c, '예문: ' + r.v.say, 20, yb + 30, W - 40, 22, {color:PAL[3]});
         },
         stats: function(p, r){
           return [['변이 · 항목', r.v.n + ' 영어 · ' + IT[p.it]], ['특징', r.feat, PAL[0]], ['다른 변이', r.others], ['예문', r.v.say + ' (' + r.v.lang + ')', PAL[3]],
+            ['거꾸로 맞히기', '「' + r.qsay + '」 → 내 짐작 ' + r.qguess, PAL[6]],
+            ['맞혔나', r.qwhy, r.qok ? PAL[1] : PAL[4]],
             ['소리', p.snd === 1 ? (r.played === 2 ? '이 지역 음성으로 재생했어요' : r.played === 1 ? '이 지역 음성이 없어 기본 영어 음성으로 재생했어요' : '이 기기에서는 음성을 쓸 수 없어요') : '소리 없이']];
         },
-        columns: ['변이', '항목', '특징'],
-        record: function(p, r){ return {v:p.v, it:p.it}; },
-        row: function(d){ return [V[d.v].n, IT[d.it], V[d.v].it[d.it]]; },
+        columns: ['변이', '항목', '특징', '거꾸로 맞히기'],
+        record: function(p, r){ return {v:p.v, it:p.it, cl:p.cl, qz:p.qz, qok:r.qok}; },
+        row: function(d){ return [V[d.v].n, IT[d.it], V[d.v].it[d.it],
+          d.cl == null ? '—' : (V[d.cl].n + ' / 짐작 ' + V[d.qz].n + (d.qok ? ' ○' : ' ✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 채운 세계 영어 비교표', '<div id="we1"></div><p class="ask">철자에서 "영국식"을 따르는 변이가 몇 개였나요? prepone, kiasu, arvo처럼 그 지역에서 새로 생긴 말은 어떤 필요를 채웠을까요?</p>') +
-            card('영어 사용자 구성 (대략)', '<div id="we2"></div><p class="ask">과제: 서로 다른 나라의 영어 연설이나 인터뷰 세 편을 듣고 발음·어휘·표현의 차이를 표로 정리한 뒤, 가장 알아듣기 쉬웠던 화자의 특징을 분석해 보세요.</p>') + '</div>';
+            card('거꾸로 맞히기 성적과 영어 사용자 구성', '<div id="we2"></div><p class="ask">과제: 서로 다른 나라의 영어 연설이나 인터뷰 세 편을 듣고 발음·어휘·표현의 차이를 표로 정리한 뒤, 가장 알아듣기 쉬웠던 화자의 특징을 분석해 보세요.</p>') + '</div>';
           var rows = V.map(function(v, vi){ return [v.n].concat(IT.map(function(t, ti){ return rec.some(function(d){ return d.v === vi && d.it === ti; }) ? v.it[ti] : '·'; })); });
           $('we1').innerHTML = tableHTML(['변이'].concat(IT), rows) + '<p class="note">· = 아직 비교하지 않은 칸</p>';
-          $('we2').innerHTML = hbars([{label:'모국어 화자', v:25, color:PAL[0], text:'약 4분의 1'}, {label:'제2언어·외국어 화자', v:75, color:PAL[1], text:'약 4분의 3'}], 100) + '<p class="note">추정 방법·자료에 따라 달라지는 대략값입니다. 요점은 "원어민이 소수"라는 점이에요.</p>';
+          var qr = rec.filter(function(d){ return d.cl != null; }), qh = qr.filter(function(d){ return d.qok; }).length;
+          $('we2').innerHTML = '<p class="msg">거꾸로 맞히기: ' + qh + ' / ' + qr.length + ' 맞힘</p>' +
+            hbars([{label:'모국어 화자', v:25, color:PAL[0], text:'약 4분의 1'}, {label:'제2언어·외국어 화자', v:75, color:PAL[1], text:'약 4분의 3'}], 100) + '<p class="note">추정 방법·자료에 따라 달라지는 대략값입니다. 요점은 "원어민이 소수"라는 점이에요.</p>';
         }
       };
     })();
@@ -498,7 +525,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

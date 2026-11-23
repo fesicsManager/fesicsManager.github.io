@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,6 +438,12 @@ var LAB = (function(){
         {w:['아버지가', '방에', '들어가신다.'], en:false}
       ];
       var SP = ['띄어 쓴 카드', '붙여 쓴 카드'];
+      /* 빈칸을 몇 군데 넣을지 직접 정하게 했다. 빈칸 0개가 예전 기본값(붙여 쓴 카드)이고,
+         빈칸을 모두 넣으면 띄어 쓴 카드가 된다. 읽는 시간은 교육용 모형값. */
+      function textG(sn, g){ var out = ''; sn.w.forEach(function(w, i){ out += w + (i < sn.w.length - 1 && i < g ? ' ' : ''); }); return out; }
+      function lettersOf(sn){ return sn.w.join('').replace(/[^A-Za-z가-힣]/g, '').length; }
+      function secOf(sn, g){ var mx = sn.w.length - 1; return 10 + 15 * (1 - (mx ? g / mx : 1)); }
+      function missOf(sn, g){ var mx = sn.w.length - 1; return Math.round(3 * (1 - (mx ? g / mx : 1))); }
       function say(t, en){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = en ? 'en-US' : 'ko-KR'; u.rate = 0.85; u.volume = 0.2; SS.speak(u); return true; } catch(e){ return false; } }
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function text(sn, j){ return j === 0 ? sn.w.join(' ') : sn.w.join(''); }
@@ -445,65 +453,80 @@ var LAB = (function(){
         shortHint: '같은 문장을 띄어 쓴 카드와 붙여 쓴 카드로 한 번씩 읽어 보세요. 우리말 예도 꼭 해 보세요.',
         params: [
           {key:'n', type:'seg', label:'문장', cols:3, value:0, options:SN.map(function(x){ return x.w.join(' '); })},
-          {key:'j', type:'seg', label:'카드 모양', cols:2, value:1, options:SP},
+          {key:'g', type:'range', label:'빈칸을 몇 군데 넣을까', min:0, max:3, step:1, value:0, fmt:function(v){ return v + '군데'; }},
           {key:'s', type:'seg', label:'소리 (기기가 카드 그대로 읽어요)', cols:2, value:0, options:['🔊 소리 켜기', '🔇 소리 끄기']}
         ],
         compute: function(p){
-          var sn = SN[p.n], t = text(sn, p.j), letters = sn.w.join('').replace(/[^A-Za-z가-힣]/g, '').length;
-          var look = p.j === 0 ? sn.w.length - 1 : letters - 1;
-          var ambig = !sn.en && p.j === 1;
+          var sn = SN[p.n], mx = sn.w.length - 1, g = Math.min(p.g, mx);
+          var t = textG(sn, g), letters = lettersOf(sn);
+          var look = Math.max(0, letters - 1 - g);
+          var ambig = !sn.en && g === 0;
           var played = p.s === 0 ? say(t, sn.en) : false;
-          return {sn:sn, t:t, look:look, words:sn.w.length, ambig:ambig, played:played};
+          return {sn:sn, t:t, g:g, mx:mx, look:look, words:sn.w.length, letters:letters,
+            sec:secOf(sn, g), miss:missOf(sn, g), full:g >= mx, ambig:ambig, played:played};
         },
         draw: function(c, W, H, p, r, tau){
-          var sn = SN[p.n], t = text(sn, p.j), sz = W < 500 ? 26 : 38;
+          var sn = SN[p.n], gg = r ? r.g : Math.min(p.g, sn.w.length - 1), t = textG(sn, gg), sz = W < 500 ? 26 : 38;
           c.fillStyle = '#FFFDF4'; c.fillRect(16, 20, W - 32, 80); c.strokeStyle = '#E5C77A'; c.lineWidth = 2; c.strokeRect(16, 20, W - 32, 80);
           c.font = '700 ' + sz + 'px ' + FONT; var tw = c.measureText(t).width, x0 = Math.max(24, W / 2 - tw / 2);
           if (r){
-            var stops = [], x = x0;
-            if (p.j === 0){ sn.w.forEach(function(w, i){ var ww = c.measureText(w).width; if (i < sn.w.length - 1) stops.push(x + ww + c.measureText(' ').width / 2); x += ww + c.measureText(' ').width; }); }
-            else { var chars = t.split(''); chars.forEach(function(ch, i){ var cw = c.measureText(ch).width; if (i < chars.length - 1 && /[A-Za-z가-힣]/.test(ch)) stops.push(x + cw); x += cw; }); }
+            var stops = [], x = x0, chars = t.split('');
+            chars.forEach(function(ch, i){ var cw = c.measureText(ch).width;
+              if (i < chars.length - 1 && /[A-Za-z가-힣]/.test(ch) && /[A-Za-z가-힣]/.test(chars[i + 1])) stops.push(x + cw);
+              x += cw; });
             var show = Math.floor(stops.length * Math.min(1, tau / 0.7));
             for (var i = 0; i < show; i++){ c.fillStyle = 'rgba(242,204,91,.55)'; c.fillRect(stops[i] - 4, 32, 8, 58); }
           }
           T(c, t, x0, 76, sz, '#1E2833', 'left', true);
           if (!r || tau < 0.75) return;
-          T(c, '눈이 살펴볼 곳 ' + r.look + '군데', 20, 140, W < 500 ? 18 : 22, p.j === 0 ? PAL[1] : PAL[4], 'left', true);
+          T(c, '빈칸 ' + r.g + '군데 → 눈이 살펴볼 곳 ' + r.look + '군데', 20, 140, W < 500 ? 16 : 22, r.full ? PAL[1] : PAL[4], 'left', true);
           if (r.ambig){
             T(c, '읽는 방법 두 가지: ‘아버지가 방에’ / ‘아버지 가방에’', 20, 174, W < 500 ? 13 : 17, PAL[4], 'left', true);
           } else if (!sn.en){
             T(c, '읽는 방법 한 가지: ‘아버지가 방에 들어가신다’', 20, 174, W < 500 ? 13 : 17, PAL[1], 'left', true);
           }
           if (sn.en){
-            T(c, '반 친구 20명(가상, 다섯 문장 평균)', 20, 208, 14, '#4A5868', 'left', true);
+            T(c, '반 친구 20명이 읽은 시간 (교육용 모형값)', 20, 208, 14, '#4A5868', 'left', true);
             var bw = W - 150, kk = Math.min(1, (tau - 0.75) * 4);
-            [['띄어 씀', 10, PAL[1]], ['붙여 씀', 25, PAL[4]]].forEach(function(b, i){
+            [['빈칸 모두', 10, PAL[1], r.full], ['빈칸 없음', 25, PAL[4], r.g === 0]].forEach(function(b, i){
               var y = 222 + i * 40; T(c, b[0], 20, y + 20, 15, '#1E2833', 'left', true);
               c.fillStyle = '#E6EBF1'; c.fillRect(100, y, bw, 28); c.fillStyle = b[2]; c.fillRect(100, y, bw * b[1] / 30 * kk, 28);
-              c.globalAlpha = p.j === i ? 1 : 0.5; T(c, '약 ' + b[1] + '초', 106, y + 20, 15, '#fff', 'left', true); c.globalAlpha = 1;
+              c.globalAlpha = b[3] ? 1 : 0.5; T(c, '약 ' + b[1] + '초', 106, y + 20, 15, '#fff', 'left', true); c.globalAlpha = 1;
             });
-            T(c, '틀리게 읽은 낱말: 띄어 씀 거의 없음 · 붙여 씀 약 3개', 20, 320, W < 500 ? 12 : 15, '#4A5868');
+            T(c, '지금 카드: 약 ' + Math.round(r.sec) + '초 · 틀리게 읽은 낱말 약 ' + r.miss + '개', 20, 320, W < 500 ? 12 : 15, '#4A5868');
           }
         },
         stats: function(p, r){
-          var out = [['카드', SP[p.j] + ' — ' + r.t], ['낱말 수', r.words + '개'], ['눈이 살펴볼 곳(단순 모형)', r.look + '군데' + (p.j === 0 ? ' — 빈칸이 낱말 경계를 알려 줘요' : ' — 글자 사이마다 경계인지 살펴야 해요'), p.j === 0 ? PAL[1] : PAL[4]]];
-          if (r.sn.en) out.push(['반 친구 20명(가상, 다섯 문장)', p.j === 0 ? '약 10초 · 틀린 낱말 거의 없음' : '약 25초 · 틀린 낱말 약 3개', p.j === 0 ? PAL[1] : PAL[4]]);
+          var out = [['카드', (r.full ? SP[0] : r.g === 0 ? SP[1] : '빈칸 ' + r.g + '군데만 넣은 카드') + ' — ' + r.t],
+            ['빈칸 수', r.g + ' / ' + r.mx + '군데', r.full ? PAL[1] : PAL[6]],
+            ['낱말 수 · 글자 수', r.words + '개 · ' + r.letters + '자'],
+            ['눈이 살펴볼 곳(단순 모형)', r.look + '군데 — 빈칸 한 군데를 넣을 때마다 한 군데씩 줄어요', r.full ? PAL[1] : PAL[4]]];
+          if (r.sn.en) out.push(['반 친구 20명이 읽은 시간(교육용 모형값)', '약 ' + Math.round(r.sec) + '초 · 틀린 낱말 약 ' + r.miss + '개  (빈칸 없음 25초 → 빈칸 모두 10초)', r.full ? PAL[1] : r.g === 0 ? PAL[4] : PAL[6]]);
           else out.push(['읽는 방법', r.ambig ? '두 가지 — 아버지가 방에 / 아버지 가방에' : '한 가지 — 아버지가 방에 들어가신다', r.ambig ? PAL[4] : PAL[1]]);
-          out.push(['쓰기 점검표', '낱말 사이 한 칸 ' + (p.j === 0 ? '✓' : '✕') + (r.sn.en ? ' · 끝 마침표 ✓ · 처음 대문자 ✓' : ''), PAL[3]]);
+          out.push(['쓰기 점검표', '낱말 사이 한 칸 ' + (r.full ? '✓' : '✕ (' + (r.mx - r.g) + '군데 빠짐)') + (r.sn.en ? ' · 끝 마침표 ✓ · 처음 대문자 ✓' : ''), PAL[3]]);
           out.push(['소리', p.s === 1 ? '끔' : r.played ? '기기가 카드 그대로 읽었어요 — 붙여 쓰면 기기도 낱말을 잘 못 나눠요' : '이 기기에는 음성이 없어요 (화면으로 확인)']);
           return out;
         },
-        columns: ['문장', '카드', '살펴볼 곳'],
-        record: function(p, r){ return {n:p.n, j:p.j, look:r.look}; },
-        row: function(d){ return [SN[d.n].w.join(' '), SP[d.j], d.look + '군데']; },
+        columns: ['문장', '빈칸', '살펴볼 곳', '읽은 시간'],
+        record: function(p, r){ return {n:p.n, g:r.g, mx:r.mx, look:r.look, sec:r.sec, full:r.full}; },
+        row: function(d){ return [SN[d.n].w.join(' '), d.g + '/' + d.mx + '군데', d.look + '군데', Math.round(d.sec) + '초']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('다섯 문장을 읽은 시간(반 친구 20명, 가상 평균)', '<div id="ws1"></div><p class="ask">글자는 똑같은데 왜 붙여 쓴 카드가 두 배 넘게 걸렸을까요? ‘빈칸’이라는 말을 넣어 설명해 보세요.</p>') +
+            card('빈칸 수와 읽은 시간', '<div id="ws3"></div><p class="ask">빈칸을 한 군데씩 더 넣을수록 시간이 어떻게 바뀌나요? 빈칸을 ‘절반만’ 넣으면 시간도 절반쯤이 되나요?</p>') +
             card('내가 읽은 카드 — 눈이 살펴볼 곳', '<div id="ws2"></div><p class="ask">과제: 영어 문장 세 개를 일부러 붙여 쓴 카드와 띄어 쓴 카드로 만들어 가족에게 읽어 달라고 하고, 초시계로 시간을 재 보세요.</p>') + '</div>';
           $('ws1').innerHTML = hbars([{label:'띄어 쓴 카드', v:10, color:PAL[1], text:'약 10초 · 틀림 거의 없음'}, {label:'붙여 쓴 카드', v:25, color:PAL[4], text:'약 25초 · 틀림 약 3개'}], 30);
           var seen = {}, items = [];
-          rec.forEach(function(d){ var key = d.n + '_' + d.j; if (seen[key]) return; seen[key] = 1; items.push({label:SN[d.n].w.join(d.j === 0 ? ' ' : ''), v:d.look, color:d.j === 0 ? PAL[1] : PAL[4], text:d.look + '군데'}); });
+          rec.forEach(function(d){ var key = d.n + '_' + d.g; if (seen[key]) return; seen[key] = 1; items.push({label:textG(SN[d.n], d.g), v:d.look, color:d.full ? PAL[1] : PAL[4], text:d.look + '군데'}); });
           $('ws2').innerHTML = hbars(items.slice(-8), Math.max(1, Math.max.apply(null, items.map(function(x){ return x.v; }))));
+          var sn0 = SN[rec[rec.length - 1].n], mx0 = sn0.w.length - 1, rows3 = [];
+          for (var gg2 = 0; gg2 <= mx0; gg2++){
+            var tried2 = rec.some(function(d){ return d.n === rec[rec.length - 1].n && d.g === gg2; });
+            rows3.push([gg2 + '군데', '“' + textG(sn0, gg2) + '”', Math.max(0, lettersOf(sn0) - 1 - gg2) + '군데',
+              Math.round(secOf(sn0, gg2)) + '초', missOf(sn0, gg2) + '개', tried2 ? '해 봄' : '—']);
+          }
+          $('ws3').innerHTML = tableHTML(['빈칸 수', '카드', '살펴볼 곳', '읽은 시간', '틀린 낱말', '내 기록'], rows3) +
+            '<p class="msg">※ 읽은 시간은 실제 조사가 아니라 교육용 모형값이에요 — 빈칸을 모두 넣으면 10초, 하나도 없으면 25초가 되게 이어 붙인 값입니다.</p>';
         }
       };
     })();
@@ -512,7 +535,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

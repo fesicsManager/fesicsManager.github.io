@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -448,6 +450,14 @@ var LAB = (function(){
         {y:1650, t:'17세기 한글 소설 확산 (홍길동전 등)'}, {y:1760, t:'18세기 궁중 한글 편지 (정조가 어릴 때 쓴 편지)'}, {y:1894, t:'갑오개혁 — 법률·칙령은 국문을 기본으로'}
       ];
       var SAME = ['다름', '일부 같음', '가까움'];
+      /* 영역마다 "그 자리에 한글이 쓰인 해"를 두고, 내 대응이 몇 년 당기거나 늦추는지 모형으로 본다
+         ※ 실제 연도는 역사 기록, 당기고 늦추는 햇수는 교육용 모형값(확인 불가한 가정) */
+      var AREA = [{k:'doc', n:'공문서', y:1894}, {k:'exam', n:'하급 관리 시험', y:1446},
+        {k:'book', n:'소설·이야기책', y:1650}, {k:'letter', n:'집안 편지', y:1560}];
+      /* 대응별 햇수 변화 (+는 늦어짐, −는 당겨짐) */
+      var SHIFT = [[80, 40, 60, 50], [0, 0, 0, 0], [20, 5, 30, 20], [0, 0, -40, -30]];
+      /* 상소 논점이 겨누는 영역 — 그 영역에 10년을 더 얹는다 */
+      var AIM = [0, 1, 1, 0];
       function TX(y, x0, w){ return y <= 1460 ? x0 + (y - 1443) / 17 * 0.35 * w : x0 + 0.35 * w + (y - 1460) / 434 * 0.65 * w; }
       function wrap(s, n){ var out = []; for (var i = 0; i < s.length; i += n) out.push(s.slice(i, i + n)); return out; }
       return {
@@ -459,7 +469,17 @@ var LAB = (function(){
           {key:'rp', type:'seg', label:'내가 세종이라면', cols:2, value:1, options:RS.map(function(x){ return x.n; }),
             note:'옳고 그름을 채점하지 않습니다. 실제 역사와 같은 점과 다른 점을 확인하는 실험이에요.'}
         ],
-        compute: function(p){ var o = OB[p.o], rs = RS[p.rp]; return {o:o, rs:rs, same:rs.same}; },
+        compute: function(p){ var o = OB[p.o], rs = RS[p.rp];
+          var sh = SHIFT[p.rp].slice();
+          if (p.rp !== 1) sh[AIM[p.o]] += 10;   /* 반박·추진이 아니면 그 논점이 겨눈 자리가 더 늦어진다 */
+          var yrs = AREA.map(function(a, i){ return a.y + sh[i]; });
+          var big = 0; sh.forEach(function(v, i){ if (Math.abs(v) > Math.abs(sh[big])) big = i; });
+          var move = sh[big];
+          return {o:o, rs:rs, same:rs.same, sh:sh, yrs:yrs, big:big, move:move,
+            areaList:AREA.map(function(a, i){ return a.n + ' ' + a.y + ' → ' + yrs[i] + (sh[i] ? ' (' + (sh[i] > 0 ? '+' : '−') + Math.abs(sh[i]) + '년)' : ' (그대로)'); }).join(' · '),
+            moveMsg:move === 0 ? '실제 역사와 같아 네 영역 모두 그대로예요'
+              : move > 0 ? '가장 크게 늦어지는 자리는 「' + AREA[big].n + '」 — 약 ' + move + '년 늦어져요'
+              : '가장 크게 당겨지는 자리는 「' + AREA[big].n + '」 — 약 ' + (-move) + '년 당겨져요'}; },
         draw: function(c, W, H, p, r, tau){
           var o = OB[p.o], rs = RS[p.rp], pw = W - 20, n = Math.max(8, Math.floor((pw - 30) / 18));
           c.fillStyle = '#F6EFDC'; c.fillRect(10, 10, pw, 120); c.strokeStyle = '#C9B99A'; c.lineWidth = 2; c.strokeRect(10, 10, pw, 120);
@@ -483,19 +503,26 @@ var LAB = (function(){
           var out = [['상소 논점', r.o.n], ['나의 대응', r.rs.n, PAL[4]], ['실제 세종과 비교', r.rs.note, r.same === 2 ? PAL[1] : r.same === 1 ? PAL[6] : PAL[4]],
             ['이 논점에 대한 세종의 답 (요지)', r.o.reb, PAL[3]],
             ['이후 보급', '1446 반포 → 1447 용비어천가·석보상절 → 1459 월인석보 → 16세기 편지 → 17세기 소설 → 1894 공문서 국문 기본', PAL[0]]];
+          out.push(['영역별 보급 (모형)', r.areaList, PAL[6]]);
+          out.push(['어느 자리가 가장 움직이나', r.moveMsg, r.move > 0 ? PAL[4] : (r.move < 0 ? PAL[1] : '#4A5868')]);
+          out.push(['※', '연도는 역사 기록이지만, 당기거나 늦어지는 햇수는 확인할 수 없는 교육용 모형값입니다.']);
           if (r.rs.alt) out.push(['다른 길 (가정)', r.rs.alt]);
           return out;
         },
-        columns: ['논점', '나의 대응', '실제와'],
-        record: function(p, r){ return {o:p.o, rp:p.rp, same:r.same}; },
-        row: function(d){ return [OB[d.o].s, RS[d.rp].s, SAME[d.same]]; },
+        columns: ['논점', '나의 대응', '실제와', '가장 움직인 자리', '햇수'],
+        record: function(p, r){ return {o:p.o, rp:p.rp, same:r.same, big:r.big, move:r.move}; },
+        row: function(d){ return [OB[d.o].s, RS[d.rp].s, SAME[d.same],
+          d.move == null ? '—' : (d.move === 0 ? '없음' : AREA[d.big].n),
+          d.move == null ? '—' : (d.move === 0 ? '0년' : (d.move > 0 ? '+' : '−') + Math.abs(d.move) + '년')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('나의 대응과 실제 세종', '<div id="sj1"></div><p class="ask">세종의 실제 대응은 네 가지 중 몇 가지가 섞여 있었나요? 만든 사람이 임금인데도 공식 문자가 되기까지 450년이 걸린 까닭을 적어 보세요.</p>') +
             card('한글이 쓰인 자리 — 연표', '<div id="sj2"></div><p class="ask">과제: 15~19세기 한글 자료를 종류별(편지·불경·소설·교서·상소)로 하나씩 찾아 연표에 놓고, 어떤 사람들이 어떤 상황에서 한글을 골랐는지 정리해 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.rp; }), items = [];
           RS.forEach(function(rs, i){ var a = g[i]; if (!a) return; items.push({label:rs.s + ' (' + SAME[rs.same] + ')', v:a.length, color:rs.same === 2 ? PAL[1] : rs.same === 1 ? PAL[6] : PAL[4], text:a.length + '회'}); });
-          $('sj1').innerHTML = hbars(items, Math.max(4, rec.length)) + '<p class="msg">실제 세종: 반박 + 계속 추진 + 한문 병용 속 한글 책 보급 (+ 하루 투옥 후 석방).</p>';
+          var worst = null; rec.forEach(function(d){ if (d.move != null && (worst === null || d.move > worst.move)) worst = d; });
+          $('sj1').innerHTML = hbars(items, Math.max(4, rec.length)) + '<p class="msg">실제 세종: 반박 + 계속 추진 + 한문 병용 속 한글 책 보급 (+ 하루 투옥 후 석방).</p>' +
+            (worst && worst.move > 0 ? '<p class="msg">내 기록 중 보급을 가장 많이 늦춘 대응은 「' + RS[worst.rp].s + '」 — 「' + AREA[worst.big].n + '」 이 약 ' + worst.move + '년 늦어졌어요 (모형값).</p>' : '');
           $('sj2').innerHTML = tableHTML(['연도', '한글이 쓰인 자리'], TL.map(function(e){ return [e.y >= 1500 && e.y < 1800 ? Math.floor(e.y / 100) + 1 + '세기' : e.y, e.t]; }));
         }
       };
@@ -505,7 +532,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

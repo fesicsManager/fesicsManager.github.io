@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,19 +445,23 @@ var LAB = (function(){
         {n:'스위스', w:1971, st:[[0, [1, 1, 0, 0], '1848 연방 성립 뒤 연방 선거는 남성만'], [1971, [1, 1, 1, 1], '1971 — 연방 차원 여성 참정권 인정']]},
         {n:'대한민국', w:1948, st:[[0, null, '대한민국 정부 수립 전 — 국가 선거 없음'], [1948, [1, 1, 1, 1], '1948 첫 총선거 — 처음부터 남녀 모두에게 보통 선거권']]}
       ];
+      var GW = ['국가 선거가 없었다', '재산 있는 남성 일부까지', '모든 성인 남성까지', '여성 일부까지', '모든 성인 여성까지 (남녀 같은 조건)'];
       function stage(ci, y){ var s = CT[ci].st, cur = s[0]; s.forEach(function(q){ if (y >= q[0]) cur = q; }); return cur; }
       return {
         sceneHeight: function(w){ return w < 480 ? 470 : 400; },
-        idle: '나라와 연도를 고른 뒤 <b>이 해로 가 보기</b>를 누르세요.',
+        idle: '나라와 연도를 고르고 <b>그해 누가 투표할 수 있었을지 먼저 예측</b>한 뒤 <b>이 해로 가 보기</b>를 누르세요.',
         shortHint: '프랑스를 고르고 1789 → 1848 → 1944로 옮겨 보세요. 선언에서 여성 참정권까지 몇 년이 걸렸나요? 다른 나라도 비교해 보세요.',
         params: [
           {key:'c', type:'seg', label:'나라', cols:3, value:1, options:CT.map(function(x){ return x.n; })},
-          {key:'y', type:'range', label:'연도', min:1789, max:1979, step:1, value:1789, fmt:function(v){ return v + '년'; }}
+          {key:'y', type:'range', label:'연도', min:1789, max:1979, step:1, value:1789, fmt:function(v){ return v + '년'; }},
+          {key:'g', type:'seg', label:'먼저 예측 — 그해 이 나라에서 누가 투표할 수 있었을까요?', cols:1, value:1, options:GW,
+            note:'칸은 쌓이는 순서입니다 — 재산 있는 남성 일부 → 모든 성인 남성 → 여성 일부 → 모든 성인 여성. 나라마다 이 순서를 건너뛰기도 합니다.'}
         ],
         compute: function(p){
           var s = stage(p.c, p.y), on = s[1], n = on ? on.reduce(function(a, b){ return a + b; }, 0) : 0;
           var ct = CT[p.c];
-          return {s:s, on:on, n:n, ct:ct, gap:ct.w - 1789, since:p.y - 1789, women:on ? on[3] === 1 : false};
+          return {s:s, on:on, n:n, ct:ct, gap:ct.w - 1789, since:p.y - 1789, women:on ? on[3] === 1 : false,
+            g:p.g, hit:(p.g === n)};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var k = r ? Math.min(1, tau / 0.7) : 0, nar = W < 480, bw = nar ? (W - 50) / 2 : Math.min(170, (W - 50) / 4 - 10), gx = nar ? 20 : (W - (bw + 10) * 4 + 10) / 2, y = 70, bh = nar ? 100 : 120;
@@ -473,25 +479,31 @@ var LAB = (function(){
           c.fillStyle = PAL[4]; c.fillRect(X(1789) - 2, ty - 14, 4, 28); tf(c, '1789 인권 선언', L, ty + 30, {color:PAL[4]});
           var wx = X(CT[p.c].w); c.fillStyle = PAL[6]; c.fillRect(wx - 2, ty - 14, 4, 28);
           if (r){ seg(c, X(1789), ty, X(1789) + (X(p.y) - X(1789)) * k, ty, PAL[0], 6); c.fillStyle = '#26313D'; c.beginPath(); c.arc(X(1789) + (X(p.y) - X(1789)) * k, ty, 9, 0, Math.PI * 2); c.fill(); }
-          if (r && tau >= 1) tf(c, r.s[2], 16, H - 12, {bold:true});
+          if (r && tau >= 1){ tf(c, r.s[2], 16, H - 12, {bold:true});
+            tf(c, r.hit ? '예측 ⭕' : '예측 ❌', W - 16, H - 36, {align:'right', bold:true, color:r.hit ? PAL[1] : PAL[6]}); }
         },
         stats: function(p, r){
           return [['나라 · 연도', r.ct.n + ' · ' + p.y + '년 (인권 선언 뒤 ' + r.since + '년)'],
             ['그해 투표권 범위', r.on ? BOX.filter(function(b, i){ return r.on[i]; }).join(' + ') : '국가 선거 없음', PAL[0]],
             ['단계 설명', r.s[2], PAL[3]],
+            ['내 예측', GW[r.g] + (r.hit ? ' — ⭕ 맞혔어요' : ' — ❌ 실제로는 “' + GW[r.n] + '”'), r.hit ? PAL[1] : PAL[6]],
             ['모든 성인 여성의 참정권', r.women ? '있음' : (p.y < r.ct.w ? '아직 없음 — ' + r.ct.w + '년에 인정' : '—'), r.women ? PAL[1] : PAL[4]],
             ['1789년부터 여성 참정권까지', r.ct.n === '대한민국' ? '정부 수립과 함께 처음부터 (1948년)' : r.gap + '년 (' + r.ct.n + ' ' + r.ct.w + '년)', PAL[6]]];
         },
-        columns: ['나라', '연도', '투표권 칸 수', '모든 성인 여성'],
-        record: function(p, r){ return {c:p.c, y:p.y, n:r.n, w:r.women}; },
-        row: function(d){ return [CT[d.c].n, d.y + '년', d.n + ' / 4', d.w ? '있음' : '없음']; },
+        columns: ['나라', '연도', '투표권 칸 수', '내 예측', '맞힘', '모든 성인 여성'],
+        record: function(p, r){ return {c:p.c, y:p.y, n:r.n, g:r.g, hit:r.hit, w:r.women}; },
+        row: function(d){ return [CT[d.c].n, d.y + '년', d.n + ' / 4', d.g + ' / 4', d.hit ? '⭕' : '❌', d.w ? '있음' : '없음']; },
         minRec: 3,
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('나라별: 1789년 선언에서 여성 참정권까지', '<div id="sv1"></div><p class="ask">같은 &lsquo;인권 선언&rsquo;의 시대를 살았는데 나라마다 수십 년에서 백 년 넘게 차이가 났습니다. 벽을 하나씩 넘을 때마다 무엇이 있었을까요?</p>') +
             card('내가 가 본 해', '<div id="sv2"></div><p class="ask">과제: 주거·안전·환경·문화 중 한 영역을 골라 우리 사회에서 그 권리가 충분히 보장되지 못한 사례를 하나 조사하고, 그 권리가 세계 인권 선언이나 우리 헌법의 어느 내용과 이어지는지 찾아 적어 보세요.</p>') + '</div>';
           $('sv1').innerHTML = hbars(CT.map(function(ct, i){ var seen = rec.some(function(d){ return d.c === i && d.w; }); return {label:ct.n + (seen ? ' ✓' : ''), v:ct.w - 1789, color:seen ? PAL[6] : '#B8C2CE', text:ct.w + '년 (' + (ct.w - 1789) + '년 뒤)'}; }), 190) + '<p class="msg">✓ = 내가 여성 참정권이 켜진 해까지 가 본 나라. 막대 = 1789년부터 걸린 햇수.</p>';
-          $('sv2').innerHTML = tableHTML(['나라', '연도', '칸 수'], rec.slice(-8).map(function(d){ return [CT[d.c].n, d.y + '년', d.n + ' / 4']; }));
+          var hits = rec.filter(function(d){ return d.hit; }).length;
+          var over = rec.filter(function(d){ return d.g > d.n; }).length;
+          $('sv2').innerHTML = tableHTML(['나라', '연도', '칸 수', '내 예측', '맞힘'], rec.slice(-8).map(function(d){ return [CT[d.c].n, d.y + '년', d.n + ' / 4', d.g + ' / 4', d.hit ? '⭕' : '❌']; })) +
+            '<p class="msg">예측을 맞힌 횟수 <b>' + hits + ' / ' + rec.length + '</b>' +
+            (over ? ' · 실제보다 <b>넓게</b> 짐작한 적이 ' + over + '번 있었어요 — “그 시대에는 이미 다 투표했겠지”라는 짐작이 흔히 빗나갑니다.' : '') + '</p>';
         }
       };
     })();
@@ -500,7 +512,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

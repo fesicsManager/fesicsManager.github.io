@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,6 +441,9 @@ var LAB = (function(){
         {n:'눈 감고 있는 힘껏', s:'눈 감고 힘껏', sd:18, c:PAL[3]}
       ];
       var PF = [{n:'디딤발 끝이 문을 향해요', s:'문 쪽', b:0}, {n:'디딤발 끝이 옆으로 틀어졌어요', s:'옆으로', b:6}];
+      /* 문 너비(cm)와 거리(m)에 따라 '통과로 셈하는 각도'가 달라진다 — 기본값 60cm·3m 는 예전과 같다 */
+      var GW = [40, 60, 100], GD = [3, 6];
+      function halfOf(p){ return Math.atan((GW[p.gw] / 200) / GD[p.gd]) * 180 / Math.PI; }
       var HALF = Math.atan(0.3 / 3) * 180 / Math.PI, S = 1202;
       function R(){ S = (S * 1664525 + 1013904223) >>> 0; return S / 4294967296; }
       function gs(){ return (R() + R() + R() + R() - 2) * 1.73; }
@@ -448,12 +453,14 @@ var LAB = (function(){
         shortHint: '디딤발을 "문 쪽"으로 두고 네 가지 차기를 모두 해 보세요. 그다음 디딤발만 바꿔 보세요.',
         params: [
           {key:'k', type:'seg', label:'공에 닿는 발의 부분', cols:2, value:0, options:KK.map(function(x){ return x.n; })},
-          {key:'pf', type:'seg', label:'디딤발', cols:2, value:0, options:PF.map(function(x){ return x.n; }), note:'세기와 자리는 그대로, 바꾸는 건 하나씩!'}
+          {key:'pf', type:'seg', label:'디딤발', cols:2, value:0, options:PF.map(function(x){ return x.n; }), note:'세기와 자리는 그대로, 바꾸는 건 하나씩!'},
+          {key:'gw', type:'seg', label:'고깔 문 너비', cols:3, value:1, options:['40cm', '60cm', '100cm']},
+          {key:'gd', type:'seg', label:'문까지의 거리', cols:2, value:0, options:['3m', '6m'], note:'문이 좁거나 멀면 같은 발차기도 통과가 어려워져요.'}
         ],
         compute: function(p){
-          var k = KK[p.k], b = PF[p.pf].b, an = [], ok = 0;
-          for (var i = 0; i < 10; i++){ var a = b + k.sd * gs() * 0.85; a = Math.max(-40, Math.min(40, a)); an.push(a); if (Math.abs(a) < HALF) ok++; }
-          return {k:k, an:an, ok:ok};
+          var k = KK[p.k], b = PF[p.pf].b, an = [], ok = 0, hf = halfOf(p);
+          for (var i = 0; i < 10; i++){ var a = b + k.sd * gs() * 0.85; a = Math.max(-40, Math.min(40, a)); an.push(a); if (Math.abs(a) < hf) ok++; }
+          return {k:k, an:an, ok:ok, hf:hf, gw:GW[p.gw], gd:GD[p.gd]};
         },
         draw: function(c, W, H, p, r, tau){
           var k = KK[p.k], cx = W < 520 ? W / 2 : W * 0.4, sy = H - 50, gy = 70, d = sy - gy, half = d * 0.1;
@@ -481,16 +488,22 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['차는 부분', r.k.n, r.k.c], ['디딤발', PF[p.pf].n],
+            ['문', r.gw + 'cm 문 · ' + r.gd + 'm 거리 → ' + f(r.hf, 1) + '° 안으로 차야 통과'],
             ['열 번 중 통과', r.ok + '번', PAL[1]],
             ['통과 비율', f(r.ok * 10, 0) + '%'],
-            ['빗나간 각도 평균', '약 ' + f(mean(r.an.map(function(a){ return Math.abs(a); })), 0) + '° (6°보다 작으면 통과)']];
+            ['빗나간 각도 평균', '약 ' + f(mean(r.an.map(function(a){ return Math.abs(a); })), 0) + '° (' + f(r.hf, 1) + '°보다 작으면 통과)'],
+            ['판정', r.ok >= 8 ? '이 문에서는 거의 다 들어가요 — 이 조건으로는 어느 발이 나은지 가리기 어려워요.'
+                  : r.ok >= 4 ? '반쯤 들어가요 — 차이를 가리기에 좋은 문이에요.'
+                  : '이 문에서는 거의 못 들어가요 — 문을 넓히거나 가까이 두고 다시 재 보세요.',
+              r.ok >= 8 ? PAL[6] : r.ok >= 4 ? PAL[1] : PAL[4]]];
         },
-        columns: ['차는 부분', '디딤발', '통과(10번 중)'],
-        record: function(p, r){ return {k:p.k, pf:p.pf, ok:r.ok}; },
-        row: function(d){ return [KK[d.k].s, PF[d.pf].s, d.ok + '번']; },
+        columns: ['차는 부분', '디딤발', '문', '통과(10번 중)'],
+        record: function(p, r){ return {k:p.k, pf:p.pf, gw:p.gw, gd:p.gd, ok:r.ok, hf:r.hf}; },
+        row: function(d){ return [KK[d.k].s, PF[d.pf].s, GW[d.gw] + 'cm·' + GD[d.gd] + 'm', d.ok + '번']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('차는 부분별 평균 통과 (디딤발 문 쪽)', '<div id="kg1"></div><p class="ask">웹툰 예시(발끝 약 3번, 발 안쪽 약 8번, 뒤꿈치 약 2번)와 비슷했나요? 뾰족한 발끝이 오히려 덜 정확한 까닭은 무엇일까요?</p>') +
+            card('차는 부분별 평균 통과 (디딤발 문 쪽 · 60cm·3m 문)', '<div id="kg1"></div><p class="ask">뾰족한 발끝이 오히려 덜 정확한 까닭은 무엇일까요?</p>') +
+            card('문을 바꾸면 결론이 버티나요', '<div id="kg3"></div><p class="ask">문을 100cm로 넓히면 "발끝"도 거의 다 들어가지 않나요? 그렇다면 "발 안쪽이 낫다"는 말은 <b>어떤 문에서</b> 맞는 말일까요?</p>') +
             card('디딤발 방향을 바꾸면', '<div id="kg2"></div><p class="ask">과제: 넓고 안전한 곳에서 신발이나 물병 두 개로 문을 만들고, 가벼운 공을 "발끝"과 "발 안쪽"으로 다섯 번씩 차서 통과 횟수를 표에 적어 보세요. 주변에 차나 사람이 없는지 꼭 확인하기. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
           var items = [];
           KK.forEach(function(k, i){ var g = rec.filter(function(d){ return d.k === i && d.pf === 0; }); if (!g.length) return;
@@ -500,6 +513,21 @@ var LAB = (function(){
           PF.forEach(function(pf, j){ var g = rec.filter(function(d){ return d.pf === j && d.k === 1; }); if (!g.length) return;
             rows.push(['발 안쪽 · 디딤발 ' + pf.s, g.length + '번', '약 ' + f(mean(g.map(function(d){ return d.ok; })), 1) + '번']); });
           $('kg2').innerHTML = rows.length ? tableHTML(['조건', '기록', '평균 통과'], rows) : '<p class="msg">"발 안쪽"으로 디딤발 두 가지를 모두 해 보세요.</p>';
+          /* 문 조건별로 '발끝 vs 발 안쪽' 차이가 남아 있는지 내 기록으로만 따진다 */
+          var rows3 = [], flipped = false;
+          GW.forEach(function(w, wi){ GD.forEach(function(dd, di){
+            var a = rec.filter(function(x){ return x.k === 0 && x.gw === wi && x.gd === di; });
+            var b = rec.filter(function(x){ return x.k === 1 && x.gw === wi && x.gd === di; });
+            if (!a.length && !b.length) return;
+            var av = a.length ? mean(a.map(function(x){ return x.ok; })) : null, bv = b.length ? mean(b.map(function(x){ return x.ok; })) : null;
+            var gap = (av != null && bv != null) ? bv - av : null;
+            if (gap != null && gap <= 1) flipped = true;
+            rows3.push([w + 'cm · ' + dd + 'm', av == null ? '—' : f(av, 1) + '번', bv == null ? '—' : f(bv, 1) + '번',
+              gap == null ? '—' : (gap > 1 ? '발 안쪽이 ' + f(gap, 1) + '번 더' : '차이 거의 없음')]);
+          }); });
+          $('kg3').innerHTML = (rows3.length ? tableHTML(['문', '발끝 평균', '발 안쪽 평균', '차이'], rows3) : '')
+            + '<p class="msg">' + (flipped ? '문이 넉넉해지면 두 발차기의 차이가 사라집니다. "발 안쪽이 낫다"는 <b>좁거나 먼 문에서만</b> 드러나는 말이에요.'
+              : '문 너비 40·60·100cm 를 모두 해 보면, 어느 문에서 차이가 사라지는지 알 수 있어요.') + '</p>';
         }
       };
     })();
@@ -508,7 +536,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

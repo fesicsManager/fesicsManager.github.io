@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -449,7 +451,7 @@ var LAB = (function(){
       ];
       var S1 = 'Some farmers plant flowers next to their crops.', S2a = 'This attracts bees,', S2b = 'and they help the crops produce more fruit.';
       return {
-        sceneHeight: function(w){ return w < 560 ? 440 : 380; },
+        sceneHeight: function(w){ return w < 560 ? 520 : 380; },
         idle: '지시어와 후보를 고른 뒤 <b>대입해 보기</b>를 누르세요.',
         shortHint: 'This에 네 후보를 모두 넣어 보세요. 가장 가까운 crops가 정답인가요? they도 해 보세요.',
         params: [
@@ -464,10 +466,10 @@ var LAB = (function(){
         draw: function(c, W, H, p, r, tau){
           var pr = PR[p.pr], k = r ? Math.min(1, tau / 0.6) : 0, mw = W - 40;
           c.font = '16px ' + FONT; c.textAlign = 'left'; c.fillStyle = '#1E2833';
-          var y1 = 40, y2 = 80, narrow = W < 560;
+          var y1 = 40, y2 = 80, narrow = W < 560, pend = 0;
           if (c.measureText(S1).width > W - 40){
             // 좁은 화면: 낱말 단위로 줄을 나눠 그린다
-            c.save(); c.beginPath(); c.rect(10, 10, W - 20, 132); c.clip();
+            c.save(); c.beginPath(); c.rect(10, 10, W - 20, H - 20); c.clip();
             var wx = 20, wy = 40, sp = c.measureText(' ').width, hiW = p.pr === 0 ? 'This' : 'they';
             [S1, S2a + ' ' + S2b].forEach(function(sen, si){
               if (si){ wx = 20; wy += 26; }
@@ -478,6 +480,7 @@ var LAB = (function(){
                 c.fillStyle = '#1E2833'; c.fillText(wd, wx, wy); wx += ww + sp;
               });
             });
+            pend = wy;
             c.restore();
           } else {
           c.save(); c.beginPath(); c.rect(10, 10, W - 20, 100); c.clip();
@@ -491,18 +494,18 @@ var LAB = (function(){
           });
           c.restore();
           }
-          var ty = narrow ? 170 : 150;
+          var ty = narrow ? (pend ? pend + 44 : 170) : 150;
           if (r){
             var col = r.cd.ok ? PAL[1] : PAL[4];
             c.globalAlpha = k;
-            c.save(); c.beginPath(); c.rect(10, ty - 30, W - 20, 70); c.clip();
+            c.save(); c.beginPath(); c.rect(10, ty - 30, W - 20, 130); c.clip();
             c.font = '700 17px ' + FONT; c.fillStyle = col; c.textAlign = 'left';
             var line = r.sub, ws = line.split(' '), l = '', n = 0;
             for (var i = 0; i < ws.length; i++){ var t = l ? l + ' ' + ws[i] : ws[i]; if (c.measureText(t).width > mw && l){ c.fillText(l, 20, ty + n * 22); n++; l = ws[i]; } else l = t; }
             c.fillText(l, 20, ty + n * 22); c.restore();
             c.globalAlpha = 1;
             if (tau > 0.5){
-              var yy = ty + 70;
+              var yy = ty + (narrow ? (n + 1) * 22 + 24 : 70);
               txt(c, '수 일치 (' + (p.pr === 0 ? 'attracts' : 'help') + '): ' + (r.cd.num ? '○' : '✕ 복수'), 20, yy, {color:r.cd.num ? PAL[1] : PAL[4], bold:true});
               c.save(); c.beginPath(); c.rect(10, yy + 10, W - 20, 30); c.clip(); txt(c, '흐름: ' + r.cd.flow, 20, yy + 34, {color:'#4A5868'}); c.restore();
               txt(c, '거리: ' + (r.cd.dist ? r.cd.dist + '단어 앞' : '앞 문장 전체'), 20, yy + 68, {color:'#4A5868'});
@@ -538,7 +541,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -498,9 +500,20 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         {n:'오페라 아리아', s:'아리아', lvl:78, n18:65, place:'오페라 극장', ctx:'극의 상황과 인물의 감정', des:'노래 선율이 두드러지는 반주'}
       ];
       var AU2 = [{n:'18세기식 — 먹고 대화하며, 마음에 들면 도중 박수', s:'18세기식'}, {n:'오늘날 연주회식 — 조용히 경청', s:'연주회식'}];
-      function calc(p){ var U = US[p.u], nz = p.a === 0 ? U.n18 : 35, snr = U.lvl - nz;
-        var role = snr >= 25 ? '음악이 주인공 — 모두가 집중해 들음' : snr >= 10 ? '대화와 섞인 배경' : '대화에 묻히기 쉬움 — 장식적 배경';
-        return {U:U, nz:nz, snr:snr, role:role}; }
+      var PRD = ['음악이 주인공', '대화와 섞인 배경', '대화에 묻힘'];
+      /* 소음은 청중 수로, 음악은 내 자리까지의 거리로 계산한다.
+         기준(청중 50명·거리 10 m)에서 18세기식 소음은 자리마다 다른 교육용 모형값, 연주회식은 35 dB. */
+      function calc(p){
+        var U = US[p.u], np = p.np === undefined ? 50 : p.np, dd = p.dd === undefined ? 10 : p.dd;
+        var base = p.a === 0 ? U.n18 : 35;
+        var nz = base + 10 * Math.log(np / 50) / Math.LN10;
+        var mus = U.lvl - 20 * Math.log(dd / 10) / Math.LN10;
+        var snr = mus - nz;
+        var rk = snr >= 25 ? 0 : snr >= 10 ? 1 : 2;
+        var role = ['음악이 주인공 — 모두가 집중해 들음', '대화와 섞인 배경', '대화에 묻히기 쉬움 — 장식적 배경'][rk];
+        var ok = p.pr === undefined || p.pr === rk;
+        return {U:U, nz:nz, mus:mus, snr:snr, role:role, np:np, dd:dd, rk:rk, ok:ok,
+          vd:ok ? '예측이 맞았습니다 — ' + PRD[rk] : '예측과 다릅니다 — 실제는 ' + PRD[rk]}; }
       function crowd(S, g){ if (!S) return; try { var a = S.a, src = a.createBufferSource(), fl = a.createBiquadFilter(), e = a.createGain(); src.buffer = noiseBuf(a); src.loop = true;
         fl.type = 'bandpass'; fl.frequency.value = 450; fl.Q.value = 0.6; e.gain.value = g; src.connect(fl); fl.connect(e); e.connect(S.out); src.start(S.t0); src.stop(S.t0 + S.d); } catch(e2){} }
       return {
@@ -509,7 +522,12 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         shortHint: '다섯 쓰임을 모두 두 가지 청중 방식으로 비교해 보세요(최소 4개 기록).',
         params: [
           {key:'u', type:'seg', label:'곡·장르와 원래 쓰임', cols:2, value:4, options:US.map(function(x){ return x.n; })},
-          {key:'a', type:'seg', label:'청중', cols:2, value:0, options:AU2.map(function(x){ return x.n; })}
+          {key:'a', type:'seg', label:'청중', cols:2, value:0, options:AU2.map(function(x){ return x.n; })},
+          {key:'np', type:'range', label:'청중 수', min:5, max:200, step:5, value:50, fmt:function(v){ return v + '명'; },
+            note:'사람이 열 배 많아지면 소음은 약 10 dB 커져요(10 log N).'},
+          {key:'dd', type:'range', label:'내 자리에서 무대까지 거리', min:2, max:30, step:2, value:10, fmt:function(v){ return v + ' m'; },
+            note:'거리가 두 배면 음악은 약 6 dB 작아져요(20 log d). ※ 기준값(50명·10 m)의 dB는 교육용 모형값이에요.'},
+          {key:'pr', type:'seg', label:'듣기 전 예측 — 이 자리에서는?', cols:3, value:1, options:PRD}
         ],
         compute: function(p){
           var r = calc(p), S = session(1.9, 0.18), g = 0.55;
@@ -533,9 +551,9 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           var narrow = W < 500;
           if (narrow) bw = 46;
           var mx = x0 + (narrow ? 16 : 30), nx = mx + bw + (narrow ? 20 : 40), ax2 = narrow ? nx + bw + 14 : nx + bw + 20;
-          c.fillStyle = PAL[0]; c.fillRect(mx, Y(q.U.lvl * k), bw, ph * q.U.lvl * k / 90); txt(c, '음악', mx + bw / 2, y0 + ph + 24, {align:'center', bold:true});
+          c.fillStyle = PAL[0]; c.fillRect(mx, Y(q.mus * k), bw, ph * q.mus * k / 90); txt(c, '음악', mx + bw / 2, y0 + ph + 24, {align:'center', bold:true});
           c.fillStyle = PAL[7]; c.fillRect(nx, Y(q.nz * k), bw, ph * q.nz * k / 90); txt(c, '청중 소음', nx + bw / 2, y0 + ph + 24, {align:'center', bold:true});
-          if (r && tau > 0.5){ arrow(c, ax2, Y(q.nz), ax2, Y(q.U.lvl), PAL[4], 2.5); txt(c, '차이 ' + f(q.snr, 0) + ' dB', ax2 + 10, (Y(q.nz) + Y(q.U.lvl)) / 2, {bold:true, color:PAL[4], maxW:W - ax2 - 16}); }
+          if (r && tau > 0.5){ arrow(c, ax2, Y(q.nz), ax2, Y(q.mus), PAL[4], 2.5); txt(c, '차이 ' + f(q.snr, 0) + ' dB', ax2 + 10, (Y(q.nz) + Y(q.mus)) / 2, {bold:true, color:PAL[4], maxW:W - ax2 - 16}); }
           if (p.a === 0) for (var i = 0; i < 7; i++){ var px = nx + 10 + (i * 37) % (bw - 10), py = Y(q.nz) - 14 - (i % 3) * 10; c.fillStyle = 'rgba(92,107,122,.5)'; c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fill(); }
           var ty = y0 + ph + 60;
           if (narrow){
@@ -549,18 +567,25 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           txt(c, r ? q.role : '예상: 음악이 주인공일까, 배경일까?', x0, H - 14, {bold:true, color:r ? (q.snr >= 25 ? PAL[1] : PAL[6]) : '#1E2833'});
         },
         stats: function(p, r){
-          return [['원래 쓰임', r.U.n + ' — ' + r.U.place], ['청중', AU2[p.a].n], ['음악 − 소음 (가상)', f(r.snr, 0) + ' dB', r.snr >= 25 ? PAL[1] : PAL[6]],
-            ['들리는 방식', r.role, PAL[0]], ['쓰임에 맞춘 설계', r.U.des, PAL[3]], ['감상할 때 함께 볼 것', r.U.ctx, PAL[5]]];
+          return [['원래 쓰임', r.U.n + ' — ' + r.U.place], ['청중', AU2[p.a].n],
+            ['청중 수 · 내 자리 거리', r.np + '명 · ' + r.dd + ' m'],
+            ['음악 세기 (내 자리)', f(r.mus, 0) + ' dB', PAL[0]], ['청중 소음', f(r.nz, 0) + ' dB', PAL[7]],
+            ['음악 − 소음', f(r.snr, 0) + ' dB', r.snr >= 25 ? PAL[1] : PAL[6]],
+            ['들리는 방식', r.role, PAL[0]],
+            ['내 예측', PRD[p.pr] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['쓰임에 맞춘 설계', r.U.des, PAL[3]], ['감상할 때 함께 볼 것', r.U.ctx, PAL[5]],
+            ['판정', r.vd, r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['쓰임', '청중', '음악−소음', '들리는 방식'],
-        record: function(p, r){ return {u:p.u, a:p.a, snr:r.snr, role:r.role.split(' — ')[0]}; },
-        row: function(d){ return [US[d.u].s, AU2[d.a].s, f(d.snr, 0) + ' dB', d.role]; },
+        columns: ['쓰임', '청중', '청중 수', '거리', '음악−소음', '들리는 방식', '예측'],
+        record: function(p, r){ return {u:p.u, a:p.a, np:r.np, dd:r.dd, snr:r.snr, role:r.role.split(' — ')[0], ok:r.ok}; },
+        row: function(d){ return [US[d.u].s, AU2[d.a].s, d.np + '명', d.dd + ' m', f(d.snr, 0) + ' dB', d.role, d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('쓰임 × 청중별 음악−소음 차이 (가상 dB)', '<div id="h1a"></div><p class="ask">같은 곡도 청중 방식이 바뀌면 "배경"에서 "주인공"이 됩니다. 곡이 달라진 건가요, 듣는 제도가 달라진 건가요?</p>') +
             card('원래 쓰임 → 오늘의 감상 단서', '<div id="h1b"></div><p class="ask">과제: 좋아하는 클래식 작품 하나를 골라 초연 당시의 연주 상황과 청중 반응 기록을 찾고, 지금의 연주회와 비교해 보세요.</p>') + '</div>';
-          var items = rec.map(function(d){ return {label:US[d.u].s + ' · ' + AU2[d.a].s, v:d.snr, color:d.snr >= 25 ? PAL[1] : PAL[6], text:f(d.snr, 0) + ' dB'}; });
-          $('h1a').innerHTML = hbars(items, 50);
+          var items = rec.map(function(d){ return {label:US[d.u].s + ' · ' + AU2[d.a].s + ' · ' + d.np + '명 · ' + d.dd + 'm', v:d.snr, color:d.snr >= 25 ? PAL[1] : PAL[6], text:f(d.snr, 0) + ' dB'}; });
+          var okN = rec.filter(function(d){ return d.ok; }).length;
+          $('h1a').innerHTML = hbars(items, 50) + '<p class="msg">청중 수와 자리 거리를 바꾸면 같은 곡도 "주인공"에서 "배경"으로 넘어갑니다. 예측은 ' + okN + ' / ' + rec.length + ' 맞았습니다.</p>';
           $('h1b').innerHTML = tableHTML(['곡·장르', '원래 쓰임', '함께 볼 것'], US.map(function(u){ return [u.s, u.place, u.ctx]; }));
         }
       };
@@ -570,7 +595,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -430,36 +432,48 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var CS = [
-        {n:'불쌍하다고 느꼈다 (돕지는 않음)', s:'느끼기만', feel:true, act:false},
-        {n:'불쌍하다고 느끼고 도왔다', s:'느끼고 도움', feel:true, act:true},
-        {n:'느낌은 없었지만 도왔다', s:'느낌 없이 도움', feel:false, act:true}
-      ];
+      var FT = ['느낌 없음', '약간 안쓰러움', '뚜렷이 안쓰러움', '마음이 크게 움직임'];
+      var AT = ['돕지 않음', '한 번 도움', '가끔 도움', '꾸준히 도움'];
       var VW = ['주희(성리학)', '정약용'];
+      function caseOf(p){
+        var fe = p.fe == null ? 2 : p.fe, ac = p.ac == null ? 0 : p.ac;
+        return {fe:fe, ac:ac, feel:fe > 0, act:ac > 0,
+          n:FT[fe] + ' · ' + AT[ac], s:FT[fe].replace('느낌 ', '') + '/' + AT[ac].replace(' 도움', '')};
+      }
       function judge(cs, v){
         if (v === 0){
-          if (cs.feel) return {v:'있음', lv:2, why:'사랑의 이치(인)가 본성에 갖추어져 있고, 그 마음이 감정으로 드러났어요.' + (cs.act ? ' 행위는 그 덕이 밖으로 나타난 것.' : '')};
-          return {v:'따져 봐야 함', lv:1, why:'인은 본성에 갖추어져 있으나, 마음의 감응 없이 한 행위를 그 덕의 발현이라 하기는 어려워요.'};
+          if (cs.feel) return {v:'있음', lv:2,
+            why:'사랑의 이치(인)가 본성에 갖추어져 있고, 그 마음이 감정으로 드러났어요.' +
+              (cs.fe === 1 ? ' 다만 느낌이 약해 드러난 정도도 옅습니다.' : '') +
+              (cs.act ? ' 행위는 그 덕이 밖으로 나타난 것.' : ' 행위가 없어도 마음이 드러났다는 점은 같습니다.')};
+          if (cs.act) return {v:'따져 봐야 함', lv:1, why:'인은 본성에 갖추어져 있으나, 마음의 감응 없이 한 행위를 그 덕의 발현이라 하기는 어려워요.'};
+          return {v:'드러난 것 없음', lv:0, why:'본성에 이치는 갖추어져 있지만 마음도 행위도 드러나지 않았어요.'};
         }
-        if (cs.act) return {v:'있음', lv:2, why:'관계에서 도리를 다하는 행위가 있었으므로 인이라는 이름이 성립해요.' + (cs.feel ? '' : ' 마음씨보다 행위가 기준.')};
+        if (cs.act) return {v:'있음', lv:2,
+          why:'관계에서 도리를 다하는 행위가 있었으므로 인이라는 이름이 성립해요.' +
+            (cs.feel ? '' : ' 마음씨보다 행위가 기준.') +
+            (cs.ac === 1 ? ' 한 번의 행사로도 이름은 서지만, 거듭 행해야 덕이 쌓입니다.' : ' 거듭 행할수록 덕이 두터워집니다.')};
         return {v:'아직 이름 없음', lv:0, why:'선을 좋아하는 기호(경향)는 있지만, 행하기 전이라 인이라고 부를 수 없어요.'};
       }
       return {
         sceneHeight: 400,
-        idle: '경우와 관점을 고른 뒤 <b>이 관점으로 판정하기</b>를 누르세요.',
-        shortHint: '세 경우를 두 관점 모두로 판정해 보세요. 판정이 크게 갈리는 경우를 찾는 게 목표예요.',
+        idle: '느낌의 세기와 도운 횟수를 밀어 경우를 만들고, 관점을 고른 뒤 <b>이 관점으로 판정하기</b>를 누르세요.',
+        shortHint: '느낌 0 · 도움 0 부터 한 칸씩 올려 가며, 두 관점의 판정이 어느 지점에서 바뀌는지 찾아보세요.',
         params: [
-          {key:'c', type:'seg', label:'경우', cols:3, value:0, options:CS.map(function(x){ return x.n; })},
+          {key:'fe', type:'range', label:'마음이 움직인 정도', min:0, max:3, step:1, value:2, fmt:function(v){ return FT[v]; }},
+          {key:'ac', type:'range', label:'실제로 도운 정도', min:0, max:3, step:1, value:0, fmt:function(v){ return AT[v]; },
+            note:'네 단계는 비교를 쉽게 하려고 나눈 <b>교육용 눈금</b>입니다. 판정 규칙은 두 사람의 주장을 그대로 따릅니다 — 주희는 본성의 이치가 마음으로 드러났는지를, 정약용은 실제 행사가 있었는지를 봅니다.'},
           {key:'v', type:'seg', label:'누구의 표로 판정?', cols:2, value:0, options:VW}
         ],
-        compute: function(p){ var cs = CS[p.c], j = judge(cs, p.v); return {cs:cs, j:j}; },
+        compute: function(p){ var cs = caseOf(p), j = judge(cs, p.v), o = judge(cs, 1 - p.v); return {cs:cs, j:j, other:o}; },
         draw: function(c, W, H, p, r, tau){
-          var cs = CS[p.c], k = r ? Math.min(tau / 0.7, 1) : 0, cy = H * 0.42;
+          var cs = r ? r.cs : caseOf(p), k = r ? Math.min(tau / 0.7, 1) : 0, cy = H * 0.42;
           var lx = W * 0.25, rx = W * 0.75, rad = Math.min(60, W * 0.15);
-          c.fillStyle = cs.feel ? '#F8DCDC' : '#EEF1F5'; c.beginPath(); c.arc(lx, cy, rad, 0, Math.PI * 2); c.fill();
-          txt(c, '마음', lx, cy - 4, {align:'center', bold:true}); txt(c, cs.feel ? '느낌 있음' : '느낌 없음', lx, cy + 22, {align:'center', color:'#4A5868'});
-          c.fillStyle = cs.act ? '#DCEFE6' : '#EEF1F5'; c.fillRect(rx - rad, cy - rad, rad * 2, rad * 2);
-          txt(c, '행위', rx, cy - 4, {align:'center', bold:true}); txt(c, cs.act ? '도움' : '안 도움', rx, cy + 22, {align:'center', color:'#4A5868'});
+          var fa = ['#EEF1F5', '#FBEDED', '#F8DCDC', '#F2C4C4'][cs.fe], aa = ['#EEF1F5', '#E6F3EC', '#DCEFE6', '#C6E6D5'][cs.ac];
+          c.fillStyle = fa; c.beginPath(); c.arc(lx, cy, rad, 0, Math.PI * 2); c.fill();
+          txt(c, '마음', lx, cy - 4, {align:'center', bold:true}); txt(c, FT[cs.fe], lx, cy + 22, {align:'center', color:'#4A5868', max:rad * 2 + 20});
+          c.fillStyle = aa; c.fillRect(rx - rad, cy - rad, rad * 2, rad * 2);
+          txt(c, '행위', rx, cy - 4, {align:'center', bold:true}); txt(c, AT[cs.ac], rx, cy + 22, {align:'center', color:'#4A5868', max:rad * 2 + 20});
           txt(c, VW[p.v] + '의 눈', W / 2, 28, {align:'center', bold:true, color:PAL[3]});
           if (r){
             var look = p.v === 0 ? lx : rx;
@@ -469,27 +483,39 @@ var LAB = (function(){
             c.fillStyle = col; c.fillRect(W / 2 - 110, H - 86, 220, 40);
             txt(c, '인(仁): ' + r.j.v, W / 2, H - 60, {align:'center', bold:true, color:'#fff'});
             c.globalAlpha = 1;
+            if (tau >= 1) txt(c, '다른 관점은 “' + r.other.v + '”' + (r.other.v === r.j.v ? ' — 같음' : ' — 갈림'), W / 2, H - 32,
+              {align:'center', bold:true, color:r.other.v === r.j.v ? '#4A5868' : PAL[4], max:W - 24});
           }
-          txt(c, '경우: ' + cs.s, 16, H - 14, {color:'#4A5868'});
+          txt(c, '경우: ' + cs.n, 16, H - 14, {color:'#4A5868', max:W - 32});
         },
         stats: function(p, r){
           return [['경우', r.cs.n], ['판정 관점', VW[p.v]],
             ['인이 있는가', r.j.v, r.j.lv === 2 ? PAL[1] : (r.j.lv === 1 ? PAL[6] : PAL[7])], ['판정 근거', r.j.why],
+            ['다른 관점이라면', VW[1 - p.v] + ': ' + r.other.v + ' — ' + r.other.why, r.other.v === r.j.v ? PAL[7] : PAL[4]],
             ['이 관점이 보는 곳', p.v === 0 ? '본성에 갖추어진 이치와 그것이 드러난 마음' : '실제 행위 — 선택은 사람이 스스로(자주지권)', PAL[3]],
             ['본성', p.v === 0 ? '본성이 곧 이치(성즉리)' : '선을 좋아하고 악을 부끄러워하는 기호(성기호설)']];
         },
-        columns: ['경우', '관점', '인 판정'],
-        record: function(p, r){ return {c:p.c, v:p.v, j:r.j.v, lv:r.j.lv}; },
-        row: function(d){ return [CS[d.c].s, d.v === 0 ? '주희' : '정약용', d.j]; },
+        columns: ['마음', '행위', '관점', '인 판정', '다른 관점'],
+        record: function(p, r){ return {fe:r.cs.fe, ac:r.cs.ac, v:p.v, j:r.j.v, lv:r.j.lv, oj:r.other.v, split:(r.other.v !== r.j.v)}; },
+        row: function(d){ return [FT[d.fe], AT[d.ac], d.v === 0 ? '주희' : '정약용', d.j, d.oj]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('세 경우 × 두 관점 판정표', '<div id="dq1"></div><p class="ask">세 번째 경우(느낌 없이 도움)에서 두 표의 판정이 어떻게 갈렸나요? 첫 번째 경우(느끼기만)도 비교해 보세요.</p>') +
+            card('만들어 본 경우별 판정표', '<div id="dq1"></div><p class="ask">느낌을 0 으로 두고 도움만 올리면 두 판정이 어떻게 갈리나요? 반대로 느낌만 올리면요? 판정이 바뀌는 지점이 각 관점이 보는 곳입니다.</p>') +
             card('관점별 "있음" 판정 수', '<div id="dq2"></div><p class="ask">과제: 자신이 "착하다"고 여기는 사람 한 명을 떠올려, 그 판단의 근거가 마음씨인지 행동인지 나눠 적고, 주희와 정약용의 관점에서 각각 어떤 평가가 나오는지 비교해 보세요.</p>') + '</div>';
-          var rows = CS.map(function(cs, i){
-            var cell = [0, 1].map(function(v){ var g = rec.filter(function(d){ return d.c === i && d.v === v; }); return g.length ? g[g.length - 1].j : '—'; });
-            return [cs.s, cell[0], cell[1], (cell[0] !== '—' && cell[1] !== '—') ? (cell[0] === cell[1] ? '같음' : '갈림') : '—'];
+          var keys = [], rows = [], split = 0;
+          rec.forEach(function(d){ var k = d.fe + '_' + d.ac; if (keys.indexOf(k) < 0) keys.push(k); });
+          keys.forEach(function(k){
+            var g = rec.filter(function(d){ return d.fe + '_' + d.ac === k; }), d0 = g[0];
+            var a = g.filter(function(d){ return d.v === 0; }), b = g.filter(function(d){ return d.v === 1; });
+            var ja = a.length ? a[0].j : d0.v === 1 ? d0.oj : '—';
+            var jb = b.length ? b[0].j : d0.v === 0 ? d0.oj : '—';
+            if (ja !== '—' && jb !== '—' && ja !== jb) split++;
+            rows.push([FT[d0.fe], AT[d0.ac], ja, jb, (ja !== '—' && jb !== '—') ? (ja === jb ? '같음' : '갈림') : '—']);
           });
-          $('dq1').innerHTML = tableHTML(['경우', '주희', '정약용', '두 판정'], rows);
+          $('dq1').innerHTML = tableHTML(['마음', '행위', '주희', '정약용', '두 판정'], rows) +
+            '<p class="msg">두 판정이 갈린 경우 <b>' + split + '가지</b>' +
+            (split ? ' — 갈리는 자리는 늘 “마음은 없는데 행위는 있다” 또는 “마음은 있는데 행위는 없다” 쪽입니다.'
+                   : ' — 느낌만 있는 경우와 행위만 있는 경우를 각각 만들어 보세요.') + '</p>';
           var it = VW.map(function(n, v){ var g = rec.filter(function(d){ return d.v === v; }); var y = g.filter(function(d){ return d.lv === 2; }).length;
             return {label:n + ' (' + g.length + '회)', v:y, color:v ? PAL[1] : PAL[0], text:y + '회'}; });
           $('dq2').innerHTML = hbars(it, Math.max(1, rec.length));
@@ -501,7 +527,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

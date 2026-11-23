@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,20 +479,29 @@ return (function(){
         {w:'progress', sy:['pro', 'gress'], n:'진행, 발전', v:'나아가다', en:'You made great progress.', ev:'The work will progress slowly.'}
       ];
       var ST = ['앞 음절에 강세', '뒤 음절에 강세'], SND = ['소리 끄기', '소리 켜기 (예문 읽기)'];
+      var INT = ['명사 뜻으로 말하려 함', '동사 뜻으로 말하려 함'];
+      var GQ = ['안 찍음', '명사 (물건·이름 쪽)', '동사 (행동 쪽)'];
       return {
         sceneHeight: 400,
         idle: '단어와 강세 자리를 고른 뒤 <b>이 강세로 읽기</b>를 누르세요.',
-        shortHint: '다섯 단어 모두 앞 강세와 뒤 강세를 하나씩 해 보세요. 품사가 바뀌는 방향이 늘 같나요?',
+        shortHint: '다섯 단어 모두 앞 강세와 뒤 강세를 하나씩 해 보세요. 그다음 전하려는 뜻을 그대로 두고 강세만 거꾸로 두어, 듣는 사람이 무슨 뜻으로 알아듣는지 확인해 보세요.',
         params: [
           {key:'w', type:'seg', label:'단어 (철자는 그대로)', cols:3, value:0, options:W5.map(function(x){ return x.w; })},
           {key:'s', type:'seg', label:'강세 자리', cols:2, value:0, options:ST},
+          {key:'int', type:'seg', label:'내가 전하려는 뜻', cols:2, value:0, options:INT,
+            note:'강세 자리와 전하려는 뜻이 어긋나면, 하려던 말과 다른 뜻으로 들립니다.'},
+          {key:'g2', type:'seg', label:'먼저 찍기: 이 강세로 읽으면 듣는 사람은 어느 뜻으로 들을까?', cols:3, value:0, options:GQ,
+            note:'찍고 나서 읽으면 채점해 기록 표에 남깁니다.'},
           {key:'snd', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
-          var x = W5[p.w], front = p.s === 0, ex = front ? x.en : x.ev;
+          var x = W5[p.w], front = p.s === 0, intent = p.int || 0, ex = intent === 0 ? x.en : x.ev;
           var played = p.snd === 1 ? say(ex, 'en-US', 0.9) : false;
           var shown = front ? x.sy[0].toUpperCase() + x.sy[1] : x.sy[0] + x.sy[1].toUpperCase();
-          return {x:x, front:front, pos:front ? '명사' : '동사', mean:front ? x.n : x.v, ex:ex, shown:shown, played:played};
+          var heard = front ? '명사' : '동사', want = intent === 0 ? '명사' : '동사', g2 = p.g2 || 0;
+          return {x:x, front:front, pos:heard, mean:front ? x.n : x.v, ex:ex, shown:shown, played:played,
+            intent:intent, want:want, wantMean:intent === 0 ? x.n : x.v, mis:(heard !== want),
+            guess:g2, gtext:GQ[g2], ok:(g2 > 0 ? ((g2 === 1) === front) : null)};
         },
         draw: function(c, W, H, p, r, tau){
           var x = W5[p.w], a = r ? ph(tau, 0, 0.5) : 0, cx = W / 2;
@@ -511,19 +522,37 @@ return (function(){
           c.globalAlpha = 1;
         },
         stats: function(p, r){
-          return [['단어', r.x.w + ' (' + r.x.sy.join('·') + ')'], ['강세', r.shown, PAL[0]], ['품사와 뜻', r.pos + ' — ' + r.mean, r.front ? PAL[2] : PAL[1]], ['예문', r.ex],
-            ['짝', r.x.sy[0].toUpperCase() + r.x.sy[1] + ' ' + r.x.n + ' ↔ ' + r.x.sy[0] + r.x.sy[1].toUpperCase() + ' ' + r.x.v], ['소리', p.snd === 1 ? (r.played ? '기기 음성으로 예문을 읽음' : '이 기기에서는 음성을 쓸 수 없어요') : '끔']];
+          var a7 = [['단어', r.x.w + ' (' + r.x.sy.join('·') + ')'], ['강세', r.shown, PAL[0]],
+            ['이 강세로 들리는 뜻', r.pos + ' — ' + r.mean, r.front ? PAL[2] : PAL[1]],
+            ['내가 전하려던 뜻', r.want + ' — ' + r.wantMean, PAL[6]],
+            ['알아들었을까', r.mis ? '어긋남 — 「' + r.wantMean + '」를 말하려 했는데 「' + r.mean + '」로 들려요' : '맞게 전달됨 — 강세와 뜻이 짝이 맞아요', r.mis ? PAL[3] : PAL[1]],
+            ['예문 (전하려던 뜻)', r.ex],
+            ['짝', r.x.sy[0].toUpperCase() + r.x.sy[1] + ' ' + r.x.n + ' ↔ ' + r.x.sy[0] + r.x.sy[1].toUpperCase() + ' ' + r.x.v],
+            ['소리', p.snd === 1 ? (r.played ? '기기 음성으로 예문을 읽음 (기기 음성은 강세를 그대로 흉내 내지 못할 수 있어요)' : '이 기기에서는 음성을 쓸 수 없어요') : '끔']];
+          if (r.guess > 0) a7.push(['먼저 찍은 것 채점', r.gtext + ' → ' + (r.ok ? '맞음' : '틀림') + ' (들리는 뜻: ' + r.pos + ')', r.ok ? PAL[1] : PAL[3]]);
+          return a7;
         },
-        columns: ['단어', '강세', '품사', '뜻'],
-        record: function(p, r){ return {w:p.w, s:p.s, sh:r.shown}; },
-        row: function(d){ var x = W5[d.w]; return [x.w, d.sh, d.s === 0 ? '명사' : '동사', d.s === 0 ? x.n : x.v]; },
+        columns: ['단어', '강세', '들리는 뜻', '전하려던 뜻', '알아들었을까', '찍은 것'],
+        record: function(p, r){ return {w:p.w, s:p.s, sh:r.shown, intent:r.intent, mis:r.mis, guess:r.guess, ok:r.ok}; },
+        row: function(d){ var x = W5[d.w]; return [x.w, d.sh, (d.s === 0 ? '명사 ' : '동사 ') + (d.s === 0 ? x.n : x.v),
+          (d.intent === 0 ? '명사 ' : '동사 ') + (d.intent === 0 ? x.n : x.v), d.mis ? '어긋남 ×' : '맞게 전달 ○',
+          d.guess > 0 ? (GQ[d.guess].split(' ')[0] + (d.ok ? ' ○' : ' ×')) : '안 찍음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('단어별 — 앞 강세(명사)와 뒤 강세(동사)', '<div id="me2a"></div><p class="ask">다섯 단어에서 강세 자리와 품사가 늘 같은 방향으로 짝지어졌나요? 강세를 틀리면 철자를 틀린 것보다 더 못 알아들을 수 있는 까닭을 말해 보세요.</p>') +
-            card('문장 강세 — 세게 읽은 단어가 “그게 아니라”를 가리킨다', '<div id="me2b"></div><p class="ask">과제: 교과서에서 명사와 동사로 모두 쓰이는 두 음절 단어 다섯 개를 찾아 사전의 강세 표시를 확인하고, 두 가지로 읽어 녹음해 친구에게 뜻을 맞혀 보게 하세요.</p>') + '</div>';
+            card('문장 강세 — 세게 읽은 단어가 “그게 아니라”를 가리킨다', '<div id="me2b"></div><p class="ask">과제: 교과서에서 명사와 동사로 모두 쓰이는 두 음절 단어 다섯 개를 찾아 사전의 강세 표시를 확인하고, 두 가지로 읽어 녹음해 친구에게 뜻을 맞혀 보게 하세요.</p>') +
+            card('강세를 잘못 두면 · 먼저 찍기 채점', '<div id="me2c"></div><p class="ask">강세 자리와 전하려는 뜻을 어긋나게 둔 기록은 몇 개였나요? 그때 듣는 사람은 무슨 뜻으로 알아들었나요?</p>') + '</div>';
           $('me2a').innerHTML = tableHTML(['단어', '앞 강세 (명사)', '뒤 강세 (동사)'], W5.map(function(x, i){ var t0 = rec.some(function(d){ return d.w === i && d.s === 0; }), t1 = rec.some(function(d){ return d.w === i && d.s === 1; });
             return [x.w, (t0 ? '✔ ' : '') + x.sy[0].toUpperCase() + x.sy[1] + ' ' + x.n, (t1 ? '✔ ' : '') + x.sy[0] + x.sy[1].toUpperCase() + ' ' + x.v]; }));
           $('me2b').innerHTML = tableHTML(['문장', '전하는 뜻'], [['I didn\'t <b>TAKE</b> your pen.', '가져간 게 아니라 빌렸을 뿐'], ['I didn\'t take <b>YOUR</b> pen.', '네 것이 아니라 다른 사람 펜'], ['<b>I</b> didn\'t take your pen.', '가져간 건 내가 아니라 다른 사람'], ['des<b>SERT</b> / <b>DE</b>sert', '후식 / 사막 (철자는 다르지만 강세가 큰 몫)']]);
+          var mis = rec.filter(function(d){ return d.mis; }), tried = rec.filter(function(d){ return d.guess > 0; });
+          var hit = tried.filter(function(d){ return d.ok; }).length;
+          var mrows = mis.map(function(d){ var x = W5[d.w];
+            return [x.w + ' → ' + d.sh, (d.intent === 0 ? x.n : x.v), (d.s === 0 ? x.n : x.v)]; });
+          $('me2c').innerHTML = (mrows.length ? tableHTML(['읽은 모양', '전하려던 뜻', '들린 뜻'], mrows) : '<p class="msg">강세 자리와 전하려는 뜻을 어긋나게 두고도 한 번 읽어 보세요.</p>') +
+            tableHTML(['합계', '값'], [['맞게 전달된 기록', (rec.length - mis.length) + '회'], ['어긋난 기록', mis.length + '회'],
+              ['먼저 찍어 본 횟수', tried.length + '회'],
+              ['맞힌 횟수', hit + '회' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')]]);
         }
       };
     })();
@@ -533,7 +562,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -517,7 +519,7 @@ var LAB = (function anonymous(
       var M = ['(가) 내 편 글만 꼼꼼히 읽기', '(나) 두 글을 모두 표로 정리하기'];
       var DATA = [{why:3, ans:1}, {why:9, ans:7}];
       return {
-        sceneHeight:function(w){ return w < 500 ? 640 : 520; },
+        sceneHeight:function(w){ return w < 500 ? 790 : 520; },
         idle:'내 편·읽는 방식·살펴볼 칸을 고른 뒤 <b>이 방식으로 읽기</b>를 누르세요.',
         shortHint:'두 읽는 방식을 모두 해 보고, 표의 다섯 칸을 하나씩 살펴보세요. 사실 주장 칸과 의견·가치 판단 칸은 따지는 방법이 어떻게 다른가요?',
         params:[
@@ -538,8 +540,17 @@ var LAB = (function anonymous(
           });
           var ty = tbH + 24, hw = narrow ? 0 : 150, rh = narrow ? 58 : 40;
           var colW = narrow ? (W - 36) / 2 : (W - 36 - hw) / 2;
+          // 좁은 화면: 칸 글이 여러 줄이면 줄 수만큼 칸 높이를 키운다
+          var rowH = [];
+          R.forEach(function(row){
+            if (!narrow){ rowH.push(rh); return; }
+            var na = wrap(c, row.a, 0, 0, colW - 16, 14, {size:12, measure:true});
+            var nb = wrap(c, row.b, 0, 0, colW - 16, 14, {size:12, measure:true});
+            rowH.push(30 + Math.max(na, nb) * 14);
+          });
+          var yAcc = ty;
           R.forEach(function(row, j){
-            var y = ty + j * rh, sel = j === p.row;
+            var y = yAcc, sel = j === p.row; yAcc += rowH[j];
             if (narrow){
               T(c, row.h, 18, y + 12, {size:12, bold:true, color:sel ? PAL[0] : '#4A5868'});
             } else {
@@ -547,14 +558,14 @@ var LAB = (function anonymous(
               T(c, row.h, 24, y + rh / 2 + 3, {size:12, bold:true, color:sel ? PAL[0] : '#4A5868', max:hw - 14});
             }
             [0, 1].forEach(function(i){
-              var x = 18 + hw + i * colW, cy = narrow ? y + 16 : y, ch = narrow ? rh - 20 : rh - 4;
+              var x = 18 + hw + i * colW, cy = narrow ? y + 16 : y, ch = narrow ? rowH[j] - 22 : rh - 4;
               var shown = !r ? false : (i === p.s ? k > 0.15 : (p.m === 1 && k > 0.15 + 0.12 * j));
               rbox(c, x + 2, cy, colW - 4, ch, shown ? '#FFFFFF' : '#F2F4F7', sel ? PAL[0] : '#D5DCE5', sel ? 2.5 : 1);
               if (shown) wrap(c, i ? row.b : row.a, x + 8, cy + 15, colW - 16, 14, {size:12, color:'#1E2833'});
               else T(c, r ? '?' : '', x + colW / 2, cy + ch / 2 + 5, {size:15, bold:true, align:'center', color:'#A7B2BF'});
             });
           });
-          var y2 = ty + R.length * rh + 14;
+          var y2 = yAcc + 14;
           if (!r){ T(c, '읽으면 표가 채워져요. (가) 방식은 내 편 칸만 채워집니다.', 18, y2, {size:13, color:'#8C99A8', max:W - 36}); return; }
           if (k < 1) return;
           T(c, '살펴본 칸 「' + R[p.row].h + '」 → ' + R[p.row].how, 18, y2, {size:14, bold:true, color:'#A86825', max:W - 36});
@@ -596,7 +607,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

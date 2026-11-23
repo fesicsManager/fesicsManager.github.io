@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -449,12 +451,14 @@ return {
   compute: function(p){ return calc(p.a, p.c); },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.a, p.c), cw = Math.min(140, W * 0.25), ch = 200, y0 = H - 80, sc = ch / 10; // 컵 높이 = 10 cm(넘치는 높이)라 '넘침!'이 컵 가장자리에 물이 닿을 때 보이게
-    function inX(s, x, b){ c.font = (b ? '700 ' : '') + '18px ' + FONT; var hw = c.measureText(s).width / 2 + 4; return Math.max(hw, Math.min(W - hw, x)); } // 가운데 맞춤 글을 캔버스 안으로
+    var nz = W < 560 ? 11 : 18;
+    function inX(s, x, b, sz){ c.font = (b ? '700 ' : '') + (sz || 18) + 'px ' + FONT; var hw = c.measureText(s).width / 2 + 4; return Math.max(hw, Math.min(W - hw, x)); }
+    function ctxt(s, x, y, sz, bold, col){ c.font = (bold ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(s, inX(s, x, bold, sz), y); } // 가운데 맞춤 글을 캔버스 안으로
     [['컵 A (물속 얼음)', 0], ['컵 B (받침 위 얼음)', 1]].forEach(function(cup, i){ var x = W * (i ? (W < 480 ? 0.72 : 0.62) : (W < 480 ? 0.25 : 0.2)) - cw / 2, level = 8 + (i ? C.riseB * k : 0), over = Math.max(0, level - 10), lv = Math.min(10, level);
       c.strokeStyle = '#8C99A8'; c.lineWidth = 3; c.strokeRect(x, y0 - ch, cw, ch); c.fillStyle = 'rgba(91,143,214,.55)'; c.fillRect(x + 2, y0 - lv * sc, cw - 4, lv * sc);
       var iceH = (C.ice / 10) * (1 - k); if (iceH > 0.3){ c.fillStyle = '#EAF4FF'; c.strokeStyle = '#B8D4F0'; if (i === 0){ c.fillRect(x + cw / 2 - 25, y0 - 8 * sc - iceH * 2, 50, iceH * 4); c.strokeRect(x + cw / 2 - 25, y0 - 8 * sc - iceH * 2, 50, iceH * 4); } else { c.fillStyle = '#8C99A8'; c.fillRect(x + cw / 2 - 40, y0 - ch - 6, 80, 6); c.fillStyle = '#EAF4FF'; c.fillRect(x + cw / 2 - 25, y0 - ch - 6 - iceH * 4, 50, iceH * 4); c.strokeRect(x + cw / 2 - 25, y0 - ch - 6 - iceH * 4, 50, iceH * 4); } }
-      if (over > 0){ c.fillStyle = 'rgba(91,143,214,.6)'; c.fillRect(x - 10, y0, cw + 20, 4 + over * 2); var os = '넘침! 넘친 물 ' + f(over, 1) + ' cm'; /* 물 높이는 컵 높이(10 cm)까지만, 넘친 양은 따로 */ txt(c, os, inX(os, x + cw / 2, true), y0 + 46, /* 넘친 물·글자가 '물 높이' 글자를 가리지 않게 */ {align:'center', color:'#C8463D', bold:true}); }
-      seg(c, x - 6, y0 - 8 * sc, x + cw + 6, y0 - 8 * sc, '#C8463D', 1.5, [4, 3]); txt(c, cup[0], inX(cup[0], x + cw / 2, true), y0 - ch - (i ? 14 + C.ice / 10 * 4 : 14), {align:'center', bold:true}); /* 컵 B 이름은 받침 위 얼음보다 위에 (얼음에 가리지 않게) */ var hs = '물 높이 ' + f(lv, 1) + ' cm'; txt(c, hs, inX(hs, x + cw / 2), y0 + 22, {align:'center', color:'#2B5FA3'}); });
+      if (over > 0){ c.fillStyle = 'rgba(91,143,214,.6)'; c.fillRect(x - 10, y0, cw + 20, 4 + over * 2); var os = '넘침! 넘친 물 ' + f(over, 1) + ' cm'; /* 물 높이는 컵 높이(10 cm)까지만, 넘친 양은 따로 */ ctxt(os, x + cw / 2, y0 + 46, nz, true, '#C8463D'); void(/* 넘친 물·글자가 '물 높이' 글자를 가리지 않게 */ {align:'center', color:'#C8463D', bold:true}); }
+      seg(c, x - 6, y0 - 8 * sc, x + cw + 6, y0 - 8 * sc, '#C8463D', 1.5, [4, 3]); ctxt(cup[0], x + cw / 2, y0 - ch - (i ? 14 + C.ice / 10 * 4 : 14), nz, true, '#1E2833'); /* 컵 B 이름은 받침 위 얼음보다 위에 (얼음에 가리지 않게) */ var hs = '물 높이 ' + f(lv, 1) + ' cm'; ctxt(hs, x + cw / 2, y0 + 22, nz, false, '#2B5FA3'); });
     txt(c, '빨간 점선 = 처음 물 높이 8 cm', 12, H - 14, {color:'#4A5868'});
   },
   stats: function(p, r){
@@ -479,7 +483,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

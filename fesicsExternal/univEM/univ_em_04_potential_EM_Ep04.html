@@ -212,7 +212,11 @@ const PRESETS=[
   {name:"사중극", q:[{x:-0.8,y:0.8,q:1},{x:0.8,y:0.8,q:-1},{x:-0.8,y:-0.8,q:-1},{x:0.8,y:-0.8,q:1}]}
 ];
 
+/* 회전이 0 이 아닌 '가짜 장' — 퍼텐셜을 정의할 수 없는 경우를 맞대어 보려고 넣었다 */
+const FAKEQ=[{fake:true}];
+function isFake(qs){ return qs && qs.length===1 && qs[0].fake; }
 function Vat(x,y,qs){
+  if(isFake(qs)) return NaN;
   let v=0;
   for(const c of qs){
     const r=Math.hypot(x-c.x,y-c.y);
@@ -221,6 +225,7 @@ function Vat(x,y,qs){
   return v;
 }
 function Eat(x,y,qs){
+  if(isFake(qs)) return [-y, x];
   let ex=0,ey=0;
   for(const c of qs){
     const dx=x-c.x, dy=y-c.y, r=Math.hypot(dx,dy);
@@ -355,6 +360,7 @@ function render(){
 
   // 전하
   for(const c of qs){
+    if(c.fake) continue;
     const p=toPx(c.x,c.y);
     ctx.fillStyle=c.q>0?css('--out'):css('--in');
     ctx.beginPath();ctx.arc(p[0],p[1],10,0,7);ctx.fill();
@@ -419,6 +425,7 @@ const toW=(px,py)=>[(px-cv.width/2)/s,(cv.height/2-py)/s];
 
 const sel=document.getElementById('preset2');
 PRESETS.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;sel.appendChild(o);});
+{const o=document.createElement('option');o.value=PRESETS.length;o.textContent='회전이 있는 가짜 장 (−y, x)';sel.appendChild(o);}
 sel.value=1;
 const bendEl=document.getElementById('bend');
 let A={x:-1.8,y:-1.3}, B={x:1.7,y:1.2}, grab=null;
@@ -449,7 +456,8 @@ function lineIntegral(pts,qs){
 }
 
 function render(){
-  const qs=PRESETS[sel.value].q, bend=parseFloat(bendEl.value);
+  const fake=(+sel.value===PRESETS.length);
+  const qs=fake?FAKEQ:PRESETS[sel.value].q, bend=parseFloat(bendEl.value);
   document.getElementById('bendLab').textContent=bend.toFixed(2);
   ctx.clearRect(0,0,cv.width,cv.height);
 
@@ -502,10 +510,20 @@ function render(){
   document.getElementById('p2').textContent=vals[1].toFixed(4);
   document.getElementById('p3').textContent=vals[2].toFixed(4);
   const dv=Vat(B.x,B.y,qs)-Vat(A.x,A.y,qs);
-  document.getElementById('dv').textContent=dv.toFixed(4);
+  document.getElementById('dv').textContent=isFinite(dv)?dv.toFixed(4):'정의되지 않음';
   const spread=Math.max(...vals)-Math.min(...vals);
-  document.getElementById('verdict2').textContent =
-    '세 경로의 차이: '+spread.toFixed(5)+' — 수치 오차 수준. 닫힌 경로 순환은 0입니다.';
+  const vd=document.getElementById('verdict2');
+  const scale=Math.max(1e-9, Math.max(...vals.map(Math.abs)));
+  if(fake){
+    vd.className='verdict no';
+    vd.textContent='세 경로의 차이: '+spread.toFixed(5)+' — 경로마다 값이 다릅니다. '
+      +'이 장은 회전(∇×F)이 2 로 0 이 아니어서 퍼텐셜 V 가 아예 없습니다. '
+      +'그래서 V(B) − V(A) 로 적을 수 없고, 닫힌 경로 순환도 0 이 아닙니다. 휘어짐을 바꾸면 값이 더 벌어집니다.';
+  }else{
+    vd.className='verdict yes';
+    vd.textContent='세 경로의 차이: '+spread.toFixed(5)+' — 수치 오차 수준. 닫힌 경로 순환은 0입니다. '
+      +'아래 목록에서 “회전이 있는 가짜 장”을 골라, 퍼텐셜이 없는 장에서는 경로에 따라 값이 갈리는 것과 맞대어 보세요.';
+  }
 }
 
 function pick(ev){

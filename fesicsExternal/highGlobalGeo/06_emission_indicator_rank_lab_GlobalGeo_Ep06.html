@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -467,17 +469,27 @@ var LAB = (function(){
       var IN = ['연간 배출량', '누적 배출량 (1750년~)', '1인당 배출량'], IS = ['연간', '누적', '1인당'];
       function ranks(k){ var o = D.map(function(x, i){ return i; }).sort(function(a, b){ return D[b].v[k] - D[a].v[k]; }), rk = []; o.forEach(function(i, j){ rk[i] = j + 1; }); return {order:o, rk:rk}; }
       var RK = [ranks(0), ranks(1), ranks(2)];
+      /* 줄 세우기를 열기 전에 1위와 순위 폭을 먼저 맞혀 보게 한다 */
+      var PSW = ['0~1칸', '2칸', '3칸 이상'];
+      function spBand(n){ return n <= 1 ? 0 : n === 2 ? 1 : 2; }
       return {
         sceneHeight: function(w){ return w < 500 ? 380 : 360; },
         idle: '지표와 나라를 고른 뒤 <b>이 지표로 줄 세우기</b>를 누르세요.',
         shortHint: '세 지표를 모두 한 번씩 고르고, 영국·인도·한국을 따라가 보세요.',
         params: [
           {key:'ind', type:'seg', label:'지표', cols:3, value:0, options:IN},
-          {key:'who', type:'seg', label:'따라가 볼 나라', cols:5, value:4, options:D.map(function(x){ return x.n; })}
+          {key:'who', type:'seg', label:'따라가 볼 나라', cols:5, value:4, options:D.map(function(x){ return x.n; })},
+          {key:'p1', type:'seg', label:'먼저 찍기 ① 이 지표에서 1위는', cols:5, value:0, options:D.map(function(x){ return x.n; })},
+          {key:'p2', type:'seg', label:'먼저 찍기 ② 따라가는 나라의 순위 폭은', cols:3, value:0, options:PSW}
         ],
         compute: function(p){
           var three = [RK[0].rk[p.who], RK[1].rk[p.who], RK[2].rk[p.who]];
-          return {order:RK[p.ind].order, rank:RK[p.ind].rk[p.who], three:three, spread:Math.max.apply(null, three) - Math.min.apply(null, three), pop:D[p.who].v[0] / D[p.who].v[2]};
+          var spread = Math.max.apply(null, three) - Math.min.apply(null, three);
+          var top = RK[p.ind].order[0], ok1 = p.p1 === top, ok2 = p.p2 === spBand(spread);
+          return {order:RK[p.ind].order, rank:RK[p.ind].rk[p.who], three:three, spread:spread, pop:D[p.who].v[0] / D[p.who].v[2],
+            ok1:ok1, ok2:ok2,
+            m1:D[p.p1].n + ' → 실제 1위는 ' + D[top].n + (ok1 ? ' — 맞음' : ' — 틀림'),
+            m2:PSW[p.p2] + ' → 실제 ' + spread + '칸' + (ok2 ? ' — 맞음' : ' — 틀림')};
         },
         draw: function(c, W, H, p, r, tau){
           var k = p.ind, order = r ? r.order : RK[k].order, mx = Math.max.apply(null, D.map(function(x){ return x.v[k]; }));
@@ -499,11 +511,15 @@ var LAB = (function(){
             [D[p.who].n + '의 이 지표 순위', r.rank + '위 · ' + D[p.who].t[p.ind], PAL[4]],
             [D[p.who].n + '의 세 순위', '연간 ' + r.three[0] + '위 · 누적 ' + r.three[1] + '위 · 1인당 ' + r.three[2] + '위', PAL[3]],
             ['순위 폭', r.spread + '칸' + (r.spread >= 2 ? ' — 지표에 따라 크게 바뀜' : ''), PAL[6]],
-            ['인구 어림 (연간 ÷ 1인당)', '약 ' + f(r.pop, 1) + '억 명']];
+            ['먼저 찍기 ① 채점', r.m1, r.ok1 ? PAL[1] : PAL[4]],
+            ['먼저 찍기 ② 채점', r.m2, r.ok2 ? PAL[1] : PAL[4]],
+            ['인구 어림 (연간 ÷ 1인당)', '약 ' + f(r.pop, 1) + '억 명'],
+            ['※', '다섯 나라의 배출량은 공개 통계를 반올림한 교육용 어림값입니다.']];
         },
-        columns: ['지표', '나라', '이 지표 순위', '연간·누적·1인당 순위', '순위 폭'],
-        record: function(p, r){ return {ind:p.ind, who:p.who, rank:r.rank, three:r.three, spread:r.spread}; },
-        row: function(d){ return [IS[d.ind], D[d.who].n, d.rank + '위', d.three.join(' · '), d.spread + '칸']; },
+        columns: ['지표', '나라', '이 지표 순위', '연간·누적·1인당 순위', '순위 폭', '먼저 찍기'],
+        record: function(p, r){ return {ind:p.ind, who:p.who, rank:r.rank, three:r.three, spread:r.spread, ok1:r.ok1, ok2:r.ok2}; },
+        row: function(d){ return [IS[d.ind], D[d.who].n, d.rank + '위', d.three.join(' · '), d.spread + '칸',
+          d.ok1 == null ? '—' : ((d.ok1 ? '①○' : '①✕') + ' ' + (d.ok2 ? '②○' : '②✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('세 개의 순위표', '<div id="ev1"></div><p class="ask">순위가 가장 크게 바뀐 나라는 어디인가요? 그 까닭을 산업화 시기와 인구로 설명해 보세요.</p>') +
@@ -514,7 +530,9 @@ var LAB = (function(){
           var seen = {}, items = [];
           rec.forEach(function(d){ if (seen[d.who]) return; seen[d.who] = 1;
             items.push({label:D[d.who].n + ' (' + d.three.join('·') + '위)', v:d.spread, color:d.spread >= 2 ? PAL[4] : PAL[0], text:d.spread + '칸'}); });
-          $('ev2').innerHTML = hbars(items, 4);
+          var h1 = rec.filter(function(d){ return d.ok1; }).length, h2 = rec.filter(function(d){ return d.ok2; }).length;
+          $('ev2').innerHTML = hbars(items, 4) +
+            '<p class="msg">먼저 찍기 성적 — ① 1위 맞힘 ' + h1 + ' / ' + rec.length + ' · ② 순위 폭 맞힘 ' + h2 + ' / ' + rec.length + '</p>';
         }
       };
     })();
@@ -523,7 +541,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

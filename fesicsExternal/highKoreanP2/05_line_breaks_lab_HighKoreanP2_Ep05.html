@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>행갈이는 보기 좋으라고 하나</h1>
-    <p>같은 열 어절로 된 짧은 시를 <b>한 줄</b>, <b>4행</b>, <b>2연 7행</b>으로 배치해 낭독해 봅니다. 연구원 20명의 평균 낭독 시간·멈춤 횟수와 ‘가장 강하게 남은 말’을 확인하고, 내가 먼저 예측해 보세요. 소리를 켜면 기기의 한국어 음성이 행마다 끊어 읽어요.<br><span style="font-size:.9em;color:#a86825">※ 시는 제로 랩이 직접 지은 것이고, 낭독 수치는 제로 랩의 가상 자료입니다.</span></p>
+    <p>같은 열 어절로 된 짧은 시를 <b>한 줄</b>, <b>4행</b>, <b>2연 7행</b>으로 배치해 낭독해 봅니다. 연구원 20명의 평균 낭독 시간·멈춤 횟수와 ‘가장 강하게 남은 말’을 확인하고, 내가 먼저 예측해 보세요. 소리를 켜면 기기의 한국어 음성이 행마다 끊어 읽어요.<br><span style="font-size:.9em;color:#a86825">※ 시는 제로 랩이 직접 지은 것이고, 낭독 수치는 제로 랩의 가상 자료입니다.</span><br><span style="font-size:.9em;color:#a86825">※ <b>열 어절을 내가 직접 끊어 보기</b>를 켜면 끊은 자리 바로 앞 말이 강조된다는 규칙으로 셈해 줘요. 낭독 시간·멈춤·강조 점수는 교육용 모형값이에요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -472,6 +474,24 @@ return (function(){
       ];
       var PRE = ['창문', '오지 / 오지 않았고', '열어 두었다'];
       var SND = ['소리 끄기', '소리 켜기 (기기 음성)'];
+      var WD = ['오늘도', '너는', '오지', '않았고', '나는', '창문을', '조금', '더', '열어', '두었다'];
+      /* 내가 직접 끊어 보기 — 끊은 자리 바로 앞 말(행 끝 말)이 강조된다는 규칙으로 셈한다.
+         강조 점수 = 10 − 2 × (그 행의 어절 수 − 1), 최소 1. 마지막 행은 +1.
+         낭독 시간 = 4초 + 멈춤마다 0.9초. 모두 교육용 모형값이다. */
+      function mkCut(b1, b2, b3){
+        var bs = [b1, b2, b3].filter(function(v){ return v > 0 && v < 10; });
+        bs = bs.filter(function(v, i){ return bs.indexOf(v) === i; }).sort(function(a, b){ return a - b; });
+        var ls = [], prev = 0, i;
+        bs.forEach(function(v){ ls.push(WD.slice(prev, v)); prev = v; });
+        ls.push(WD.slice(prev));
+        var sc = ls.map(function(ln, k){ return [ln[ln.length - 1], Math.max(1, 10 - 2 * (ln.length - 1)) + (k === ls.length - 1 ? 1 : 0)]; });
+        var top = sc.slice().sort(function(a, b){ return b[1] - a[1]; }).slice(0, 3);
+        var w1 = top[0][0];
+        var kk = /창문/.test(w1) ? 0 : (/오지|않았고/.test(w1) ? 1 : (/열어|두었다/.test(w1) ? 2 : -1));
+        return {n:'내 배치 (' + (bs.length ? bs.join('·') + '어절 뒤에서 끊음' : '끊지 않음') + ')',
+          st:[ls.map(function(ln){ return ln.join(' '); })], t:Math.round((4 + 0.9 * bs.length) * 10) / 10,
+          ps:bs.length, top:top, k:kk, bs:bs, mine:true, lines:ls};
+      }
       function speak(v){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel();
         v.st.forEach(function(stz){ stz.forEach(function(l){ var u = new U(l); u.lang = 'ko-KR'; u.rate = 0.85; u.volume = 0.8; SS.speak(u); }); }); return true; } catch(e){ return false; } }
       return {
@@ -482,11 +502,22 @@ return (function(){
         params: [
           {key:'v', type:'seg', label:'배치 (낱말·순서는 같음)', cols:3, value:0, options:V.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'나의 예측 — 가장 강하게 남을 말', cols:3, value:0, options:PRE},
-          {key:'snd', type:'seg', label:'소리', cols:2, value:0, options:SND}
+          {key:'snd', type:'seg', label:'소리', cols:2, value:0, options:SND},
+          {key:'c3', type:'seg', label:'열 어절을 내가 직접 끊어 보기', cols:1, value:0, options:['안 함(위 세 배치 그대로)', '아래 세 칸으로 내가 끊기'],
+            note:'끊은 자리 바로 앞 말이 강조된다는 규칙으로 셈해 줘요. 어디서 끊으면 어느 말이 남나요?'},
+          {key:'b1', type:'range', label:'첫 번째 끊는 자리 (어절 뒤)', min:0, max:9, step:1, value:2, fmt:function(v){ return v === 0 ? '끊지 않음' : v + '어절 뒤 (…' + WD[v - 1] + ' /)'; }},
+          {key:'b2', type:'range', label:'두 번째 끊는 자리', min:0, max:9, step:1, value:4, fmt:function(v){ return v === 0 ? '끊지 않음' : v + '어절 뒤 (…' + WD[v - 1] + ' /)'; }},
+          {key:'b3', type:'range', label:'세 번째 끊는 자리', min:0, max:9, step:1, value:6, fmt:function(v){ return v === 0 ? '끊지 않음' : v + '어절 뒤 (…' + WD[v - 1] + ' /)'; }}
         ],
-        compute: function(p){ var v = V[p.v], played = p.snd === 1 ? speak(v) : false; return {v:v, ok:p.g === v.k, played:played}; },
+        compute: function(p){
+          var v = p.c3 === 1 ? mkCut(p.b1, p.b2, p.b3) : V[p.v];
+          var played = p.snd === 1 ? speak(v) : false;
+          var out = {v:v, ok:p.g === v.k, played:played, mine:!!v.mine};
+          if (v.mine) out.rule = '행 끝 말 ' + v.top.map(function(q){ return q[0] + '(' + q[1] + ')'; }).join(' · ') + ' — 짧은 행의 끝 말일수록 강하게 남아요';
+          return out;
+        },
         draw: function(c, W, H, p, r, tau){
-          var v = V[p.v], flat = [], y = 34;
+          var v = (r && r.v) ? r.v : (p.c3 === 1 ? mkCut(p.b1, p.b2, p.b3) : V[p.v]), flat = [], y = 34;
           v.st.forEach(function(stz, si){ stz.forEach(function(l){ flat.push({l:l, si:si}); }); });
           var n = flat.length, cur = r ? Math.floor(ph(tau, 0, 0.8) * n * 0.999 + (tau >= 0.8 ? 1 : 0)) : n;
           var lh = n > 4 ? 30 : 34, yy = y, prev = 0;
@@ -509,15 +540,29 @@ return (function(){
             c.globalAlpha = 1; }
         },
         stats: function(p, r){
-          return [['배치', r.v.n], ['평균 낭독 시간', '약 ' + r.v.t + '초'], ['평균 멈춤 횟수', f(r.v.ps, 1) + '회', PAL[5]],
+          return [].concat(
+            r.mine ? [['내가 끊은 자리', r.v.bs.length ? r.v.bs.join(' · ') + '어절 뒤' : '끊지 않음', PAL[3]],
+              ['행마다 나뉜 모습', r.v.lines.map(function(l){ return l.join(' '); }).join(' / '), PAL[0]],
+              ['규칙으로 셈한 강조', r.rule, PAL[3]]] : [],
+            [['배치', r.v.n], ['낭독 시간 (모형)', '약 ' + r.v.t + '초'], ['멈춤 횟수 (모형)', f(r.v.ps, 1) + '회', PAL[5]],
             ['가장 강하게 남은 말(상위)', r.v.top.map(function(q){ return q[0] + '(' + q[1] + ')'; }).join(', '), PAL[3]],
-            ['나의 예측', PRE[p.g] + (r.ok ? ' — 맞았어요' : ' — 빗나갔어요'), r.ok ? PAL[1] : PAL[6]], ['소리', p.snd === 1 ? (r.played ? '기기 음성으로 행마다 읽음' : '이 기기에서는 음성을 쓸 수 없어요') : '끔']];
+            ['나의 예측', PRE[p.g] + (r.ok ? ' — 맞았어요' : ' — 빗나갔어요'), r.ok ? PAL[1] : PAL[6]],
+            ['소리', p.snd === 1 ? (r.played ? '기기 음성으로 행마다 읽음' : '이 기기에서는 음성을 쓸 수 없어요') : '끔'],
+            ['자료', '낭독 시간·멈춤·강조 점수는 교육용 모형값이에요', PAL[7]]]);
         },
-        columns: ['배치', '낭독 시간', '멈춤', '1위 낱말', '예측'],
-        record: function(p, r){ return {v:p.v, ok:r.ok}; },
-        row: function(d){ var v = V[d.v]; return [v.n, '약 ' + v.t + '초', f(v.ps, 1) + '회', v.top[0][0], d.ok ? '맞음' : '빗나감']; },
+        columns: ['배치', '낭독 시간', '멈춤', '1위 낱말', '예측', '끊은 자리'],
+        record: function(p, r){ return {v:p.v, ok:r.ok, mine:r.mine, n:r.v.n, t:r.v.t, ps:r.v.ps, top:r.v.top, bs:r.v.bs || []}; },
+        row: function(d){ if (d.mine) return [d.n, '약 ' + d.t + '초', d.ps + '회', d.top[0][0] + '(' + d.top[0][1] + ')', d.ok ? '맞음' : '빗나감', d.bs.length ? d.bs.join('·') : '없음']; var v = V[d.v]; return [v.n, '약 ' + v.t + '초', f(v.ps, 1) + '회', v.top[0][0], d.ok ? '맞음' : '빗나감', '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = {}; rec.forEach(function(d){ if (d.mine) ms[d.bs.join('_')] = d; });
+          var mk = Object.keys(ms);
+          var mcard = !mk.length ? '' : card('내가 끊은 자리와 강조되는 말', tableHTML(['끊은 자리', '행 수', '멈춤', '낭독 시간', '강하게 남는 말(점수)'],
+              mk.map(function(k){ var d = ms[k]; return [d.bs.length ? d.bs.join(' · ') + '어절 뒤' : '끊지 않음', (d.ps + 1) + '행', d.ps + '회', '약 ' + d.t + '초',
+                d.top.map(function(q){ return q[0] + '(' + q[1] + ')'; }).join(', ')]; })) +
+            '<p class="ask">같은 열 어절인데 끊는 자리만 바꾸면 강하게 남는 말이 달라졌나요? ' +
+            '한 어절만 남긴 행의 끝 말이 가장 강하게 남는 까닭을 멈춤과 연결해 말해 보세요. ' +
+            '행갈이는 보기 좋으라고 하는 것이 아니라 <b>어디서 멈추게 할지</b>를 정하는 일이에요. ※ 점수와 시간은 교육용 모형값입니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('배치별 — 평균 멈춤 횟수와 낭독 시간', '<div id="hk5a"></div><p class="ask">멈춤이 늘수록 강하게 남은 말이 ‘창문’에서 ‘오지’로 옮겨 갔어요. 행 끝에 놓인 낱말이 왜 강하게 남는지 설명해 보세요.</p>') +
             card('배치별 — 가장 강하게 남은 말', '<div id="hk5b"></div><p class="ask">과제: 교과서의 자유시 한 편을 골라 행갈이를 모두 지우고 한 줄로 이어 써 보세요. 그다음 다른 자리에서 끊어 새 판을 만들고, 원래 시와 낭독해 비교하며 강조되는 말이 어떻게 바뀌었는지 적어 보세요.</p>') + '</div>';
           var items = [];
@@ -533,7 +578,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

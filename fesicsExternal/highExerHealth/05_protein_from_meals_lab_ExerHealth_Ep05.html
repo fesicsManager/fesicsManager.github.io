@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,7 +436,7 @@ var LAB = (function(){
         {k:'tofu', n:'두부 80 g', u:'개', g:8, c:'#C9B79C'}, {k:'rice', n:'밥', u:'공기', g:6, c:'#B5BEC8'}];
       return {
         sceneHeight: 400,
-        idle: '체중·운동·먹은 음식을 정하고 <b>하루 식단 계산하기</b>를 누르세요.',
+        idle: '체중·운동·먹은 음식·보충제를 정하고, 합계를 보기 전에 내 식단이 권장 범위에 들지 먼저 찍은 뒤 <b>하루 식단 계산하기</b>를 누르세요.',
         shortHint: '음식 구성을 여러 번 바꿔 기록하고, 운동 여부에 따라 권장 범위가 어떻게 달라지는지도 확인하세요.',
         params: [
           {key:'kg', type:'range', label:'체중', min:40, max:90, step:5, value:60, fmt:function(v){ return v + ' kg'; }},
@@ -443,13 +445,23 @@ var LAB = (function(){
           {key:'milk', type:'range', label:'우유 200 mL (약 6 g)', min:0, max:3, step:1, value:1, fmt:function(v){ return v + '잔'; }},
           {key:'chk', type:'range', label:'닭가슴살 100 g (약 23 g)', min:0, max:2, step:1, value:1, fmt:function(v){ return v + '개'; }},
           {key:'tofu', type:'range', label:'두부 80 g (약 8 g)', min:0, max:3, step:1, value:1, fmt:function(v){ return v + '개'; }},
-          {key:'rice', type:'range', label:'밥 (1공기 약 6 g)', min:0, max:4, step:1, value:3, fmt:function(v){ return v + '공기'; }}
+          {key:'rice', type:'range', label:'밥 (1공기 약 6 g)', min:0, max:4, step:1, value:3, fmt:function(v){ return v + '공기'; }},
+          {key:'sup', type:'range', label:'보충제 (1회분 약 25 g)', min:0, max:3, step:1, value:0, fmt:function(v){ return v + '회분'; }},
+          {key:'pred', type:'seg', label:'합계를 보기 전에 — 내 식단은?', cols:3, value:1, options:['하한보다 부족할 것', '권장 범위 안일 것', '상한보다 많을 것']}
         ],
         compute: function(p){
-          var parts = FD.map(function(x){ return {n:x.n, g:p[x.k] * x.g, c:x.c}; }), tot = parts.reduce(function(s, x){ return s + x.g; }, 0);
+          var parts = FD.map(function(x){ return {n:x.n, g:p[x.k] * x.g, c:x.c}; }), food = parts.reduce(function(s, x){ return s + x.g; }, 0);
+          var sup = (p.sup || 0) * 25, tot = food + sup;
           var lo = p.kg * 0.8, hi = p.ex ? p.kg * 1.6 : p.kg * 0.8;
-          var st = tot < lo ? '권장 하한보다 부족' : (p.ex && tot > hi) ? '참고 상한보다 많음' : p.ex ? '권장 범위 안' : '권장량 이상';
-          return {parts:parts, tot:tot, lo:lo, hi:hi, st:st, pct:tot / lo * 100};
+          function judge(v){ return v < lo ? '권장 하한보다 부족' : (p.ex && v > hi) ? '참고 상한보다 많음' : p.ex ? '권장 범위 안' : '권장량 이상'; }
+          var st = judge(tot), stFood = judge(food);
+          /* 예측 채점: 0 부족 / 1 범위 안 / 2 상한보다 많음 — 음식만으로 본 판정과 맞춘다 */
+          var real = stFood === '권장 하한보다 부족' ? 0 : (stFood === '참고 상한보다 많음' ? 2 : 1);
+          var gi = (p.pred == null ? 1 : p.pred);
+          /* 남는 양: 상한을 넘은 만큼 (운동을 안 하면 하한=상한이므로 하한 기준) */
+          var over = Math.max(0, tot - hi), overFood = Math.max(0, food - hi);
+          return {parts:parts, food:food, sup:sup, tot:tot, lo:lo, hi:hi, st:st, stFood:stFood,
+            real:real, guess:gi, ok:(gi === real), over:over, overFood:overFood, pct:tot / lo * 100};
         },
         draw: function(c, W, H, p, r, tau){
           var x0 = 20, k = r ? Math.min(1, tau / 0.8) : 0, lw = W < 520 ? 120 : 170, bw = W - 40 - lw;
@@ -466,19 +478,29 @@ var LAB = (function(){
           var acc = 0; parts.forEach(function(q){ c.fillStyle = q.c; c.fillRect(x0 + acc * sc, by, q.g * sc * (r ? k : 0), 30); acc += q.g * (r ? k : 0); });
           txt(c, '0', x0, by + 58, {color:'#4A5868'}); txt(c, '180 g', W - 20, by + 58, {align:'right', color:'#4A5868'});
           txt(c, '권장 ' + f(lo, 0) + (p.ex ? '~' + f(hi, 0) : '') + ' g', x0 + lo * sc, by - 20, {color:PAL[1], bold:true, align:lo * sc > W / 2 ? 'right' : 'left'});
-          if (r && tau >= 1) txt(c, '합계 ' + tot + ' g', W - 20, H - 16, {align:'right', bold:true});
+          if (r && tau >= 1) txt(c, '음식 ' + tot + ' g' + (p.sup ? ' + 보충제 ' + (p.sup * 25) + ' g = ' + (tot + p.sup * 25) + ' g' : ''), W - 20, H - 16, {align:'right', bold:true});
         },
         stats: function(p, r){
-          return [['하루 단백질 합계', r.tot + ' g', PAL[0]],
+          return [['계산 전 내 예측', ['하한보다 부족할 것', '권장 범위 안일 것', '상한보다 많을 것'][r.guess] +
+              ' → ' + (r.ok ? '맞혔습니다' : '빗나갔습니다 (음식만으로는 “' + r.stFood + '”)'), r.ok ? PAL[1] : PAL[4]],
+            ['음식만의 합계', r.food + ' g', PAL[0]],
+            ['보충제', r.sup ? r.sup + ' g 더함' : '안 먹음', PAL[3]],
+            ['하루 단백질 합계', r.tot + ' g', PAL[0]],
             ['권장 범위 (일반 성인 기준)', f(r.lo, 0) + ' g (0.8 g/kg)' + (p.ex ? ' ~ ' + f(r.hi, 0) + ' g (운동 시 참고 1.6 g/kg)' : ''), PAL[1]],
             ['판정', r.st, r.tot < r.lo ? PAL[4] : PAL[1]],
+            ['보충제를 더해 남는 양', p.ex
+              ? (r.over > 0 ? '상한(' + f(r.hi, 0) + ' g)을 ' + f(r.over, 0) + ' g 넘습니다' + (r.overFood <= 0 ? ' — 음식만으로는 넘지 않았습니다' : '')
+                            : '아직 상한 안입니다 (상한까지 ' + f(r.hi - r.tot, 0) + ' g 남음)')
+              : (r.tot > r.lo ? '권장량(' + f(r.lo, 0) + ' g)보다 ' + f(r.tot - r.lo, 0) + ' g 많습니다' : '권장량까지 ' + f(r.lo - r.tot, 0) + ' g 남았습니다'),
+              r.over > 0 ? PAL[4] : PAL[6]],
             ['권장 하한 대비', f(r.pct, 0) + '%'],
             ['가장 많이 채운 음식', r.parts.slice().sort(function(a, b){ return b.g - a.g; })[0].n],
             ['청소년이라면', '성인 기준을 그대로 쓰지 말고 연령·성별·활동량에 맞는 권장 섭취량을 확인하세요', PAL[6]]];
         },
-        columns: ['체중', '운동', '합계', '권장 하한', '판정'],
-        record: function(p, r){ return {kg:p.kg, ex:p.ex, tot:r.tot, lo:r.lo, hi:r.hi, st:r.st}; },
-        row: function(d){ return [d.kg + ' kg', d.ex ? '규칙적' : '거의 안 함', d.tot + ' g', f(d.lo, 0) + ' g', d.st]; },
+        columns: ['체중', '음식(g)', '보충제(g)', '합계(g)', '남는 양', '예측'],
+        record: function(p, r){ return {kg:p.kg, ex:p.ex, food:r.food, sup:r.sup, tot:r.tot, lo:r.lo, hi:r.hi, st:r.st, over:r.over, ok:r.ok}; },
+        row: function(d){ return [d.kg + ' kg', (d.food == null ? d.tot : d.food) + '', (d.sup || 0) + '', d.tot + '',
+          (d.over > 0 ? '+' + f(d.over, 0) : '0'), d.ok ? '맞힘' : '빗나감']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('식단별 합계 vs 권장 하한', '<div id="pf1"></div><p class="ask">세 끼를 챙긴 식단은 권장 하한을 넘었나요? 보충제가 “꼭 필요한” 경우는 어떤 상황일지 생각해 보세요.</p>') +
@@ -496,7 +518,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

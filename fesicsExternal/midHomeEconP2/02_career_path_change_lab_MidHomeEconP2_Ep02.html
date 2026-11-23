@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,7 +441,17 @@ var LAB = (function(){
       var G = [{n:'꿈과 지금 일이 같음', s:'같음', v:4, why:'처음부터 잘 맞음', help:'꿈과 관련된 공부', col:PAL[0]},
         {n:'비슷한 분야로 바뀜', s:'비슷한 분야로', v:11, why:'해 보니 더 맞는 일을 찾음', help:'여러 활동 경험', col:PAL[1]},
         {n:'다른 분야로 바뀜', s:'다른 분야로', v:15, why:'새 기술·새 직업이 생김', help:'좋아하는 것·잘하는 것 기록', col:PAL[2]}];
-      var GO = G.map(function(g){ return g.n; }).concat(['전체 30명']), PL = ['도장 계획표 (한 번 정하면 끝)', '연필 계획표 (1년마다 고쳐 쓰기)'], PS = ['도장', '연필'];
+      var GO = G.map(function(g){ return g.n; }).concat(['전체 30명']);
+      var FX = ['도장 (안 고쳐 씀)', '1년마다', '2년마다', '3년마다', '4년마다', '5년마다'];
+      var EV = [{n:'아무 일도 없었다', k:0}, {n:'새 기술이 나왔다', k:-2}, {n:'없던 직업이 생겼다', k:-1},
+        {n:'해 보니 안 맞았다', k:-1}, {n:'좋은 스승을 만났다', k:2}];
+      /* 계획을 자주 고쳐 쓸수록 바뀐 길을 담아내는 비율이 커진다 (교육용 모형) */
+      function fitPct(fx){ return fx === 0 ? 13 : Math.max(0, 100 - (fx - 1) * 14); }
+      function myPath(iv, ev){
+        var sc = iv + EV[ev].k;
+        var gi = sc >= 6 ? 0 : sc >= 3 ? 1 : 2;
+        return {sc:sc, gi:gi, g:G[gi]};
+      }
       // 30명: 같음 0~3, 비슷한 4~14, 다른 15~29. 오른쪽 위치: 같음 = 같은 줄, 비슷한 = 조금 옮김, 다른 = 멀리
       function grpOf(j){ return j < 4 ? 0 : j < 15 ? 1 : 2; }
       function dest(j){ var g = grpOf(j); return g === 0 ? j : g === 1 ? (j + 3) % 30 : (j * 7 + 11) % 30; }
@@ -449,11 +461,19 @@ var LAB = (function(){
         shortHint: '"전체 30명"을 도장 계획표와 연필 계획표로 한 번씩 보고, 세 무리를 하나씩 골라 가장 많이 꼽은 까닭을 비교해 보세요.',
         params: [
           {key:'g', type:'seg', label:'볼 무리', cols:4, value:3, options:GO},
-          {key:'m', type:'seg', label:'계획표 방식', cols:2, value:0, options:PL}
+          {key:'iv', type:'range', label:'내 흥미가 뚜렷한 정도', min:1, max:5, step:1, value:3, fmt:function(v){ return f(v, 0) + ' / 5'; }},
+          {key:'ev', type:'seg', label:'살다가 만난 사건 카드', cols:2, value:0, options:EV.map(function(x){ return x.n; })},
+          {key:'fx', type:'seg', label:'계획표를 고쳐 쓰는 주기', cols:3, value:0, options:FX,
+            note:'흥미가 뚜렷할수록 처음 꿈에 가깝게 가고, 사건 카드는 길을 옮깁니다. 고쳐 쓰는 주기를 짧게 하면 바뀐 길을 더 많이 담아냅니다. (교육용 모형)'}
         ],
         compute: function(p){
-          var n = p.g < 3 ? G[p.g].v : 30, fit = p.m === 1 ? n : (p.g === 0 || p.g === 3 ? 4 : 0), changed = p.g === 3 ? 26 : p.g === 0 ? 0 : n;
-          return {n:n, fit:fit, changed:changed, pct:Math.round(n / 30 * 100)};
+          var n = p.g < 3 ? G[p.g].v : 30, changed = p.g === 3 ? 26 : p.g === 0 ? 0 : n;
+          var fp = fitPct(p.fx);
+          var fit = p.fx === 0 ? (p.g === 0 ? n : (p.g === 3 ? 4 : 0)) : Math.round(n * fp / 100);
+          var me = myPath(p.iv, p.ev);
+          var meHeld = p.fx === 0 ? (me.gi === 0) : (fp >= 100 || me.gi === 0 || fp >= 70);
+          return {n:n, fit:fit, changed:changed, pct:Math.round(n / 30 * 100), fp:fp, me:me, meHeld:meHeld,
+            gain:p.fx === 0 ? Math.round(n * 100 / 100) - fit : Math.round(n * (100 - fp) / 100)};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var lx = 40, rx = W - 40, y0 = 56, gap = (H - y0 - 40) / 29, k = r ? Math.min(1, tau / 0.85) : 1;
@@ -468,13 +488,14 @@ var LAB = (function(){
             c.globalAlpha = 1;
           }
           if (r && tau >= 1){
-            c.fillStyle = 'rgba(255,255,255,.88)'; c.fillRect(W / 2 - 120, H - 34, 240, 28);
-            tfit(c, PS[p.m] + ' 계획표가 담은 길 ' + r.fit + '/' + r.n + '명', W / 2, H - 14, {align:'center', bold:true, color:r.fit === r.n ? PAL[1] : PAL[4]});
+            c.fillStyle = 'rgba(255,255,255,.88)'; c.fillRect(W / 2 - 130, H - 58, 260, 52);
+            tfit(c, FX[p.fx] + ' 계획표가 담은 길 ' + r.fit + '/' + r.n + '명', W / 2, H - 38, {align:'center', bold:true, color:r.fit === r.n ? PAL[1] : PAL[4]});
+            tfit(c, '내 길: ' + r.me.g.s, W / 2, H - 14, {align:'center', bold:true, color:r.me.g.col});
           }
         },
         stats: function(p, r){
           var g = p.g < 3 ? G[p.g] : null, interp;
-          if (p.m === 0){
+          if (p.fx === 0){
             interp = p.g === 0 ? '꿈 그대로 간 4명에게는 도장 계획표도 맞았어요. 하지만 30명 가운데 26명은 길이 바뀌었으니 도장 하나로는 대부분의 길을 담지 못해요.' :
               p.g === 3 ? '30명 가운데 도장 계획표가 맞았을 사람은 4명뿐이고 26명은 길이 바뀌었어요. 그래도 바뀐 것을 실패라고 한 사람은 없어요.' :
               '이 ' + r.n + '명은 모두 처음 꿈에서 길이 바뀌었어요(가장 많이 꼽은 까닭: ' + g.why + '). 도장 계획표로는 이 길을 담을 수 없어요. 바뀐 것은 실패가 아니라 나를 더 잘 알게 된 결과예요.';
@@ -483,14 +504,18 @@ var LAB = (function(){
               (g ? '이 무리가 꼽은 중학생 때 해 두어 도움 된 것: ' + g.help + '.' : '길이 바뀌어도 중학생 때 쌓은 경험과 기록은 그대로 쓰여요.');
           }
           return [['볼 무리', GO[p.g]], ['연구원 수', r.n + '명 / 30명 (' + r.pct + '%)', g ? g.col : PAL[0]],
+            ['내 값으로 세워 본 길 (교육용 모형)', '흥미 ' + f(p.iv, 0) + ' + 사건 「' + EV[p.ev].n + '」 → 점수 ' + r.me.sc + ' → ' + r.me.g.n, r.me.g.col],
+            ['내 길에 도움 될 것', r.me.g.help + ' (이 무리가 가장 많이 꼽은 것)'],
+            ['고쳐 쓰는 주기와 담아내는 비율', FX[p.fx] + ' → ' + r.fp + '%' + (p.fx === 0 ? ' (꿈 그대로 간 4명만)' : ''), r.fp >= 100 ? PAL[1] : PAL[6]],
+            ['1년마다 고쳐 쓰면', p.fx === 1 ? '이미 1년마다예요 — 바뀐 길을 모두 담아냅니다' : '지금보다 ' + r.gain + '명의 길을 더 담아낼 수 있어요', PAL[6]],
             ['처음 꿈에서 길이 바뀐 사람', r.changed + '명'],
             ['가장 많이 꼽은 까닭', g ? g.why : G.map(function(x){ return x.s + ': ' + x.why; }).join(' / ')],
             ["'중학생 때 해 두어 도움 된 것'", g ? g.help : G.map(function(x){ return x.s + ': ' + x.help; }).join(' / ')],
-            [PS[p.m] + ' 계획표가 담아낸 길', r.fit + '명 / ' + r.n + '명', r.fit === r.n ? PAL[1] : PAL[4]], ['해석', interp, PAL[3]]];
+            [FX[p.fx] + ' 계획표가 담아낸 길', r.fit + '명 / ' + r.n + '명', r.fit === r.n ? PAL[1] : PAL[4]], ['해석', interp, PAL[3]]];
         },
-        columns: ['무리', '계획표', '연구원 수', '담아낸 길'],
-        record: function(p, r){ return {g:p.g, m:p.m, n:r.n, fit:r.fit}; },
-        row: function(d){ return [GO[d.g], PS[d.m], d.n + '명', d.fit + '/' + d.n + '명']; },
+        columns: ['무리', '고쳐 쓰기', '내 길', '연구원 수', '담아낸 길'],
+        record: function(p, r){ return {g:p.g, m:p.fx === 0 ? 0 : 1, fx:p.fx, iv:p.iv, ev:p.ev, n:r.n, fit:r.fit, fp:r.fp, mg:r.me.gi, msc:r.me.sc}; },
+        row: function(d){ return [GO[d.g], FX[d.fx], G[d.mg].s, d.n + '명', d.fit + '/' + d.n + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('중학생 때 꿈과 지금 일 (연구원 30명, 가상 조사)', '<div id="c2a"></div><p class="ask">30명 중 처음 꿈에서 길이 바뀐 사람은 몇 명인가요? "진로는 한 번 정하면 끝"이라는 말이 왜 맞지 않는지, 세 무리가 꼽은 까닭을 근거로 설명해 보세요.</p>') +
@@ -498,9 +523,12 @@ var LAB = (function(){
           var seen = uniq(rec.map(function(d){ return d.g; })), rows = [];
           G.forEach(function(g, i){ if (seen.indexOf(i) >= 0 || seen.indexOf(3) >= 0) rows.push([g.n, g.v + '명', g.why, g.help]); });
           $('c2a').innerHTML = rows.length ? tableHTML(['무리', '연구원 수', '가장 많이 꼽은 까닭', '중학생 때 도움 된 것'], rows) : '<p class="msg">무리를 바꿔 가며 실행해 보세요.</p>';
-          var it = [], s2 = {};
-          rec.forEach(function(d){ var key = d.g + '_' + d.m; if (s2[key]) return; s2[key] = 1; it.push({label:GO[d.g] + ' · ' + PS[d.m], v:d.fit / d.n * 100, color:d.fit === d.n ? PAL[1] : PAL[4], text:d.fit + '/' + d.n + '명'}); });
-          $('c2b').innerHTML = it.length ? hbars(it, 100) + '<p class="msg">막대 = 계획표가 담아낸 길의 비율</p>' : '<p class="msg">기록이 쌓이면 막대가 나와요.</p>';
+          var it = [], s2 = {}, mrows = [], s3 = {};
+          rec.forEach(function(d){ var key = d.g + '_' + d.fx; if (!s2[key]){ s2[key] = 1; it.push({label:GO[d.g] + ' · ' + FX[d.fx], v:d.fit / d.n * 100, color:d.fit === d.n ? PAL[1] : PAL[4], text:d.fit + '/' + d.n + '명'}); }
+            var k3 = d.iv + '_' + d.ev; if (!s3[k3]){ s3[k3] = 1; mrows.push([f(d.iv, 0), EV[d.ev].n, d.msc, G[d.mg].n]); } });
+          $('c2b').innerHTML = (it.length ? hbars(it, 100) + '<p class="msg">막대 = 계획표가 담아낸 길의 비율</p>' : '<p class="msg">기록이 쌓이면 막대가 나와요.</p>') +
+            (mrows.length ? '<p class="msg">내 값과 사건 카드로 세워 본 길 (교육용 모형)</p>' +
+              tableHTML(['흥미', '사건 카드', '점수', '예상한 길'], mrows) : '');
         }
       };
     })();
@@ -509,7 +537,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

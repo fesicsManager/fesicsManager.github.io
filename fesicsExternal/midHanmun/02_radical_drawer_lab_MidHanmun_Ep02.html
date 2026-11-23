@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -484,9 +486,11 @@ var LAB = (function anonymous(
         params: [
           {key:'g', type:'seg', label:'글자 카드', cols:5, value:0, options:CD.map(function(x){ return '<b style="font-size:1.25em">' + x.ch + '</b>'; })},
           {key:'d', type:'seg', label:'넣을 서랍 (부수)', cols:5, value:0, options:DR.map(function(x){ return '<b>' + x.ch + '</b> ' + x.nm; }),
-            note:'글자 안에 조각이 두 개 보이면, 어느 쪽이 뜻의 분야를 알려 주는지 생각해 보세요.'}
+            note:'글자 안에 조각이 두 개 보이면, 어느 쪽이 뜻의 분야를 알려 주는지 생각해 보세요.'},
+          {key:'hint', type:'seg', label:'훈음 힌트', cols:2, value:0, options:['훈음을 보고 넣기', '훈음을 가리고 넣기'],
+            note:'가리고 넣으면 글자 모양(조각)만으로 뜻 분야를 짐작해야 합니다. 두 조건의 정답률을 결과 비교 탭에서 나란히 재어 줍니다.'}
         ],
-        compute: function(p){ var g = CD[p.g]; return {g:g, ok:g.d === p.d}; },
+        compute: function(p){ var g = CD[p.g]; return {g:g, ok:g.d === p.d, hint:p.hint}; },
         draw: function(c, W, H, p, r, tau){
           var g = CD[p.g], n = DR.length, bw = (W - 40) / n, by = H - 110;
           for (var i = 0; i < n; i++){
@@ -504,7 +508,7 @@ var LAB = (function anonymous(
           var sc = r && tau > 0.3 ? 0.6 : 1, S = cs * sc;
           rbox(c, tx - S / 2, ty, S, S * 1.1, '#FFFFFF', '#26313D', 3);
           T(c, g.ch, tx, ty + S * 0.78, {size:S * 0.75, align:'center'});
-          if (!r) T(c, g.hun, tx, ty + S * 1.1 + 26, {bold:true, align:'center'});
+          if (!r) T(c, p.hint ? '훈음 가림' : g.hun, tx, ty + S * 1.1 + 26, {bold:true, align:'center'});
           if (r && tau >= 0.9){
             T(c, r.ok ? '○ 사전의 서랍과 같아요' : '✕ 사전은 ' + DR[g.d].ch + ' 서랍', W / 2, 36, {bold:true, align:'center', color:r.ok ? PAL[1] : PAL[4], max:W - 30});
             wrap(c, g.ch + '(' + g.hun + '): ' + g.why, 24, 70, W - 48, 22, {size:15, color:'#4A5868'});
@@ -514,14 +518,16 @@ var LAB = (function anonymous(
           return [['글자', r.g.ch + ' — ' + r.g.hun, PAL[0]], ['내가 고른 서랍', DR[p.d].ch + ' ' + DR[p.d].nm],
             ['사전이 정한 부수', DR[r.g.d].ch + ' ' + DR[r.g.d].nm, r.ok ? PAL[1] : PAL[4]],
             ['판정', r.ok ? '같음' : '다름' + (r.g.hard ? ' — 조각이 둘이라 헷갈리기 쉬운 글자' : ''), r.ok ? PAL[1] : PAL[4]],
-            ['조각과 뜻의 연결', r.g.why, PAL[3]]];
+            ['조각과 뜻의 연결', r.g.why, PAL[3]],
+            ['푼 방식', r.hint ? '훈음을 가리고 — 조각만 보고 짐작' : '훈음을 보고 — 뜻을 알고 분류', r.hint ? PAL[6] : PAL[0]]];
         },
-        columns: ['글자', '훈음', '고른 서랍', '사전 부수', '판정'],
-        record: function(p, r){ return {g:p.g, d:p.d, ok:r.ok}; },
-        row: function(d){ var g = CD[d.g]; return [g.ch, g.hun, DR[d.d].ch, DR[g.d].ch, d.ok ? '○' : '✕']; },
+        columns: ['글자', '훈음', '고른 서랍', '사전 부수', '판정', '힌트'],
+        record: function(p, r){ return {g:p.g, d:p.d, ok:r.ok, hint:r.hint}; },
+        row: function(d){ var g = CD[d.g]; return [g.ch, g.hun, DR[d.d].ch, DR[g.d].ch, d.ok ? '○' : '✕', d.hint ? '가림' : '보임']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('서랍 정답률 — 쉬운 글자 vs 까다로운 글자', '<div id="mh2a"></div><p class="ask">까다로운 글자(想·休·信·泉)에서 틀렸다면 어떤 조각에 끌렸나요? 부수가 "한 글자에 하나"라는 규칙을 한 문장으로 설명해 보세요.</p>') +
+            card('훈음을 보고 넣을 때 vs 가리고 넣을 때', '<div id="mh2c"></div><p class="ask">가리고 넣어도 정답률이 크게 떨어지지 않았다면, 글자를 외울 때 무엇을 먼저 외우는 편이 이득일까요?</p>') +
             card('조각 다섯 개로 묶이는 기초한자 40자', '<div id="mh2b"></div><p class="ask">과제: 부수 다섯 개를 골라 각각 기초한자를 여덟 자씩 모아 계열표를 만들고, 부수와 뜻의 관계를 한 줄씩 설명해 보세요.</p>') + '</div>';
           var e = rec.filter(function(d){ return !CD[d.g].hard; }), h = rec.filter(function(d){ return CD[d.g].hard; }), items = [];
           [['쉬운 글자', e, PAL[1]], ['까다로운 글자', h, PAL[6]], ['전체', rec, PAL[0]]].forEach(function(a){
@@ -529,6 +535,20 @@ var LAB = (function anonymous(
             items.push({label:a[0] + ' (' + a[1].length + '회)', v:ok, color:a[2], text:f(ok, 0) + '%'});
           });
           $('mh2a').innerHTML = hbars(items, 100) + '<p class="msg">서로 다른 글자 ' + distinct(rec.map(function(d){ return d.g; })) + '개 / 10개를 넣어 봤어요.</p>';
+          var hv = rec.filter(function(d){ return !d.hint; }), hh = rec.filter(function(d){ return d.hint; }), it2 = [];
+          [['훈음 보고', hv, PAL[0]], ['훈음 가리고', hh, PAL[6]]].forEach(function(a){
+            if (!a[1].length){ it2.push({label:a[0] + ' (아직 없음)', v:0, color:'#CBD3DD', text:'—'}); return; }
+            var ok = a[1].filter(function(d){ return d.ok; }).length / a[1].length * 100;
+            it2.push({label:a[0] + ' (' + a[1].length + '회)', v:ok, color:a[2], text:f(ok, 0) + '%'});
+          });
+          var msg2;
+          if (!hh.length || !hv.length) msg2 = '두 조건을 모두 해 보면 "조각을 아는 것이 외울 양을 얼마나 줄이나"를 숫자로 견줄 수 있어요.';
+          else {
+            var a1 = hv.filter(function(d){ return d.ok; }).length / hv.length, a2 = hh.filter(function(d){ return d.ok; }).length / hh.length;
+            msg2 = '훈음을 가려도 ' + f(a2 * 100, 0) + '% 를 맞혔어요. 이 비율을 위 표의 기초한자 40자에 그대로 대면 약 ' + Math.round(40 * a2) +
+              '자는 뜻을 외우지 않고도 분야를 짐작할 수 있다는 뜻입니다(교육용 모형값 — 실제로는 글자마다 난이도가 다릅니다). 훈음을 보고 넣었을 때와의 차이는 ' + f((a1 - a2) * 100, 0) + '%p 입니다.';
+          }
+          $('mh2c').innerHTML = hbars(it2, 100) + '<p class="msg">' + msg2 + '</p>';
           var FAM = [['氵 물', '江 강 강, 河 물 하, 海 바다 해, 洋 큰바다 양, 泉 샘 천, 淸 맑을 청, 洗 씻을 세, 湖 호수 호'],
             ['木 나무', '林 수풀 림, 森 수풀 삼, 村 마을 촌, 松 소나무 송, 根 뿌리 근, 果 실과 과, 校 학교 교, 樹 나무 수'],
             ['心·忄 마음', '思 생각 사, 想 생각 상, 情 뜻 정, 性 성품 성, 忘 잊을 망, 急 급할 급, 恩 은혜 은, 愛 사랑 애'],
@@ -544,7 +564,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

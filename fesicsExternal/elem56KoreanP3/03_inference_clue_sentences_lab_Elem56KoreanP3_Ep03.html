@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,32 +439,40 @@ var LAB = (function(){
         {t:'친구들은 하나둘 알록달록한 우산을 펴고 걸어 나갔다.', clue:'c'}
       ];
       var VS = [
-        {n:'가판 — 단서 없음 (첫 두 문장만)', s:'가 (단서 없음)', keep:[0, 1]},
-        {n:'나판 — + 우산을 두고 온 것을 후회함', s:'나 (후회)', keep:[0, 1, 2]},
-        {n:'다판 — + 후회함 + 친구들이 우산을 폄', s:'다 (후회+우산 폄)', keep:[0, 1, 2, 3]}
+        {n:'두 문장 모두 뺀 판', s:'단서 없음', keep:[0, 1]},
+        {n:'② 후회 문장만 넣은 판', s:'후회만', keep:[0, 1, 2]},
+        {n:'③ 우산 폄 문장만 넣은 판', s:'우산 폄만', keep:[0, 1, 3]},
+        {n:'두 문장 모두 넣은 판', s:'둘 다', keep:[0, 1, 2, 3]}
       ];
+      var IO = ['넣기', '빼기'];
+      function vIdx(p){ return (p.c2 === 0 ? 1 : 0) + (p.c3 === 0 ? 2 : 0); }
       var QS = [
-        {n:'그날 날씨는?', s:'날씨', ans:'비가 왔다', yes:[2, 6, 10], cite:[0, 5, 9]},
-        {n:'민호의 마음은?', s:'마음', ans:'두고 온 우산을 아쉬워함', yes:[2, 7, 8], cite:[1, 6, 7]},
-        {n:'짐작 검사: "민호는 엄마를 미워한다"', s:'지나친 짐작', ans:'"그렇다"', yes:[1, 1, 1], cite:[0, 0, 0]}
+        {n:'그날 날씨는?', s:'날씨', ans:'비가 왔다', base:2, k2:4, k3:4, cb:0, d2:5, d3:4},
+        {n:'민호의 마음은?', s:'마음', ans:'두고 온 우산을 아쉬워함', base:2, k2:5, k3:1, cb:1, d2:5, d3:1},
+        {n:'짐작 검사: "민호는 엄마를 미워한다"', s:'지나친 짐작', ans:'"그렇다"', base:1, k2:0, k3:0, cb:0, d2:0, d3:0}
       ];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function cut(s, n){ return s.length > n ? s.slice(0, n - 1) + '…' : s; }
       return {
         sceneHeight: 420,
         idle: '판과 물어볼 것을 고른 뒤 <b>읽히고 물어보기</b>를 누르세요.',
-        shortHint: '"날씨"로 가·나·다 세 판을 모두 해 보고, 다판에서 "짐작 검사"도 해 보세요.',
+        shortHint: '"날씨"로 두 문장을 넣고 빼며 네 가지를 모두 해 보고, 둘 다 넣은 판에서 "짐작 검사"도 해 보세요.',
         params: [
-          {key:'v', type:'seg', label:'친구들에게 줄 판', cols:3, value:0, options:VS.map(function(x){ return x.n; })},
+          {key:'c2', type:'seg', label:'② "우산을 두고 온 것을 후회함" 문장', cols:2, value:1, options:IO},
+          {key:'c3', type:'seg', label:'③ "친구들이 우산을 폄" 문장', cols:2, value:1, options:IO},
           {key:'q', type:'seg', label:'물어볼 것', cols:3, value:0, options:QS.map(function(x){ return x.n; }), note:'세 판 모두 "비"라는 글자는 없어요.'}
         ],
         compute: function(p){
-          var v = VS[p.v], q = QS[p.q], clues = [];
+          var vi = vIdx(p), v = VS[vi], q = QS[p.q], clues = [];
+          var a2 = (p.c2 === 0 ? 1 : 0), a3 = (p.c3 === 0 ? 1 : 0);
           v.keep.forEach(function(i){ var s = SN[i]; if (p.q === 0 && (s.clue === 'b' || s.clue === 'c')) clues.push(i); if (p.q === 1 && (s.clue === 'mind' || s.clue === 'b')) clues.push(i); });
-          return {v:v, q:q, yes:q.yes[p.v], cite:q.cite[p.v], clues:clues, rainWord:false};
+          /* 답한 친구 수는 미리 박아 둔 값이 아니라, 넣은 단서 문장 수로 계산한다 (교육용 모형값) */
+          var yes = Math.min(10, q.base + q.k2 * a2 + q.k3 * a3);
+          var cite = Math.min(yes, q.cb + q.d2 * a2 + q.d3 * a3);
+          return {vi:vi, v:v, q:q, a2:a2, a3:a3, yes:yes, cite:cite, clues:clues, rainWord:false};
         },
         draw: function(c, W, H, p, r, tau){
-          var v = VS[p.v], narrow = W < 560, n = narrow ? 20 : 34, y = 28;
+          var v = VS[vIdx(p)], narrow = W < 560, n = narrow ? 20 : 34, y = 28;
           c.fillStyle = '#F7F9FC'; c.fillRect(16, 10, W - 32, 168);
           SN.forEach(function(s, i){
             var kept = v.keep.indexOf(i) >= 0, isClue = r && r.clues.indexOf(i) >= 0;
@@ -488,19 +498,23 @@ var LAB = (function(){
             ['단서 문장을 대며 답한 친구', r.cite + '명', PAL[1]],
             ['짚을 수 있는 단서 문장', p.q === 2 ? '없음 — 지나친 짐작' : r.clues.length + '개', p.q === 2 ? PAL[4] : PAL[6]]];
         },
-        columns: ['판', '물음', '답한 친구', '단서 댐', '단서 문장'],
-        record: function(p, r){ return {v:p.v, q:p.q, yes:r.yes, cite:r.cite, nc:r.clues.length}; },
+        columns: ['넣은 단서', '물음', '답한 친구', '단서 댐', '단서 문장'],
+        record: function(p, r){ return {v:r.vi, q:p.q, yes:r.yes, cite:r.cite, nc:r.clues.length}; },
         row: function(d){ return [VS[d.v].s, QS[d.q].s, d.yes + '명', d.cite + '명', d.q === 2 ? '없음' : d.nc + '개']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('판별 "비가 왔다"고 답한 친구 (날씨)', '<div id="in1"></div><p class="ask">세 판 모두 "비"라는 글자는 없었어요. 그런데 왜 답이 달라졌나요? 웹툰(약 2명 → 6명 → 10명)과 비교해 보세요.</p>') +
+            card('넣은 단서별 "비가 왔다"고 답한 친구 (날씨)', '<div id="in1"></div><p class="ask">어느 판에도 "비"라는 글자는 없었어요. 그런데 왜 답이 달라졌나요? ② 후회 문장만 넣은 판과 ③ 우산 폄 문장만 넣은 판을 맞대어 보세요 — 어느 한 줄이 더 센 단서인가요?</p>') +
             card('단서가 있는 짐작, 없는 짐작', '<div id="in2"></div><p class="ask">과제: 동화책 한 쪽을 골라 글에 쓰여 있지 않은 것 두 가지(날씨, 때, 인물 마음 등)를 짐작해 보세요. 짐작마다 단서가 된 문장을 옮겨 적고, 가족에게 같은 짐작이 나오는지 물어보세요.</p>') + '</div>';
           var items = [];
           VS.forEach(function(v, i){ var g = rec.filter(function(d){ return d.q === 0 && d.v === i; }); if (!g.length) return;
             var d = g[g.length - 1]; items.push({label:v.s + ' · 답', v:d.yes, color:'rgba(43,95,163,.55)', text:d.yes + '명'}); items.push({label:v.s + ' · 단서 댐', v:d.cite, color:PAL[0], text:d.cite + '명'}); });
           $('in1').innerHTML = items.length ? hbars(items, 10) : '<p class="msg">"날씨"로 한 기록이 아직 없어요.</p>';
           var rows = rec.slice(-8).map(function(d){ return [VS[d.v].s, QS[d.q].s, d.yes + '명', d.q === 2 ? '단서 없음' : d.nc + '개']; });
-          $('in2').innerHTML = tableHTML(['판', '물음', '그렇다고 답함', '단서 문장'], rows);
+          $('in2').innerHTML = tableHTML(['넣은 단서', '물음', '그렇다고 답함', '단서 문장'], rows)
+            + (function(){ var g = function(i){ var x = rec.filter(function(d){ return d.q === 0 && d.v === i; }); return x.length ? x[x.length - 1].yes : null; };
+              var a = g(0), b2 = g(1), b3 = g(2), ab = g(3);
+              if (b2 == null || b3 == null) return '<p class="msg">② 만 넣은 판과 ③ 만 넣은 판을 각각 "날씨"로 해 보면, 어느 한 줄이 짐작을 더 많이 끌어내는지 가를 수 있어요.</p>';
+              return '<p class="msg">"날씨" 물음에서 — 단서 없음 ' + (a == null ? '아직' : a + '명') + ' · ② 후회만 ' + b2 + '명 · ③ 우산 폄만 ' + b3 + '명 · 둘 다 ' + (ab == null ? '아직' : ab + '명') + '. ' + (b2 === b3 ? '두 줄이 비슷하게 센 단서였습니다.' : '③ 우산 폄 문장과 ② 후회 문장 가운데 ' + (b2 > b3 ? '②' : '③') + ' 가 더 센 단서였습니다.') + ' 단서가 없으면 짐작이 거의 나오지 않습니다 — 짐작은 글에 있는 <b>한 줄</b>에서 나옵니다. (친구들 반응은 넣은 단서 수로 계산한 교육용 모형값)</p>'; })();
         }
       };
     })();
@@ -509,7 +523,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

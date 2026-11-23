@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,6 +446,9 @@ var LAB = (function(){
         {n:'mistake', ko:'실수', lv:[0, 0, 0, 4, 0, 0, 0], note:{4:'"실수를 하다"를 그대로 옮긴 말'}}
       ];
       var LV = ['거의 없음', '드묾', '가끔', '흔함', '매우 흔함'];
+      /* 조합을 열기 전에 먼저 찍게 하고 맞힌 비율을 세어 준다 */
+      var PG = ['자연스러울 것', '가끔 쓸 것', '어색할 것'];
+      function band(lv){ return lv >= 3 ? 0 : lv === 2 ? 1 : 2; }
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
         var ws = String(s).split(' '), line = '', n = 0;
@@ -453,18 +458,22 @@ var LAB = (function(){
       }
       function phrase(w, n){ return WD[w] + ' ' + (w >= 3 && (n.n === 'decision' || n.n === 'mistake') ? 'a ' : '') + n.n; }
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 560 ? 452 : 420; },
         idle: '명사와 앞에 붙일 말을 고른 뒤 <b>말뭉치에서 찾아보기</b>를 누르세요.',
         shortHint: '명사 네 개 이상에서 조합을 확인해 보세요. rain과 wind를 비교하면 규칙이 없다는 게 드러납니다.',
         params: [
           {key:'n', type:'seg', label:'명사', cols:4, value:0, options:N.map(function(x){ return x.n + ' <small>' + x.ko + '</small>'; })},
-          {key:'w', type:'seg', label:'앞에 붙일 말', cols:4, value:1, options:WD}
+          {key:'w', type:'seg', label:'앞에 붙일 말', cols:4, value:1, options:WD},
+          {key:'pg', type:'seg', label:'열기 전에 먼저 찍기', cols:3, value:0, options:PG}
         ],
         compute: function(p){
           var n = N[p.n], lv = n.lv[p.w], best = 0;
           n.lv.forEach(function(v, i){ if (v > n.lv[best]) best = i; });
           var rank = n.lv.filter(function(v){ return v > lv; }).length + 1;
-          return {ph:phrase(p.w, n), lv:lv, best:phrase(best, n), rank:rank, note:n.note[p.w] || '', ok:lv >= 3 ? '자연스러운 짝' : lv === 2 ? '쓰이지만 흔하지 않음' : '어색한 조합'};
+          var bd = band(lv), right = bd === p.pg;
+          return {ph:phrase(p.w, n), lv:lv, best:phrase(best, n), rank:rank, note:n.note[p.w] || '',
+            ok:lv >= 3 ? '자연스러운 짝' : lv === 2 ? '쓰이지만 흔하지 않음' : '어색한 조합',
+            bd:bd, right:right, guess:PG[p.pg]};
         },
         draw: function(c, W, H, p, r, tau){
           var n = N[p.n], lab = 76, x0 = 20 + lab, bw = W - x0 - 20, k = r ? Math.min(tau / 0.7, 1) : 0;
@@ -483,11 +492,13 @@ var LAB = (function(){
         stats: function(p, r){
           var col = r.lv >= 3 ? PAL[1] : r.lv === 2 ? PAL[6] : PAL[4];
           return [['조합', r.ph], ['쓰임 수준 (대략)', LV[r.lv] + ' — 일곱 후보 중 ' + r.rank + '위권', col], ['판정', r.ok, col],
-            ['이 명사의 대표 짝', r.best, PAL[1]]].concat(r.note ? [['참고', r.note, PAL[3]]] : []);
+            ['내가 먼저 찍은 것', r.guess + (r.right ? ' — 맞음' : ' — 틀림 (' + PG[r.bd] + '이었어요)'), r.right ? PAL[1] : PAL[4]],
+            ['이 명사의 대표 짝', r.best, PAL[1]],
+            ['※', '쓰임 수준은 용례를 어림해 다섯 단계로 나눈 교육용 모형값입니다 — 실제 말뭉치 빈도수가 아닙니다.']].concat(r.note ? [['참고', r.note, PAL[3]]] : []);
         },
-        columns: ['조합', '쓰임 수준', '판정'],
-        record: function(p, r){ return {n:p.n, w:p.w, lv:r.lv, ph:r.ph}; },
-        row: function(d){ return [d.ph, LV[d.lv], d.lv >= 3 ? '자연' : d.lv === 2 ? '가끔' : '어색']; },
+        columns: ['조합', '쓰임 수준', '판정', '내 찍기'],
+        record: function(p, r){ return {n:p.n, w:p.w, pg:p.pg, lv:r.lv, ph:r.ph, right:r.right}; },
+        row: function(d){ return [d.ph, LV[d.lv], d.lv >= 3 ? '자연' : d.lv === 2 ? '가끔' : '어색', d.right == null ? '—' : (d.right ? '○' : '✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 확인한 조합 지도', '<div id="co1"></div><p class="ask">rain과 wind, homework와 decision에서 짝이 되는 말이 같았나요? 이 차이를 "의미 규칙"으로 설명할 수 있나요, 아니면 관습인가요?</p>') +
@@ -498,7 +509,9 @@ var LAB = (function(){
           $('co1').innerHTML = tableHTML(['명사'].concat(WD), rows) + '<p class="note">◎ 매우 흔함 · ○ 흔함 · △ 가끔 · ✕ 드묾 · ✕✕ 거의 없음 · · 아직 안 해 봄</p>';
           var items = Object.keys(byN).map(function(k, j){ var n = N[k], b = 0; n.lv.forEach(function(v, i){ if (v > n.lv[b]) b = i; });
             return {label:n.n, v:1, color:PAL[j % 8], text:phrase(b, n)}; });
-          $('co2').innerHTML = hbars(items, 1);
+          var hit = rec.filter(function(d){ return d.right; }).length;
+          $('co2').innerHTML = hbars(items, 1) + '<p class="msg">열기 전에 먼저 찍어 맞힌 수: ' + hit + ' / ' + rec.length +
+            ' (' + f(rec.length ? hit / rec.length * 100 : 0, 0) + '%)</p>';
         }
       };
     })();
@@ -507,7 +520,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

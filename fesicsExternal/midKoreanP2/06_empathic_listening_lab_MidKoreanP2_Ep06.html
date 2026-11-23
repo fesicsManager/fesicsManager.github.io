@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>고민을 들으면 해결책부터 줘야 하나</h1>
-    <p>친구가 “발표를 망쳐서 속상해.”라고 말합니다. 듣는 사람의 <b>첫 반응</b>만 네 가지로 바꿔, 말하는 사람이 <b>이어서 한 말의 수</b>와 <b>들어 주었다고 느낀 정도</b>가 어떻게 달라지는지 확인해요.<br><span style="font-size:.9em;color:#a86825">※ 수치는 제로 랩 역할극(20쌍)의 가상 자료입니다.</span></p>
+    <p>친구가 “발표를 망쳐서 속상해.”라고 말합니다. 듣는 사람의 <b>첫 반응</b>만 네 가지로 바꿔, 말하는 사람이 <b>이어서 한 말의 수</b>와 <b>들어 주었다고 느낀 정도</b>가 어떻게 달라지는지 확인해요.<br><span style="font-size:.9em;color:#a86825">※ 첫 반응의 수치는 제로 랩 역할극(20쌍)의 가상 자료이고, <b>두 번째 반응</b> 뒤의 문장 수는 교육용 모형값으로 계산한 값입니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -473,15 +475,20 @@ return (function(){
         {n:'내 이야기로 돌리기', ex:'“나는 저번에 더 크게 망쳤어.”', s:1.5, f:2.0}
       ];
       var PRE = ['짧게 끝날 것이다 (2문장 이하)', '길어질 것이다 (3문장 이상)'];
+      var R2 = ['감정을 알아주고 열린 질문', '바로 해결책으로 돌아서기'];
+      function next(s, r2){ return r2 === 0 ? 0.8 * s + 1.5 : 0.3 * s; }
       return {
-        sceneHeight: 430,
+        sceneHeight: function (w){ return w < 560 ? 475 : 430; },
         idle: '첫 반응과 나의 예측을 고른 뒤 <b>이 반응으로 대화하기</b>를 누르세요.',
         shortHint: '네 가지 첫 반응을 모두 해 보세요. 이어서 한 말이 가장 길어진 반응은 무엇인가요?',
         params: [
           {key:'r', type:'seg', label:'듣는 사람의 첫 반응', cols:2, value:0, options:R.map(function(x){ return x.n; })},
+          {key:'r2', type:'seg', label:'두 번째 반응 (첫 반응 다음에 할 말)', cols:2, value:0, options:R2,
+            note:'첫 반응이 좋았어도 두 번째에 해결책으로 돌아서면 대화가 어떻게 되는지 모형으로 재어 줍니다(교육용 모형값).'},
           {key:'g', type:'seg', label:'나의 예측 — 말하는 사람이 이어서 할 말', cols:2, value:1, options:PRE}
         ],
-        compute: function(p){ var x = R[p.r], long = x.s >= 3; return {x:x, long:long, right:(p.g === 1) === long}; },
+        compute: function(p){ var x = R[p.r], long = x.s >= 3, s2 = next(x.s, p.r2);
+          return {x:x, long:long, right:(p.g === 1) === long, r2:p.r2, s2:s2, tot:x.s + s2, kept:s2 >= x.s * 0.8}; },
         draw: function(c, W, H, p, r, tau){
           var x = R[p.r], a = r ? ph(tau, 0, 0.3) : 1;
           person(c, 50, 64, 40, PAL[0]); tx(c, '말하는 사람', 50, 104, {align:'center', color:'#4A5868', size:14});
@@ -506,18 +513,32 @@ return (function(){
         stats: function(p, r){
           return [['첫 반응', r.x.n + ' — ' + r.x.ex], ['이어서 한 말(평균)', f(r.x.s, 1) + '문장', PAL[0]], ['들어 주었다고 느낀 정도', f(r.x.f, 1) + ' / 5', r.x.f >= 3.5 ? PAL[1] : PAL[4]],
             ['나의 예측', PRE[p.g] + (r.right ? ' — 맞았어요' : ' — 빗나갔어요'), r.right ? PAL[1] : PAL[6]],
-            ['진짜 문제가 나왔나', r.long ? '나옴 — “질문이 예상 밖이었어”처럼 이어 말함' : '나오지 않음 — 대화가 한두 문장에서 끝남']];
+            ['진짜 문제가 나왔나', r.long ? '나옴 — “질문이 예상 밖이었어”처럼 이어 말함' : '나오지 않음 — 대화가 한두 문장에서 끝남'],
+            ['두 번째 반응', R2[r.r2]],
+            ['두 번째 반응 뒤 이어서 한 말', f(r.s2, 1) + '문장 (교육용 모형값)', r.kept ? PAL[1] : PAL[4]],
+            ['대화 전체 문장 수', f(r.tot, 1) + '문장 (교육용 모형값)', PAL[0]],
+            ['대화가 이어졌나', r.kept ? '이어졌어요 — 말이 줄지 않았습니다' : '끊겼어요 — 두 번째 반응에서 말이 ' + f((1 - r.s2 / r.x.s) * 100, 0) + '% 줄었어요', r.kept ? PAL[1] : PAL[4]]];
         },
-        columns: ['첫 반응', '이어서 한 말', '느낀 정도', '예측'],
-        record: function(p, r){ return {r:p.r, right:r.right}; },
-        row: function(d){ return [R[d.r].n, f(R[d.r].s, 1) + '문장', f(R[d.r].f, 1), d.right ? '맞음' : '빗나감']; },
+        columns: ['첫 반응', '이어서 한 말', '느낀 정도', '예측', '두 번째 반응', '전체 문장'],
+        record: function(p, r){ return {r:p.r, right:r.right, r2:r.r2, tot:r.tot, kept:r.kept}; },
+        row: function(d){ return [R[d.r].n, f(R[d.r].s, 1) + '문장', f(R[d.r].f, 1), d.right ? '맞음' : '빗나감', d.r2 ? '해결책으로' : '감정 알아주기', f(d.tot, 1) + (d.kept ? '' : ' (끊김)')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('첫 반응별 — 이어서 한 말 (평균 문장 수)', '<div id="mk6a"></div><p class="ask">‘감정 알아주기 + 열린 질문’만 대화가 길어졌어요. 해결책을 감정을 알아준 다음에 주면 무엇이 더 좋아질까요?</p>') +
+            card('두 번째 반응까지 이어 보기 — 대화 전체 문장 수 (교육용 모형값)', '<div id="mk6c"></div><p class="ask">첫 반응이 좋았는데도 두 번째에 해결책으로 돌아서면 전체 문장 수가 어떻게 되나요? 해결책은 언제 주는 것이 좋을까요?</p>') +
             card('첫 반응별 — 들어 주었다고 느낀 정도 (5점)', '<div id="mk6b"></div><p class="ask">과제: 가족이나 친구와 5분 동안 대화하며 맞장구, 정리해 돌려주기, 열린 질문을 각각 한 번 이상 써 보세요. 상대가 몇 번 더 말을 이었는지, 어떤 반응 뒤에 말이 길어졌는지 기록해 보세요.</p>') + '</div>';
           var tried = function(i){ return rec.some(function(d){ return d.r === i; }); };
           $('mk6a').innerHTML = hbars(R.map(function(x, i){ return {label:x.n, v:x.s, color:tried(i) ? PAL[0] : '#CBD3DD', text:f(x.s, 1) + (tried(i) ? '' : ' (아직)')}; }), 7);
           $('mk6b').innerHTML = hbars(R.map(function(x, i){ return {label:x.n, v:x.f, color:tried(i) ? PAL[1] : '#CBD3DD', text:f(x.f, 1) + (tried(i) ? '' : ' (아직)')}; }), 5);
+          var rowsC = R.map(function(x, i){
+            var a = x.s + next(x.s, 0), b = x.s + next(x.s, 1), mine = rec.filter(function(d){ return d.r === i; });
+            return [x.n, f(a, 1) + '문장', f(b, 1) + '문장', '−' + f((a - b) / a * 100, 0) + '%', mine.length ? mine.length + '회' : '아직'];
+          });
+          var best = R[1], ba = best.s + next(best.s, 0), bb = best.s + next(best.s, 1), worst = R[0], wa = worst.s + next(worst.s, 0);
+          $('mk6c').innerHTML = tableHTML(['첫 반응', '두 번째도 감정 알아주기', '두 번째는 해결책', '줄어든 몫', '내 기록'], rowsC) +
+            '<p class="msg">가장 좋았던 ‘감정 알아주기 + 열린 질문’도 두 번째에 해결책으로 돌아서면 ' + f(ba, 1) + '문장 → ' + f(bb, 1) +
+            '문장으로 떨어져요. 거꾸로 ‘바로 해결책’으로 시작했어도 두 번째에 감정을 알아주면 ' + f(wa, 1) +
+            '문장까지 되살아납니다. 중요한 것은 <b>해결책을 주느냐</b>가 아니라 <b>언제 주느냐</b>예요. (모두 교육용 모형값)</p>';
         }
       };
     })();
@@ -527,7 +548,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

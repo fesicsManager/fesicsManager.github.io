@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -462,7 +464,7 @@ var LAB = (function(){
         c.fill();
       }
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 560 ? 450 : 420; },
         idle: '도덕 항목과 결론을 고른 뒤 <b>이 추론 검사하기</b>를 누르세요.',
         shortHint: '항목 다섯 가지를 모두 보고, 결론 세 가지를 모두 검사해 보세요.',
         params: [
@@ -472,26 +474,42 @@ var LAB = (function(){
         ],
         compute: function(p){ return {it:IT[p.i], inf:INF[p.c]}; },
         draw: function(c, W, H, p, r, tau){
-          var it = IT[p.i], gap = (W - 40) / 5, k = r ? Math.min(tau / 0.5, 1) : 1;
+          var it = IT[p.i], gap = (W - 40) / 5, k = r ? Math.min(tau / 0.5, 1) : 1, narrow = W < 560;
           txt(c, it.n, W / 2, 30, {align:'center', bold:true});
           for (var j = 0; j < 5; j++){
             var x = 20 + gap * j + gap / 2, y = 100;
             c.fillStyle = '#F3F5F8'; c.fillRect(x - gap / 2 + 4, 52, gap - 8, 96);
             var kind = it.d >= 3 ? SH[j] : it.d === 1 ? SH[j] : 'circle', col = it.d >= 3 ? PAL[j] : PAL[1];
             c.globalAlpha = k; shape(c, kind, x, y, 16, col); if (it.d === 1){ c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y, 6, 0, Math.PI * 2); c.fill(); } c.globalAlpha = 1;
-            txt(c, '사회 ' + 'ABCDE'.charAt(j), x, 138, {align:'center', color:'#4A5868'});
+            txt(c, (narrow ? '' : '사회 ') + 'ABCDE'.charAt(j), x, 138, {align:'center', color:'#4A5868'});
           }
           txt(c, '사회 간 차이: ' + it.dt + (it.core !== '—' ? ' · 공통: ' + it.core : ''), W / 2, 178, {align:'center', color:PAL[3], bold:true});
-          var by = 220, bw = Math.min(150, (W - 80) / 2);
+          var by = 220, bw = narrow ? W - 40 : Math.min(150, (W - 80) / 2);
+          var u = r ? Math.min(Math.max((tau - 0.4) / 0.6, 0), 1) : 0;
+          if (narrow){
+            // 좁은 화면: 전제와 결론을 위아래로 놓고 화살표도 세로로
+            c.fillStyle = '#EAF1FA'; c.fillRect(20, by, bw, 52); txt(c, '전제 (사실)', 20 + bw / 2, by + 22, {align:'center', bold:true}); txt(c, '사회마다 다르다', 20 + bw / 2, by + 44, {align:'center'});
+            var cy2 = by + 108;
+            c.fillStyle = '#F8EDE0'; c.fillRect(20, cy2, bw, 52); txt(c, '결론', 20 + bw / 2, cy2 + 22, {align:'center', bold:true}); txt(c, INF[p.c].s, 20 + bw / 2, cy2 + 44, {align:'center'});
+            var mx = W / 2, ay1 = by + 56, ay2 = cy2 - 4;
+            if (!r) seg(c, mx, ay1, mx, ay2, '#B5BFCA', 3, [6, 6]);
+            else if (r.inf.ok) arrow(c, mx, ay1, mx, ay1 + (ay2 - ay1) * u, PAL[1], 3);
+            else {
+              var midy = (ay1 + ay2) / 2;
+              arrow(c, mx, ay1, mx, ay1 + (midy - 4 - ay1) * Math.min(u * 2, 1), PAL[4], 3);
+              if (u > 0.5){ seg(c, mx - 16, midy, mx + 16, midy, PAL[4], 3); txt(c, '비약', mx + 22, midy + 6, {bold:true, color:PAL[4]}); }
+            }
+          } else {
           c.fillStyle = '#EAF1FA'; c.fillRect(20, by, bw, 64); txt(c, '전제 (사실)', 20 + bw / 2, by + 26, {align:'center', bold:true}); txt(c, '사회마다 다르다', 20 + bw / 2, by + 50, {align:'center'});
           c.fillStyle = '#F8EDE0'; c.fillRect(W - 20 - bw, by, bw, 64); txt(c, '결론', W - 20 - bw / 2, by + 26, {align:'center', bold:true}); txt(c, INF[p.c].s, W - 20 - bw / 2, by + 50, {align:'center'});
-          var ax1 = 24 + bw, ax2 = W - 24 - bw, u = r ? Math.min(Math.max((tau - 0.4) / 0.6, 0), 1) : 0;
+          var ax1 = 24 + bw, ax2 = W - 24 - bw;
           if (!r) seg(c, ax1, by + 32, ax2, by + 32, '#B5BFCA', 3, [6, 6]);
           else if (r.inf.ok) arrow(c, ax1, by + 32, ax1 + (ax2 - ax1) * u, by + 32, PAL[1], 3);
           else {
             var mid = (ax1 + ax2) / 2;
             arrow(c, ax1, by + 32, ax1 + (mid - 8 - ax1) * Math.min(u * 2, 1), by + 32, PAL[4], 3);
             if (u > 0.5){ seg(c, mid - 6, by + 14, mid + 6, by + 50, PAL[4], 3); txt(c, '비약', mid, by + 76, {align:'center', bold:true, color:PAL[4]}); }
+          }
           }
           txt(c, r && tau > 0.9 ? (r.inf.ok ? '전제와 충돌하지 않는 방법 제안' : '전제에서 따라 나오지 않음') : '추론 검사 전', W / 2, H - 20, {align:'center', bold:true, color:r ? (r.inf.ok ? PAL[1] : PAL[4]) : '#4A5868'});
         },
@@ -522,7 +540,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

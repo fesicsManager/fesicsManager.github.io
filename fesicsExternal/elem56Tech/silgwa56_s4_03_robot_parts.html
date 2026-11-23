@@ -147,6 +147,20 @@ var rows=[];
 var LAB=(function(){
 var out,c,cvv,cur=null,logs=[];
 var dev=document.getElementById('dev'),sen=document.getElementById('sen'),brain=document.getElementById('brain'),act=document.getElementById('act');
+/* 기기의 기본형을 기준으로 삼은 교육용 기준값. 1 = 있음, 0 = 없음 */
+var REF={'자동문':[1,1,1],'에어컨':[1,1,1],'선풍기':[0,0,1],'로봇청소기':[1,1,1],
+  '무인 주문기':[1,1,0],'신호등(차량 감지)':[1,1,0],'손 소독기':[1,0,1],'망치':[0,0,0],'드론':[1,1,1]};
+var REFWHY={'자동문':'사람을 느끼고, 열지 말지 판단해 문을 움직인다',
+  '에어컨':'온도를 느끼고, 설정과 견주어 판단해 압축기를 움직인다',
+  '선풍기':'느끼지도 판단하지도 않고 날개만 돈다',
+  '로봇청소기':'부딪힘을 느끼고 길을 판단해 바퀴를 움직인다',
+  '무인 주문기':'누름을 느끼고 판단하지만 스스로 움직이는 부분이 없다',
+  '신호등(차량 감지)':'차를 느끼고 판단하지만 불빛만 바뀐다',
+  '손 소독기':'손을 느끼면 늘 같은 동작을 한다 — 판단이 없다',
+  '망치':'세 가지 모두 없다 — 사람이 다 한다',
+  '드론':'자율 비행 기능이 있는 기준으로, 세 가지를 모두 갖춘다'};
+function num(v){return v==='있음'?1:0;}
+function refOf(n){return REF[n]||null;}
 function draw(step){
   c.clearRect(0,0,cvv.width,cvv.height);
   var names=['감각','생각','움직임'];
@@ -177,7 +191,7 @@ function draw(step){
   c.fillText(cur?cur.n:dev.value,cvv.width/2,40);
 }
 return {
-  columns:['기기','감각','생각','움직임','로봇 구조'],
+  columns:['기기','감각','생각','움직임','내 판정','기준 판정','맞은 칸'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(3);
     out.innerHTML='기기를 고르고 세 칸을 채운 뒤 <b>분해해 보기</b>를 눌러 순환을 확인해 보세요.';},
   run:function(done){
@@ -185,13 +199,34 @@ return {
     var st=-1,iv=setInterval(function(){st++;draw(st);
       if(st>=3){clearInterval(iv);
         var all=cur.v[0]==='있음'&&cur.v[1]==='있음'&&cur.v[2]==='있음';
-        out.innerHTML='<b>'+cur.n+'</b> · '+(all?'감각-생각-움직임이 모두 이어졌습니다.':'빠진 칸이 있습니다. 무엇이 없었나요?');
+        var rf=refOf(cur.n),msg='<b>'+cur.n+'</b> · '+(all?'내 판정으로는 감각-생각-움직임이 모두 이어졌습니다.':'내 판정으로는 빠진 칸이 있습니다.');
+        if(rf){
+          var nm=['감각','생각','움직임'],hit=0,lines=[];
+          for(var i2=0;i2<3;i2++){
+            var mv=num(cur.v[i2]);
+            if(mv===rf[i2])hit++;
+            lines.push(nm[i2]+' '+(rf[i2]?'있음':'없음'));
+          }
+          var rall=rf[0]&&rf[1]&&rf[2];
+          msg+='<br>기준으로는 '+lines.join(' · ')+' → <b>'+(rall?'로봇의 구조를 갖춘 기기':'빠진 칸이 있는 기기')+'</b>'+
+               '<br>내 판정은 <b>'+hit+' / 3칸</b> 맞았습니다'+(hit<3?' — <b>생김새로 속기 쉬운 자리</b>입니다. '+REFWHY[cur.n]:'. '+REFWHY[cur.n])+
+               '<br><span style="font-size:.9rem;color:#53617a">※ 기준은 그 기기의 <b>기본형</b>을 놓고 정한 교육용 기준값입니다.</span>';
+        }
+        out.innerHTML=msg;
         done();}},420);
   },
   record:function(){
     var all=sen.value==='있음'&&brain.value==='있음'&&act.value==='있음';
-    return {cells:[dev.value,sen.value,brain.value,act.value,all?'○':'×'],
-            raw:{n:dev.value,s:sen.value,b:brain.value,a:act.value,ok:all}};
+    var rf=refOf(dev.value),hit=null,rall=null;
+    if(rf){
+      hit=0;
+      if(num(sen.value)===rf[0])hit++;
+      if(num(brain.value)===rf[1])hit++;
+      if(num(act.value)===rf[2])hit++;
+      rall=!!(rf[0]&&rf[1]&&rf[2]);
+    }
+    return {cells:[dev.value,sen.value,brain.value,act.value,all?'○':'×',rall===null?'—':(rall?'○':'×'),hit===null?'—':(hit+'/3')],
+            raw:{n:dev.value,s:sen.value,b:brain.value,a:act.value,ok:all,rall:rall,hit:hit}};
   },
   verify:function(rs){
     var ok=[],no=[];
@@ -208,6 +243,22 @@ return {
       }
       h+='</p>';
     }else h+='<p style="color:#7b8aa3">없습니다.</p>';
+    h+=(function(){
+      var seen={},hit=0,tot=0,fool=[];
+      for(var q=0;q<rs.length;q++){seen[rs[q].raw.n]=rs[q].raw;}
+      for(var k2 in seen){
+        var r=seen[k2];
+        if(r.hit==null)continue;
+        tot++; hit+=r.hit;
+        if(r.hit<3)fool.push('<b>'+k2+'</b> — '+REFWHY[k2]);
+      }
+      if(!tot)return '';
+      return '<h4 style="margin:.8rem 0 .2rem">내 판정 채점</h4>'+
+        '<p style="font-size:1.03rem;line-height:1.8">기기 '+tot+'가지에서 <b>'+hit+' / '+(tot*3)+'칸</b>이 기준과 맞았습니다.</p>'+
+        (fool.length?'<h4 style="margin:.6rem 0 .2rem">생김새로 속은 기기</h4><p style="font-size:1rem;line-height:1.8">'+fool.join('<br>')+'</p>'
+                   :'<p style="font-size:1rem;line-height:1.8">속은 기기가 없었습니다. 망치와 손 소독기도 넣어 보세요.</p>')+
+        '<p style="font-size:.9rem;color:#53617a">※ 기준은 기기의 <b>기본형</b>을 놓고 정한 교육용 기준값입니다.</p>';
+    })();
     h+='</div><div><h3>읽어 내기</h3><ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
        '<li>선풍기와 에어컨의 차이는 어느 칸에서 갈렸나요?</li>'+
        '<li>사람 모습이 아닌데 로봇 구조를 갖춘 기기가 있었나요?</li>'+

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,7 +446,7 @@ var LAB = (function(){
       var MT = ['제곱 두 번 하고 빼기', '(a + b)(a − b)로 쪼개기'];
       var nz = function(n){ return String(n).split('').filter(function(ch){ return ch !== '0'; }).length; };
       return {
-        sceneHeight: 440,
+        sceneHeight: function (w){ return w < 560 ? 494 : 440; },
         idle: '두 수와 방법을 고른 뒤 <b>잘라서 붙이기</b>를 누르세요.',
         shortHint: '같은 문제를 두 방법으로 한 번씩 해 보고, 곱셈 횟수를 비교하세요.',
         params: [
@@ -469,9 +471,14 @@ var LAB = (function(){
           if (tau > 0.9){ c.strokeStyle = PAL[1]; c.lineWidth = 3; c.strokeRect(X(0), Y(d), (a + b) * sc, d * sc); }
           var s1 = p.m === 0 ? a + '² − ' + b + '² = ' + r.sq[0] + ' − ' + r.sq[1] + ' = ' + r.v : '(' + a + ' + ' + b + ')(' + a + ' − ' + b + ') = ' + r.s + ' × ' + r.d + ' = ' + r.v;
           var s2 = '가로 ' + r.s + ', 세로 ' + r.d + ' 직사각형 · 한 자리 곱셈 ' + r.mults + '번';
-          if (W < 480){   /* 좁은 화면: 식은 폭에 맞게 줄이고, 설명은 두 줄로 */
-            txt(c, s1, 14, H - 58, {bold:true, color:PAL[1], max:W - 28});
-            wrapT(c, s2, 14, H - 34, W - 28, 22, {color:'#4A5868'});
+          if (W < 480){   /* 좁은 화면: 식은 폭에 맞게 줄이고, 설명은 줄 수만큼 올려 두 줄로 */
+            c.font = '18px ' + FONT;
+            var ws2 = String(s2).split(' '), ln2 = '', n2 = 1;
+            for (var i2 = 0; i2 < ws2.length; i2++){ var t2 = ln2 ? ln2 + ' ' + ws2[i2] : ws2[i2];
+              if (ln2 && c.measureText(t2).width > W - 28){ n2++; ln2 = ws2[i2]; } else ln2 = t2; }
+            var y2 = H - 12 - (n2 - 1) * 22;
+            txt(c, s1, 14, y2 - 24, {bold:true, color:PAL[1], max:W - 28});
+            wrapT(c, s2, 14, y2, W - 28, 22, {color:'#4A5868'});
             return;
           }
           txt(c, s1, 20, H - 50, {bold:true, color:PAL[1]});
@@ -504,7 +511,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

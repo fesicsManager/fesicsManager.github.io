@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,13 +446,18 @@ var LAB = (function(){
         shortHint: '네 묶음을 모두 뒤집어야 빈도와 불규칙 비율의 관계가 보입니다.',
         params: [
           {key:'b', type:'seg', label:'동사 묶음 (각 10개)', cols:2, value:0, options:B.map(function(x){ return x.name; })},
-          {key:'g', type:'seg', label:'나의 예측', cols:3, value:0, options:GU}
+          {key:'g', type:'seg', label:'나의 예측', cols:3, value:0, options:GU},
+          {key:'fq', type:'range', label:'이 동사를 하루에 쓰는 횟수 (가정)', min:0, max:60, step:2, value:20, fmt:function(v){ return v + '번'; },
+            note:'불규칙형은 외워 두지 않으면 잊혀 -ed 쪽으로 끌려갑니다. “자주 쓰면 기억에 남는다”를 아주 단순한 식으로 본 교육용 모형이에요 — 살아남을 확률 = 1 − e^(−횟수 ÷ 8).'}
         ],
         compute: function(p){
           var vs = B[p.b].v, irr = vs.filter(function(v){ return v[3]; });
           var ratio = irr.length / vs.length, hit = p.g === 0 ? ratio >= 0.7 : p.g === 1 ? ratio > 0.3 && ratio < 0.7 : ratio <= 0.3;
           var pat = {}; irr.forEach(function(v){ pat[v[3]] = (pat[v[3]] || 0) + 1; });
-          return {vs:vs, n:irr.length, ratio:ratio, hit:hit, pat:pat};
+          /* 쓰는 횟수가 적으면 불규칙형을 잊어 -ed 로 규칙화된다고 보는 단순한 교육용 모형 */
+          var keepP = 1 - Math.exp(-p.fq / 8), keep = (keepP >= 0.5);
+          var needFq = Math.ceil(-8 * Math.log(0.5) / 2) * 2;   /* 0.5 를 넘는 가장 작은 짝수 횟수 */
+          return {vs:vs, n:irr.length, ratio:ratio, hit:hit, pat:pat, fq:p.fq, keepP:keepP, keep:keep, needFq:needFq};
         },
         draw: function(c, W, H, p, r, tau){
           var vs = B[p.b].v, cols = W < 560 ? 2 : 5, rows = 10 / cols, cw = (W - 30) / cols - 10, ch = W < 560 ? 60 : 88;
@@ -473,20 +480,27 @@ var LAB = (function(){
         stats: function(p, r){
           var pats = Object.keys(r.pat).map(function(k){ return k + ' ' + r.pat[k] + '개'; }).join(' · ');
           return [['묶음', B[p.b].name], ['불규칙 동사', r.n + ' / 10 (' + f(r.ratio * 100, 0) + '%)', PAL[4]],
+            ['하루에 쓰는 횟수 (가정)', r.fq + '번'],
+            ['불규칙형이 살아남을 확률 (모형)', f(r.keepP * 100, 0) + '%', r.keep ? PAL[1] : PAL[4]],
+            ['그래서 다음 세대에는', r.keep ? '✅ 불규칙형이 그대로 남습니다' : '❌ -ed 로 규칙화됩니다 (' + r.needFq + '번 이상 써야 남습니다)', r.keep ? PAL[1] : PAL[4]],
             ['나의 예측', GU[p.g] + (r.hit ? ' — 맞음' : ' — 빗나감'), r.hit ? PAL[1] : PAL[6]],
             ['불규칙의 무리', pats || '없음 — 전부 -ed', PAL[3]],
             ['불규칙 동사 목록', r.vs.filter(function(v){ return v[3]; }).map(function(v){ return v[0] + '-' + v[1] + '-' + v[2]; }).join(', ') || '—']];
         },
-        columns: ['묶음', '불규칙 수', '비율', '예측 적중'],
-        record: function(p, r){ return {b:p.b, n:r.n, ratio:r.ratio, hit:r.hit}; },
-        row: function(d){ return [B[d.b].short, d.n + '개', f(d.ratio * 100, 0) + '%', d.hit ? '맞음' : '빗나감']; },
+        columns: ['묶음', '불규칙 수', '비율', '예측 적중', '쓰는 횟수', '살아남을 확률', '다음 세대'],
+        record: function(p, r){ return {b:p.b, n:r.n, ratio:r.ratio, hit:r.hit, fq:r.fq, keepP:r.keepP, keep:r.keep, needFq:r.needFq}; },
+        row: function(d){ return [B[d.b].short, d.n + '개', f(d.ratio * 100, 0) + '%', d.hit ? '맞음' : '빗나감', d.fq + '번', f(d.keepP * 100, 0) + '%', d.keep ? '불규칙 유지' : '-ed 로 바뀜']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('빈도 구간별 불규칙 비율', '<div id="ir1"></div><p class="ask">흔한 동사에서 새 동사로 갈수록 비율이 어떻게 변했나요? 불규칙 동사가 "괴롭히려고 만든 예외"가 아니라 "오래 쓰인 말의 흔적"이라는 근거가 되나요?</p>') +
             card('내가 뒤집은 불규칙 동사의 무리', '<div id="ir2"></div><p class="ask">과제: 교과서 뒤 불규칙 동사표를 네 가지 모양(A-B-B, A-B-C, A-A-A, 모음만 바뀜)으로 분류해 다시 쓰고, sing-sang-sung처럼 모음이 바뀌는 무리를 소리 내어 읽어 보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.b; }), items = [];
           B.forEach(function(b, i){ var g = by[i]; if (!g) return; items.push({label:b.short, v:g[0].ratio * 100, color:PAL[4], text:f(g[0].ratio * 100, 0) + '%'}); });
-          $('ir1').innerHTML = hbars(items, 100) + (items.length < 4 ? '<p class="msg">아직 뒤집지 않은 묶음이 있어요.</p>' : '');
+          $('ir1').innerHTML = hbars(items, 100) + (items.length < 4 ? '<p class="msg">아직 뒤집지 않은 묶음이 있어요.</p>' : '')
+            + (function(){ var k = {}; rec.forEach(function(d){ k[d.fq] = d; }); var ks = Object.keys(k).map(Number).sort(function(a, b){ return a - b; });
+              if (ks.length < 2) return '<p class="msg">같은 묶음에서 <b>하루에 쓰는 횟수</b>만 0번 · 6번 · 40번으로 바꿔 기록해 보세요. 몇 번부터 불규칙형이 살아남는지 그 자리를 찾을 수 있어요.</p>';
+              var keep = rec.filter(function(d){ return d.keep; }), need = rec[0].needFq;
+              return '<p class="msg">쓰는 횟수별 살아남을 확률 — ' + ks.map(function(x){ return x + '번 → ' + f(k[x].keepP * 100, 0) + '%' + (k[x].keep ? ' (유지)' : ' (-ed)'); }).join(' · ') + '. 이 모형에서는 하루 <b>' + need + '번</b>부터 불규칙형이 남습니다. 불규칙 동사가 유난히 흔한 동사(be, have, go, say)에 몰려 있는 까닭, 그리고 google·text 같은 <b>새 동사가 모두 -ed</b> 인 까닭이 같습니다 — 자주 쓰지 않는 말은 외워 둘 기회가 없어 규칙 쪽으로 끌려갑니다. (단순한 교육용 모형)</p>'; })();
           var grp = {'A-B-B':[], 'A-B-C':[], 'A-A-A':[], '모음만':[]};
           Object.keys(by).forEach(function(k){ B[k].v.forEach(function(v){ if (v[3]) grp[v[3]].push(v[0] + '-' + v[1] + '-' + v[2]); }); });
           grp['모음만'] = grp['모음만'].concat(['(보기) sing-sang-sung', 'drink-drank-drunk', 'swim-swam-swum']);
@@ -499,7 +513,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

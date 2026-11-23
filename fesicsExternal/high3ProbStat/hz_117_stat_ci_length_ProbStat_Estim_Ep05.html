@@ -151,12 +151,16 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="구간 길이 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="n">표본 크기 n <b><span id="n_v">25</span></b></label><input type="range" id="n" min="4" max="400" step="1" value="25"></div><div class="ctl"><label for="s">모표준편차 σ <b><span id="s_v">10</span></b></label><input type="range" id="s" min="2" max="30" step="1" value="10"></div><div class="row"><button class="btn go" id="goBtn">📏 구간 길이 재기</button></div>
+      <div class="ctl"><label for="n">표본 크기 n <b><span id="n_v">25</span></b></label><input type="range" id="n" min="4" max="400" step="1" value="25"></div><div class="ctl"><label for="s">모표준편차 σ <b><span id="s_v">10</span></b></label><input type="range" id="s" min="2" max="30" step="1" value="10"></div>
+      <div class="ctl"><label>신뢰도</label>
+      <label><input type="radio" name="cl" value="0"> 90% (z = 1.645)</label>
+      <label><input type="radio" name="cl" value="1" checked> 95% (z = 1.96)</label>
+      <label><input type="radio" name="cl" value="2"> 99% (z = 2.576)</label></div><div class="row"><button class="btn go" id="goBtn">📏 구간 길이 재기</button></div>
       <div class="readout" id="readout"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n</th><th>구간 길이</th><th>n 을 2배로 하면</th><th>n 을 4배로 하면</th><th>√n 배</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n</th><th>신뢰도</th><th>구간 길이</th><th>n 을 2배로 하면</th><th>n 을 4배로 하면</th><th>√n 배</th><th>신뢰도를 한 단계 낮추면</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,15 +239,23 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function st(){var n=v('n'),s=v('s');
-var z=1.96;
-var len=function(nn){return 2*z*s/Math.sqrt(nn);};
-return{n:n,s:s,z:z,len:len(n),len2:len(n*2),len4:len(n*4),
-r2:len(n*2)/len(n),r4:len(n*4)/len(n)};}
+var ZS=[1.645,1.96,2.576],CLN=['90%','95%','99%'];
+function st(){var n=v('n'),s=v('s'),cl=+(rv('cl')||1);
+var z=ZS[cl];
+var len=function(nn,zz){return 2*(zz===undefined?z:zz)*s/Math.sqrt(nn);};
+/* 신뢰도를 한 단계 낮추면 길이가 얼마나 줄고, 그걸 표본으로 얻으려면 n 을 몇 배로 해야 하나 */
+var low=(cl>0)?cl-1:0, zLow=ZS[low];
+var rLow=(cl>0)?(zLow/z):1;
+var nEq=(cl>0)?Math.pow(z/zLow,2):1;
+return{n:n,s:s,cl:cl,z:z,cln:CLN[cl],len:len(n),len2:len(n*2),len4:len(n*4),
+r2:len(n*2)/len(n),r4:len(n*4)/len(n),
+lowN:CLN[low],rLow:rLow,nEq:nEq,lenLow:len(n,zLow),
+vd:(cl>0)?('신뢰도를 '+CLN[cl]+' → '+CLN[low]+'로 낮추면 길이가 '+nf(rLow,3)+'배 — 표본을 '+nf(nEq,2)+'배로 늘린 것과 같은 효과입니다')
+:'신뢰도가 가장 낮은 단계입니다 — 더 줄이려면 표본을 늘려야 합니다'};}
 function draw(){clr();var o=st();
-label('95% 신뢰구간의 길이  =  2 × 1.96 × σ / √n',W/2,30,'#9db0d4',15);
+label(o.cln+' 신뢰구간의 길이  =  2 × '+o.z+' × σ / √n',W/2,30,'#9db0d4',15);
 var BX=60,BW=W-120,BY=76;
-var maxLen=2*1.96*o.s/Math.sqrt(4);
+var maxLen=2*2.576*o.s/Math.sqrt(4);
 [[o.n,o.len,'#5ee0c8','n = '+o.n],
 [o.n*2,o.len2,'#ffb86b','n = '+(o.n*2)+' (2배)'],
 [o.n*4,o.len4,'#7aa2ff','n = '+(o.n*4)+' (4배)']].forEach(function(e,i){
@@ -259,16 +271,19 @@ label('처음의 '+nf(ratio,3)+'배',BX+10,y+52,'#9db0d4',12,'left');}});
 panel(24,306,W-48,114);
 label('n 을 2배로 → 길이는 '+nf(o.r2,4)+'배  (1/√2 ≈ 0.707)',W/2,336,'#ffb86b',16);
 label('n 을 4배로 → 길이는 '+nf(o.r4,4)+'배  (1/2)',W/2,370,'#5ee0c8',17);
-label('길이를 절반으로 줄이려면 표본을 네 배로 늘려야 합니다',W/2,404,'#c8d5ef',14);
-ro(kv('n',o.n)+' &nbsp;'+kv('구간 길이',nf(o.len,4))+'<br>'+
-kv('2배일 때',nf(o.r2,4)+'배')+' &nbsp;'+kv('4배일 때',nf(o.r4,4)+'배'));}
+label('길이를 절반으로 줄이려면 표본을 네 배로 늘려야 합니다',W/2,400,'#c8d5ef',13);
+label(o.cl>0?('신뢰도 '+o.lowN+'로 낮추면 길이 '+nf(o.rLow,3)+'배 (표본 '+nf(o.nEq,2)+'배와 같은 효과)'):'신뢰도가 가장 낮은 단계입니다',
+W/2,418,o.cl>0?'#ffb86b':'#9db0d4',12);
+ro(kv('신뢰도',o.cln+' (z='+o.z+')')+' &nbsp;'+kv('n',o.n)+' &nbsp;'+kv('구간 길이',nf(o.len,4))+'<br>'+
+kv('2배일 때',nf(o.r2,4)+'배')+' &nbsp;'+kv('4배일 때',nf(o.r4,4)+'배')+'<br>'+
+kv('신뢰도 낮추기',o.cl>0?(o.lowN+' → 길이 '+nf(o.rLow,3)+'배 · 표본 '+nf(o.nEq,2)+'배와 같음'):'—'));}
 function record(){var o=st();
-return{cells:[o.n,nf(o.len,4),nf(o.len2,4),nf(o.len4,4),nf(1/o.r2,3)],
-n:o.n,s:o.s,len:o.len,r2:o.r2,r4:o.r4,
+return{cells:[o.n,o.cln,nf(o.len,4),nf(o.len2,4),nf(o.len4,4),nf(1/o.r2,3),o.cl>0?(o.lowN+' → '+nf(o.rLow,3)+'배'):'—'],
+n:o.n,s:o.s,cl:o.cl,cln:o.cln,z:o.z,len:o.len,r2:o.r2,r4:o.r4,rLow:o.rLow,nEq:o.nEq,lowN:o.lowN,
 half:(Math.abs(o.r4-0.5)<0.001)};}
 function analyze(){var half=rows.filter(function(r){return r.half;}).length;
-var t='<table><thead><tr><th>n</th><th>길이</th><th>2배 → 비율</th><th>4배 → 비율</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>'+r.n+'</td><td>'+nf(r.len,4)+'</td>'+
+var t='<table><thead><tr><th>n</th><th>신뢰도</th><th>길이</th><th>2배 → 비율</th><th>4배 → 비율</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+r.n+'</td><td>'+(r.cln||'95%')+'</td><td>'+nf(r.len,4)+'</td>'+
 '<td class="no">'+nf(r.r2,4)+'</td><td class="'+(r.half?'ok':'')+'">'+nf(r.r4,4)+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
@@ -278,7 +293,12 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 '<div class="card"><h4>2. √n 이 분모에 있기 때문</h4>'+
 '<p class="note">구간의 길이는 2 × 1.96 × σ/√n 입니다. n 이 <b>제곱근</b> 안에 들어 있어, 길이를 1/k 로 줄이려면 n 을 <b>k² 배</b>로 늘려야 합니다.</p>'+
 '<p class="note">조사 비용은 대개 표본 크기에 비례하므로, 정밀도를 두 배로 높이려면 비용이 네 배로 듭니다.</p>'+
-'<p class="note">신뢰도를 높이면(95% → 99%) 계수가 1.96 에서 2.58 로 커져 구간이 <b>길어집니다</b>. 정확도와 신뢰도는 맞바꾸는 관계입니다.</p></div></div>';}
+'<p class="note">신뢰도를 높이면(95% → 99%) 계수가 1.96 에서 2.58 로 커져 구간이 <b>길어집니다</b>. 정확도와 신뢰도는 맞바꾸는 관계입니다.</p>'+
+(function(){var g={};rows.forEach(function(r){g[r.cln||'95%']=r;});
+var ks=Object.keys(g);if(ks.length<2)return '<p class="note">신뢰도를 90%·95%·99%로 바꿔 기록하면 두 가지 길(표본 늘리기 / 신뢰도 낮추기)을 견줄 수 있습니다.</p>';
+var h2='<table><thead><tr><th>신뢰도</th><th>z</th><th>같은 n 에서 길이</th></tr></thead><tbody>';
+ks.sort().forEach(function(k){var r=g[k];h2+='<tr><td>'+k+'</td><td>'+(r.z||1.96)+'</td><td>'+nf(r.len,4)+'</td></tr>';});
+return '<h4>두 가지 길 견주기</h4>'+h2+'</tbody></table><p class="note">길이를 줄이는 길은 두 가지입니다 — <b>표본을 늘리기</b>(비용이 제곱으로 늡니다)와 <b>신뢰도를 낮추기</b>(틀릴 위험이 커집니다). 99% → 95% 로 낮추면 길이는 약 0.76배가 되는데, 같은 효과를 표본으로 얻으려면 n 을 약 1.73배로 늘려야 합니다.</p>';})()+'</div></div>';}
 
 
 draw();sync();

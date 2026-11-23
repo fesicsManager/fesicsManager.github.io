@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -466,23 +468,30 @@ var LAB = (function(){
       function cm(v, d){ var s = f(Math.abs(v), d || 0), a = s.split('.'); a[0] = a[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); return (v < 0 ? '−' : '') + a.join('.'); }
       function sim(r, n){ return 1000 * (1 + r * n); }
       function cmp(r, n){ return 1000 * Math.pow(1 + r, n); }
+      /* 먼저 배수를 찍게 하고, 같은 숫자를 '내가 빌린 돈' 쪽에서도 보게 해 좋고 나쁨이 뒤집히는 것을 짚는다 */
+      var SIDE = ['내가 맡긴 돈 (예금)', '내가 빌린 돈 (빚)'];
       return {
         sceneHeight: 440,
         idle: '이율과 햇수를 고른 뒤 <b>햇수만큼 맡기기</b>를 누르세요.',
         shortHint: '연 6%로 1년·6년·12년·24년·36년을 차례로 기록해 웹툰 표를 재현하고, 이율을 바꿔 두 배 기간을 비교하세요.',
         params: [
           {key:'r', type:'seg', label:'연 이율 (가상)', cols:3, value:2, options:RN},
-          {key:'n', type:'range', label:'맡기는 햇수', min:1, max:40, step:1, value:36, fmt:function(v){ return v + '년'; }}
+          {key:'n', type:'range', label:'맡기는 햇수', min:1, max:40, step:1, value:36, fmt:function(v){ return v + '년'; }},
+          {key:'w', type:'seg', label:'이 돈은 누구 쪽인가', cols:2, value:0, options:SIDE},
+          {key:'g', type:'range', label:'먼저 찍기 — 복리가 단리의 몇 배일까', min:1, max:4, step:0.1, value:1.5, fmt:function(v){ return f(v, 1) + '배'; },
+            note:'먼저 배수를 찍고 실행해 보세요. 같은 숫자를 ‘빌린 돈’ 쪽에서 보면 커지는 쪽이 나에게 나쁜 쪽이 됩니다.'}
         ],
         compute: function(p){
-          var r = RT[p.r] / 100, n = p.n, s = sim(r, n), c = cmp(r, n);
-          return {r:r, pct:RT[p.r], n:n, s:s, c:c, diff:c - s, ratio:c / s, r72:72 / RT[p.r], ex:Math.log(2) / Math.log(1 + r)};
+          var r = RT[p.r] / 100, n = p.n, s = sim(r, n), c = cmp(r, n), ratio = c / s;
+          var err = Math.abs(p.g - ratio);
+          return {r:r, pct:RT[p.r], n:n, s:s, c:c, diff:c - s, ratio:ratio, r72:72 / RT[p.r], ex:Math.log(2) / Math.log(1 + r),
+            w:p.w, guess:p.g, err:err, gok:err <= 0.15};
         },
         draw: function(c, W, H, p, r, tau){
-          var rr = RT[p.r] / 100, n = p.n, top = cmp(rr, n), ax = axisFrom(0, top * 1.08);
+          var rr = RT[p.r] / 100, n = p.n, top = cmp(rr, n), ax = axisFrom(0, top * 1.08), nsz = W < 560 ? 12 : 18;
           var bx = W >= 620 ? 84 : 66, bw = W - bx - 24, ph = H - 110;
           var P = plotBox(c, bx, 20, bw, ph, [0, n, n <= 10 ? 1 : n <= 20 ? 5 : 10], [0, ax.hi, ax.step], '햇수 (년)', '원리금 (만 원)');
-          [2000, 4000, 8000, 16000].forEach(function(v){ if (v < ax.hi) { seg(c, P.X(0), P.Y(v), P.X(n), P.Y(v), '#B8C2CE', 1, [4, 4]); txt(c, (v / 1000) + '배', P.X(0) + 4, P.Y(v) - 4, {color:'#7B8794'}); } });
+          [2000, 4000, 8000, 16000].forEach(function(v){ if (v < ax.hi) { seg(c, P.X(0), P.Y(v), P.X(n), P.Y(v), '#B8C2CE', 1, [4, 4]); txt(c, (v / 1000) + '배', P.X(0) + 4, P.Y(v) - 4, {color:'#7B8794', size:nsz}); } });
           if (r){
             var m = n * Math.min(tau / 0.85, 1), steps = 80, i, t;
             seg(c, P.X(0), P.Y(1000), P.X(m), P.Y(sim(rr, m)), PAL[6], 3);
@@ -492,28 +501,41 @@ var LAB = (function(){
             if (tau >= 0.85){
               c.fillStyle = PAL[0]; c.beginPath(); c.arc(P.X(n), P.Y(r.c), 6, 0, Math.PI * 2); c.fill();
               c.fillStyle = PAL[6]; c.beginPath(); c.arc(P.X(n), P.Y(r.s), 6, 0, Math.PI * 2); c.fill();
-              txt(c, '복리 ' + cm(r.c, 1), P.X(n) - 10, P.Y(r.c) + 22, {align:'right', bold:true, color:PAL[0]});
-              txt(c, '단리 ' + cm(r.s, 0), P.X(n) - 10, P.Y(r.s) + 26, {align:'right', bold:true, color:PAL[6]});
+              txt(c, '복리 ' + cm(r.c, 1), P.X(n) - 10, P.Y(r.c) + 22, {align:'right', bold:true, color:PAL[0], size:nsz});
+              txt(c, '단리 ' + cm(r.s, 0), P.X(n) - 10, P.Y(r.s) + 26, {align:'right', bold:true, color:PAL[6], size:nsz});
             }
           }
-          txt(c, RN[p.r] + ' · ' + n + '년', 20, H - 10, {bold:true});
+          txt(c, RN[p.r] + ' · ' + n + '년 · ' + (p.w ? '빚' : '예금') + (r ? ' · 내 예측 ' + f(r.guess, 1) + '배 / 실제 ' + f(r.ratio, 2) + '배' : ' · 내 예측 ' + f(p.g, 1) + '배'), 20, H - 10, {bold:true});
         },
         stats: function(p, r){
-          return [['조건', '원금 1,000만 원 · ' + RN[p.r] + ' · ' + r.n + '년'],
+          return [['조건', '원금 1,000만 원 · ' + RN[p.r] + ' · ' + r.n + '년 · ' + SIDE[r.w]],
             ['단리 원리금', '1,000 × (1 + ' + f(r.r, 2) + ' × ' + r.n + ') = ' + cm(r.s, 1) + '만 원', PAL[6]],
             ['복리 원리금', '1,000 × ' + f(1 + r.r, 2) + '^' + r.n + ' = ' + cm(r.c, 1) + '만 원', PAL[0]],
             ['차이', cm(r.diff, 1) + '만 원 (복리가 단리의 ' + f(r.ratio, 2) + '배)', PAL[4]],
-            ['72의 법칙 두 배 기간', '72 ÷ ' + r.pct + ' = ' + f(r.r72, 1) + '년'],
+            ['나의 예측', f(r.guess, 1) + '배 → 실제 ' + f(r.ratio, 2) + '배 (차이 ' + f(r.err, 2) + ')', r.gok ? PAL[1] : PAL[6]],
+            ['나에게 좋은가 나쁜가', r.w === 0
+              ? '맡긴 돈이라 복리가 커질수록 내가 받는 돈이 ' + cm(r.diff, 1) + '만 원 더 늘어요 — 좋은 쪽'
+              : '빌린 돈이라 복리가 커질수록 내가 갚을 돈이 ' + cm(r.diff, 1) + '만 원 더 늘어요 — 나쁜 쪽', r.w === 0 ? PAL[1] : PAL[4]],
+            ['72의 법칙 두 배 기간', '72 ÷ ' + r.pct + ' = ' + f(r.r72, 1) + '년' + (r.w ? ' — 빚이 두 배가 되는 기간' : '')],
             ['정확한 두 배 기간', 'log 2 ÷ log ' + f(1 + r.r, 2) + ' ≈ ' + f(r.ex, 1) + '년', PAL[3]]];
         },
-        columns: ['이율', '햇수', '단리', '복리', '복리 ÷ 단리'],
-        record: function(p, r){ return {r:p.r, n:r.n, s:r.s, c:r.c}; },
-        row: function(d){ return [RN[d.r], d.n + '년', cm(d.s, 1), cm(d.c, 1), f(d.c / d.s, 2) + '배']; },
+        columns: ['이율', '햇수', '쪽', '단리', '복리', '복리 ÷ 단리', '내 예측'],
+        record: function(p, r){ return {r:p.r, n:r.n, s:r.s, c:r.c, w:r.w, guess:r.guess, gok:r.gok}; },
+        row: function(d){ return [RN[d.r], d.n + '년', d.w ? '빚' : '예금', cm(d.s, 1), cm(d.c, 1), f(d.c / d.s, 2) + '배',
+          d.guess != null ? f(d.guess, 1) + '배' + (d.gok ? ' ○' : ' ×') : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록별 — 복리 ÷ 단리', '<div id="sc1"></div><p class="ask">같은 이율에서 햇수가 늘수록 배율은 어떻게 변했나요? 뭉치의 말(&ldquo;30년을 둬도 차이는 조금&rdquo;)은 몇 년까지만 맞았나요?</p>') +
+            card('먼저 찍기 — 예금 쪽과 빚 쪽', '<div id="sc3"></div><p class="ask">같은 ‘복리 ÷ 단리’ 배수인데, 예금 쪽과 빚 쪽에서 뜻이 어떻게 뒤집히나요? 연 18% 빚을 36년 두면 갚을 돈이 얼마가 되는지도 적어 보세요.</p>') +
             card('72의 법칙 vs 정확한 두 배 기간', '<div id="sc2"></div><p class="ask">과제: 같은 1,000만 원을 연 3%와 연 6%(가상)로 36년 맡길 때 복리 결과를 각각 구하세요. 이율이 두 배면 결과도 두 배인지 확인하고, 72의 법칙으로 이유를 설명하세요.</p>') + '</div>';
           $('sc1').innerHTML = hbars(rec.map(function(d){ var q = d.c / d.s; return {label:RN[d.r] + ' · ' + d.n + '년', v:q, color:q > 2 ? PAL[4] : PAL[0], text:f(q, 2) + '배'}; }), 4);
+          var gh = rec.filter(function(d){ return d.guess != null; });
+          $('sc3').innerHTML = tableHTML(['연 이율', '36년 단리', '36년 복리', '복리 ÷ 단리', '예금이면', '빚이면'],
+            RT.map(function(x){ var rr = x / 100, s36 = sim(rr, 36), c36 = cmp(rr, 36);
+              return [x + '%', cm(s36, 0), cm(c36, 0), f(c36 / s36, 2) + '배',
+                '+' + cm(c36 - s36, 0) + '만 원 받음', '+' + cm(c36 - s36, 0) + '만 원 갚음']; })) +
+            '<p class="msg">배수는 같아도 받는 쪽인지 갚는 쪽인지에 따라 좋고 나쁨이 뒤집힙니다.' +
+            (gh.length ? ' 내 예측이 맞은 기록: ' + gh.filter(function(d){ return d.gok; }).length + ' / ' + gh.length + '회' : '') + '</p>';
           $('sc2').innerHTML = tableHTML(['연 이율', '72 ÷ 이율', '정확한 두 배 기간'], RT.map(function(x){ return [x + '%', f(72 / x, 1) + '년', '약 ' + f(Math.log(2) / Math.log(1 + x / 100), 1) + '년']; }));
         }
       };
@@ -523,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

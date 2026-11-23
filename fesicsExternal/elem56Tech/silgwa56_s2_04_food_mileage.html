@@ -116,7 +116,8 @@ tbody tr:nth-child(even){background:#fafcff}
 </select></div>
 <div class="ctrl"><label for="w">무게 <span class="val" id="vW">1.0</span>kg</label><input type="range" id="w" min="0.2" max="5" step="0.2" value="1"></div>
 <div class="ctrl"><label for="food">식재료 이름</label><input type="text" id="food" value="사과" maxlength="10"></div>
-<div class="ctrl"><label for="season">제철인가요?</label><select id="season"><option>제철</option><option>제철 아님(시설 재배)</option></select></div></div>
+<div class="ctrl"><label for="season">제철인가요?</label><select id="season"><option>제철</option><option>제철 아님(시설 재배)</option></select></div>
+<div class="ctrl"><label for="mode">운송 수단</label><select id="mode"><option value="0.10">트럭(육로)</option><option value="0.02">배</option><option value="0.60">비행기</option></select></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">이동 거리 그리기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -151,8 +152,17 @@ var out,c,cvv,anim=0;
 var from=document.getElementById('from'),w=document.getElementById('w'),food=document.getElementById('food'),season=document.getElementById('season');
 w.oninput=function(){document.getElementById('vW').textContent=Number(w.value).toFixed(1);};
 var DIST={'30':30,'140':140,'180':180,'325':325,'450':450,'960':1150,'2700':2700,'7000':9600,'8300':18400};
+var mode=document.getElementById('mode');
 function dist(){return DIST[from.value];}
 function fm(){return Number(w.value)*dist();}
+/* 운반 1kg·1km 에 나오는 이산화 탄소 — 교육용 모형값(g).
+   시설 재배는 난방 때문에 1kg 에 300g 을 더하는 교육용 모형값을 썼다. */
+function modeName(){return mode.options[mode.selectedIndex].text;}
+function co2(){
+  var g=fm()*Number(mode.value);
+  if(season.value.indexOf('아님')>=0)g+=Number(w.value)*300;
+  return g;
+}
 function draw(prog){
   c.clearRect(0,0,cvv.width,cvv.height);
   var d=dist();
@@ -185,18 +195,23 @@ function draw(prog){
   c.fillText('0',45,342);c.textAlign='right';c.fillText('20,000 kg·km',cvv.width-45,342);
 }
 return {
-  columns:['식재료','출발지 거리(km)','무게(kg)','제철','푸드 마일리지(kg·km)'],
+  columns:['식재료','출발지 거리(km)','무게(kg)','제철','푸드 마일리지(kg·km)','수단','이산화 탄소(g)'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='출발지와 무게를 정하고 <b>이동 거리 그리기</b>를 눌러 보세요.';},
   run:function(done){
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/30,1));
       if(t>=30){clearInterval(iv);
-        out.innerHTML='<b>'+(food.value||'식재료')+'</b>의 푸드 마일리지는 <b>'+Math.round(fm()).toLocaleString()+' kg·km</b>입니다.';
+        var g=co2();
+        out.innerHTML='<b>'+(food.value||'식재료')+'</b>의 푸드 마일리지는 <b>'+Math.round(fm()).toLocaleString()+' kg·km</b>입니다.'+
+          '<br>운송 수단 <b>'+modeName()+'</b>으로 치면 이산화 탄소는 약 <b>'+Math.round(g).toLocaleString()+' g</b>'+
+          (season.value.indexOf('아님')>=0?' (시설 재배 난방 몫 포함)':'')+' — '+
+          (g>3000?'<b>아주 큽니다.</b>':(g>800?'<b>꽤 큽니다.</b>':'<b>작습니다.</b>'))+
+          '<br><span style="font-size:.9rem;color:#53617a">※ 1kg·1km 당 트럭 0.10g · 배 0.02g · 비행기 0.60g, 시설 재배 1kg당 +300g 은 모두 <b>교육용 모형값</b>입니다.</span>';
         done();}},30);
   },
   record:function(){
-    return {cells:[food.value||'식재료',dist(),Number(w.value).toFixed(1),season.value.split('(')[0],Math.round(fm()).toLocaleString()],
-            raw:{d:dist(),w:Number(w.value),v:fm(),s:season.value.split('(')[0],n:food.value||'식재료'}};
+    return {cells:[food.value||'식재료',dist(),Number(w.value).toFixed(1),season.value.split('(')[0],Math.round(fm()).toLocaleString(),modeName(),Math.round(co2()).toLocaleString()],
+            raw:{d:dist(),w:Number(w.value),v:fm(),s:season.value.split('(')[0],n:food.value||'식재료',m:modeName(),g:co2()}};
   },
   verify:function(rs){
     var mx=null,mn=null,near=0,far=0;
@@ -216,6 +231,23 @@ return {
        '가장 작은 값 <b>'+Math.round(mn.v).toLocaleString()+'</b> ('+mn.n+', '+mn.d+'km)<br>'+
        '차이 <b>'+Math.round(mx.v/Math.max(mn.v,0.001))+'배</b><br>'+
        '500km 이내 <b>'+near+'건</b> / 그보다 먼 곳 <b>'+far+'건</b></p>'+
+       (function(){
+         var far=null,heavy=null;
+         for(var q=0;q<rs.length;q++){
+           var r=rs[q].raw; if(r.g==null)continue;
+           if(!far||r.d>far.d)far=r;
+           if(!heavy||r.g>heavy.g)heavy=r;
+         }
+         if(!far||!heavy)return '';
+         var s='<h4 style="margin:.7rem 0 .2rem">거리와 수단 겨루기</h4>'+
+           '<div style="font-size:.95rem">가장 먼 것 · '+far.n+' '+far.d+'km ('+far.m+') → '+Math.round(far.g).toLocaleString()+' g</div>'+
+           '<div style="font-size:.95rem">탄소가 가장 큰 것 · '+heavy.n+' '+heavy.d+'km ('+heavy.m+') → '+Math.round(heavy.g).toLocaleString()+' g</div>';
+         s+= (far===heavy)
+           ? '<p style="font-size:1.03rem;line-height:1.8">이번 기록에서는 <b>가장 먼 것이 탄소도 가장 컸습니다.</b> 수단을 배나 비행기로 바꿔 보면 순서가 뒤집히는지 확인해 보세요.</p>'
+           : '<p style="font-size:1.03rem;line-height:1.8"><b>가장 먼 것이 탄소가 가장 큰 것은 아니었습니다.</b> '+heavy.n+'('+heavy.d+'km, '+heavy.m+')이 '+far.n+'('+far.d+'km, '+far.m+')보다 더 컸습니다 — <b>거리만으로는 판단할 수 없습니다.</b></p>';
+         s+='<p style="font-size:.9rem;color:#53617a">※ 수단별 배출량과 시설 재배 가산은 <b>교육용 모형값</b>입니다.</p>';
+         return s;
+       })()+
        '<ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
        '<li>무게를 두 배로 하면 값은 몇 배가 되나요? 거리를 두 배로 하면요?</li>'+
        '<li>먼 곳에서 온 재료가 불리한 것은 영양일까요, 운반 에너지일까요?</li>'+

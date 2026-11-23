@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,7 +479,7 @@ return (function(){
       ];
       var FM = ['+ to', '+ -ing'], PIC = ['㉠ 앞으로 할 일 / 아직 안 한 일', '㉡ 이미 한 일 / 하던 일'];
       return {
-        sceneHeight: 420,
+        sceneHeight: function(w){ return w < 560 ? 480 : 420; },
         idle: '동사, 붙일 형태, 내가 짝지은 그림 카드를 고른 뒤 <b>시간 화살표로 보기</b>를 누르세요.',
         shortHint: '네 동사 모두 to와 -ing를 하나씩 해 보세요. 모양이 바뀌면 그림 카드가 바뀌나요?',
         params: [
@@ -503,10 +505,12 @@ return (function(){
             if (r.t !== 0) arrow(c, cx, ly - 26, cx + (ex - cx) * 0.9, ly - 26, col, 2.5); }
           c.globalAlpha = 1;
           if (tau > 0.5){ var b = ph(tau, 0.5, 0.9), y1 = ly + 96; c.globalAlpha = b;
-            wrapT(c, '뜻: ' + r.k, 20, y1, W - 40, 22, {bold:true});
-            tx(c, '알맞은 그림: ' + PIC[r.ans].split(' ')[0] + ' · 내 짝: ' + PIC[p.pic].split(' ')[0], 20, y1 + 56, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
+            /* 뜻 글의 줄 수만큼 내려 적어 아래 글과 겹치지 않게 한다 */
+            var nk = wrapT(c, '뜻: ' + r.k, 20, y1, W - 40, 22, {bold:true});
+            var ay = y1 + nk * 22 + 14;
+            tx(c, '알맞은 그림: ' + PIC[r.ans].split(' ')[0] + ' · 내 짝: ' + PIC[p.pic].split(' ')[0], 20, ay, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
             c.globalAlpha = 1;
-            if (tau > 0.9) mark(c, W - 46, y1 + (W < 480 ? 100 : 46), 24, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4]); }
+            if (tau > 0.9) mark(c, W - 46, ay + 44, 24, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4]); }
         },
         stats: function(p, r){
           return [['문장', r.s], ['뜻', r.k, PAL[3]], ['뒤의 일이 일어나는 때', r.t > 0 ? '동사보다 뒤 — 앞으로 할 일' : r.t === -2 ? '동사 전부터 하던 일 — 동사에서 끝남' : r.t === 0 ? '동사와 같은 때 — 실제로 해 봄' : '동사보다 앞 — 이미 한 일', r.t > 0 ? PAL[6] : PAL[0]],
@@ -530,7 +534,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

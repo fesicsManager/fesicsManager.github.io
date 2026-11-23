@@ -244,7 +244,20 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">별의 표면 온도: <span class="slider-val" id="tempVal">5800</span> K</div>
             <input type="range" id="tempSlider" min="2500" max="30000" step="100" value="5800" aria-label="별의 표면 온도">
-            <button class="btn-main" id="specBtn">별빛 분석하기 ▶</button>
+            <div class="control-label" style="margin-top:12px;">별의 반지름</div>
+            <select id="sizeSel" aria-label="별의 반지름" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+              <option value="0">태양과 같음 (1배)</option>
+              <option value="1">거성 (25배)</option>
+              <option value="2">초거성 (200배)</option>
+              <option value="3">백색왜성 (0.01배)</option>
+            </select>
+            <div class="control-label" style="margin-top:12px;">별까지의 거리</div>
+            <select id="distSel" aria-label="별까지의 거리" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+              <option value="0">10 광년</option>
+              <option value="1">100 광년</option>
+              <option value="2">1,000 광년</option>
+            </select>
+            <button class="btn-main" id="specBtn" style="margin-top:12px;">별빛 분석하기 ▶</button>
             <div class="result-box" id="specResult">온도를 정하고 실험 버튼을 눌러보세요.</div>
           </div>
         </div>
@@ -252,8 +265,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">분광 기록 (<span class="mono" id="specCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>표면온도(K)</th><th>가장 센 빛의<br>파장(nm)</th><th>분광형</th><th>보이는 색</th></tr></thead>
-              <tbody id="specBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>표면온도(K)</th><th>가장 센 빛의<br>파장(nm)</th><th>분광형</th><th>보이는 색</th><th>반지름</th><th>거리</th><th>보이는 밝기<br>(태양 자리=1)</th></tr></thead>
+              <tbody id="specBody"><tr><td colspan="8" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box warm" style="margin-top:14px;">
@@ -663,6 +676,17 @@ function drawColor(p){
   cx.beginPath(); cx.moveTo(GX0,GY1); cx.lineTo(GX1,GY1); cx.stroke();
   label(cx, 200, H-9, '파장 (nm)', '#8fa2a8', 17);
 }
+/* 색(가장 센 파장)은 표면 온도만으로 정해지지만, 보이는 밝기는 반지름과 거리까지 정한다.
+   광도 L ∝ 반지름² × 온도⁴ (슈테판·볼츠만), 보이는 밝기 ∝ L ÷ 거리².
+   기본값(태양과 같은 반지름 · 10광년)에서는 보이는 밝기가 1 이 되어 예전 결과 해석이 그대로 남는다.
+   ※ 반지름·거리 값은 교육용 모형값이에요. */
+var SIZE=[{n:'태양과 같음 (1배)', s:'1배', r:1},{n:'거성 (25배)', s:'25배', r:25},{n:'초거성 (200배)', s:'200배', r:200},{n:'백색왜성 (0.01배)', s:'0.01배', r:0.01}];
+var DIST=[{n:'10 광년', s:'10광년', d:10},{n:'100 광년', s:'100광년', d:100},{n:'1,000 광년', s:'1,000광년', d:1000}];
+var curSize=0, curDist=0;
+function lumOf(T, R){ return R*R*Math.pow(T/5800,4); }                 /* 태양 광도 대비 */
+function appOf(T, R, D){ return lumOf(T,R)/Math.pow(D/10,2); }         /* 태양을 10광년 밖에 둔 밝기 대비 */
+document.getElementById('sizeSel').addEventListener('change',e=>{ curSize=parseInt(e.target.value,10); });
+document.getElementById('distSel').addEventListener('change',e=>{ curDist=parseInt(e.target.value,10); });
 drawColor(1);
 document.getElementById('tempSlider').addEventListener('input',e=>{
   temp=parseInt(e.target.value);
@@ -677,11 +701,14 @@ document.getElementById('specBtn').addEventListener('click',()=>{
   NOTE('colorNote','별빛을 프리즘으로 나눠 어떤 색이 가장 센지 재는 중입니다.');
   runAnim(btn, cC, 1500, drawColor, ()=>{
     const lam=lamOf(temp), sp=spectralOf(temp);
-    specRecs.push({T:temp, lam:lam, sp:sp.t, color:sp.color});
+    const SZ=SIZE[curSize], DS=DIST[curDist];
+    const lum=lumOf(temp,SZ.r), app=appOf(temp,SZ.r,DS.d);
+    specRecs.push({T:temp, lam:lam, sp:sp.t, color:sp.color, sz:curSize, ds:curDist, lum:lum, app:app});
     renderSpec();
     const b=document.getElementById('specResult');
     b.className='result-box ok';
-    b.innerHTML='가장 센 빛: <span class="big-val">'+lam.toFixed(0)+' nm</span> · '+sp.t+'형 '+sp.color;
+    b.innerHTML='가장 센 빛: <span class="big-val">'+lam.toFixed(0)+' nm</span> · '+sp.t+'형 '+sp.color+
+      '<br>반지름 '+SZ.s+' · '+DS.s+' → 광도 태양의 '+fmtB(lum)+'배, 보이는 밝기 '+fmtB(app);
     NOTE('colorNote','표면 온도 '+temp+'K 인 별은 <b>'+lam.toFixed(0)+'nm</b> 의 빛을 가장 강하게 냅니다. '+
       (lam<380 ? '이 파장은 자외선이라 눈에 안 보이지만, 남은 빛 중 파란 쪽이 세서 <b>푸르게</b> 보입니다.'
        : lam>700 ? '이 파장은 적외선이라 눈에 안 보이고, 보이는 빛 중 붉은 쪽이 세서 <b>붉게</b> 보입니다.'
@@ -689,12 +716,19 @@ document.getElementById('specBtn').addEventListener('click',()=>{
     afterRecord();
   });
 });
+function fmtB(v){
+  if(v>=1000) return (v/1000).toFixed(v>=10000?0:1)+'천';
+  if(v>=10) return v.toFixed(0);
+  if(v>=1) return v.toFixed(2);
+  if(v>=0.001) return v.toFixed(4);
+  return v.toExponential(1);
+}
 function renderSpec(){
   document.getElementById('specCount').textContent=specRecs.length;
   const tb=document.getElementById('specBody');
-  if(!specRecs.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!specRecs.length){ tb.innerHTML='<tr><td colspan="8" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=specRecs.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+r.T.toLocaleString()+'</td><td>'+r.lam.toFixed(0)+
-    '</td><td>'+r.sp+'</td><td class="kr">'+r.color+'</td></tr>').join('');
+    '</td><td>'+r.sp+'</td><td class="kr">'+r.color+'</td><td>'+SIZE[r.sz||0].s+'</td><td>'+DIST[r.ds||0].s+'</td><td class="mono">'+fmtB(r.app==null?1:r.app)+'</td></tr>').join('');
 }
 
 countFn=()=>specRecs.length;
@@ -718,10 +752,28 @@ function renderVerify(){
     specRecs.map(r=>({x:r.T, y:r.lam, color:'#f2c14e'})),
     {xlab:'표면 온도 (K)', ylab:'가장 센 파장 (nm)', xd:0, yd:0, reg:false});
   const sorted=[...specRecs].sort((a,b)=>a.T-b.T);
+  /* 색은 온도만, 보이는 밝기는 반지름·거리까지 — 내 기록으로 갈라 본다 */
+  const byT={};
+  specRecs.forEach(r=>{ const k=Math.round(r.T/500)*500; (byT[k]=byT[k]||[]).push(r); });
+  let twin='';
+  Object.keys(byT).forEach(k=>{
+    const a=byT[k]; if(a.length<2) return;
+    const aps=a.map(r=>r.app==null?1:r.app);
+    const lo=Math.min.apply(null,aps), hi=Math.max.apply(null,aps);
+    if(hi/lo>1.5) twin+='<br>· 표면 온도 약 '+Number(k).toLocaleString()+'K (같은 색·같은 분광형)인데 보이는 밝기가 '+
+      fmtB(lo)+' ~ '+fmtB(hi)+' 로 <b>약 '+fmtB(hi/lo)+'배</b> 차이였습니다.';
+  });
+  const aps2=specRecs.map(r=>r.app==null?1:r.app);
   document.getElementById('specInsight').innerHTML='<div class="insight-box">'+
     '점들이 직선이 아니라 <b>반비례 곡선</b>을 그립니다. 그래서 직선 추세선은 그리지 않았습니다.<br>'+
     '가장 차가운 별('+sorted[0].T.toLocaleString()+'K)은 '+sorted[0].lam.toFixed(0)+'nm, '+
-    '가장 뜨거운 별('+sorted[sorted.length-1].T.toLocaleString()+'K)은 '+sorted[sorted.length-1].lam.toFixed(0)+'nm 였습니다.</div>';
+    '가장 뜨거운 별('+sorted[sorted.length-1].T.toLocaleString()+'K)은 '+sorted[sorted.length-1].lam.toFixed(0)+'nm 였습니다.</div>'+
+    '<div class="insight-box warm" style="margin-top:12px;"><b>색과 밝기는 다른 이야기</b><br>'+
+    '가장 센 파장(색)은 <b>표면 온도만</b>으로 정해집니다 — 반지름과 거리를 아무리 바꿔도 파장 칸은 그대로였지요.<br>'+
+    '그런데 <b>보이는 밝기</b>는 광도(반지름² × 온도⁴)를 거리²로 나눈 값이라, 내 기록에서 '+
+    fmtB(Math.min.apply(null,aps2))+' ~ '+fmtB(Math.max.apply(null,aps2))+' 까지 벌어졌습니다.'+
+    (twin ? twin : '<br>· 같은 온도에서 반지름이나 거리만 바꿔 두 번 재 보면, 색이 같은데도 밝기가 갈리는 것을 볼 수 있어요.')+
+    '<br>그래서 "밝은 별이 뜨거운 별"이라고 말할 수 없습니다. 색은 온도를, 밝기는 크기와 거리까지 알려 줍니다.</div>';
 }
 document.getElementById('predictBtn').addEventListener('click',()=>{
   const fb=document.getElementById('predictFeedback');

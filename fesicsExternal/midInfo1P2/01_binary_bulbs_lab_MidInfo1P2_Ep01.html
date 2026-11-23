@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -430,20 +432,48 @@ function hbars(items, max){
 var LAB = (function(){
       var NB = [1, 2, 3, 4, 5, 6, 7, 8];
       function bits(v, n){ var s = ''; for (var i = n - 1; i >= 0; i--) s += (v >> i) & 1 ? '1' : '0'; return s; }
+      /* 두 가지 방법: ① 수를 넣으면 켤 전구를 알려 준다(변환기) ② 전구를 직접 켜고 그 값을 내가 먼저 적는다.
+         ①이 기본값이라 예전 결과가 그대로 나온다. */
+      var MD = ['수를 넣으면 전구를 알려 주기', '전구를 직접 켜고 값을 맞히기'];
+      var PV = [1, 2, 4, 8, 16, 32, 64, 128];
+      var PK = ['t1', 't2', 't4', 't8', 't16', 't32', 't64', 't128'];
+      function onVal(p){ var v = 0, top = 0;
+        PV.forEach(function(q, i){ if (p[PK[i]]){ v += q; top = i; } });
+        return {v:v, n:Math.max(1, top + 1)};
+      }
       return {
         sceneHeight: 340,
         idle: '전구 개수와 나타낼 수를 고른 뒤 <b>전구 켜기</b>를 누르세요.',
         shortHint: '나타낼 수를 그대로 두고 전구를 1개부터 8개까지 늘려 보며 "상태의 수"를 기록하세요.',
         params: [
           {key:'n', type:'seg', label:'전구 개수', cols:4, value:4, options:NB.map(function(v){ return v + '개'; })},
-          {key:'v', type:'range', label:'나타낼 수 (10진수)', min:0, max:255, step:1, value:19, fmt:function(v){ return String(v); }}
+          {key:'v', type:'range', label:'나타낼 수 (10진수)', min:0, max:255, step:1, value:19, fmt:function(v){ return String(v); }},
+          {key:'md', type:'seg', label:'어떻게 해 볼까', cols:1, value:0, options:MD},
+          {key:'t1', type:'seg', label:'자리값 1 — 직접 켜기일 때만', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'t2', type:'seg', label:'자리값 2', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'t4', type:'seg', label:'자리값 4', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'t8', type:'seg', label:'자리값 8', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'t16', type:'seg', label:'자리값 16', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'t32', type:'seg', label:'자리값 32', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'t64', type:'seg', label:'자리값 64', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'t128', type:'seg', label:'자리값 128', cols:2, value:0, options:['꺼짐', '켜짐']},
+          {key:'my', type:'range', label:'내 답 — 켜진 전구의 값을 더하면? (0 = 아직 안 적음)', min:0, max:255, step:1, value:0, fmt:function(v){ return v ? String(v) : '아직 안 적음'; }}
         ],
         compute: function(p){
+          if (p.md === 1){
+            /* 거꾸로 맞히기: 내가 켠 전구의 자리값을 더한 값이 답이다 */
+            var o = onVal(p), n2 = o.n, max2 = Math.pow(2, n2) - 1;
+            var b2 = bits(o.v, n2), on2 = [];
+            for (var j = 0; j < n2; j++) if (b2.charAt(j) === '1') on2.push(Math.pow(2, n2 - 1 - j));
+            var my = p.my || 0;
+            return {n:n2, v:o.v, b:b2, on:on2, states:max2 + 1, max:max2,
+              mine:true, my:my, hit:my ? (my === o.v) : null};
+          }
           var n = NB[p.n], max = Math.pow(2, n) - 1;
           if (p.v > max) return {fail:'전구 ' + n + '개로는 0부터 ' + max + '까지만 나타낼 수 있어요. 전구를 늘리거나 수를 줄여 보세요.'};
           var b = bits(p.v, n), on = [];
           for (var i = 0; i < n; i++) if (b.charAt(i) === '1') on.push(Math.pow(2, n - 1 - i));
-          return {n:n, v:p.v, b:b, on:on, states:max + 1, max:max};
+          return {n:n, v:p.v, b:b, on:on, states:max + 1, max:max, mine:false};
         },
         draw: function(c, W, H, p, r, tau){
           var n = r ? r.n : NB[p.n], gap = Math.min(80, (W - 40) / n), x0 = W / 2 - gap * (n - 1) / 2, y = 120, k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -467,20 +497,41 @@ var LAB = (function(){
           } else txt(c, '자리 값: 오른쪽부터 1, 2, 4, 8 …', W / 2, H - 30, {align:'center', color:'#4A5868'});
         },
         stats: function(p, r){
+          if (r.mine) return [
+            ['내가 켠 전구', r.on.length ? r.on.join(' + ') : '모두 꺼짐'],
+            ['내 답', r.my ? String(r.my) : '아직 적지 않았어요 — 슬라이더로 적어 보세요.', r.my ? PAL[3] : null],
+            ['더해 보면', (r.on.length ? r.on.join(' + ') : '0') + ' = ' + r.v, PAL[0]],
+            ['채점', !r.my ? '—' : (r.hit ? '맞혔어요!' : '빗나갔어요. 켜진 전구의 자리값을 하나씩 더해 보세요.'),
+              !r.my ? null : (r.hit ? PAL[1] : PAL[4])],
+            ['2진수', r.b, PAL[6]],
+            ['전구 ' + r.n + '개로 만드는 상태', r.states + '가지 = 2의 ' + r.n + '제곱', PAL[0]],
+            ['나타낼 수 있는 범위', '0 ~ ' + r.max + (r.n === 8 ? ' (1바이트)' : '')]];
           return [['나타낸 수', String(r.v)], ['2진수', r.b, PAL[6]], ['켜진 전구의 값', r.on.length ? r.on.join(' + ') : '없음 (0)'],
             ['전구 ' + r.n + '개로 만드는 상태', r.states + '가지 = 2의 ' + r.n + '제곱', PAL[0]],
             ['나타낼 수 있는 범위', '0 ~ ' + r.max + (r.n === 8 ? ' (1바이트)' : ''), PAL[1]]];
         },
-        columns: ['전구', '수', '2진수', '상태 수'],
-        record: function(p, r){ return {n:r.n, v:r.v, b:r.b, s:r.states}; },
-        row: function(d){ return [d.n + '개', d.v, d.b, d.s + '가지']; },
+        columns: ['전구', '수', '2진수', '상태 수', '내 답', '채점'],
+        record: function(p, r){ return {n:r.n, v:r.v, b:r.b, s:r.states, mine:r.mine, my:r.my, hit:r.hit}; },
+        row: function(d){ return [d.n + '개', d.v, d.b, d.s + '가지', d.my ? String(d.my) : '—',
+          d.hit == null ? '—' : (d.hit ? '○' : '✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('전구 개수와 상태의 수', '<div id="b1a"></div><p class="ask">전구가 1개 늘 때 상태의 수는 몇 배가 되나요? 전구 5개면 왜 5가지가 아니라 32가지일까요?</p>') +
+            card('내가 더한 값은 맞았나 (내가 적은 답으로 채점)', '<div id="b1c"></div><p class="ask">켜진 전구가 많아질수록 더하기가 어려웠나요? 자리값 1·2·4·8 … 을 더하는 것이 2진수를 10진수로 바꾸는 일과 같은 일인가요?</p>') +
             card('내가 바꾼 2진수', '<div id="b1b"></div><p class="ask">과제: 자기 생일의 "일"(1~31)을 2진수 다섯 자리로 바꾸고, 손가락으로 짝에게 보여 줘서 맞히게 하세요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.n] = d.s; });
           $('b1a').innerHTML = hbars([1, 2, 3, 4, 5, 6, 7, 8].map(function(n){ var v = Math.pow(2, n); return {label:'전구 ' + n + '개', v:v, color:seen[n] ? PAL[0] : '#C9D3DE', text:v + '가지' + (seen[n] ? '' : ' (미기록)')}; }), 256);
           $('b1b').innerHTML = tableHTML(['10진수', '2진수', '켠 전구 수'], rec.slice(-8).map(function(d){ return [d.v, d.b, d.b.split('').filter(function(x){ return x === '1'; }).length + '개']; }));
+          var mine = rec.filter(function(x){ return x.mine && x.my; });
+          var rows3 = mine.map(function(x){
+            var ons = x.b.split('').map(function(ch, i){ return ch === '1' ? Math.pow(2, x.b.length - 1 - i) : null; }).filter(function(z){ return z; });
+            return [ons.length ? ons.join(' + ') : '0', String(x.my), String(x.v), x.hit ? '맞힘' : '빗나감'];
+          });
+          var hits = mine.filter(function(x){ return x.hit; }).length;
+          $('b1c').innerHTML = (rows3.length
+            ? tableHTML(['켠 전구의 자리값', '내 답', '실제 값', '채점'], rows3)
+              + '<p class="msg">' + mine.length + '번 가운데 <b>' + hits + '번</b> 맞혔어요. 2진수를 10진수로 바꾸는 일은 <b>켜진 자리의 값을 더하는 것</b>뿐입니다.</p>'
+            : '<p class="msg">"어떻게 해 볼까"에서 <b>전구를 직접 켜고 값을 맞히기</b>를 고른 뒤, 자리값 전구를 켜고 "내 답"을 먼저 적어 보세요.</p>');
         }
       };
     })();
@@ -489,7 +540,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

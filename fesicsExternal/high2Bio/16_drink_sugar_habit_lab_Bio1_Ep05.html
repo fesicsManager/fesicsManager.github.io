@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,12 +442,19 @@ var LAB = (function(){
         params: [
           {key:'d', type:'seg', label:'음료', cols:3, value:0, options:DR.map(function(x){ return x.name; })},
           {key:'v', type:'seg', label:'한 번 마시는 양', cols:3, value:2, options:VOL.map(function(x){ return x + ' mL'; })},
-          {key:'n', type:'seg', label:'마시는 횟수', cols:4, value:2, options:FR.map(function(x){ return x.name; })}
+          {key:'n', type:'seg', label:'마시는 횟수', cols:4, value:2, options:FR.map(function(x){ return x.name; })},
+          {key:'g', type:'range', label:'짐작 — 각설탕 몇 개일까', min:0, max:30, step:1, value:5, fmt:function(v){ return v + '개'; }},
+          {key:'cut', type:'seg', label:'다른 곳에서 줄이기', cols:3, value:0, options:['줄이지 않음', '하루 50 kcal 줄임', '하루 100 kcal 줄임'],
+            note:'음료의 당만 보면 결론이 늘 같습니다. 다른 곳에서 줄이면 1년 모형이 어떻게 되는지 보세요.'}
         ],
         compute: function(p){
           var d = DR[p.d], s = d.c * VOL[p.v] / 100, fr = FR[p.n].n;
           var daily = s * fr / 7, kcal = s * 4, dayK = daily * 4;
-          return {d:d, sugar:s, cubes:s / 3, kcal:kcal, walk:kcal / 3.5, pct50:s / 50 * 100, daily:daily, yearKg:dayK * 365 / 7700, fr:FR[p.n].name};
+          var cutK = [0, 50, 100][p.cut], net = dayK - cutK;
+          var cubes = s / 3;
+          return {d:d, sugar:s, cubes:cubes, kcal:kcal, walk:kcal / 3.5, pct50:s / 50 * 100, daily:daily,
+            yearKg:net * 365 / 7700, rawYearKg:dayK * 365 / 7700, cutK:cutK, net:net, fr:FR[p.n].name,
+            g:p.g, gdiff:cubes - p.g, ghit:Math.abs(cubes - p.g) <= 1.5};
         },
         draw: function(c, W, H, p, r, tau){
           var d = DR[p.d], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -472,21 +481,45 @@ var LAB = (function(){
           return [['음료 · 양', r.d.name + ' · ' + VOL[p.v] + ' mL'], ['설탕(유리당)', f(r.sugar, 1) + ' g (각설탕 약 ' + f(r.cubes, 1) + '개)', PAL[2]],
             ['에너지', f(r.kcal, 0) + ' kcal'], ['WHO 기준 50 g 대비', f(r.pct50, 0) + '%', r.pct50 >= 100 ? PAL[4] : r.pct50 >= 50 ? PAL[6] : PAL[1]],
             ['태우려면 걷기', '약 ' + f(r.walk, 0) + '분'], ['하루 평균 (' + r.fr + ')', f(r.daily, 1) + ' g/일'],
-            ['1년 단순 모형', (r.yearKg > 0 ? '+' : '') + f(r.yearKg, 1) + ' kg (다른 곳에서 줄이지 않는다면)', r.yearKg > 3 ? PAL[4] : PAL[7]]];
+            ['짐작한 각설탕 → 실제', r.g + '개 → ' + f(r.cubes, 1) + '개 (' + (r.gdiff > 0 ? '+' : '') + f(r.gdiff, 1) + ')' + (r.ghit ? ' · 맞힘' : ' · 빗나감'), r.ghit ? PAL[1] : PAL[4]],
+            ['1년 단순 모형', (r.yearKg > 0 ? '+' : '') + f(r.yearKg, 1) + ' kg' +
+              (r.cutK ? ' (다른 곳에서 하루 ' + r.cutK + ' kcal 줄였을 때 · 줄이지 않으면 ' + (r.rawYearKg > 0 ? '+' : '') + f(r.rawYearKg, 1) + ' kg)' : ' (다른 곳에서 줄이지 않는다면)'),
+              r.yearKg > 3 ? PAL[4] : r.yearKg < 0 ? PAL[1] : PAL[7]],
+            ['※ 1년 모형', '하루 남는 열량 × 365 ÷ 7,700 kcal 로 셈한 교육용 모형값입니다. 실제 몸은 이만큼 그대로 늘지 않습니다.']];
         },
-        columns: ['음료', '양', '횟수', '설탕 g', '하루 평균 g', '1년 모형 kg'],
-        record: function(p, r){ return {d:p.d, v:p.v, n:p.n, s:r.sugar, daily:r.daily, y:r.yearKg}; },
-        row: function(d){ return [DR[d.d].name, VOL[d.v] + ' mL', FR[d.n].name, f(d.s, 1), f(d.daily, 1), f(d.y, 1)]; },
+        columns: ['음료', '양', '횟수', '설탕 g', '짐작 각설탕', '맞힘', '줄이기', '하루 평균 g', '1년 모형 kg'],
+        record: function(p, r){ return {d:p.d, v:p.v, n:p.n, s:r.sugar, daily:r.daily, y:r.yearKg, raw:r.rawYearKg, cut:r.cutK, g:r.g, cubes:r.cubes, ghit:r.ghit}; },
+        row: function(d){ return [DR[d.d].name, VOL[d.v] + ' mL', FR[d.n].name, f(d.s, 1),
+          d.g == null ? '−' : d.g + '개', d.g == null ? '−' : (d.ghit ? '○' : '×'),
+          (d.cut ? d.cut + ' kcal' : '없음'), f(d.daily, 1), (d.y > 0 ? '+' : '') + f(d.y, 1)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('하루 평균 설탕 vs 1년 체중 모형', '<canvas class="chart" id="ds1"></canvas><p class="ask">점들이 한 직선 위에 놓이나요? 기울기(kg ÷ g)는 4 × 365 ÷ 7,700 ≈ 0.19입니다. 실제 몸에서는 왜 이보다 적게 늘까요?</p>') +
-            card('한 번 마실 때 설탕량', '<div id="ds2"></div><p class="ask">과제: 일주일 동안 마신 음료의 영양성분표를 모아 당류 합계를 구하고, 줄일 수 있는 방법 두 가지를 적어 보세요.</p>') + '</div>';
+            card('한 번 마실 때 설탕량', '<div id="ds2"></div><p class="ask">과제: 일주일 동안 마신 음료의 영양성분표를 모아 당류 합계를 구하고, 줄일 수 있는 방법 두 가지를 적어 보세요.</p>') +
+            card('짐작 채점과 1년 모형의 방향', '<div id="ds3"></div><p class="ask">같은 음료·같은 횟수인데 1년 모형의 부호가 바뀐 기록이 있나요? 그렇다면 체중을 정하는 것은 음료 하나인가요, 하루 전체의 들어온 열량과 쓴 열량인가요?</p>') + '</div>';
           var pts = rec.map(function(d){ return {x:d.daily, y:d.y}; });
           drawScatter($('ds1'), {series:[{color:PAL[4], pts:pts}], lines:[{k:4 * 365 / 7700, b:0, color:PAL[7], dash:true}], xLabel:'하루 평균 설탕 (g)', yLabel:'1년 모형 (kg)'});
           var seen = {}, items = [];
           rec.forEach(function(d){ seen[d.d + '_' + d.v] = d; });
           Object.keys(seen).forEach(function(k){ var d = seen[k]; items.push({label:DR[d.d].name + ' ' + VOL[d.v], v:d.s, color:d.s > 50 ? PAL[4] : d.s > 25 ? PAL[6] : PAL[1], text:f(d.s, 1) + ' g'}); });
           $('ds2').innerHTML = hbars(items, 60);
+          (function(){
+            var gr = rec.filter(function(d){ return d.g != null; });
+            var html = '';
+            if (gr.length){
+              var hit = gr.filter(function(d){ return d.ghit; }).length;
+              var err = gr.reduce(function(a, d){ return a + Math.abs(d.cubes - d.g); }, 0) / gr.length;
+              var low = gr.filter(function(d){ return d.cubes - d.g > 1.5; }).length;
+              html += '<p>각설탕 짐작 <b>' + hit + ' / ' + gr.length + '</b> 맞혔고(±1.5개), 평균 오차는 <b>' + f(err, 1) + '개</b>였습니다.' +
+                (low ? ' 실제보다 <b>적게</b> 본 기록이 ' + low + '개 있었습니다 — 음료의 당은 눈에 보이지 않아 적게 짐작하기 쉽습니다.' : '') + '</p>' +
+                tableHTML(['음료', '짐작', '실제', '맞힘'], gr.map(function(d){ return [DR[d.d].name + ' ' + VOL[d.v], d.g + '개', f(d.cubes, 1) + '개', d.ghit ? '○' : '×']; }));
+            } else html += '<p class="msg">각설탕 개수를 먼저 짐작해 적고 계산하면 여기에서 채점해 줍니다.</p>';
+            var cz = rec.filter(function(d){ return d.cut; });
+            html += cz.length
+              ? '<p>다른 곳에서 줄인 기록 ' + cz.length + '개 가운데 1년 모형이 <b>마이너스</b>가 된 것은 ' + cz.filter(function(d){ return d.y < 0; }).length + '개입니다. 같은 음료라도 하루 전체 열량에 따라 결론이 <b>뒤집힙니다</b>.</p>'
+              : '<p class="msg"><b>다른 곳에서 줄이기</b>를 바꿔 같은 음료를 다시 계산해 보세요 — 1년 모형의 부호가 바뀝니다.</p>';
+            $('ds3').innerHTML = html;
+          })();
         }
       };
     })();
@@ -495,7 +528,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,6 +442,36 @@ var LAB = (function(){
         {n:'핵심 어휘 오류 (lent → borrowed)', s:'I borrowed him my book.', bad:'borrowed', ko:'"내가 그에게서 책을 빌렸다?" (방향이 반대로 전달)', role:1, form:1, lex:false}
       ];
       var MODE = ['글로 읽기', '소리로 듣기 (영어 음성)'];
+      /* 학생이 직접 망가뜨리는 세 축 — 문장은 그 자리에서 다시 만들어진다 */
+      var ORD = ['그대로', '조금 흐트러뜨리기', '많이 흐트러뜨리기'];
+      var FRM = ['그대로', '3인칭 -s 빼기', '관사 a 빼기', '시제 틀리기'];
+      var LEX = ['맞는 낱말 (gives)', '반대 뜻 낱말 (takes)'];
+      function build(p){
+        var verb = p.lx === 1 ? 'takes' : 'gives', tail = ['every', 'day'];
+        if (p.fm === 1) verb = verb.slice(0, -1);
+        if (p.fm === 3) tail = ['yesterday'];
+        var w = ['He', verb, 'me', 'a', 'book'];
+        if (p.fm === 2) w.splice(3, 1);
+        w = w.concat(tail);
+        var bad = p.lx === 1 ? (p.fm === 1 ? 'take' : 'takes') : p.fm === 1 ? verb : p.fm === 3 ? 'yesterday' : '';
+        if (p.wo === 1) w = [w[0], w[2], w[1]].concat(w.slice(3));
+        else if (p.wo === 2){ var q = w.slice(); w = [q[4] || q[q.length - 1], q[2], q[1], q[0]].concat(q.slice(5)); bad = ''; }
+        var s = w.join(' ');
+        s = s.charAt(0).toUpperCase() + s.slice(1) + '.';
+        var role = [1, 0.6, 0.35][p.wo], form = [1, 0.8, 0.8, 0.7][p.fm], lex = p.lx === 0;
+        var ko = !lex ? '"그가 나에게서 책을 가져간다?" (방향이 반대로 전달)'
+          : p.wo === 2 ? '그가… 책? 주다? (추측 필요)'
+          : p.wo === 1 ? '그가 나에게 책을 준다 (조금 어색하지만 전달)'
+          : p.fm === 3 ? '그가 어제 나에게 책을 줬다 (yesterday가 보완)'
+          : p.fm === 0 ? '그가 나에게 책을 준다 (정확히 전달)'
+          : '그가 나에게 책을 준다 (대체로 전달)';
+        var ease = Math.round(100 * (0.65 * role + 0.35 * form));
+        var acc = Math.round(100 * role * (lex ? 1 : 0.1) * (0.9 + 0.1 * form));
+        var level = acc < 30 && ease > 70 ? '위험 — 쉽게 들리는데 뜻이 틀림' : ease < 60 ? '낮음 — 막는 오류' : (p.wo === 0 && p.fm === 0 && lex) ? '기준' : '높음 — 통하는 오류';
+        var name = (p.wo ? ORD[p.wo] : '') + (p.fm ? (p.wo ? ' + ' : '') + FRM[p.fm] : '') + (!lex ? ((p.wo || p.fm) ? ' + ' : '') + '낱말 반대' : '');
+        return {s:s, bad:bad, ko:ko, role:role, form:form, lex:lex, ease:ease, acc:acc, level:level,
+          n:name || '오류 없음', red:!(p.wo === 0 && p.fm === 0 && lex)};
+      }
       function say(t){ try { var S = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!S || !U) return false; S.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = 0.95; u.volume = 0.8; S.speak(u); return true; } catch(e){ return false; } }
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
@@ -449,40 +481,47 @@ var LAB = (function(){
         if (line){ txt(c, line, x, y + n * lh, o); n++; } return n;
       }
       return {
-        sceneHeight: 420,
-        idle: '오류 유형을 고른 뒤 <b>이 문장으로 말하기</b>를 누르세요.',
-        shortHint: '오류 없음부터 핵심 어휘 오류까지 여섯 가지를 모두 말해 보면 무게 차이가 한눈에 보입니다.',
+        sceneHeight: function (w){ return w < 560 ? 580 : 420; },
+        idle: '어순·형태·낱말을 직접 망가뜨린 뒤 <b>이 문장으로 말하기</b>를 누르세요.',
+        shortHint: '어순만 망가뜨린 문장, 형태만 망가뜨린 문장, 낱말만 뒤집은 문장을 각각 만들어 보면 무게 차이가 한눈에 보입니다.',
         params: [
-          {key:'e', type:'seg', label:'오류 유형', cols:2, value:1, options:E.map(function(x){ return x.n; })},
+          {key:'wo', type:'seg', label:'① 어순 망가뜨리기', cols:3, value:0, options:ORD},
+          {key:'fm', type:'seg', label:'② 형태 망가뜨리기', cols:2, value:1, options:FRM},
+          {key:'lx', type:'seg', label:'③ 핵심 낱말 바꾸기', cols:2, value:0, options:LEX,
+            note:'바탕 문장은 "He gives me a book every day."입니다. 세 축을 직접 망가뜨리면 문장과 눈금 값이 그 자리에서 다시 계산됩니다.'},
           {key:'m', type:'seg', label:'전달 방식', cols:2, value:0, options:MODE, note:'소리는 버튼을 누를 때만 한 번 재생됩니다. 음성이 없는 기기에서도 실험은 그대로 진행돼요.'}
         ],
         compute: function(p){
-          var e = E[p.e];
-          var ease = Math.round(100 * (0.65 * e.role + 0.35 * e.form));
-          var acc = Math.round(100 * e.role * (e.lex ? 1 : 0.1) * (0.9 + 0.1 * e.form));
-          var level = acc < 30 && ease > 70 ? '위험 — 쉽게 들리는데 뜻이 틀림' : ease < 60 ? '낮음 — 막는 오류' : p.e === 0 ? '기준' : '높음 — 통하는 오류';
+          var e = build(p);
           var played = p.m === 1 ? say(e.s) : false;
-          return {e:e, ease:ease, acc:acc, level:level, played:played, red:p.e > 0};
+          return {e:e, ease:e.ease, acc:e.acc, level:e.level, played:played, red:e.red};
         },
         draw: function(c, W, H, p, r, tau){
-          var e = E[p.e], k = r ? Math.min(tau / 0.5, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.45) / 0.5, 1)) : 0;
-          var narrow = W < 560, lw = narrow ? W - 150 : Math.max(200, W - 220);
+          var e = build(p), k = r ? Math.min(tau / 0.5, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.45) / 0.5, 1)) : 0;
+          /* 좁은 화면: 띠를 오른쪽이 아니라 아래에 두어 글이 폭을 다 쓰게 한다 */
+          var narrow = W < 560, lw = narrow ? W - 40 : Math.max(200, W - 220), tiny = W < 360;
           c.fillStyle = '#F7F9FC'; c.fillRect(20, 20, narrow ? W - 40 : lw, 90);
           txt(c, p.m === 1 ? '🔊 들려준 문장' : '📝 쓴 문장', 32, 48, {color:'#4A5868'});
           c.font = '700 18px ' + FONT; txt(c, e.s, 32, 84, {bold:true});
           if (e.bad && r){ var i0 = e.s.indexOf(e.bad), xb = 32 + c.measureText(e.s.slice(0, i0)).width, wb = c.measureText(e.bad).width;
             c.globalAlpha = k; seg(c, xb, 92, xb + wb, 92, PAL[4], 3); c.globalAlpha = 1; }
+          var bt = narrow ? 170 : 40;
           if (r){
             c.globalAlpha = k2;
-            var tiny = W < 360, rbw = tiny ? lw : 150;
+            var rbw = narrow ? Math.min(180, W - 40) : 150;
             if (tiny){ txt(c, '듣는 사람이', 20, 138, {color:'#4A5868'}); txt(c, '알아들은 뜻', 20, 160, {color:'#4A5868'}); }
             else txt(c, '듣는 사람이 알아들은 뜻', 20, 150, {color:'#4A5868'});
-            wrap(c, r.e.ko, 20, tiny ? 186 : 180, lw, 24, {bold:true, color:r.acc < 30 ? PAL[4] : '#1E2833'});
+            var ky0 = tiny ? 186 : 180;
+            var ny = wrap(c, r.e.ko, 20, ky0, lw, 24, {bold:true, color:r.acc < 30 ? PAL[4] : '#1E2833'});
             c.globalAlpha = 1;
-            if (r.red){ c.save(); c.globalAlpha = k; c.strokeStyle = PAL[4]; c.lineWidth = 3; c.strokeRect(20, 240, rbw, 40); txt(c, '교실: 빨간 줄', 20 + rbw / 2, 267, {align:'center', color:PAL[4], bold:true}); c.restore(); }
-            wrap(c, '소통 무게: ' + r.level, 20, 320, lw, 24, {bold:true, color:r.acc < 30 ? PAL[4] : r.ease < 60 ? PAL[6] : PAL[1]});
+            var cy2 = narrow ? ky0 + ny * 24 + 6 : 240;
+            if (r.red){ c.save(); c.globalAlpha = k; c.strokeStyle = PAL[4]; c.lineWidth = 3; c.strokeRect(20, cy2, rbw, 40); txt(c, '교실: 빨간 줄', 20 + rbw / 2, cy2 + 27, {align:'center', color:PAL[4], bold:true}); c.restore(); }
+            var wy = narrow ? cy2 + (r.red ? 56 : 8) : 320;
+            var ny2 = wrap(c, '소통 무게: ' + r.level, 20, wy, lw, 24, {bold:true, color:r.acc < 30 ? PAL[4] : r.ease < 60 ? PAL[6] : PAL[1]});
+            if (narrow) bt = wy + ny2 * 24 + 16;
           }
-          var bx = narrow ? (W < 360 ? W - 120 : W - 115) : W - 170, bt = narrow ? 150 : 40, bh = H - bt - 80, sp = narrow ? (W < 360 ? 62 : 56) : 70, names = narrow ? ['알아듣기', '정확도'] : ['알아듣기', '뜻 정확도'], vals = r ? [r.ease, r.acc] : [0, 0];
+          var bx = narrow ? 20 : W - 170, bh = narrow ? 110 : H - bt - 80, sp = narrow ? 70 : 70;
+          var names = narrow ? ['알아듣기', '정확도'] : ['알아듣기', '뜻 정확도'], vals = r ? [r.ease, r.acc] : [0, 0];
           for (var j = 0; j < 2; j++){
             var x = bx + j * sp; c.fillStyle = '#E6EBF1'; c.fillRect(x, bt, 40, bh);
             var hh = bh * vals[j] / 100 * k2; c.fillStyle = [PAL[0], PAL[1]][j]; c.fillRect(x, bt + bh - hh, 40, hh);
@@ -491,23 +530,27 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['문장', r.e.s], ['오류 유형', r.e.n], ['알아듣기 쉬움 (모형)', r.ease + ' / 100', PAL[0]], ['뜻 정확도 (모형)', r.acc + ' / 100', PAL[1]],
+          return [['문장', r.e.s], ['내가 망가뜨린 것', r.e.n],
+            ['어순 · 형태 · 낱말', ORD[p.wo] + ' / ' + FRM[p.fm] + ' / ' + (p.lx ? '반대 뜻' : '맞는 낱말')],
+            ['알아듣기 쉬움 (모형)', r.ease + ' / 100 = 어순 ' + f(r.e.role * 100, 0) + '×0.65 + 형태 ' + f(r.e.form * 100, 0) + '×0.35', PAL[0]],
+            ['뜻 정확도 (모형)', r.acc + ' / 100' + (r.e.lex ? '' : ' — 핵심 낱말이 뒤집히면 거의 0'), PAL[1]],
             ['소통 무게', r.level, r.acc < 30 ? PAL[4] : r.ease < 60 ? PAL[6] : PAL[1]],
             ['소리', p.m === 1 ? (r.played ? '영어 음성으로 재생했어요' : '이 기기에서는 음성을 쓸 수 없어 글로 진행했어요') : '글로 읽기']];
         },
-        columns: ['오류 유형', '문장', '알아듣기', '뜻 정확도'],
-        record: function(p, r){ return {e:p.e, ease:r.ease, acc:r.acc}; },
-        row: function(d){ return [E[d.e].n, E[d.e].s, d.ease, d.acc]; },
+        columns: ['망가뜨린 것', '문장', '알아듣기', '뜻 정확도'],
+        record: function(p, r){ return {k:p.wo + '_' + p.fm + '_' + p.lx, n:r.e.n, s:r.e.s, ease:r.ease, acc:r.acc}; },
+        row: function(d){ return [d.n, d.s, d.ease, d.acc]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('오류 유형의 위치 (x 알아듣기, y 뜻 정확도)', '<canvas class="chart" id="ew1"></canvas><div id="ew1l"></div><p class="ask">빨간 줄이 가장 많이 그어지는 -s·관사 오류는 어디에 있나요? 오른쪽 아래(쉽게 들리지만 뜻이 틀림)에 있는 오류는 무엇인가요?</p>') +
             card('통하는 오류 vs 막는 오류', '<div id="ew2"></div><p class="ask">과제: 자신이 쓴 영어 문장 열 개에서 오류를 찾아 "통하는 오류"와 "막는 오류"로 나누고, 막는 오류부터 고쳐 보세요.</p>') + '</div>';
-          var by = groupBy(rec, function(d){ return d.e; }), series = [], leg = [];
-          Object.keys(by).forEach(function(k){ var d = by[k][0]; series.push({color:PAL[k % 8], pts:[{x:d.ease, y:d.acc}]}); leg.push({color:PAL[k % 8], label:E[k].n}); });
+          var by = groupBy(rec, function(d){ return d.k; }), series = [], leg = [], ci = 0;
+          Object.keys(by).forEach(function(k){ var d = by[k][0], col = PAL[ci++ % 8]; series.push({color:col, pts:[{x:d.ease, y:d.acc}]}); leg.push({color:col, label:d.n}); });
           drawScatter($('ew1'), {series:series, xLabel:'알아듣기 쉬움 (모형)', yLabel:'뜻 정확도', xHi:100, xStep:25});
           $('ew1l').innerHTML = legend(leg);
-          var rows = Object.keys(by).map(function(k){ var d = by[k][0]; return [E[k].n, d.ease, d.acc, d.acc < 30 ? '위험' : d.ease < 60 ? '막는 오류' : k === '0' ? '기준' : '통하는 오류']; });
-          $('ew2').innerHTML = tableHTML(['오류 유형', '알아듣기', '뜻 정확도', '분류'], rows);
+          var rows = Object.keys(by).map(function(k){ var d = by[k][0]; return [d.n, d.s, d.ease, d.acc, d.acc < 30 ? '위험' : d.ease < 60 ? '막는 오류' : (d.ease >= 99 && d.acc >= 99) ? '기준' : '통하는 오류']; });
+          $('ew2').innerHTML = tableHTML(['망가뜨린 것', '문장', '알아듣기', '뜻 정확도', '분류'], rows) +
+            '<p class="msg">어순을 흐트러뜨리면 두 눈금이 함께 떨어지고, -s·관사를 빼면 거의 떨어지지 않습니다. 낱말을 뒤집으면 알아듣기는 그대로인데 뜻만 무너집니다.</p>';
         }
       };
     })();
@@ -516,7 +559,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

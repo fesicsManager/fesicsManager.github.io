@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -453,11 +455,18 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
 var EV = [
-  {name:'우주 배경 복사', obs:'하늘 전체에서 오는 2.725 K 흑체 복사', pred:'빅뱅 후 38만 년에 나온 빛이 식어 남음', unit:'K', val:2.725, theo:2.7, band:'마이크로파 (최대 세기 1.06 mm)'},
-  {name:'수소와 헬륨의 비율', obs:'우주 물질의 질량비 수소 약 75 %, 헬륨 약 25 %', pred:'빅뱅 후 3분에 만들어진 비율', unit:'%', val:24.8, theo:24.7, band:'별의 스펙트럼 분석'},
-  {name:'은하의 후퇴', obs:'멀수록 빠르게 멀어짐 (허블-르메트르 법칙)', pred:'공간이 팽창하고 있음', unit:'km/s/Mpc', val:70, theo:70, band:'적색 편이 측정'},
-  {name:'먼 우주의 젊은 모습', obs:'먼 은하일수록 어리고 모양이 불규칙함', pred:'우주가 진화해 왔음', unit:'−', val:null, theo:null, band:'허블·제임스 웹 망원경'}
+  {name:'우주 배경 복사', obs:'하늘 전체에서 오는 2.725 K 흑체 복사', pred:'빅뱅 후 38만 년에 나온 빛이 식어 남음', unit:'K', val:2.725, theo:2.7, band:'마이크로파 (최대 세기 1.06 mm)',
+    ss:'하늘 전체를 고르게 덮는 흑체 복사는 예측하지 못한다 (별빛의 합으로는 이런 모양이 나오지 않는다)'},
+  {name:'수소와 헬륨의 비율', obs:'우주 물질의 질량비 수소 약 75 %, 헬륨 약 25 %', pred:'빅뱅 후 3분에 만들어진 비율', unit:'%', val:24.8, theo:24.7, band:'별의 스펙트럼 분석',
+    ss:'헬륨은 별 속에서만 만들어진다고 보므로, 25 %나 되는 양을 설명하지 못한다'},
+  {name:'은하의 후퇴', obs:'멀수록 빠르게 멀어짐 (허블-르메트르 법칙)', pred:'공간이 팽창하고 있음', unit:'km/s/Mpc', val:70, theo:70, band:'적색 편이 측정',
+    ss:'팽창은 받아들인다 — 빈 곳에 물질이 새로 생겨 밀도가 늘 같다고 설명한다'},
+  {name:'먼 우주의 젊은 모습', obs:'먼 은하일수록 어리고 모양이 불규칙함', pred:'우주가 진화해 왔음', unit:'−', val:null, theo:null, band:'허블·제임스 웹 망원경',
+    ss:'우주는 언제 어디서나 같은 모습이어야 하므로, 먼 과거가 달라 보이면 안 된다'}
 ];
+/* 이 관측을 어느 이론이 설명하는가 — 0 빅뱅만, 1 정상 우주론만, 2 둘 다 */
+var SIDE = ['빅뱅만 설명한다', '정상 우주론만 설명한다', '두 이론 모두 설명한다'];
+var ANS = [0, 0, 2, 0];
 function eK(T){ /* 1e+27 → 10²⁷ (컴퓨터식 지수 표기 대신) */ var e = Math.floor(Math.log10(T) + 1e-9), m = Math.round(T / Math.pow(10, e)), sp = '⁰¹²³⁴⁵⁶⁷⁸⁹';
   return (m === 1 ? '' : m + '×') + '10' + String(e).split('').map(function(d){ return sp[+d]; }).join(''); }
 var TIME = [
@@ -471,12 +480,14 @@ var TIME = [
 var MODE = ['빅뱅의 증거', '우주의 역사'];
 var Z = [0, 1, 3, 6, 10, 1100];
 return {
-  sceneHeight: function(w){ return w < 480 ? 560 : 470; },   /* 좁은 화면은 설명이 두 줄씩이라 더 높게 */
+  sceneHeight: function(w){ return w < 480 ? 610 : 470; },   /* 좁은 화면은 설명이 두 줄씩이라 더 높게 */
   idle: '살펴볼 것을 고른 뒤 <b>관측하기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 증거 네 가지를 모두 살펴보고, 우주의 역사도 단계별로 기록하세요.',
   params: [
     {key:'md', type:'seg', label:'살펴볼 것', value:0, options:MODE},
     {key:'e', type:'seg', label:'증거', cols:2, value:0, options:EV.map(function(x){ return x.name; })},
+    {key:'pk', type:'seg', label:'짐작 — 이 관측에 맞는 쪽은', value:0, options:SIDE,
+      note:'빅뱅 우주론과 정상 우주론의 예측을 나란히 놓고, 관측이 어느 쪽에 맞는지 먼저 골라 보세요. 넷 가운데 하나는 두 이론이 모두 설명할 수 있습니다.'},
     {key:'s', type:'seg', label:'우주의 나이', cols:3, value:3, options:TIME.map(function(x){ return x.t; })},
     {key:'z', type:'seg', label:'적색 편이 z (배경 복사 온도 계산용)', cols:6, value:0, options:Z.map(function(v){ return 'z = ' + v; }),
       note:'우주가 팽창하면 배경 복사의 파장이 늘어나 온도가 내려갑니다. 적색 편이 z일 때 온도는 2.725 × (1 + z) K입니다.'}
@@ -484,7 +495,8 @@ return {
   compute: function(p){
     if (p.md === 0){
       var E = EV[p.e], z = Z[p.z], Tz = 2.725 * (1 + z), lam = 2.898e6 / Tz;
-      return {md:0, E:E, z:z, Tz:Math.round(Tz * 1000) / 1000, lam:lam, age:z === 1100 ? '38만 년' : z === 0 ? '138억 년' : '먼 과거'};
+      return {md:0, E:E, z:z, Tz:Math.round(Tz * 1000) / 1000, lam:lam, age:z === 1100 ? '38만 년' : z === 0 ? '138억 년' : '먼 과거',
+        pk:p.pk, ans:ANS[p.e], pkHit:(p.pk === ANS[p.e])};
     }
     var S = TIME[p.s];
     return {md:1, S:S, i:p.s};
@@ -545,7 +557,7 @@ return {
       var annS = T.toFixed(3) + ' K 흑체 곡선 (최대 세기 ' + (um ? f(L, 3) + ' µm' : f(lamMax, 3) + ' mm') + ')';
       if (nar && r) wrapT(c, annS, 12, top + 8, W - 24, 22, {color:'#C8463D', bold:true});   /* 좁은 화면: 곡선 이름을 그래프 위에 두 줄로 */
       var pTop = nar ? top + 52 : 160;
-      var P = plotBox(c, 80, pTop, W - 110, nar ? H - pTop - 110 : H - 250, [0, xMax, nar ? xStep * 2 : xStep], [0, 1.1, 0.25], um ? '파장 (µm)' : '파장 (mm)', '상대 세기');
+      var P = plotBox(c, 80, pTop, W - 110, nar ? H - pTop - 160 : H - 250, [0, xMax, nar ? xStep * 2 : xStep], [0, 1.1, 0.25], um ? '파장 (µm)' : '파장 (mm)', '상대 세기');
       var C2 = 4.965, NORM = Math.exp(C2) - 1;               // hc/(λ_max·kT) = 4.965 → 봉우리 높이 1
       c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.beginPath(); c.moveTo(P.X(0), P.Y(0));
       for (var i = 1; i <= 200; i++){
@@ -586,25 +598,30 @@ return {
   stats: function(p, r){
     if (r.md === 1) return [['시기', r.S.t], ['일어난 일', r.S.name], ['설명', r.S.ev],
       ['그때의 우주 온도', (r.S.T >= 1e6 ? eK(r.S.T) : r.S.T.toLocaleString()) + ' K', PAL[4]]];
-    var a = [['증거', r.E.name], ['관측', r.E.obs], ['빅뱅 이론의 예측', r.E.pred], ['관측 방법', r.E.band]];
+    var a = [['증거', r.E.name], ['관측', r.E.obs], ['빅뱅 이론의 예측', r.E.pred], ['정상 우주론의 예측', r.E.ss, PAL[6]], ['관측 방법', r.E.band],
+      ['관측에 맞는 쪽', SIDE[r.ans], PAL[1]],
+      ['나의 짐작', SIDE[r.pk] + (r.pkHit ? ' — 맞힘' : ' — 빗나감'), r.pkHit ? PAL[1] : PAL[4]]];
     if (r.E.val != null) a.push(['관측값 / 이론값', r.E.val + ' / ' + r.E.theo + ' ' + r.E.unit, PAL[1]]);
     a.push(['적색 편이 z', String(r.z)]);
     a.push(['그때의 배경 복사 온도', f(r.Tz, 3) + ' K', PAL[4]]);
     a.push(['최대 세기 파장', f(r.lam / 1e6, 4) + ' mm']);
     return a;
   },
-  columns: ['구분', '항목', '내용', '값'],
+  columns: ['구분', '항목', '내용', '값', '맞는 쪽', '나의 짐작'],
   record: function(p, r){ return r.md === 1 ? {md:1, i:r.i, t:r.S.t, name:r.S.name, T:r.S.T, ev:r.S.ev}
-    : {md:0, e:p.e, name:r.E.name, obs:r.E.obs, val:r.E.val, theo:r.E.theo, unit:r.E.unit, z:r.z, Tz:r.Tz, lam:r.lam}; },
-  row: function(d){ return d.md === 1 ? ['우주 역사', d.t, d.name, (d.T >= 1e6 ? eK(d.T) : d.T.toLocaleString()) + ' K']
-    : ['증거', d.name, d.obs, (d.val != null ? d.val + ' ' + d.unit + ' (이론 ' + d.theo + ') · ' : '') + 'z ' + d.z + ' → ' + f(d.Tz, 3) + ' K']; },
+    : {md:0, e:p.e, name:r.E.name, obs:r.E.obs, val:r.E.val, theo:r.E.theo, unit:r.E.unit, z:r.z, Tz:r.Tz, lam:r.lam,
+       pk:r.pk, ans:r.ans, hit:r.pkHit}; },
+  row: function(d){ return d.md === 1 ? ['우주 역사', d.t, d.name, (d.T >= 1e6 ? eK(d.T) : d.T.toLocaleString()) + ' K', '−', '−']
+    : ['증거', d.name, d.obs, (d.val != null ? d.val + ' ' + d.unit + ' (이론 ' + d.theo + ') · ' : '') + 'z ' + d.z + ' → ' + f(d.Tz, 3) + ' K',
+       d.ans == null ? '−' : SIDE[d.ans], d.pk == null ? '−' : (SIDE[d.pk] + (d.hit ? ' ○' : ' ×'))]; },
   minRec: 4,
   verify: function(rec, box){
     var ev = rec.filter(function(d){ return d.md === 0; }), tl = rec.filter(function(d){ return d.md === 1; });
     box.innerHTML = '<div class="vgrid">' +
       card('빅뱅 우주론의 증거 정리', '<div id="ro1"></div><p class="ask">증거 하나만으로는 이론을 받아들이기 어렵습니다. 서로 다른 방법으로 얻은 여러 증거가 모두 맞을 때 왜 더 믿을 만한지 설명해 보세요.</p>') +
       card('적색 편이와 배경 복사 온도', '<canvas class="chart" id="ch1" role="img" aria-label="빅뱅 우주론의 증거 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">z = 1100일 때 온도가 약 3,000 K입니다. 그때 우주가 투명해졌다는 것과 어떻게 연결되나요?</p>') +
-      card('우주의 역사', '<div id="ro3"></div><p class="ask">시간이 지날수록 우주는 식어 왔습니다. 온도가 내려가면서 차례로 원자핵, 원자, 별이 만들어진 까닭을 설명해 보세요.</p>') + '</div>';
+      card('우주의 역사', '<div id="ro3"></div><p class="ask">시간이 지날수록 우주는 식어 왔습니다. 온도가 내려가면서 차례로 원자핵, 원자, 별이 만들어진 까닭을 설명해 보세요.</p>') +
+      card('두 이론 가운데 어느 쪽인가 — 채점', '<div id="ro4"></div><p class="ask">네 증거 가운데 <b>두 이론이 모두 설명할 수 있는</b> 것은 무엇이었나요? 그렇다면 그 관측만으로는 왜 빅뱅의 증거라고 말할 수 없는지 적어 보세요.</p>') + '</div>';
     var seen = {}, rows = [];
     ev.forEach(function(d){ if (seen[d.e]) return; seen[d.e] = 1; rows.push([d.name, d.obs, d.val != null ? d.val + ' ' + d.unit : '−', d.theo != null ? d.theo + ' ' + d.unit : '−']); });
     $('ro1').innerHTML = rows.length ? tableHTML(['증거', '관측 내용', '관측값', '이론값'], rows, 'wrap') : '<p class="msg">증거를 살펴보고 기록하세요.</p>';
@@ -615,6 +632,17 @@ return {
     var s3 = {}, rows3 = [];
     tl.forEach(function(d){ if (s3[d.i]) return; s3[d.i] = 1; rows3.push([d.t, d.name, (d.T >= 1e6 ? eK(d.T) : d.T.toLocaleString()) + ' K', d.ev]); });
     $('ro3').innerHTML = rows3.length ? tableHTML(['시기', '일어난 일', '온도', '설명'], rows3, 'wrap') : '<p class="msg">우주의 역사도 단계별로 기록해 보세요.</p>';
+    (function(){
+      var g = {};
+      ev.forEach(function(d){ if (d.pk != null) g[d.e] = d; });
+      var ks = Object.keys(g);
+      if (!ks.length){ $('ro4').innerHTML = '<p class="msg">증거마다 맞는 쪽을 골라 관측하면 여기에서 채점해 줍니다.</p>'; return; }
+      var hit = ks.filter(function(k){ return g[k].hit; }).length;
+      $('ro4').innerHTML = '<p>맞힌 증거 <b>' + hit + ' / ' + ks.length + '</b></p>' +
+        tableHTML(['증거', '빅뱅의 예측', '정상 우주론의 예측', '맞는 쪽', '나의 짐작'],
+          ks.map(function(k){ var d = g[k], E = EV[d.e]; return [E.name, E.pred, E.ss, SIDE[d.ans], SIDE[d.pk] + (d.hit ? ' ○' : ' ×')]; }), 'wrap') +
+        '<p class="msg">은하의 후퇴는 정상 우주론도 설명할 수 있었습니다. 두 이론을 가른 것은 <b>배경 복사</b>와 <b>헬륨 비율</b>, 그리고 <b>먼 과거가 지금과 다르다는 관측</b>이었습니다.</p>';
+    })();
   }
 };
 })();
@@ -623,7 +651,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

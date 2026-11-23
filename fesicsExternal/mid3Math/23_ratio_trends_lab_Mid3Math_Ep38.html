@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -432,12 +434,24 @@ var LAB = (function(){
       return {
         sceneHeight: 440,
         idle: '각과 예상을 고른 뒤 <b>각 돌리기</b>를 누르세요.',
-        shortHint: '10°, 30°, 45°, 60°, 80°를 차례로 기록한 뒤 결과 비교 탭에서 그래프를 보세요.',
+        shortHint: '먼저 <b>각을 크게</b>로 세 삼각비의 방향을 보세요. 그다음 <b>각을 작게</b>로 바꾸면 줄어드는 것이 몇 개가 되나요?',
         params: [
           {key:'d', type:'range', label:'각 θ', min:5, max:85, step:5, value:30, fmt:function(v){ return f(v, 0) + '°'; }},
+          {key:'way', type:'seg', label:'각을 어느 쪽으로 옮겨 비교할까', cols:2, value:0, options:['각을 크게 (+10°)', '각을 작게 (−10°)']},
           {key:'pr', type:'seg', label:'나의 예상', cols:2, value:0, options:PR}
         ],
-        compute: function(p){ var t = p.d * Math.PI / 180; return {d:p.d, s:Math.sin(t), c:Math.cos(t), tn:Math.tan(t)}; },
+        compute: function(p){
+          var t = p.d * Math.PI / 180;
+          var d2 = p.way === 0 ? (p.d >= 85 ? 89 : p.d + 10) : (p.d <= 5 ? 1 : p.d - 10), t2 = d2 * Math.PI / 180;
+          var s = Math.sin(t), co = Math.cos(t), tn = Math.tan(t);
+          var s2 = Math.sin(t2), c2 = Math.cos(t2), tn2 = Math.tan(t2);
+          var ar = function(a, b){ return b > a ? '커짐' : b < a ? '줄어듦' : '그대로'; };
+          var ds = ar(s, s2), dc = ar(co, c2), dt = ar(tn, tn2);
+          var up = [ds, dc, dt].filter(function(x){ return x === '커짐'; }).length;
+          var concl = up === 3 ? '세 삼각비 모두 커졌어요' : up === 2 ? '둘은 커지고 하나(cos)만 줄어들었어요'
+            : up === 1 ? '하나(cos)만 커지고 둘이 줄어들었어요' : '세 삼각비 모두 줄어들었어요';
+          return {d:p.d, d2:d2, s:s, c:co, tn:tn, s2:s2, c2:c2, tn2:tn2, ds:ds, dc:dc, dt:dt, up:up, concl:concl,
+            right:p.pr === 0 ? up === 3 : up === 2}; },
         draw: function(c, W, H, p, r, tau){
           var wide = W >= 620, R = Math.min(wide ? W * 0.36 : W * 0.55, H - 110), Ox = 40, Oy = H - 50, tx = Ox + R;
           seg(c, Ox, Oy, Ox + R + 20, Oy, '#8C99A8', 1.5); seg(c, Ox, Oy, Ox, Oy - R - 20, '#8C99A8', 1.5);
@@ -451,16 +465,21 @@ var LAB = (function(){
           var bx = wide ? W * 0.66 : W - 120, bw = 28, bh = H - 120, by = 40;
           [['sin', s, PAL[4]], ['cos', co, PAL[0]], ['tan', Math.min(tn, 2), PAL[1]]].forEach(function(v, i){ var x = bx + i * (bw + 10);
             c.fillStyle = '#EEF2F6'; c.fillRect(x, by, bw, bh); c.fillStyle = v[2]; c.fillRect(x, by + bh - v[1] / 2 * bh, bw, v[1] / 2 * bh);
-            txt(c, v[0], x + bw / 2, by + bh + 22, {align:'center', bold:true, color:v[2]}); });
+            txt(c, v[0], x + bw / 2, wide ? by + bh + 22 : by - 10, {align:'center', bold:true, color:v[2]}); });   /* 좁은 화면: 아래쪽 각도 글과 겹치지 않게 띠 위에 이름 */
           seg(c, bx - 4, by + bh / 2, bx + 3 * (bw + 10), by + bh / 2, '#8C99A8', 1, [4, 3]); txt(c, '1', bx - 8, by + bh / 2 + 6, {align:'right', color:'#4A5868'});
         },
         stats: function(p, r){
           return [['각 θ', r.d + '°'], ['sin θ', f(r.s, 4), PAL[4]], ['cos θ', f(r.c, 4), PAL[0]], ['tan θ', f(r.tn, 4), PAL[1]],
-            ['나의 예상', PR[p.pr] + (p.pr === 1 ? ' — 맞음 (cos가 줄어듦)' : ' — cos는 줄어들어요'), p.pr === 1 ? PAL[1] : PAL[4]]];
+            ['비교한 각', r.d + '° → ' + r.d2 + '°', PAL[6]],
+            ['sin 은?', f(r.s, 4) + ' → ' + f(r.s2, 4) + '  (' + r.ds + ')', PAL[4]],
+            ['cos 은?', f(r.c, 4) + ' → ' + f(r.c2, 4) + '  (' + r.dc + ')', PAL[0]],
+            ['tan 은?', f(r.tn, 4) + ' → ' + f(r.tn2, 4) + '  (' + r.dt + ')', PAL[1]],
+            ['판정', r.concl, r.up === 2 ? PAL[1] : PAL[6]],
+            ['나의 예상', PR[p.pr] + (r.right ? ' — 맞음' : ' — 틀림 (' + r.concl + ')'), r.right ? PAL[1] : PAL[4]]];
         },
-        columns: ['θ', 'sin', 'cos', 'tan'],
-        record: function(p, r){ return {d:r.d, s:r.s, c:r.c, tn:r.tn}; },
-        row: function(d){ return [d.d + '°', f(d.s, 4), f(d.c, 4), f(d.tn, 4)]; },
+        columns: ['θ', '비교 각', 'sin', 'cos', 'tan', '판정'],
+        record: function(p, r){ return {d:r.d, d2:r.d2, s:r.s, c:r.c, tn:r.tn, ds:r.ds, dc:r.dc, dt:r.dt, up:r.up}; },
+        row: function(d){ return [d.d + '°', (d.d2 == null ? '—' : d.d2 + '°'), f(d.s, 4) + (d.ds ? ' ' + d.ds : ''), f(d.c, 4) + (d.dc ? ' ' + d.dc : ''), f(d.tn, 4) + (d.dt ? ' ' + d.dt : ''), d.up == null ? '—' : '커진 것 ' + d.up + '개']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('각에 따른 sin(빨강)·cos(파랑)', '<canvas class="chart" id="rt1"></canvas><p class="ask">두 점의 줄이 어디에서 만나나요? 그 각에서 sin과 cos의 값은 얼마인가요?</p>') +
@@ -476,7 +495,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

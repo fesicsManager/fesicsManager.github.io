@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,6 +443,17 @@ var LAB = (function(){
         {n:'고통을 느끼는 능력', s:'고통 능력', v:[1, 1, 1, 1, 1, 0.5, 0.5], prob:'무척추동물에서 경계를 긋기 어려워요.'},
         {n:'생태계 역할 (종 단위)', s:'생태계', v:[1, 0, 0, 0.5, 0.5, 1, 0.5], prob:'종은 지키지만 개체 하나하나의 고통은 다루지 못해요.'}
       ];
+      /* 학생이 먼저 그어 보는 원 — AN 순서대로 '여기까지' */
+      function mineOf(k){ return AN.map(function(a, i){ return i < k ? 1 : 0; }); }
+      function compare(mine, v){
+        var diff = [], arg = [];
+        for (var i = 0; i < AN.length; i++){
+          if (v[i] === 0.5){ arg.push(AN[i] + (mine[i] ? '(나는 넣음)' : '(나는 뺌)')); continue; }
+          if (mine[i] !== v[i]) diff.push(AN[i] + (mine[i] ? ' — 나는 넣었지만 이 기준은 뺌' : ' — 나는 뺐지만 이 기준은 넣음'));
+        }
+        var solid = AN.length - arg.length;
+        return {diff:diff, arg:arg, agree:solid ? (solid - diff.length) / solid * 100 : 0};
+      }
       var IS = [
         {n:'실험동물', t:'대체·축소·개선(3R) 원칙과 윤리 위원회 심의로 "필요"를 따져요.'},
         {n:'축산', t:'사육 환경 기준과 동물복지 인증 같은 제도로 고통을 줄이려 해요.'},
@@ -452,12 +465,16 @@ var LAB = (function(){
         idle: '기준과 쟁점 영역을 고른 뒤 <b>이 기준으로 원 그리기</b>를 누르세요.',
         shortHint: '네 기준을 모두 적용해 보세요. 기준마다 원 안에 들어오는 동물이 어떻게 달라지는지가 핵심입니다.',
         params: [
+          {key:'k', type:'range', label:'먼저 내 원을 그어 보기 — 어디까지 넣을까', min:0, max:7, step:1, value:3,
+            fmt:function(v){ return v === 0 ? '아무도 안 넣음' : AN[v - 1] + '까지 (' + f(v, 0) + '종)'; },
+            note:'침팬지 · 개 · 소 · 비둘기 · 문어 · 꿀벌 · 모기 순서로 넣습니다. 먼저 긋고 나서 기준별 결과와 어디가 어긋나는지 보세요.'},
           {key:'c', type:'seg', label:'도덕적 지위의 기준', cols:2, value:0, options:CR.map(function(x){ return x.n; })},
           {key:'i', type:'seg', label:'쟁점 영역', cols:4, value:0, options:IS.map(function(x){ return x.n; })}
         ],
         compute: function(p){
           var v = CR[p.c].v, inN = v.filter(function(x){ return x === 1; }).length, mid = v.filter(function(x){ return x === 0.5; }).length;
-          return {v:v, inN:inN, mid:mid, cr:CR[p.c]};
+          var mine = mineOf(p.k), cmp = compare(mine, v);
+          return {v:v, inN:inN, mid:mid, cr:CR[p.c], mine:mine, k:p.k, cmp:cmp};
         },
         draw: function(c, W, H, p, r, tau){
           var cx = W / 2, cy = 190, R = Math.min(W * 0.3, 140), k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -470,19 +487,24 @@ var LAB = (function(){
             var x = cx + Math.cos(ang) * rr, y = cy + Math.sin(ang) * rr * 0.9;
             c.fillStyle = !r ? '#8C99A8' : v === 1 ? PAL[1] : v === 0.5 ? PAL[6] : '#B5BFCA';
             c.beginPath(); c.arc(x, y, 10, 0, Math.PI * 2); c.fill();
+            if (i < p.k){ c.strokeStyle = PAL[0]; c.lineWidth = 3; c.beginPath(); c.arc(x, y, 14, 0, Math.PI * 2); c.stroke(); }
             txt(c, a + (r && v === 0.5 && k >= 1 ? ' △' : ''), x, y - 14, {align:'center', bold:r && v === 1});
           });
-          txt(c, '쟁점: ' + IS[p.i].n, 20, H - 40, {color:'#4A5868'});
-          txt(c, r ? '원 안 ' + r.inN + ' · 경계 ' + r.mid + ' · 밖 ' + (7 - r.inN - r.mid) : '원 밖에서 출발', 20, H - 12, {bold:true});
+          txt(c, '쟁점: ' + IS[p.i].n + ' · 파란 테두리 = 내가 넣은 동물', 20, H - 40, {color:'#4A5868'});
+          txt(c, r ? '원 안 ' + r.inN + ' · 경계 ' + r.mid + ' · 밖 ' + (7 - r.inN - r.mid) + ' · 내 원과 ' + f(r.cmp.agree, 0) + '% 일치' : '먼저 내 원을 긋고 눌러 보세요', 20, H - 12, {bold:true});
         },
         stats: function(p, r){
           var ins = AN.filter(function(a, i){ return r.v[i] === 1; }), mids = AN.filter(function(a, i){ return r.v[i] === 0.5; });
-          return [['기준', r.cr.n], ['원 안', ins.join(', ') || '없음', PAL[1]], ['경계(논쟁 중)', mids.join(', ') || '없음', PAL[6]],
+          return [['내가 그은 원', r.k ? AN.slice(0, r.k).join(', ') + '까지 (' + r.k + '종)' : '아무도 넣지 않음', PAL[0]],
+            ['기준', r.cr.n], ['원 안', ins.join(', ') || '없음', PAL[1]], ['경계(논쟁 중)', mids.join(', ') || '없음', PAL[6]],
+            ['내 원과 얼마나 맞나', f(r.cmp.agree, 0) + '% 일치 — 어긋난 곳 ' + r.cmp.diff.length + '곳', r.cmp.agree >= 80 ? PAL[1] : PAL[6]],
+            ['어긋난 곳', r.cmp.diff.join(' / ') || '없음', r.cmp.diff.length ? PAL[4] : PAL[1]],
+            ['이 기준에서도 논쟁 중', r.cmp.arg.join(' / ') || '없음'],
             ['이 기준의 문제점', r.cr.prob, PAL[4]], ['쟁점 영역: ' + IS[p.i].n, IS[p.i].t, PAL[3]]];
         },
-        columns: ['기준', '원 안', '경계', '쟁점 영역'],
-        record: function(p, r){ return {c:p.c, inN:r.inN, mid:r.mid, i:p.i}; },
-        row: function(d){ return [CR[d.c].s, d.inN + '종', d.mid + '종', IS[d.i].n]; },
+        columns: ['내 원', '기준', '원 안', '일치', '어긋난 곳'],
+        record: function(p, r){ return {c:p.c, inN:r.inN, mid:r.mid, i:p.i, k:r.k, agree:r.cmp.agree, nd:r.cmp.diff.length}; },
+        row: function(d){ return [d.k ? AN[d.k - 1] + '까지' : '없음', CR[d.c].s, d.inN + '종', f(d.agree, 0) + '%', d.nd + '곳']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기준별 포함 표', '<div id="av1"></div><p class="ask">네 기준에서 모두 원 안에 들어온 동물과, 기준에 따라 들락날락한 동물을 나눠 보세요. 결론이 갈리는 동물은 어느 쪽인가요?</p>') +
@@ -492,7 +514,12 @@ var LAB = (function(){
           var rows = AN.map(function(a, j){ return [a].concat(CR.filter(function(x, i){ return used[i]; }).map(function(x){ return x.v[j] === 1 ? '○' : x.v[j] === 0.5 ? '△' : '✕'; })); });
           $('av1').innerHTML = tableHTML(head, rows);
           var it = []; CR.forEach(function(x, i){ if (!used[i]) return; var n = x.v.filter(function(v){ return v === 1; }).length; it.push({label:x.s, v:n, color:PAL[1], text:n + '종 (+경계 ' + x.v.filter(function(v){ return v === 0.5; }).length + ')'}); });
-          $('av2').innerHTML = hbars(it, 7);
+          var ks = {}, krows = [];
+          rec.forEach(function(d){ var kk = d.k + '_' + d.c; if (ks[kk]) return; ks[kk] = 1;
+            krows.push([d.k ? AN[d.k - 1] + '까지' : '없음', CR[d.c].s, f(d.agree, 0) + '%', d.nd + '곳']); });
+          $('av2').innerHTML = hbars(it, 7) +
+            '<p class="msg">내가 그은 원과 기준별 결과</p>' + tableHTML(['내 원', '기준', '일치', '어긋난 곳'], krows) +
+            '<p class="msg">내 원과 가장 많이 맞는 기준이 있다면, 나는 사실 그 기준을 쓰고 있었던 셈입니다.</p>';
         }
       };
     })();
@@ -501,7 +528,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

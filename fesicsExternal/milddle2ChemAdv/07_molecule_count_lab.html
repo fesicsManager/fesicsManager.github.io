@@ -223,6 +223,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
             <div class="btn-row" id="molRow"></div>
             <div class="control-label">분자 개수(계수): <span class="slider-val" id="cntVal">1</span> 개</div>
             <input type="range" id="cntSlider" min="1" max="5" step="1" value="1" aria-label="분자 개수">
+            <div class="control-label">어떻게 적을까</div>
+            <div class="btn-row" id="notRow"></div>
             <button class="btn-main" id="runBtn">원자 개수 세어 기록하기 ▶</button>
             <div class="result-box" id="result">분자와 개수를 정하면 총 원자 개수가 자동으로 계산됩니다.</div>
           </div>
@@ -231,8 +233,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>표기</th><th>분자 1개당</th><th>분자 수</th><th>총 원자 수</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>표기</th><th>어떤 표기</th><th>분자 1개당</th><th>분자 수</th><th>총 원자 수</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -476,10 +478,19 @@ var MOLS=[
    st:glucoseStruct()}
 ];
 var mIdx=0, count=1, records=[];
+/* 계수 대신 아래첨자를 곱해 적는 잘못된 표기와 견주어, 왜 그렇게 쓰지 않는지 가리게 한다 */
+var notation=0;
+var NOTN=['바른 표기 (계수 + 분자식)', '잘못된 표기 (아래첨자를 곱해 적기)'];
+var SUBD='₀₁₂₃₄₅₆₇₈₉';
+function subOf(k){ return String(k).split('').map(function(d){ return SUBD.charAt(+d); }).join(''); }
 function mol(){ return MOLS[mIdx]; }
 function perMolecule(){ return mol().atoms.reduce(function(a,x){ return a+x[1]; },0); }
 function totalAtoms(){ return perMolecule()*count; }
-function label(){ return (count>1?count:'')+mol().f; }
+function wrongF(){ return mol().atoms.map(function(a){ var k=a[1]*count; return a[0]+(k>1?subOf(k):''); }).join(''); }
+function rightF(){ return (count>1?count:'')+mol().f; }
+function label(){ return notation ? wrongF() : rightF(); }
+function shownPer(){ return notation ? perMolecule()*count : perMolecule(); }
+function shownCnt(){ return notation ? 1 : count; }
 function breakdown(){
   return mol().atoms.map(function(a){ return a[0]+' '+(a[1]*count)+'개'; }).join(' · ');
 }
@@ -494,6 +505,18 @@ MOLS.forEach(function(m,i){
   });
   row.appendChild(b);
 });
+(function(){
+  var nr=document.getElementById('notRow');
+  NOTN.forEach(function(nm,i){
+    var b=document.createElement('button');
+    b.className='btn-choice'+(i===0?' active':''); b.textContent=nm;
+    b.addEventListener('click',function(){
+      document.querySelectorAll('#notRow .btn-choice').forEach(function(x){x.classList.remove('active');});
+      b.classList.add('active'); notation=i; updateResult();
+    });
+    nr.appendChild(b);
+  });
+})();
 document.getElementById('cntSlider').addEventListener('input',function(e){
   count=parseInt(e.target.value,10);
   document.getElementById('cntVal').textContent=count;
@@ -503,25 +526,35 @@ function updateResult(){
   var box=document.getElementById('result');
   box.className='result-box ok';
   var per=perMolecule();
-  box.innerHTML='<b>'+label()+'</b> ('+mol().n+')<br>'+
-    '분자 1개당 원자 '+per+'개 × 분자 '+count+'개 = 총 <span class="big-val">'+totalAtoms()+'개</span><br>'+
-    '<span class="mono">'+breakdown()+'</span>';
+  var same = (count === 1);
+  var why = notation === 0
+    ? '계수 ' + count + '은 분자가 ' + count + '개라는 뜻이에요.'
+    : same
+      ? '계수가 1이면 두 표기가 같아 보입니다. 계수를 2 이상으로 올려 「' + rightF() + '」 와 견주어 보세요.'
+      : '총 원자 수는 ' + totalAtoms() + '개로 「' + rightF() + '」 와 같습니다. 그런데 「' + wrongF() + '」 는 '
+        + '<b>분자 한 개에 원자가 ' + (perMolecule() * count) + '개 들어 있다</b>는 뜻이라, ' + mol().n + ' 분자 ' + count + '개와는 <b>다른 물질</b>(실제로는 없는 분자)을 가리켜요. '
+        + '그래서 분자가 여러 개일 때는 아래첨자를 곱하지 않고 <b>앞에 계수</b>를 씁니다.';
+  box.innerHTML='<b>'+label()+'</b> ('+(notation?'잘못된 표기':mol().n)+')<br>'+
+    '분자 1개당 원자 '+shownPer()+'개 × 분자 '+shownCnt()+'개 = 총 <span class="big-val">'+totalAtoms()+'개</span><br>'+
+    '<span class="mono">'+breakdown()+'</span><br>'+
+    '<span style="font-size:.95rem;color:'+(notation&&!same?'#c1443c':'#4a636a')+';">'+why+'</span>';
 }
 updateResult();
 
 document.getElementById('runBtn').addEventListener('click',function(){
-  records.push({label:label(), name:mol().n, per:perMolecule(), cnt:count, total:totalAtoms(), detail:breakdown()});
+  records.push({label:label(), name:notation?'잘못된 표기':mol().n, per:shownPer(), cnt:shownCnt(), total:totalAtoms(), detail:breakdown(), notation:notation, right:rightF()});
   renderTable(); focusCanvas(document.getElementById('molCanvas'));
   maybeToast(records.length);
 });
 function renderTable(){
   var body=document.getElementById('tableBody');
   document.getElementById('recCount').textContent=records.length;
-  if(!records.length){ body.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!records.length){ body.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   body.innerHTML='';
   records.forEach(function(r,i){
     var tr=document.createElement('tr');
-    tr.innerHTML='<td>'+(i+1)+'</td><td>'+r.label+'</td><td>'+r.per+'개</td><td>'+r.cnt+'</td><td>'+r.total+'</td>';
+    var nt = r.notation ? '<span style="color:#c1443c">잘못된 표기</span>' : '바른 표기';
+    tr.innerHTML='<td>'+(i+1)+'</td><td>'+r.label+'</td><td>'+nt+'</td><td>'+r.per+'개</td><td>'+r.cnt+'</td><td>'+r.total+'</td>';
     body.appendChild(tr);
   });
 }
@@ -593,9 +626,9 @@ function draw(){
   ctx.fillStyle='#173238'; ctx.font="700 27px 'Space Grotesk',sans-serif"; ctx.textAlign='center';
   ctx.fillText(label(), W/2, 34);
   ctx.font="600 15px 'Noto Sans KR',sans-serif"; ctx.fillStyle='#4a636a';
-  ctx.fillText(mol().n+' 분자 '+count+'개 · 총 '+totalAtoms()+'개 원자', W/2, 56);
+  ctx.fillText(notation ? '적은 대로 읽으면 분자 1개 · 총 '+totalAtoms()+'개 원자' : mol().n+' 분자 '+count+'개 · 총 '+totalAtoms()+'개 원자', W/2, 56);
   ctx.font="500 13px 'Noto Sans KR',sans-serif"; ctx.fillStyle='#7a8f95';
-  ctx.fillText(mol().shape, W/2, 76);
+  ctx.fillText(notation ? '그림은 '+mol().n+' 분자 '+count+'개 — 적은 글과 뜻이 어긋납니다' : mol().shape, W/2, 76);
 
   /* 분자를 개수만큼 배치 */
   var cols = count<=1?1:(count<=4?2:3);
@@ -612,7 +645,7 @@ function draw(){
 
   /* 하단 계산식 */
   ctx.fillStyle='#22707c'; ctx.font="700 18px 'IBM Plex Mono',monospace"; ctx.textAlign='center';
-  ctx.fillText(perMolecule()+' × '+count+' = '+totalAtoms(), W/2, H-30);
+  ctx.fillText(shownPer()+' × '+shownCnt()+' = '+totalAtoms(), W/2, H-30);
   ctx.font="600 14px 'Noto Sans KR',sans-serif"; ctx.fillStyle='#4a636a';
   ctx.fillText(breakdown(), W/2, H-10);
   requestAnimationFrame(draw);

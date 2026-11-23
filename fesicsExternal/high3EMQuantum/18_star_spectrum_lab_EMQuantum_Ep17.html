@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>별이 빛나는 이유 — 별빛 스펙트럼과 흡수선</h1>
-    <p>별의 표면 온도를 바꾸며 <b>연속 스펙트럼</b>(흑체 복사)과 가장 밝은 파장 λ<sub>max</sub>를 측정하고, 대기 속 원소가 만드는 <b>흡수선</b>을 겹쳐 봅니다. 온도에 따라 별의 색이 어떻게 바뀌는지, 흡수선으로 어떤 원소를 알아낼 수 있는지 확인하세요.</p>
+    <p>별이 내보내는 빛(흑체 복사와 흡수선)을 재고, 그 빛을 만들어 내는 <b>중심의 핵융합</b>을 직접 계산합니다. 1초에 헬륨으로 바뀌는 수소의 양을 바꿔 가며 <b>질량 결손</b>과 <b>E = Δmc²</b>로 나오는 에너지를 구하고, 태양과 견주어 보세요.</p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -432,6 +434,12 @@ var LAB = (function(){
       var EL = [{name:'수소 (발머 계열)', short:'수소', lines:[656.3, 486.1, 434.0, 410.2]}, {name:'헬륨', short:'헬륨', lines:[667.8, 587.6, 501.6, 447.1]},
         {name:'나트륨', short:'나트륨', lines:[589.0, 589.6]}, {name:'칼슘 이온', short:'칼슘 이온', lines:[393.4, 396.8]}];
       var C2 = 1.4388e7;
+      var QM = ['원소를 골라 겹쳐 보기', '숨은 별의 흡수선만 보고 맞히기'];
+      var SID = ['별 가', '별 나', '별 다', '별 라'];
+      var ANS = [3, 0, 2, 1];   /* 숨은 별마다 실제로 들어 있는 원소 (EL 번호) */
+      /* 핵융합: 4 ¹H(1.007825 u) → ⁴He(4.002603 u), Δm = 0.028697 u = 0.712 % */
+      var MH = 1.007825, MHE = 4.002603, U_MEV = 931.494, CL2 = 8.98755179e16, LSUN = 3.846e26, MSUN = 1.989e30;
+      var DM_U = 4 * MH - MHE, FRAC = DM_U / (4 * MH);
       function B(l, T){ return 1 / (Math.pow(l, 5) * (Math.exp(C2 / (l * T)) - 1)); }
       function peak(T){ var best = 50, bv = 0; for (var l = 50; l <= 3000; l += 1){ var v = B(l, T); if (v > bv){ bv = v; best = l; } } return best; }
       function scol(T){ var s = [0, 0, 0]; for (var l = 400; l <= 700; l += 10){ var v = B(l, T), cc = nmColor(l); for (var k = 0; k < 3; k++) s[k] += v * cc[k]; } var m = Math.max(s[0], s[1], s[2]); return s.map(function(v){ return Math.round(255 * v / m); }); }
@@ -442,9 +450,24 @@ var LAB = (function(){
         shortHint: '온도를 3000 K부터 30000 K까지 다섯 가지 이상 바꿔 기록하세요. 빈 법칙을 확인합니다.',
         params: [
           {key:'T', type:'range', label:'별의 표면 온도 T', min:3000, max:30000, step:500, value:5500, fmt:function(v){ return f(v, 0) + ' K'; }},
-          {key:'e', type:'seg', label:'흡수선을 겹쳐 볼 원소', cols:4, value:0, options:EL.map(function(x){ return x.name; })}
+          {key:'qz', type:'seg', label:'어떻게 볼까', cols:2, value:0, options:QM,
+            note:'“맞히기”를 고르면 원소 이름을 가린 채 흡수선만 보여 줘요. 아래에서 원소를 골라 짐작하고, 측정한 뒤 정답을 열어 보세요.'},
+          {key:'sid', type:'seg', label:'숨은 별 (맞히기에서만)', cols:4, value:0, options:SID},
+          {key:'e', type:'seg', label:'흡수선을 겹쳐 볼 원소 / 내 짐작', cols:4, value:0, options:EL.map(function(x){ return x.name; })},
+          {key:'b', type:'range', label:'1초에 헬륨으로 바뀌는 수소 (태양은 약 6억 t)', min:1, max:20, step:1, value:6, fmt:function(v){ return v + '억 t/s'; },
+            note:'별빛의 에너지는 중심에서 수소 네 개가 헬륨 하나로 합쳐질 때 <b>줄어든 질량</b>에서 나옵니다. 4 × 1.007825 u = 4.031300 u 가 4.002603 u 가 되어 0.028697 u(약 0.71 %)가 사라지고, 그만큼이 E = Δmc² 로 빛이 됩니다.'}
         ],
-        compute: function(p){ var lp = peak(p.T); return {lp:lp, col:scol(p.T), cls:cls(p.T), L:Math.pow(p.T / 5772, 4), b:lp * p.T}; },
+        compute: function(p){
+          var lp = peak(p.T);
+          var mH = p.b * 1e11;              // 억 t → kg (1억 t = 1e11 kg)
+          var dm = mH * FRAC;               // 1초에 사라지는 질량 (kg)
+          var E = dm * CL2;                 // 1초에 나오는 에너지 (W)
+          var life = MSUN * 0.1 / mH / 3.156e7;   // 수소의 10 %를 쓰는 데 걸리는 시간 (년)
+          var quiz = (p.qz === 1), ansEl = ANS[p.sid], shown = quiz ? ansEl : p.e;
+          return {lp:lp, col:scol(p.T), cls:cls(p.T), L:Math.pow(p.T / 5772, 4), b:lp * p.T,
+            burn:p.b, mH:mH, dm:dm, E:E, Lsun:E / LSUN, life:life,
+            quiz:quiz, sid:p.sid, ansEl:ansEl, shown:shown, guess:p.e, hit:(quiz && p.e === ansEl)};
+        },
         draw: function(c, W, H, p, r, tau){
           var col = r ? r.col : scol(p.T), sx = 60, sy = 90, k = r ? Math.min(1, tau / 0.8) : 1;
           glow(c, sx, sy, 60, 'rgb(' + col.join(',') + ')', 0.9); c.fillStyle = 'rgb(' + col.join(',') + ')'; c.beginPath(); c.arc(sx, sy, 26, 0, Math.PI * 2); c.fill();
@@ -459,27 +482,54 @@ var LAB = (function(){
           if (r && tau >= 0.8){ seg(c, ax.X(lp), gy, ax.X(lp), gy + gh, PAL[4], 1.5, [5, 4]); txt(c, 'λmax ' + lp + ' nm', Math.min(ax.X(lp) + 6, gx + gw - 130), gy + 20, {bold:true, color:PAL[4]}); }
           var by = H - 70, bx0 = gx, bw = gw;
           for (var i = 0; i < 60; i++){ var lm = 380 + (750 - 380) * i / 60, cc = nmColor(lm); c.fillStyle = 'rgb(' + cc.join(',') + ')'; c.fillRect(bx0 + bw * i / 60, by, bw / 60 + 1, 30); }
-          if (r) EL[p.e].lines.forEach(function(ln){ var xx = bx0 + bw * (ln - 380) / 370; c.fillStyle = 'rgba(0,0,0,' + k + ')'; c.fillRect(xx - 1.5, by, 3, 30); });
+          var shownEl = (p.qz === 1) ? ANS[p.sid] : p.e;
+          if (r) EL[shownEl].lines.forEach(function(ln){ var xx = bx0 + bw * (ln - 380) / 370; c.fillStyle = 'rgba(0,0,0,' + k + ')'; c.fillRect(xx - 1.5, by, 3, 30); });
+          if (p.qz === 1) txt(c, SID[p.sid] + ' — 원소 가림', bx0, by - 8, {color:'#4A5868'});
           txt(c, '380', bx0, by + 50, {color:'#4A5868'}); txt(c, '750 nm', bx0 + bw, by + 50, {align:'right', color:'#4A5868'});
         },
         stats: function(p, r){
           return [['측정 λmax', r.lp + ' nm' + (r.lp < 380 ? ' (자외선)' : r.lp > 750 ? ' (적외선)' : ' (가시광)'), PAL[4]], ['빈 상수 λmax × T', f(r.b / 1e6, 3) + '×10⁻³ m·K (기준 2.898)', PAL[0]],
             ['별의 색 · 분광형', '<span style="display:inline-block;width:2.2em;height:1em;vertical-align:middle;border:1px solid #889;background:rgb(' + r.col.join(',') + ')"></span> ' + r.cls + '형'],
             ['단위 면적당 복사 (태양 = 1)', f(r.L, r.L < 10 ? 2 : 0) + '배 (σT⁴)', PAL[6]],
-            ['겹친 흡수선', EL[p.e].short + ': ' + EL[p.e].lines.join(', ') + ' nm'],
-            ['에너지원', '수소 4개 → 헬륨 1개, 약 26.7 MeV (질량의 0.7 %)']];
+            ['보고 있는 흡수선', (r.quiz ? SID[r.sid] + ' (원소 가림)' : EL[r.shown].short) + ': ' + EL[r.shown].lines.join(', ') + ' nm'],
+            ['내 짐작', r.quiz ? EL[r.guess].short : '— (겹쳐 보기 방식)'],
+            ['정답', r.quiz ? EL[r.ansEl].name + ' → ' + (r.hit ? '✅ 맞혔어요' : '❌ 틀렸어요') : '맞히기 방식에서 열립니다', r.quiz ? (r.hit ? PAL[1] : PAL[4]) : '#1E2833'],
+            ['가려낸 방법', r.quiz ? '선의 자리(nm)를 원소별 선 목록과 맞춰 봅니다 — 656.3·486.1 이면 수소, 589.0·589.6 이면 나트륨, 393.4·396.8 이면 칼슘 이온' : '원소를 골라 선을 겹쳐 봅니다'],
+            ['에너지원', '수소 4개 → 헬륨 1개, 약 ' + f(DM_U * U_MEV, 1) + ' MeV (질량의 ' + f(FRAC * 100, 2) + ' %)'],
+            ['1초에 헬륨이 되는 수소', r.burn + '억 t = ' + r.mH.toExponential(2) + ' kg'],
+            ['1초에 사라지는 질량 Δm', f(r.dm / 1e9, 2) + '×10⁹ kg (' + f(FRAC * 100, 2) + ' %)', PAL[1]],
+            ['E = Δmc²로 나오는 에너지', r.E.toExponential(2) + ' W', PAL[4]],
+            ['태양의 밝기와 견주면', f(r.Lsun, r.Lsun < 10 ? 2 : 0) + '배'],
+            ['수소의 10 %를 쓰는 데', f(r.life / 1e9, 2) + '십억 년 (태양 질량일 때)']];
         },
-        columns: ['T (K)', 'λmax (nm)', '1/T (×10⁻⁴ K⁻¹)', '분광형', 'σT⁴ (태양=1)'],
-        record: function(p, r){ return {T:p.T, lp:r.lp, cls:r.cls, L:r.L, e:p.e}; },
-        row: function(d){ return [d.T, d.lp, f(1e4 / d.T, 3), d.cls, f(d.L, 2)]; },
+        columns: ['T (K)', 'λmax (nm)', '1/T (×10⁻⁴ K⁻¹)', '분광형', 'σT⁴ (태양=1)', '방식', '숨은 별', '내 짐작', '정답', '채점', '수소 (억 t/s)', 'Δm (10⁹ kg/s)', 'E (W)', '태양 대비'],
+        record: function(p, r){ return {T:p.T, lp:r.lp, cls:r.cls, L:r.L, e:p.e, burn:r.burn, dm:r.dm, E:r.E, Lsun:r.Lsun, life:r.life,
+          quiz:r.quiz, sid:r.sid, ansEl:r.ansEl, guess:r.guess, hit:r.hit}; },
+        row: function(d){ return [d.T, d.lp, f(1e4 / d.T, 3), d.cls, f(d.L, 2), d.quiz ? '맞히기' : '겹쳐 보기', d.quiz ? SID[d.sid] : '—', d.quiz ? EL[d.guess].short : '—', d.quiz ? EL[d.ansEl].short : '—', d.quiz ? (d.hit ? '✅' : '❌') : '—', d.burn, f(d.dm / 1e9, 2), d.E.toExponential(2), f(d.Lsun, d.Lsun < 10 ? 2 : 0) + '배']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('빈 변위 법칙: λmax와 1/T', '<canvas class="chart" id="st1"></canvas><div id="st1t"></div><p class="ask">λmax가 1/T에 비례하나요? 기울기가 빈 상수 b ≈ 2.898×10⁶ nm·K와 같은지 확인하세요.</p>') +
+            card('별이 빛나는 이유 — 핵융합과 질량 결손', '<div id="st3"></div><p class="ask">수소 1 kg이 헬륨이 될 때 사라지는 질량은 7 g뿐입니다. 그런데도 나오는 에너지가 엄청난 까닭은 무엇일까요?</p>') +
             card('온도와 별의 모습', '<div id="st2"></div><p class="ask">과제: 태양(약 5800 K)의 λmax를 계산하고, 스펙트럼에서 656.3 nm·486.1 nm 흡수선이 발견되면 그 별 대기에 어떤 원소가 있다고 말할 수 있는지 설명해 보세요.</p>') + '</div>';
           var pts = rec.map(function(d){ return {x:1e4 / d.T, y:d.lp}; }), s = fit0(pts);
           drawScatter($('st1'), {series:[{color:PAL[0], pts:pts}], lines:[{k:s, b:0, color:PAL[4], dash:true}], xLabel:'1/T (×10⁻⁴ K⁻¹)', yLabel:'λmax (nm)'});
           $('st1t').innerHTML = tableHTML(['항목', '값'], [['측정 기울기 → b', f(s * 1e4 / 1e6, 3) + '×10⁶ nm·K'], ['기준값', '2.898×10⁶ nm·K']]);
-          $('st2').innerHTML = tableHTML(['T', '분광형', 'λmax', 'σT⁴ (태양=1)'], rec.map(function(d){ return [d.T + ' K', d.cls, d.lp + ' nm', f(d.L, 2)]; }));
+          $('st2').innerHTML = tableHTML(['T', '분광형', 'λmax', 'σT⁴ (태양=1)'], rec.map(function(d){ return [d.T + ' K', d.cls, d.lp + ' nm', f(d.L, 2)]; }))
+            + (function(){ var q = rec.filter(function(d){ return d.quiz; });
+              if (!q.length) return '<p class="msg">“숨은 별의 흡수선만 보고 맞히기”로 네 별을 차례로 맞혀 보세요. 선의 자리만 보고 원소를 가려내는 것이 실제 천문학자가 하는 일입니다.</p>';
+              var hit = q.filter(function(d){ return d.hit; }), seen = {};
+              q.forEach(function(d){ seen[d.sid] = d; });
+              return '<p class="msg">숨은 별 맞히기: 맞힌 기록 <b>' + hit.length + '개</b> / ' + q.length + '개. ' + Object.keys(seen).map(function(s){ var d = seen[s]; return SID[s] + ' → 짐작 ' + EL[d.guess].short + ' / 정답 ' + EL[d.ansEl].short + (d.hit ? ' ✅' : ' ❌'); }).join(' · ') + '. 별의 색(온도)과 <b>어떤 원소가 있나</b>는 서로 다른 물음입니다 — 색은 λmax 로, 원소는 <b>선의 자리</b>로 가려냅니다.</p>'; })();
+          var bs = [];
+          rec.forEach(function(d){ if (bs.every(function(x){ return x.burn !== d.burn; })) bs.push(d); });
+          bs.sort(function(a, b){ return a.burn - b.burn; });
+          $('st3').innerHTML = tableHTML(['1초에 헬륨이 되는 수소', '사라지는 질량 Δm', 'E = Δmc²', '태양 대비', '수소 10 %를 쓰는 시간'],
+            bs.map(function(d){ return [d.burn + '억 t', f(d.dm / 1e9, 2) + '×10⁹ kg', d.E.toExponential(2) + ' W', f(d.Lsun, d.Lsun < 10 ? 2 : 0) + '배', f(d.life / 1e9, 2) + '십억 년']; }), 'center') +
+            '<ul class="readout">' +
+            '<li>수소 네 개(4 × 1.007825 u = 4.031300 u)가 헬륨 하나(4.002603 u)가 되면 <b>0.028697 u</b>가 사라져요. 질량의 약 <b>0.71 %</b>, 에너지로는 <b>26.7 MeV</b>예요.</li>' +
+            '<li>c² = 9 × 10¹⁶ 이라는 어마어마한 수가 곱해지기 때문에, 1 g만 사라져도 약 9 × 10¹³ J — 석유 200만 L를 태운 것과 맞먹는 에너지가 나와요.</li>' +
+            '<li>별이 내보내는 빛(앞 탭에서 잰 흑체 복사)은 모두 이 에너지예요. 표면 온도와 색은 중심에서 만들어진 에너지가 표면까지 흘러나온 <b>결과</b>이고, 빛나는 <b>까닭</b>은 핵융합이에요.</li>' +
+            '<li>수소를 빨리 태우는 별일수록 밝지만 그만큼 빨리 늙어요. 표의 마지막 칸에서 밝기와 수명이 반대로 가는 것을 보세요.</li></ul>';
         }
       };
     })();
@@ -488,7 +538,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

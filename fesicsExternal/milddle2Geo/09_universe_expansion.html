@@ -212,7 +212,13 @@ tbody tr:nth-child(even){background:#fafcfb;}
             <div class="control-label">관측할 은하까지의 거리</div>
             <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">1 Mpc ≈ 326만 광년</span><span class="slider-val"><span id="dVal">100</span> Mpc</span></div>
             <input type="range" id="dSlider" min="10" max="500" step="10" value="100" aria-label="관측할 은하까지의 거리">
-            <button class="action" id="obsBtn">분광기로 관측하기 ▶</button>
+            <div style="margin-top:12px;font-weight:600;">은하의 고유 운동과 거리 측정 오차</div>
+            <select id="pecSel" aria-label="고유 운동과 거리 오차" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+              <option value="0">없다고 보기 (기본)</option>
+              <option value="1">고유 운동 있음 (±300 km/s)</option>
+              <option value="2">고유 운동 + 거리 오차 (±15%)</option>
+            </select>
+            <button class="action" id="obsBtn" style="margin-top:12px;">분광기로 관측하기 ▶</button>
             <div class="readout" id="readout">거리를 정하고 [관측하기]를 누르면, 그 은하에서 온 빛의 흡수선이 실험실에서 잰 위치보다 얼마나 밀렸는지 측정합니다.</div>
           </div>
         </div>
@@ -220,8 +226,8 @@ tbody tr:nth-child(even){background:#fafcfb;}
           <div class="table-title">관측 기록 (<span id="cnt" class="mono">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>#</th><th>거리<br>(Mpc)</th><th>정지 파장<br>(nm)</th><th>관측 파장<br>(nm)</th><th>Δλ<br>(nm)</th><th>후퇴 속도<br>(km/s)</th></tr></thead>
-              <tbody id="tbody"><tr><td colspan="6" class="empty-row">아직 기록이 없습니다.</td></tr></tbody>
+              <thead><tr><th>#</th><th>거리<br>(Mpc)</th><th>조건</th><th>정지 파장<br>(nm)</th><th>관측 파장<br>(nm)</th><th>Δλ<br>(nm)</th><th>후퇴 속도<br>(km/s)</th><th>H₀×거리와의<br>차이</th></tr></thead>
+              <tbody id="tbody"><tr><td colspan="8" class="empty-row">아직 기록이 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box" style="margin-top:14px;">
@@ -477,6 +483,13 @@ function barChart(g,items,o){
     g.font="600 21px 'Noto Sans KR', sans-serif"; g.fillStyle='#173238'; g.fillText(o.ylabel,0,0); g.restore(); }
 }
 
+/* 은하 자체의 고유 운동과 거리 측정 오차를 둘째 조작으로 연다.
+   '없다고 보기'가 기본값이라 예전처럼 점이 정확히 직선에 놓인다.
+   ※ ±300 km/s · ±15% 는 교육용 모형값이에요. */
+const PEC=[{n:'없다고 보기', s:'없음', vp:0, de:0},
+  {n:'고유 운동 ±300 km/s', s:'고유 운동', vp:300, de:0},
+  {n:'고유 운동 + 거리 오차 ±15%', s:'고유+거리오차', vp:300, de:0.15}];
+let curPec=0;
 const H0=70;            /* 허블 상수 km/s/Mpc */
 const C=299792.458;     /* 빛의 속도 km/s */
 const LAM0=393.4;       /* 칼슘 K 흡수선 정지 파장 nm */
@@ -581,15 +594,22 @@ function drawSpec(p, lamObs){
 document.getElementById('dSlider').addEventListener('input',e=>{
   dist=parseInt(e.target.value); document.getElementById('dVal').textContent=dist;
   drawMap(1,null); drawSpec(0,LAM0);});
+document.getElementById('pecSel').addEventListener('change',e=>{
+  curPec=parseInt(e.target.value,10);
+  document.getElementById('readout').innerHTML='조건을 '+PEC[curPec].n+'(으)로 바꿨습니다. 같은 거리라도 관측값이 조금씩 흩어집니다.';
+});
 document.getElementById('obsBtn').addEventListener('click',()=>{
   focusCanvas(mc);
   if(busy) return; busy=true;
   const btn=document.getElementById('obsBtn'); btn.disabled=true; document.getElementById('dSlider').disabled=true;
-  const v=H0*dist, z=v/C, lam=LAM0*(1+z);
+  const PP=PEC[curPec];
+  const dTrue=dist*(1+(Math.random()*2-1)*PP.de);     /* 내가 잰 거리와 참 거리가 다를 수 있다 */
+  const vpec=(Math.random()*2-1)*PP.vp;               /* 은하 자체가 움직이는 몫 */
+  const v=H0*dTrue+vpec, z=v/C, lam=LAM0*(1+z);
   const dur=900+dist*3;                     /* 먼 은하일수록 빛이 오래 걸려 도착한다 */
   animate(dur, p=>{ drawMap(1+0.10*p, dist/60); drawSpec(p, lam); }, ()=>{
     btn.disabled=false; document.getElementById('dSlider').disabled=false; busy=false;
-    recs.push({d:dist, lam0:LAM0, lam:lam, dlam:lam-LAM0, z:z, v:v});
+    recs.push({d:dist, lam0:LAM0, lam:lam, dlam:lam-LAM0, z:z, v:v, pec:curPec, resid:v-H0*dist});
     renderT();
     document.getElementById('readout').innerHTML=
       `${dist} Mpc — 흡수선이 ${LAM0} nm → <b>${lam.toFixed(2)} nm</b>로 밀렸습니다 (Δλ ${(lam-LAM0).toFixed(2)} nm)<br>
@@ -600,8 +620,8 @@ document.getElementById('obsBtn').addEventListener('click',()=>{
 function renderT(){
   document.getElementById('cnt').textContent=recs.length;
   const tb=document.getElementById('tbody');
-  if(!recs.length){tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록이 없습니다.</td></tr>';return;}
-  tb.innerHTML=recs.map((r,i)=>`<tr><td>${i+1}</td><td>${r.d}</td><td>${r.lam0}</td><td>${r.lam.toFixed(2)}</td><td>${r.dlam.toFixed(2)}</td><td><b>${Math.round(r.v).toLocaleString()}</b></td></tr>`).join('');
+  if(!recs.length){tb.innerHTML='<tr><td colspan="8" class="empty-row">아직 기록이 없습니다.</td></tr>';return;}
+  tb.innerHTML=recs.map((r,i)=>`<tr><td>${i+1}</td><td>${r.d}</td><td>${PEC[r.pec||0].s}</td><td>${r.lam0}</td><td>${r.lam.toFixed(2)}</td><td>${r.dlam.toFixed(2)}</td><td><b>${Math.round(r.v).toLocaleString()}</b></td><td>${r.resid==null?'0':(r.resid>0?'+':'')+Math.round(r.resid).toLocaleString()}</td></tr>`).join('');
 }
 
 /* ================= 데이터 확인 ================= */
@@ -626,9 +646,32 @@ function drawG1(){
     g.beginPath(); g.moveTo(X(0),Y(fit.b)); g.lineTo(X(maxX),Y(fit.m*maxX+fit.b)); g.stroke(); g.setLineDash([]); }
   recs.forEach(r=>{ g.fillStyle='#2f8f9d'; g.beginPath(); g.arc(X(r.d),Y(r.v),8,0,7); g.fill();
     g.strokeStyle='#fff'; g.lineWidth=2; g.stroke(); });
+  /* 벗어난 점을 어떻게 다룰까 — 내 기록으로 따져 본다 */
+  const noisy=recs.filter(r=>(r.pec||0)>0);
+  const near=recs.filter(r=>r.d<=100), far=recs.filter(r=>r.d>=200);
+  const fitNear=near.length>=2?lsq(near.map(r=>({x:r.d,y:r.v}))):null;
+  const fitFar=far.length>=2?lsq(far.map(r=>({x:r.d,y:r.v}))):null;
+  let worst=null;
+  recs.forEach(r=>{ const rel=Math.abs(r.resid||0)/Math.max(1,H0*r.d); if(!worst||rel>worst.rel) worst={r:r, rel:rel}; });
   document.getElementById('i1').innerHTML=
     `<div class="insight-box">원점을 지나는 <b>직선</b>입니다. 기울기 <span class="mono">${fit?fit.m.toFixed(1):'-'}</span> km/s/Mpc — 이것이 <b>허블 상수</b>이고, 현재 측정값은 약 67~74(측정 방법에 따라 다름)입니다.
-    멀리 있는 은하일수록 거리에 비례해 빠르게 멀어진다는 뜻입니다. (이 실험은 H₀ = 70으로 고정한 모형이라 점이 정확히 직선에 놓이지만, 실제 관측에서는 은하 고유의 운동과 거리 측정 오차 때문에 점들이 흩어져요.)</div>`;
+    멀리 있는 은하일수록 거리에 비례해 빠르게 멀어진다는 뜻입니다.</div>`
+    + '<div class="insight-box warm" style="margin-top:12px;"><b>직선에서 벗어난 점을 어떻게 다룰까 (내 기록으로 계산)</b><br>'
+    + (noisy.length
+      ? '· 고유 운동·오차를 넣은 기록 <b>' + noisy.length + '개</b> — H₀×거리와의 차이가 '
+        + Math.round(Math.min.apply(null, noisy.map(r=>r.resid))).toLocaleString() + ' ~ +'
+        + Math.round(Math.max.apply(null, noisy.map(r=>r.resid))).toLocaleString() + ' km/s 였습니다.'
+        + (worst ? '<br>· 가장 많이 어긋난 점: 거리 ' + worst.r.d + ' Mpc 에서 <b>' + (worst.rel*100).toFixed(0) + '%</b> 벗어남'
+            + ' (벗어난 양 ' + Math.round(Math.abs(worst.r.resid)).toLocaleString() + ' km/s)' : '')
+        + (fitNear && fitFar
+          ? '<br>· 가까운 은하(100 Mpc 이하)만으로 구한 기울기 <b>' + fitNear.m.toFixed(1) + '</b> / 먼 은하(200 Mpc 이상)만으로 구한 기울기 <b>' + fitFar.m.toFixed(1) + '</b>'
+            + '<br><br>같은 ±300 km/s 라도 가까운 은하에서는 속도 자체가 작아 <b>비율로는 크게</b> 어긋납니다. '
+            + '그래서 벗어난 점을 지우는 것이 아니라 <b>먼 은하를 더 많이 재서 평균</b>을 내는 것이 옳은 처리예요. '
+            + '실제 허블도 가까운 은하만으로 재서 H₀ 를 500 가까이로 크게 잘못 구했습니다.'
+          : '<br>· 가까운 은하(100 Mpc 이하)와 먼 은하(200 Mpc 이상)를 각각 두 번 이상 재면, 어느 쪽 기울기가 더 믿을 만한지 견줄 수 있어요.')
+      : '· 아직 고유 운동·오차를 넣은 기록이 없습니다. 조작에서 조건을 바꾸고 같은 거리를 여러 번 재 보세요. '
+        + '점이 흩어질 때 그 점을 <b>지워야 할지, 더 재서 평균을 내야 할지</b> 판단해 보는 것이 이 실험의 핵심이에요.')
+    + '</div>';
 }
 function showAge(){
   const fit=lsq(recs.map(r=>({x:r.d,y:r.v})));

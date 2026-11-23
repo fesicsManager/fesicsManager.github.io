@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -431,9 +433,16 @@ function hbars(items, max){
 var LAB = (function(){
       var Q = [
         {s:'Is it a cat?', t:0}, {s:'Do you like apples?', t:0}, {s:'Can you swim?', t:0},
-        {s:'What is it?', t:1}, {s:'Where is my bag?', t:1}, {s:'What is your name?', t:1}, {s:"It's a cat.", t:2}
+        {s:'What is it?', t:1}, {s:'Where is my bag?', t:1}, {s:'What is your name?', t:1},
+        {s:"It's a cat.", t:2}, {s:'You like apples.', t:2}, {s:'It is a dog.', t:2}
       ];
       var TY = ['Yes·No 질문', '물음 낱말 질문', '보통 말'], PR = ['↗ 올라간다', '↘ 내려간다'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
+      /* 같은 문장이라도 끝을 올리느냐 내리느냐에 따라 뜻이 갈린다 — 둘 다 쓸 수 있는 경우가 있다 */
+      function meaning(t, up){
+        if (t === 0) return up ? ['○', '그냥 묻는 말이 돼요'] : ['△', '질문이긴 한데, 따지거나 퉁명스러운 느낌이 돼요'];
+        if (t === 1) return up ? ['△', '"뭐라고?" 다시 묻거나 놀란 느낌이 돼요'] : ['○', '그냥 묻는 말이 돼요'];
+        return up ? ['○', '되묻는 질문이 돼요 — 물음표 없이도 질문이에요'] : ['○', '알려 주는 보통 말이 돼요'];
+      }
       function say(t, rate){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = rate || 0.9; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
       function wrap(c, s, x, y, maxW, lh, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var ws = String(s).split(' '), line = '', n = 0; for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i]; if (c.measureText(t).width > maxW && line){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; } if (line){ txt(c, line, x, y + n * lh, o); n++; } return n; }
       function contour(q, up){
@@ -444,19 +453,20 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 400,
-        idle: '질문과 나의 예측을 고른 뒤 <b>높낮이 확인하기</b>를 누르세요.',
-        shortHint: 'Yes·No 질문 3개와 What·Where 질문 3개를 모두 확인해 보세요. It\'s a cat.도 두 가지로 해 보세요.',
+        idle: '문장을 고르고 <b>내가 끝을 어떻게 할지</b> 정한 뒤 <b>높낮이 확인하기</b>를 누르세요. 같은 문장도 끝소리에 따라 뜻이 갈립니다.',
+        shortHint: '한 문장을 골라 <b>올려서도 내려서도</b> 해 보세요. 어느 문장에서 뜻이 바뀌는지, 어느 문장에서 느낌만 바뀌는지 비교해 보세요.',
         params: [
           {key:'q', type:'seg', label:'문장', cols:2, value:5, options:Q.map(function(x){ return x.s; })},
-          {key:'g', type:'seg', label:'예측: 끝소리는?', cols:2, value:0, options:PR, note:'It\'s a cat.은 끝을 어떻게 하느냐에 따라 뜻이 달라져요.'},
+          {key:'g', type:'seg', label:'내가 끝을 이렇게 하겠다', cols:2, value:0, options:PR, note:'고른 대로 그려 줍니다. 같은 문장을 올려서도 내려서도 해 보고, 뜻이 어떻게 갈리는지 보세요.'},
           {key:'s', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
-          var q = Q[p.q], realUp = q.t === 0, mineUp = p.g === 0, hit, msg;
-          if (q.t === 2){ hit = true; realUp = mineUp; msg = mineUp ? '"고양이라고?" — 놀라서 묻는 말이 돼요' : '"고양이야." — 보통으로 알려 주는 말이에요'; }
-          else { hit = mineUp === realUp; msg = q.t === 0 ? 'Yes·No 질문은 끝이 대개 올라가요' : 'What·Where 질문은 끝이 대개 내려가요'; }
-          var played = p.s === 0 ? say(q.t === 2 && mineUp ? "It's a cat?" : q.s, 0.85) : false;
-          return {q:q, up:realUp, hit:hit, msg:msg, played:played};
+          var q = Q[p.q], mineUp = p.g === 0, canon = q.t === 0, mn = meaning(q.t, mineUp);
+          /* 그림은 내가 고른 대로 그린다. 보통 어느 쪽으로 말하는지(canon)와 맞았는지는 따로 알려 준다 */
+          var hit = q.t === 2 ? true : mineUp === canon;
+          var msg = q.t === 0 ? 'Yes·No 질문은 끝이 대개 올라가요' : q.t === 1 ? 'What·Where 질문은 끝이 대개 내려가요' : '보통 말은 끝을 내리지만, 올리면 되묻는 질문이 돼요';
+          var played = p.s === 0 ? say(q.t === 2 && mineUp ? q.s.replace(/\.$/, '?') : q.s, 0.85) : false;
+          return {q:q, up:mineUp, canon:canon, hit:hit, msg:msg, mv:mn[0], mmsg:mn[1], played:played};
         },
         draw: function(c, W, H, p, r, tau){
           var q = Q[p.q], up = r ? r.up : p.g === 0, cv = contour(q, up), n = cv.ws.length, gx = 30, gw = W - 60, gy = 70, gh = 200;
@@ -467,7 +477,11 @@ var LAB = (function(){
           c.fillStyle = '#F7F9FC'; c.fillRect(gx, gy, gw, gh);
           txt(c, '높게', gx + 4, gy + 18, {color:'#8C99A8'}); txt(c, '낮게', gx + 4, gy + gh - 6, {color:'#8C99A8'});
           var X = function(i){ return gx + 20 + (gw - 40) * i / n; }, Y = function(v){ return gy + gh - v * gh; };
-          for (var i = 0; i < n; i++) txt(c, cv.ws[i], (X(i) + X(i + 1)) / 2, gy + gh + 26, {align:'center', color:'#26313D'});
+          var narrow = W < 560;
+          for (var i = 0; i < n; i++){
+            c.font = (narrow ? '13px ' : '18px ') + FONT; c.fillStyle = '#26313D'; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+            c.fillText(cv.ws[i], (X(i) + X(i + 1)) / 2, gy + gh + 26 + (narrow && (i % 2) ? 20 : 0));
+          }
           if (r){
             var k = Math.min(tau / 0.85, 1), m = k * n;
             c.strokeStyle = PAL[1]; c.lineWidth = 4; c.beginPath(); c.moveTo(X(0), Y(cv.pts[0]));
@@ -486,13 +500,17 @@ var LAB = (function(){
           } else txt(c, '예측: ' + PR[p.g], 20, H - 34, {color:'#4A5868'});
         },
         stats: function(p, r){
-          return [['문장', r.q.s], ['종류', TY[r.q.t]], ['끝소리', r.up ? '↗ 올라감' : '↘ 내려감', r.up ? PAL[4] : PAL[0]],
-            ['나의 예측', PR[p.g] + (r.q.t === 2 ? ' — 두 가지 모두 쓸 수 있어요' : r.hit ? ' — 맞았어요' : ' — 빗나갔어요'), r.hit ? PAL[1] : PAL[6]],
+          var other = meaning(r.q.t, !r.up);
+          return [['문장', r.q.s], ['종류', TY[r.q.t]], ['내가 한 끝소리', r.up ? '↗ 올라감' : '↘ 내려감', r.up ? PAL[4] : PAL[0]],
+            ['이렇게 하면 뜻은', r.mv + ' ' + r.mmsg, r.mv === '○' ? PAL[1] : PAL[6]],
+            ['반대로 하면', (r.up ? '↘ 내려서 말하면 ' : '↗ 올려서 말하면 ') + other[1], PAL[3]],
+            ['보통은 어느 쪽?', r.q.t === 2 ? '보통 말은 내려요 — 올리면 되묻는 질문이 됩니다'
+              : (r.canon ? '올려서 말해요' : '내려서 말해요') + (r.hit ? ' — 내가 한 것과 같아요' : ' — 내가 한 것과 달라요'), r.hit ? PAL[1] : PAL[6]],
             ['알게 된 점', r.msg], ['소리', p.s === 1 ? '끔' : r.played ? '영어 음성으로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']];
         },
-        columns: ['문장', '종류', '끝소리', '예측'],
-        record: function(p, r){ return {q:p.q, t:r.q.t, up:r.up, hit:r.hit}; },
-        row: function(d){ return [Q[d.q].s, TY[d.t], d.up ? '↗' : '↘', d.t === 2 ? '뜻이 바뀜' : d.hit ? '맞음' : '빗나감']; },
+        columns: ['문장', '종류', '내 끝소리', '그때 뜻', '보통과'],
+        record: function(p, r){ return {q:p.q, t:r.q.t, up:r.up, hit:r.hit, mv:r.mv, mmsg:r.mmsg}; },
+        row: function(d){ return [Q[d.q].s, TY[d.t], d.up ? '↗' : '↘', d.mv + ' ' + d.mmsg, d.t === 2 ? '둘 다 쓰임' : d.hit ? '같음' : '다름']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('질문 종류별 끝소리', '<div id="qi1"></div><p class="ask">Yes·No 질문은 몇 개가 올라갔나요? What·Where 질문은요? 물음표만 보고 끝소리를 정할 수 있나요?</p>') +
@@ -502,9 +520,18 @@ var LAB = (function(){
             var u = a.filter(function(d){ return d.up; }).length / a.length * 100;
             items.push({label:TY[t] + ' ↗ 비율', v:u, color:t === 0 ? PAL[4] : PAL[0], text:f(u, 0) + '% (' + a.length + '번)'}); });
           $('qi1').innerHTML = items.length ? hbars(items, 100) : '<p class="msg">질문 기록이 아직 없어요.</p>';
-          var by = groupBy(rec, function(d){ return d.q; }), rows = [];
-          Object.keys(by).forEach(function(k){ var ar = {}; by[k].forEach(function(d){ ar[d.up ? '↗' : '↘'] = 1; }); rows.push([Q[k].s, TY[Q[k].t], Object.keys(ar).join(' ')]); });
-          $('qi2').innerHTML = tableHTML(['문장', '종류', '끝소리'], rows);
+          var by = groupBy(rec, function(d){ return d.q; }), rows = [], both = 0;
+          Object.keys(by).forEach(function(k){
+            var ar = {}, mm = {};
+            by[k].forEach(function(d){ ar[d.up ? '↗' : '↘'] = 1; mm[(d.up ? '↗ ' : '↘ ') + d.mmsg] = 1; });
+            if (Object.keys(ar).length > 1) both++;
+            rows.push([Q[k].s, TY[Q[k].t], Object.keys(ar).join(' '), Object.keys(mm).join('<br>')]);
+          });
+          $('qi2').innerHTML = tableHTML(['문장', '종류', '해 본 끝소리', '그때 뜻'], rows)
+            + (both
+               ? '<p class="note"><b>같은 문장인데 뜻이 갈렸습니다.</b> 글자는 하나도 안 바뀌었는데 끝을 올리느냐 내리느냐로 '
+                 + '묻는 말이 되기도 하고 알려 주는 말이 되기도 했어요. 그러니 "질문은 모두 끝을 올린다"도, "물음표가 있으면 올린다"도 늘 맞지 않아요.</p>'
+               : '<p class="note">한 문장을 <b>올려서도 내려서도</b> 해 보세요. 같은 문장에서 뜻이 갈리는지 여기에서 나란히 보여 줍니다.</p>');
         }
       };
     })();
@@ -513,7 +540,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

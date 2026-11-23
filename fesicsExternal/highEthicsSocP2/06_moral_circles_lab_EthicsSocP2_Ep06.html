@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>자연은 쓸모 있어서 지키는가</h1>
-    <p>천적이 사라진 숲에서 사슴이 크게 늘어 어린 나무와 다른 동물의 서식지가 줄고 있습니다(가상 사례). <b>정책안</b>과 <b>숲의 쓰임</b>을 바꾸고, <b>내가 서 볼 원</b>(고려 범위)을 고르면 네 입장 — 인간·동물·생명·생태 중심 — 이 각각 무엇을 셈하고 어떤 경향을 보이는지 나란히 나옵니다.<br><span style="font-size:.9em;color:#a86825">※ 가상 사례입니다. "사슴 개체 수 조절"의 경향은 웹툰 #4 표를, 다른 정책안의 경향은 각 입장의 논리를 적용한 예시 판정입니다. 어느 원이 옳은지 채점하지 않아요.</span></p>
+    <p>천적이 사라진 숲에서 사슴이 크게 늘어 어린 나무와 다른 동물의 서식지가 줄고 있습니다(가상 사례). <b>정책안</b>과 <b>숲의 쓰임</b>을 바꾸고, <b>내가 서 볼 원</b>(고려 범위)을 고르면 네 입장 — 인간·동물·생명·생태 중심 — 이 각각 무엇을 셈하고 어떤 경향을 보이는지 나란히 나옵니다.<br><span style="font-size:.9em;color:#a86825">※ 가상 사례입니다. 사슴 수·어린 나무 수는 해마다 돌려 보는 <b>교육용 모형값</b>이며 실제 생태 조사 자료가 아닙니다. 네 원의 "모형 셈"도 그 모형 수를 각 입장이 셈하는 방식으로 환산한 교육용 점수예요. 어느 원이 옳은지 채점하지 않아요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,6 +442,29 @@ var LAB = (function(){
         [['사슴 피해가 줄면 찬성, 가축·안전 우려도 셈 — 갈림', '셈할 이익이 거의 없음 — 판단 근거 약함'], ['천적에게 잡히는 고통도 셈 — 갈림'], ['갈림'], ['찬성 경향(공동체 회복)']],
         [['반대 경향(손실 지속)', '셈할 손실이 거의 없음 — 판단 근거 약함'], ['직접 해치지 않지만 굶주림이 늘 수 있음 — 갈림'], ['갈림(어린 나무의 생명이 계속 줄어듦)'], ['반대 경향(공동체가 불안정해짐)']]];
       function ev(po, ci, fu){ var e = EV[po][ci]; return e.length > 1 ? e[fu] : e[0]; }
+      /* ── 해마다 돌리는 교육용 모형 (실제 조사 자료가 아니다) ──
+         사슴      D' = D + 0.30·D·(1 − D/K) − 솎기·천적으로 줄어드는 수,  K(살 수 있는 수) = 400 + 0.6·어린 나무
+         어린 나무 S' = S + 회복력·(1 − S/2000) − 0.45·D   (사슴이 어린 나무를 먹는다) */
+      var D0 = 800, S0 = 1000;
+      function sim(po, rg){
+        var D = D0, S = S0, Ds = [D0], Ss = [S0], killed = 0, cull = po === 0 ? 0.18 : 0, pred = po === 1 ? 0.10 : 0;
+        for (var t = 0; t < 10; t++){
+          var K = 400 + 0.6 * S, die = (cull + pred) * D;
+          var nD = D + 0.30 * D * (1 - D / K) - die, nS = S + rg * (1 - S / 2000) - 0.45 * D;
+          D = Math.max(0, nD); S = Math.max(0, Math.min(2000, nS)); killed += die;
+          Ds.push(D); Ss.push(S);
+        }
+        return {D:Ds, S:Ss, d10:D, s10:S, killed:killed};
+      }
+      /* 네 원이 '셈하는 것'을 모형 수로 환산해 '아무것도 하지 않음'과 견준 교육용 점수 */
+      function scores(po, fu, rg){
+        var a = sim(po, rg), b = sim(2, rg), dS = a.s10 - b.s10, dD = b.d10 - a.d10, dK = a.killed - b.killed;
+        return [fu === 0 ? dS * 0.04 + dD * 0.02 : 0,
+          -dK * 0.02,
+          dS * 0.02 - dK * 0.02,
+          dS * 0.03 - (Math.abs(a.d10 - 400) - Math.abs(b.d10 - 400)) * 0.03];
+      }
+      function trend(v, ci, fu){ return (ci === 0 && fu === 1) ? '셈할 이익이 거의 없음 — 근거 약함' : v >= 12 ? '찬성 경향' : v <= -12 ? '반대 경향' : '갈림'; }
       function sm(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '14px ' + FONT; c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       return {
         sceneHeight: 400,
@@ -448,9 +473,14 @@ var LAB = (function(){
         params: [
           {key:'po', type:'seg', label:'정책안', cols:3, value:0, options:PO},
           {key:'fu', type:'seg', label:'숲의 쓰임', cols:2, value:0, options:FU},
+          {key:'rg', type:'range', label:'숲의 회복력 — 해마다 새로 돋는 어린 나무 (교육용 모형값)', min:120, max:480, step:40, value:320, fmt:function(x){ return f(x, 0); }},
           {key:'ci', type:'seg', label:'내가 서 볼 원', cols:4, value:0, options:CI.map(function(x){ return x.n; })}
         ],
-        compute: function(p){ var all = CI.map(function(x, i){ return ev(p.po, i, p.fu); }); return {all:all, me:all[p.ci]}; },
+        compute: function(p){
+          var all = CI.map(function(x, i){ return ev(p.po, i, p.fu); });
+          var md = sim(p.po, p.rg), sc = scores(p.po, p.fu, p.rg), tr = sc.map(function(v, i){ return trend(v, i, p.fu); });
+          return {all:all, me:all[p.ci], md:md, sc:sc, tr:tr};
+        },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, cx = Math.min(W * 0.32, 150), cy = H * 0.45, R = Math.min(cx - 10, H * 0.4);
           c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, W, H);
@@ -466,17 +496,31 @@ var LAB = (function(){
           sm(c, PO[p.po], cx, cy + R + 22 > H - 4 ? H - 4 : cy + R + 22, {align:'center', bold:true});
         },
         stats: function(p, r){
-          var s = [['정책안 · 숲', PO[p.po] + ' · ' + FU[p.fu]], ['내가 서 본 원', CI[p.ci].n + ' — 셈하는 것: ' + CI[p.ci].cnt + ' → ' + r.me, PAL[0]]];
-          CI.forEach(function(C, i){ s.push([C.n + ' (' + C.cnt + ')', r.all[i], i === p.ci ? PAL[4] : null]); });
+          var s = [['정책안 · 숲', PO[p.po] + ' · ' + FU[p.fu]],
+            ['숲의 회복력 (모형값)', f(p.rg, 0) + ' 그루/해' + (p.rg === 320 ? ' — 기본값' : ''), PAL[7]],
+            ['10년 뒤 사슴 / 어린 나무 (모형)', f(r.md.d10, 0) + ' / ' + f(r.md.s10, 0) + ' (처음 ' + D0 + ' / ' + S0 + ')', PAL[6]],
+            ['10년 동안 솎기·천적으로 줄어든 사슴 (모형)', f(r.md.killed, 0), PAL[4]],
+            ['내가 서 본 원', CI[p.ci].n + ' — 셈하는 것: ' + CI[p.ci].cnt + ' → ' + r.tr[p.ci] + ' (모형 셈 ' + sgn(r.sc[p.ci], 0) + ')', PAL[0]]];
+          CI.forEach(function(C, i){ s.push([C.n + ' (' + C.cnt + ')', r.tr[i] + ' · 모형 셈 ' + sgn(r.sc[i], 0) + ' — 그 입장의 논리로 적으면: ' + r.all[i], i === p.ci ? PAL[4] : null]); });
+          s.push(['※ 모형 셈이란', '같은 회복력에서 "아무것도 하지 않음"과 견준 교육용 점수예요. +12 이상 찬성 경향, −12 이하 반대 경향, 그 사이는 갈림으로 보았어요. "그 입장의 논리로 적으면"은 기본 회복력(320)을 전제로 적어 둔 예시 문장이라, 회복력을 바꾸면 모형 셈과 어긋날 수 있어요 — 어긋난 곳이 바로 조건이 결론을 바꾼 자리예요. 어느 원이 옳은지는 채점하지 않아요.', PAL[7]]);
           return s;
         },
-        columns: ['정책안', '숲', '서 본 원', '그 원의 경향'],
-        record: function(p, r){ return {po:p.po, fu:p.fu, ci:p.ci, me:r.me}; },
-        row: function(d){ return [PO[d.po], d.fu ? '깊은 숲' : '수입 있는 숲', CI[d.ci].n, d.me]; },
+        columns: ['정책안', '숲', '회복력', '사슴', '어린 나무', '서 본 원', '모형 셈', '그 원의 경향'],
+        record: function(p, r){ return {po:p.po, fu:p.fu, ci:p.ci, rg:p.rg, d10:r.md.d10, s10:r.md.s10, sc:r.sc[p.ci], tr:r.tr[p.ci], me:r.me}; },
+        row: function(d){ return [PO[d.po], d.fu ? '깊은 숲' : '수입 있는 숲', f(d.rg, 0), f(d.d10, 0), f(d.s10, 0), CI[d.ci].n, sgn(d.sc, 0), d.tr]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록한 정책안·숲별 네 원의 경향', '<div id="mo1"></div><p class="ask">결론이 같은 원끼리 근거는 어떻게 달랐나요? 숲의 쓰임을 바꿨을 때 어느 원의 근거가 사라지고 어느 원의 근거가 남았나요?</p>') +
+            card('해마다 돌려 본 숲 (모형)', '<div id="mo3"></div><p class="ask">회복력을 낮추면 솎기를 해도 어린 나무가 돌아오지 않는 조건이 나와요. 그때 네 원의 "모형 셈"은 어떻게 달라졌나요?</p>') +
             card('내가 서 본 원', '<div id="mo2"></div><p class="ask">과제: 우리 지역의 개발이나 보전 쟁점 하나를 골라 네 원 각각에서 무엇을 셈하는지 적고, 결론이 같은 입장끼리도 근거가 어떻게 다른지 비교해 보세요.</p>') + '</div>';
+          var rgs = [], rows3 = [];
+          rec.forEach(function(d){ if (rgs.indexOf(d.rg) < 0) rgs.push(d.rg); });
+          rgs.slice(0, 3).forEach(function(rg){
+            PO.forEach(function(nm, i){ var a = sim(i, rg), sc = scores(i, 0, rg);
+              rows3.push([f(rg, 0), nm, f(a.d10, 0), f(a.s10, 0), f(a.killed, 0), trend(sc[3], 3, 0) + ' (' + sgn(sc[3], 0) + ')']); });
+          });
+          $('mo3').innerHTML = tableHTML(['회복력', '정책안', '10년 뒤 사슴', '10년 뒤 어린 나무', '줄어든 사슴', '생태 중심 경향'], rows3, 'wrap') +
+            '<p class="msg">교육용 모형값이에요. 같은 정책안이어도 숲의 회복력이 낮으면 10년 뒤 모습과 네 원의 셈이 달라집니다.</p>';
           var seen = {}, rows = [];
           rec.forEach(function(d){ var key = d.po + '-' + d.fu; if (seen[key]) return; seen[key] = 1; rows.push([PO[d.po] + ' · ' + (d.fu ? '깊은 숲' : '수입 있는 숲')].concat(CI.map(function(C, i){ return ev(d.po, i, d.fu); }))); });
           $('mo1').innerHTML = tableHTML(['조합', '인간', '동물', '생명', '생태'], rows.slice(0, 6));
@@ -491,7 +535,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

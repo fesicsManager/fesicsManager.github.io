@@ -250,6 +250,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>빛의 세기(임의단위) <b id="xVal">50</b></label>
         <input type="range" id="xSlider" min="5" max="100" step="1" value="50" aria-label="빛의 세기(임의단위)">
       </div>
+      <div class="control-row">
+        <label for="zSel">물에 녹은 이산화 탄소 농도</label>
+        <select id="zSel" aria-label="물에 녹은 이산화 탄소 농도" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">충분함 (기본)</option><option value="1">조금 모자람</option><option value="2">많이 모자람</option></select>
+      </div>
       <div class="readout"><span>기포 발생 수</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -259,7 +263,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>빛의 세기(임의단위)</th><th>기포 발생 수(개/분)</th></tr></thead>
+          <thead><tr><th>#</th><th>빛의 세기(임의단위)</th><th>CO₂ 농도</th><th>기포 발생 수(개/분)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -276,7 +280,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>빛의 세기(임의단위)</th><th>기포 발생 수(개/분)</th><th>빛세기 대비 효율(기포수÷빛세기)</th></tr></thead>
+        <thead><tr><th>#</th><th>빛의 세기(임의단위)</th><th>CO₂ 농도</th><th>기포 발생 수(개/분)</th><th>빛세기 대비 효율(기포수÷빛세기)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -402,7 +406,10 @@ let _t0=performance.now(), _dt=16;
 
 /* 검정말 줄기 끝에서 기포가 실제로 올라오게 그린다.
    기포 발생 속도 = 측정식 28×(1−e^(−빛세기/35)) 에 비례 */
-function photoRate(x){ return 28*(1-Math.exp(-x/35)); }   /* 교육용 포화 모형 (25℃·CO₂ 충분 가정). 실제 값은 식물·온도·CO₂에 따라 다름 */
+/* CO₂ 가 모자라면 빛을 더 세게 해도 그 위로는 올라가지 못한다(제한 요인).
+   '충분함'에서는 천장이 28로 모형 곡선보다 높아 예전 결과가 그대로 나온다. ※ 숫자는 교육용 모형값. */
+var ZOPT=[{n:'CO₂ 충분함', s:'충분', cap:28},{n:'CO₂ 조금 모자람', s:'조금 모자람', cap:16},{n:'CO₂ 많이 모자람', s:'많이 모자람', cap:9}];
+function photoRate(x){ return Math.min(ZOPT[curZ].cap, 28*(1-Math.exp(-x/35))); }   /* 교육용 포화 모형 (25℃·CO₂ 충분 가정). 실제 값은 식물·온도·CO₂에 따라 다름 */
 let bubbles=[], spawnAcc=0, popped=0, popTimer=0;
 const WTOP=92, WBOT=294, BKL=146, BKR=364;
 
@@ -482,21 +489,36 @@ function drawDevice(){
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>CO₂ 농도를 바꿔 보면 (내 기록으로 계산)</b> CO₂ 농도를 바꿔 가며 몇 개 더 기록하면, 포화를 만든 것이 무엇인지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>CO₂ 농도를 바꿔 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'빛을 더 세게 해도 더 늘지 않는 높이가 CO₂ 농도에 따라 달라졌습니다. 포화를 만든 것은 빛이 아니라 <b>모자란 쪽(제한 요인)</b>이에요.';
+}
 let curX=50;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   const y=Math.max(0, photoRate(curX)+(Math.random()*2-1));
   yVal.textContent=y.toFixed(1)+' 개/분';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -507,7 +529,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -596,7 +618,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -628,7 +650,7 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
   const ok = sel === CFG.correctOpt;
   const result = document.getElementById('verifyResult');
   result.className = 'show';
-  result.innerHTML = (ok ? '정답입니다! 👏' : '다시 생각해 보세요.') + '<br><br>' + CFG.finalExplain;
+  result.innerHTML = (ok ? '정답입니다! 👏' : '다시 생각해 보세요.') + '<br><br>' + CFG.finalExplain + zNote();
 });
 
 

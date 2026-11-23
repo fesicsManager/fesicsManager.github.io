@@ -157,7 +157,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="밑 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="a">밑 a (×0.5) <b><span id="a_v">4.0</span></b></label><input type="range" id="a" min="3" max="20" step="1" value="4" data-fmt="1"></div><div class="ctl"><label for="x">x (×0.5) <b><span id="x_v">4.0</span></b></label><input type="range" id="x" min="1" max="16" step="1" value="4" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">📐 기울기를 재어 보기</button></div>
+      <div class="ctl"><label for="a">밑 a (×0.5) <b><span id="a_v">4.0</span></b></label><input type="range" id="a" min="3" max="20" step="1" value="4" data-fmt="1"></div><div class="ctl"><label for="x">x (×0.5) <b><span id="x_v">4.0</span></b></label><input type="range" id="x" min="1" max="16" step="1" value="4" data-fmt="1"></div><div class="pick">무엇을 할까 <label><input type="radio" name="mode" value="show" checked> 밑을 보고 기울기 재기</label><label><input type="radio" name="mode" value="quiz"> 밑을 가리고 거꾸로 맞히기</label></div><div class="row"><button class="btn go" id="goBtn">📐 기울기를 재어 보기</button><button class="btn rec" id="newQ">🎲 새 문제</button></div>
       <div class="readout" id="readout"></div>
       <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
@@ -242,17 +242,23 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
+var SECRETS=[1.5,2,2.5,3,4,5,6,8,10];
+var secret=3.5;
 function st(){var a=v('a')/2,x=v('x')/2;
 if(Math.abs(a-1)<0.1)a=2;
-var f=function(t){return Math.log(t)/Math.log(a);};
+var quiz=(rv('mode')==='quiz');
+var base=quiz?secret:a;
+var f=function(t){return Math.log(t)/Math.log(base);};
 var d=nder(f,x);
 var exact=1/(x*Math.log(a));
 var naive=1/x;
-return{a:a,x:x,f:f,d:d,exact:exact,naive:naive,
+var guessOk=quiz&&(Math.abs(a-secret)<0.26);
+return{a:a,x:x,f:f,d:d,exact:exact,naive:naive,quiz:quiz,base:base,secret:secret,guessOk:guessOk,
 ok:(Math.abs(d-exact)<1e-4),same:(Math.abs(exact-naive)<1e-6)};}
 function draw(){clr();var o=st();
 var pl=plot(0.1,8,-3,4,46);axes(pl,'x','y');
 [2,Math.E,5,10].forEach(function(b){
+if(o.quiz)return;
 ctx.strokeStyle=(Math.abs(b-o.a)<0.06)?'#5ee0c8':'rgba(61,92,171,.45)';
 ctx.lineWidth=(Math.abs(b-o.a)<0.06)?3.4:1.8;
 ctx.beginPath();var first=true;
@@ -268,31 +274,47 @@ ctx.stroke();
 var y0=o.f(o.x);
 seg([pl.X(o.x-1),pl.Y(y0-o.d)],[pl.X(o.x+1),pl.Y(y0+o.d)],'#ffb86b',2.6);
 dot(pl.X(o.x),pl.Y(y0),7,'#ffb86b');
-label('y = log'+nf(o.a,1)+' x',W/2,26,'#5ee0c8',16);
+label(o.quiz?'y = log? x   (밑을 가렸습니다)':('y = log'+nf(o.a,1)+' x'),W/2,26,'#5ee0c8',16);
 panel(24,H-118,W-48,102);
 label('x = '+nf(o.x,1)+' 에서 수치로 잰 기울기 = '+nf(o.d,6),W/2,H-90,'#ffb86b',16);
+if(o.quiz){
+label('내 짐작 '+nf(o.a,1)+' 로 계산하면 1/(x ln a) = '+nf(o.exact,6),W/2,H-58,'#9db0d4',15);
+label(o.guessOk?('맞혔습니다 — 가려 둔 밑은 '+nf(o.secret,1)+' 입니다')
+:('아직 어긋납니다 — 짐작을 '+(o.exact>o.d?'키워':'줄여')+' 보세요'),
+W/2,H-26,o.guessOk?'#5ee0c8':'#ff7a8a',15);
+}else{
 label('1 / (x ln a) = 1 / ('+nf(o.x,1)+' × '+nf(Math.log(o.a),4)+') = '+nf(o.exact,6)+(o.ok?'  ✅':'  ❌'),
 W/2,H-58,o.ok?'#5ee0c8':'#ff7a8a',15);
 label('1/x = '+nf(o.naive,6)+(o.same?'   (밑이 e 라 같음)':'   ← ln a 를 빠뜨린 값'),
-W/2,H-26,o.same?'#9db0d4':'#ff7a8a',15);
-ro(kv('수치 미분',nf(o.d,6))+' &nbsp;'+kv('1/(x ln a)',nf(o.exact,6))+'<br>'+
-kv('1/x',nf(o.naive,6))+' &nbsp;'+kv('ln a',nf(Math.log(o.a),5)));
+W/2,H-26,o.same?'#9db0d4':'#ff7a8a',15);}
+ro(kv('수치 미분',nf(o.d,6))+' &nbsp;'+kv('내 짐작으로 1/(x ln a)',nf(o.exact,6))+'<br>'+
+kv('1/x',nf(o.naive,6))+' &nbsp;'+kv(o.quiz?'맞혔나':'ln a',o.quiz?(o.guessOk?'맞음':'아직'):nf(Math.log(o.a),5)));
 whyBox(o);}
 /* 음수는 진짜 빼기 기호로, 식 속 음수는 괄호로 */
 function mn(x){return String(x).replace(/^-/,'−');}
 function pn(x){return x<0?'('+mn(x)+')':String(x);}
 /* 왜 언제나 1/(x ln a) 와 같은지 풀어 주는 상자 */
 function whyBox(o){var el=$('why');if(!el)return;el.className='why same';var A=nf(o.a,1),X=nf(o.x,1),L=Math.log(o.a);
+if(o.quiz){el.className=o.guessOk?'why same':'why diff';
+el.innerHTML=(o.guessOk?'✅ <b>맞혔어요.</b><br>':'🤔 <b>밑을 거꾸로 찾는 중이에요.</b><br>')
++'· 기울기는 1/(x ln a) 예요. x = '+X+' 에서 잰 값이 '+nf(o.d,6)+' 이니, ln a = 1 ÷ (x × 기울기) = <b>'+nf(1/(o.x*o.d),4)+'</b> 예요.<br>'
++'· 그러니 밑은 a = e^'+nf(1/(o.x*o.d),4)+' ≈ <b>'+nf(Math.exp(1/(o.x*o.d)),2)+'</b> 쯤이에요. 짐작 슬라이더를 그 값으로 맞춰 보세요.<br>'
++'· 기울기가 작을수록 ln a 가 크다는 뜻이니 밑도 큽니다. 기울기 하나만 재어도 밑을 알아낼 수 있어요.';
+return;}
 el.innerHTML='✅ <b>이 실험은 언제나 같아요. 까닭은?</b><br>'
 +'· 밑 변환: log<sub>'+A+'</sub> x = ln x ÷ ln '+A+'. 여기서 ln '+A+' = '+nf(L,4)+' 은 x 와 상관없는 <b>그냥 수</b>예요.<br>'
 +'· ln x 의 기울기는 1/x 이니, 그것을 ln a 로 나눈 함수의 기울기도 ln a 로 나눠져요: 1/x ÷ ln a = 1/('+X+' × '+nf(L,4)+') = <span class="hl">'+nf(o.exact,6)+'</span>. 수치로 잰 '+nf(o.d,6)+' 과 같아요.<br>'
 +'· 1/x = '+nf(o.naive,6)+' 은 ln a 로 나누기를 <b>빠뜨린</b> 값이에요. 지금은 ln '+A+(L>1?' > 1 이라 실제 기울기가 1/x 보다 작아요.':' < 1 이라 실제 기울기가 1/x 보다 커요.')
 +' 둘이 같아지는 건 밑이 e(≈ 2.718)일 때뿐인데, 슬라이더는 0.5 간격이라 e 는 고를 수 없어요.';}
 function record(){var o=st();
-return{cells:[nf(o.a,1),nf(o.x,1),nf(o.d,6),nf(o.exact,6),nf(o.naive,6),(o.ok?'✅':'❌')+'<small>1/x ÷ ln '+nf(o.a,1)+'</small>'],
-a:o.a,x:o.x,d:o.d,exact:o.exact,naive:o.naive,ok:o.ok,same:o.same};}
-function analyze(){var allok=rows.every(function(r){return r.ok;});
+return{cells:[o.quiz?'가림':nf(o.a,1),nf(o.x,1),nf(o.d,6),nf(o.exact,6),nf(o.naive,6),
+o.quiz?(o.guessOk?'🎯 맞힘':'❌ 빗나감'):((o.ok?'✅':'❌')+'<small>1/x ÷ ln '+nf(o.a,1)+'</small>')],
+a:o.a,x:o.x,d:o.d,exact:o.exact,naive:o.naive,ok:o.ok,same:o.same,quiz:o.quiz,guessOk:o.guessOk};}
+function analyze(){var shown=rows.filter(function(r){return !r.quiz;});
+var allok=shown.length>0&&shown.every(function(r){return r.ok;});
 var dif=rows.filter(function(r){return !r.same;}).length;
+var qz=rows.filter(function(r){return r.quiz;}).length;
+var hit=rows.filter(function(r){return r.guessOk;}).length;
 var t='<table><thead><tr><th>밑</th><th>수치 미분</th><th>1/(x ln a)</th><th>1/x</th></tr></thead><tbody>';
 rows.forEach(function(r){t+='<tr><td>'+nf(r.a,1)+'</td><td>'+nf(r.d,5)+'</td>'+
 '<td class="'+(r.ok?'ok':'no')+'">'+nf(r.exact,5)+'</td>'+
@@ -301,13 +323,19 @@ t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. ln a 가 들어간다</h4>'+t+'<p class="note">'+
 (allok?'<span class="ok">모든 기록에서 1/(x ln a) 와 일치</span>했습니다. ':'')+
-'1/x 만 쓴 값과 달랐던 기록이 <span class="no">'+dif+'개</span>입니다.</p></div>'+
+'1/x 만 쓴 값과 달랐던 기록이 <span class="no">'+dif+'개</span>입니다.'+
+(qz?' 밑을 가리고 맞히기를 '+qz+'번 해서 <span class="ok">'+hit+'번</span> 맞혔습니다.':'')+'</p></div>'+
 '<div class="card"><h4>2. 왜 e 가 특별한가</h4>'+
 '<p class="note">log_a x = ln x / ln a 이므로, 미분하면 <b>상수 1/ln a</b> 가 곱해집니다. 밑이 e 면 ln e = 1 이라 그 상수가 사라져 1/x 가 됩니다.</p>'+
 '<p class="note">밑이 클수록 ln a 가 커져 기울기가 작아집니다 — 그래프가 더 완만해집니다.</p>'+
-'<p class="note">지수함수에서도 같습니다: (aˣ)′ = aˣ ln a. 밑이 e 일 때만 계수가 1 입니다.</p></div></div>';}
+'<p class="note">지수함수에서도 같습니다: (aˣ)′ = aˣ ln a. 밑이 e 일 때만 계수가 1 입니다.</p>'+
+'<p class="note">거꾸로도 됩니다 — 기울기 한 번만 재면 ln a = 1 ÷ (x × 기울기) 로 <b>밑을 알아낼</b> 수 있습니다.</p></div></div>';}
 
 
+$('newQ').addEventListener('click',function(){if(busy)return;
+secret=SECRETS[Math.floor(Math.random()*SECRETS.length)];
+var r=document.querySelector('input[name="mode"][value="quiz"]');if(r)r.checked=true;
+draw();});
 draw();sync();
 </script>
 <script id="fxPrincipleJs">

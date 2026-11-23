@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -318,7 +320,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -460,12 +462,16 @@ return {
   params: [
     {key:'o', type:'seg', label:'입자', cols:4, value:0, options:OBJ.map(function(x){ return x.name; })},
     {key:'v', type:'seg', label:'가속 전압 (전하를 띤 입자만)', cols:4, value:2, options:VOLT.map(function(v){ return v.toLocaleString() + ' V'; }),
-      note:'드브로이 파장 λ = h ÷ (mv)입니다. 분해능은 대략 파장의 절반으로 보고, 상대론 효과는 무시했습니다.'}
+      note:'드브로이 파장 λ = h ÷ (mv)입니다. 분해능은 대략 파장의 절반으로 보고, 상대론 효과는 무시했습니다.'},
+    {key:'g', type:'range', label:'먼저 짐작: 파장은 10의 몇 제곱 m 쯤일까', min:-40, max:-6, step:1, value:-11, fmt:function(v){ return '10^' + v + ' m'; },
+      note:'재기 전에 자릿수만 짐작해 보세요. 전자와 야구공의 자릿수가 얼마나 벌어지는지가 이 실험의 핵심입니다.'}
   ],
   compute: function(p){
     var O = OBJ[p.o], D = deBroglie(O, VOLT[p.v]);
     var res = D.lam / 2;
-    return {O:O, V:VOLT[p.v], v:D.v, p:D.p, lam:D.lam, res:res, E:D.E, charged:!!O.q, vc:D.v / CL};
+    var ex = Math.floor(Math.log10(D.lam)), gs = p.g, off = gs - ex;
+    return {O:O, V:VOLT[p.v], v:D.v, p:D.p, lam:D.lam, res:res, E:D.E, charged:!!O.q, vc:D.v / CL,
+      ex:ex, gs:gs, off:off, hit:(off === 0)};
   },
   draw: function(c, W, H2, p, r, tau){
     var k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -498,33 +504,36 @@ return {
     LIGHT.forEach(function(L){ items.push([L.name, L.lam / 2, '#8C99A8']); });
     if (r) items.push([OBJ[p.o].name.split(' (')[0] + ' 현미경', r.res * k, '#2E9E78']);   /* '야구공 (145 g, 40 m/s)'처럼 긴 이름이 막대·숫자와 겹쳤음 */
     var refs = [['원자 지름 약 0.1 nm', 0.1e-9], ['DNA 두께 약 2 nm', 2e-9], ['바이러스 약 100 nm', 100e-9]];
-    var bx = 170, bw = W - bx - 24, lo = -13, hi = -6;
+    var nar = W < 420, bx = nar ? Math.max(96, Math.round(W * 0.5)) : 170, bw = W - bx - 24, lo = -13, hi = -6;   /* 좁은 화면: 막대 시작을 앞으로 당겨 이름·숫자가 겹치지 않게 */
     var Xl = function(m){ return bx + Math.max(0, Math.min(1, (Math.log10(Math.max(m, 1e-14)) - lo) / (hi - lo))) * bw; };
     refs.forEach(function(q, ri){ var x = Xl(q[1]); c.strokeStyle = 'rgba(140,153,168,.6)'; c.setLineDash([4, 4]); c.lineWidth = 1; c.beginPath(); c.moveTo(x, by + 12); c.lineTo(x, by + 116 + ri * 22); c.stroke(); c.setLineDash([]);
       /* 기준 이름을 한 줄씩 내려 점선 끝 왼쪽에 씀 (겹침·오른쪽 잘림 방지) */
       txt(c, q[0], x - 4, by + 128 + ri * 22, {color:'#8C99A8', align:'right'}); });
     items.forEach(function(it, i){
       var y = by + 20 + i * 34;
-      txt(c, it[0], 12, y + 12, {base:'middle'});
+      txt(c, it[0], 12, y + 12, {base:'middle', size:nar ? 13 : 18});
       c.fillStyle = it[2]; c.fillRect(bx, y, Math.max(2, Xl(it[1]) - bx), 22);
       var vs = it[1] >= 1e-9 ? f(it[1] * 1e9, 2) + ' nm' : it[1] >= 1e-13 ? f(it[1] * 1e12, 2) + ' pm' : it[1].toExponential(1) + ' m';
-      c.font = '18px ' + FONT;   /* 숫자가 오른쪽 끝을 넘으면 막대 안쪽에 흰 글씨로 */
-      if (Xl(it[1]) + 6 + c.measureText(vs).width > W - 4) txt(c, vs, Xl(it[1]) - 6, y + 12, {base:'middle', align:'right', color:'#fff', bold:true});
-      else txt(c, vs, Xl(it[1]) + 6, y + 12, {base:'middle'});
+      c.font = (nar ? 13 : 18) + 'px ' + FONT;   /* 숫자가 오른쪽 끝을 넘으면 막대 안쪽에 흰 글씨로 */
+      if (Xl(it[1]) + 6 + c.measureText(vs).width > W - 4) txt(c, vs, Xl(it[1]) - 6, y + 12, {base:'middle', align:'right', color:'#fff', bold:true, size:nar ? 13 : 18});
+      else txt(c, vs, Xl(it[1]) + 6, y + 12, {base:'middle', size:nar ? 13 : 18});
     });
 
     if (r) two('속력 ' + r.v.toExponential(3) + ' m/s ', '(빛 속력의 ' + f(r.vc * 100, 2) + ' %)', H2 - 14, {color:'#4A5868'});
   },
   stats: function(p, r){
-    var a = [['입자', r.O.name], ['속력 v', r.v.toExponential(3) + ' m/s'], ['운동량 p = mv', r.p.toExponential(3) + ' kg·m/s'],
+    var a = [['입자', r.O.name],
+      ['내 짐작 (자릿수)', '10^' + r.gs + ' m → 실제 10^' + r.ex + ' m', r.hit ? PAL[1] : PAL[4]],
+      ['채점', r.hit ? '✅ 자릿수를 맞혔어요' : (r.off > 0 ? '❌ ' + r.off + '자리 크게 짐작했어요' : '❌ ' + (-r.off) + '자리 작게 짐작했어요'), r.hit ? PAL[1] : PAL[4]],
+      ['속력 v', r.v.toExponential(3) + ' m/s'], ['운동량 p = mv', r.p.toExponential(3) + ' kg·m/s'],
       ['드브로이 파장 λ = h ÷ p', r.lam >= 1e-9 ? f(r.lam * 1e9, 4) + ' nm' : r.lam >= 1e-15 ? f(r.lam * 1e12, 4) + ' pm' : r.lam.toExponential(3) + ' m', PAL[0]],
       ['분해능 (λ ÷ 2)', r.res >= 1e-9 ? f(r.res * 1e9, 4) + ' nm' : r.res.toExponential(3) + ' m', PAL[1]],
       ['가시광 현미경(275 nm)보다', r.res < 275e-9 ? (275e-9 / r.res >= 1e6 ? (275e-9 / r.res).toExponential(2) : f(275e-9 / r.res, 0)) + '배 더 작은 것을 봄' : '더 큰 것만 볼 수 있음']];
     return a;
   },
-  columns: ['입자', 'V (V)', 'v (m/s)', 'p (kg·m/s)', 'λ', '분해능'],
-  record: function(p, r){ return {o:p.o, name:r.O.name, V:r.charged ? r.V : null, v:r.v, p:r.p, lam:r.lam, res:r.res, charged:r.charged}; },
-  row: function(d){ return [d.name, d.charged ? d.V.toLocaleString() : '−', d.v.toExponential(3), d.p.toExponential(3),
+  columns: ['입자', 'V (V)', '내 짐작', '실제 자릿수', '채점', 'v (m/s)', 'p (kg·m/s)', 'λ', '분해능'],
+  record: function(p, r){ return {o:p.o, name:r.O.name, V:r.charged ? r.V : null, v:r.v, p:r.p, lam:r.lam, res:r.res, charged:r.charged, ex:r.ex, gs:r.gs, off:r.off, hit:r.hit}; },
+  row: function(d){ return [d.name, d.charged ? d.V.toLocaleString() : '−', '10^' + d.gs, '10^' + d.ex, d.hit ? '✅' : (d.off > 0 ? '❌ +' + d.off : '❌ ' + d.off), d.v.toExponential(3), d.p.toExponential(3),
     d.lam >= 1e-9 ? f(d.lam * 1e9, 4) + ' nm' : d.lam >= 1e-15 ? f(d.lam * 1e12, 3) + ' pm' : d.lam.toExponential(2) + ' m',
     d.res >= 1e-9 ? f(d.res * 1e9, 4) + ' nm' : d.res.toExponential(2) + ' m']; },
   verify: function(rec, box){
@@ -540,8 +549,14 @@ return {
       : '<li>전자의 가속 전압을 바꿔 2번 이상 기록하세요.</li>';
     var seen = {}, list = [];
     rec.forEach(function(d){ if (seen[d.name]) return; seen[d.name] = 1; list.push(d); });
-    $('ro2').innerHTML = tableHTML(['입자', '속력 (m/s)', '운동량', '파장'], list.map(function(d){
-      return [d.name, d.v.toExponential(2), d.p.toExponential(2), d.lam >= 1e-12 ? f(d.lam * 1e12, 3) + ' pm' : d.lam.toExponential(2) + ' m']; }));
+    $('ro2').innerHTML = tableHTML(['입자', '속력 (m/s)', '운동량', '파장', '자릿수', '내 짐작'], list.map(function(d){
+      return [d.name, d.v.toExponential(2), d.p.toExponential(2), d.lam >= 1e-12 ? f(d.lam * 1e12, 3) + ' pm' : d.lam.toExponential(2) + ' m', '10^' + d.ex, '10^' + d.gs + (d.hit ? ' ✅' : ' ❌')]; }))
+      + (function(){ var hit = rec.filter(function(d){ return d.hit; }), big = rec.slice().sort(function(a, b){ return Math.abs(b.off) - Math.abs(a.off); })[0];
+        var ball = list.filter(function(d){ return d.o === 3; })[0], el2 = list.filter(function(d){ return d.o === 0; })[0];
+        return '<p class="msg">자릿수 짐작 채점: 맞힌 기록 <b>' + hit.length + '개</b> · 틀린 기록 <b>' + (rec.length - hit.length) + '개</b>'
+          + (big ? ', 가장 많이 빗나간 것은 ' + big.name + ' (' + (big.off > 0 ? '+' : '') + big.off + '자리)' : '') + '. '
+          + (ball && el2 ? '전자(10^' + el2.ex + ' m)와 야구공(10^' + ball.ex + ' m)의 자릿수 차이는 <b>' + (el2.ex - ball.ex) + '자리</b>입니다. ' : '전자와 야구공을 모두 재어 자릿수 차이를 확인해 보세요. ')
+          + '사람 눈으로는 한 자리씩 세어 짐작하기 어려운 까닭이, 물결 성질을 느끼지 못하는 까닭과 같습니다 — 물체가 무거워질수록 파장이 자릿수째로 작아집니다.</p>'; })();
     $('ro3').innerHTML = tableHTML(['현미경', '쓰는 파장', '분해능', '원자(0.1 nm)를 볼 수 있나'], [
       ['가시광 (550 nm)', '550 nm', '275 nm', '아니요']].concat(list.filter(function(d){ return d.charged; }).map(function(d){
       return [d.name + ' ' + d.V.toLocaleString() + ' V', f(d.lam * 1e12, 2) + ' pm', f(d.res * 1e12, 2) + ' pm', d.res < 0.1e-9 ? '예' : '아니요']; })));
@@ -553,7 +568,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

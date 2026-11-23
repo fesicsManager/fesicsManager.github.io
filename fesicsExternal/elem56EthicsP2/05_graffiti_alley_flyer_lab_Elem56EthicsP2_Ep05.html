@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,20 +443,31 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 
 
       var WL = [{n:'깨끗한 벽', s:'깨끗함', ref:33}, {n:'낙서 가득한 벽', s:'낙서', ref:69}];
-      var NS = [20, 50, 100];
+      var NS = [10, 20, 50, 100];
       var PR = ['두 골목이 똑같다', '깨끗한 골목이 더 많다', '낙서 골목이 한두 명 더', '낙서 골목이 두 배쯤'];
       return {
         sceneHeight: 400,
-        idle: '벽 상태와 사람 수, 내 예상을 고른 뒤 <b>골목 지켜보기</b>를 누르세요.',
+        idle: '벽 상태와 사람 수, 내 예상을 고른 뒤 <b>골목 지켜보기</b>를 누르세요. 두 골목을 같은 수로 함께 지켜봅니다.',
         shortHint: '같은 사람 수로 깨끗한 벽과 낙서 벽을 모두 해 보세요.',
         params: [
           {key:'w', type:'seg', label:'골목 벽 (표지판·자전거·전단은 같음)', cols:2, value:0, options:WL.map(function(x){ return x.n; })},
-          {key:'n', type:'seg', label:'지켜볼 자전거 주인 수', cols:3, value:1, options:NS.map(function(x){ return x + '명'; })},
+          {key:'n', type:'seg', label:'골목마다 지켜볼 자전거 주인 수 (두 골목을 같은 수로 봅니다)', cols:4, value:2, options:NS.map(function(x){ return x + '명'; })},
           {key:'g', type:'seg', label:'내 예상', cols:2, value:0, options:PR, note:'일부러 어지르는 실험은 하지 않아요. 기록만 해요.'}
         ],
         compute: function(p){
-          var n = NS[p.n], d = [], i; for (i = 0; i < n; i++) d.push(Math.random() < WL[p.w].ref / 100);
-          var k = d.filter(function(x){ return x; }).length; return {d:d, k:k, n:n, rate:k / n * 100};
+          /* 두 골목을 같은 수로 함께 지켜본다 — 사람이 적으면 결과가 뒤집힐 수 있다 */
+          var n = NS[p.n], d = [], d2 = [], i, ci = (p.w === 0 ? 1 : 0);
+          for (i = 0; i < n; i++) d.push(Math.random() < WL[p.w].ref / 100);
+          for (i = 0; i < n; i++) d2.push(Math.random() < WL[ci].ref / 100);
+          var k = d.filter(function(x){ return x; }).length;
+          var k2 = d2.filter(function(x){ return x; }).length;
+          var dirty = (p.w === 1 ? k : k2), clean = (p.w === 1 ? k2 : k);
+          var tie = (dirty === clean), flip = (!tie && dirty < clean);
+          return {d:d, d2:d2, k:k, k2:k2, n:n, ci:ci, rate:k / n * 100, rate2:k2 / n * 100,
+            tie:tie, flip:flip,
+            verdict: tie ? '두 골목이 똑같았습니다 — 가를 수 없습니다'
+              : (flip ? '이번에는 깨끗한 골목에서 더 많이 버렸습니다 — 연구와 거꾸로입니다'
+                      : '이번에도 낙서 골목에서 더 많이 버렸습니다')};
         },
         draw: function(c, W, H, p, r, tau){
           var wy = 30, wh = 120, i;
@@ -471,19 +484,23 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
           var shown = r ? Math.floor(n * Math.min(tau / 0.85, 1)) : 0, dropped = 0;
           for (i = 0; i < shown; i++) if (r.d[i]){ dropped++; c.fillStyle = PAL[4]; var px = 30 + ((i * 53) % (W - 70)), py = gy + 70 + ((i * 29) % 70);
             c.save(); c.translate(px, py); c.rotate((i % 7) * 0.4); c.fillRect(-7, -5, 14, 10); c.restore(); }
-          fitT(c, r ? shown + '명 중 ' + dropped + '명이 바닥에 버림' + (tau >= 0.85 ? ' (' + f(r.rate, 0) + '%)' : '') : WL[p.w].n + ' · ' + n + '명', 20, H - 12, {bold:true, color:r ? PAL[4] : '#1E2833'}, W - 40);
+          fitT(c, r ? (shown + '명 중 ' + dropped + '명이 바닥에 버림' + (tau >= 0.85 ? ' (' + f(r.rate, 0) + '%) · 맞대어 본 ' + WL[r.ci].s + ' 골목 ' + f(r.rate2, 0) + '%' : '')) : WL[p.w].n + ' · ' + n + '명 · 다른 골목도 같은 수', 20, H - 12, {bold:true, color:r ? (r.flip ? PAL[0] : PAL[4]) : '#1E2833'}, W - 40);
         },
         stats: function(p, r){
           return [['벽', WL[p.w].n], ['전단을 바닥에 버린 사람', r.k + ' / ' + r.n + '명 · ' + f(r.rate, 0) + '%', PAL[4]],
-            ['연구 참고치 (2008, 대략)', '깨끗한 벽 약 33% · 낙서 벽 약 69%', PAL[6]], ['내 예상', PR[p.g], PAL[3]],
+            ['맞대어 본 골목 (' + WL[r.ci].n + ')', r.k2 + ' / ' + r.n + '명 · ' + f(r.rate2, 0) + '%', PAL[0]],
+            ['이번 판정', r.verdict, r.flip ? PAL[0] : PAL[4]],
+            ['연구 참고치 (2008, 대략) — 이 실험은 이 값을 교육용 모형값으로 씁니다', '깨끗한 벽 약 33% · 낙서 벽 약 69%', PAL[6]], ['내 예상', PR[p.g], PAL[3]],
             ['살펴보기', p.w === 1 ? '낙서는 "낙서 금지"를 어긴 흔적이에요. 그런데 늘어난 건 쓰레기예요.' : '같은 수로 낙서 벽도 지켜보세요.', PAL[3]]];
         },
-        columns: ['벽', '사람 수', '버림', '비율'],
-        record: function(p, r){ return {w:p.w, n:r.n, k:r.k}; },
-        row: function(d){ return [WL[d.w].s, d.n + '명', d.k + '명', f(d.k / d.n * 100, 0) + '%']; },
+        columns: ['벽', '사람 수', '비율', '맞대어 본 골목', '판정'],
+        record: function(p, r){ return {w:p.w, n:r.n, k:r.k, k2:r.k2, ci:r.ci, flip:r.flip, tie:r.tie}; },
+        row: function(d){ return [WL[d.w].s, d.n + '명', f(d.k / d.n * 100, 0) + '%',
+          WL[d.ci].s + ' ' + f(d.k2 / d.n * 100, 0) + '%', d.tie ? '같음' : (d.flip ? '거꾸로' : '연구와 같음')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('벽에 따른 전단 버린 비율', '<div id="ga1"></div><p class="ask">낙서 골목은 깨끗한 골목의 몇 배였나요? 예측 게임의 네 보기 가운데 어느 것과 가까운가요?</p>') +
+            card('사람 수에 따라 결론이 뒤집힌 횟수', '<div id="ga3"></div><p class="ask">몇 명부터 지켜봐야 결론을 믿을 만한가요? 10명만 봤을 때 거꾸로 나온 판이 몇 번이었는지 세어 보세요.</p>') +
             card('어긴 흔적이 보내는 신호', '<div id="ga2"></div><p class="ask">과제: 교실 한 곳(사물함 위·신발장)을 정해 한 주는 그대로, 다음 한 주는 깨끗이 정리해 두고, 매일 그곳에 놓인 쓰레기나 흐트러진 물건 수를 세어 비교해요. 일부러 어지르지는 않아요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.w; }), items = [], rt = [];
           WL.forEach(function(w, i){ var a = g[i];
@@ -492,6 +509,12 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
           $('ga1').innerHTML = hbars(items, 100);
           $('ga2').innerHTML = (rt[0] != null && rt[1] != null && rt[0] > 0 ? '<p>내 실험: 낙서 골목이 깨끗한 골목의 약 <b>' + f(rt[1] / rt[0], 1) + '배</b>였어요. 연구: 약 2배.</p>' : '<p class="msg">두 벽을 모두 지켜보면 몇 배인지 계산해 줘요.</p>') +
             tableHTML(['어긴 규칙', '늘어난 행동'], [['낙서 금지 (누군가 어김)', '쓰레기 버리기 (다른 규칙)']]);
+          var h = groupBy(rec, function(d){ return d.n; }), rows3 = [];
+          NS.forEach(function(n){ var a = h[n]; if (!a) return;
+            var fl = a.filter(function(d){ return d.flip; }).length, ti = a.filter(function(d){ return d.tie; }).length;
+            rows3.push([n + '명', a.length + '판', fl + '판', ti + '판', f(fl / a.length * 100, 0) + '%']); });
+          $('ga3').innerHTML = tableHTML(['골목마다 본 사람', '해 본 판', '거꾸로 나온 판', '같게 나온 판', '거꾸로 비율'], rows3) +
+            '<p class="msg">10명만 지켜보면 우연만으로도 깨끗한 골목이 더 나쁘게 나오는 일이 생겨요. 사람 수를 늘리면 그런 일이 줄어들어요. 적은 수로 본 결과 하나로 결론을 내릴 수 없는 까닭이에요.</p>';
         }
       };
     })();
@@ -500,7 +523,8 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

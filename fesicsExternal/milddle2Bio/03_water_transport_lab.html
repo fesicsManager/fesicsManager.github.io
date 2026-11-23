@@ -249,6 +249,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>잎의 수(장) <b id="xVal">10</b></label>
         <input type="range" id="xSlider" min="0" max="20" step="1" value="10" aria-label="잎의 수(장)">
       </div>
+      <div class="control-row">
+        <label for="zSel">잎을 어떻게 두었나요</label>
+        <select id="zSel" aria-label="잎을 어떻게 두었나요" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">그대로 (기본)</option><option value="1">잎 절반에 비닐 씌움</option><option value="2">잎 전체에 비닐 씌움</option></select>
+      </div>
       <div class="readout"><span>물(색소) 이동 속도</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -258,7 +262,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>잎의 수(장)</th><th>물(색소) 이동 속도(cm/분)</th></tr></thead>
+          <thead><tr><th>#</th><th>잎의 수(장)</th><th>잎 상태</th><th>물(색소) 이동 속도(cm/분)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -275,7 +279,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>잎의 수(장)</th><th>물(색소) 이동 속도(cm/분)</th><th>잎 1장당 이동 속도(속도÷잎수)</th></tr></thead>
+        <thead><tr><th>#</th><th>잎의 수(장)</th><th>잎 상태</th><th>물(색소) 이동 속도(cm/분)</th><th>잎 1장당 이동 속도(속도÷잎수)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -402,7 +406,10 @@ let _t0=performance.now(), _dt=16;
 /* 물(색소)이 물관을 타고 올라가는 모습.
 교육용 모형: 이동 속도 = 0.18·x ÷ (1 + x/60) (cm/분) — 잎이 많을수록 빨라지되 점점 완만해짐(물관 저항·기공 한계).
 실제로는 잎 면적·기공·습도·빛·바람에 좌우됨 */
-function speedOf(x){ return 0.18*x/(1+x/60); }
+/* 비닐을 씌우면 기공이 막혀 증산이 거의 멈춘다 → 물을 끌어올리는 힘도 줄어든다.
+   '그대로'는 배수가 1이라 예전 결과가 그대로 나온다. ※ 배수는 교육용 모형값. */
+var ZOPT=[{n:'잎 그대로', s:'그대로', k:1},{n:'잎 절반에 비닐', s:'절반 비닐', k:0.5},{n:'잎 전체에 비닐', s:'전체 비닐', k:0.12}];
+function speedOf(x){ return 0.18*x/(1+x/60)*ZOPT[curZ].k; }
 let dyeP=[], vaporP=[], frontCm=0;
 const STX=214, STW=44, STTOP=54, STBOT=268;
 const PX_PER_CM=9.2;
@@ -508,21 +515,36 @@ function drawDevice(){
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>비닐을 씌워 보면 (내 기록으로 계산)</b> 같은 잎 수에서 비닐을 씌워 몇 개 더 기록하면, 무엇이 속도를 정하는지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>비닐을 씌워 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'잎의 수가 같아도 비닐로 증산을 막으면 속도가 떨어졌습니다. 물을 끌어올리는 힘은 잎의 <b>수</b>가 아니라 잎에서 일어나는 <b>증산</b>에서 나와요.';
+}
 let curX=10;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   const y=Math.max(0, speedOf(curX)+(Math.random()*0.3-0.15));
   yVal.textContent=y.toFixed(2)+' cm/분';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -533,7 +555,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -622,7 +644,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -659,9 +681,9 @@ document.getElementById('checkBtn').addEventListener('click', () => {
   if (isNaN(input)) {
     result.innerHTML = '값을 입력해 주세요.';
   } else if (ok) {
-    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   } else {
-    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   }
 });
 

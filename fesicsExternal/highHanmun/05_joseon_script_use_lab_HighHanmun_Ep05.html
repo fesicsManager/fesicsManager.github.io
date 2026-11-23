@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,15 +479,31 @@ var LAB = (function anonymous(
       ];
       function judge(d, s){ return d.ok.indexOf(s) >= 0 ? 0 : d.part.indexOf(s) >= 0 ? 1 : 2; }
       var JT = ['맞음', '부분적으로 맞음', '다름'], JC = [PAL[1], PAL[6], PAL[4]];
+      var WHO = ['그대로 (문서 일반)', '사대부 남성이 씀', '양반 집안 여성이 씀', '관청 향리(아전)가 씀', '백성에게 널리 알리려고'];
+      var WS = ['그대로', '사대부 남성', '양반 여성', '향리', '널리 알리기'];
+      var WSET = [null, [0], [2], [1], [2, 3]];
+      function setsOf(d, w){
+        var cand = d.ok.concat(d.part.filter(function(x){ return d.ok.indexOf(x) < 0; }));
+        if (!WSET[w]) return {ok:d.ok.slice(), part:d.part.slice(), rare:false};
+        var set = WSET[w], inter = cand.filter(function(x){ return set.indexOf(x) >= 0; });
+        if (inter.length) return {ok:inter, part:cand.filter(function(x){ return inter.indexOf(x) < 0; }), rare:false};
+        return {ok:set.slice(), part:cand, rare:true};
+      }
       return {
         sceneHeight: 380,
-        idle: '문서 종류와 문자를 고른 뒤 <b>이 문자로 예측하기</b>를 누르세요.',
-        shortHint: '여섯 가지 문서를 모두 예측해 보세요.',
+        idle: '문서 종류와 문자를 고른 뒤 <b>이 문자로 예측하기</b>를 누르세요. <b>쓴 사람·상황</b>을 바꾸면 같은 문서라도 주로 쓰인 문자가 달라집니다.',
+        shortHint: '여섯 가지 문서를 모두 예측해 보세요. 같은 문서를 쓴 사람·상황만 바꿔서도 해 보세요.',
         params: [
           {key:'d', type:'seg', label:'문서 종류', cols:3, value:0, options:DC.map(function(x){ return x.nm; })},
-          {key:'s', type:'seg', label:'주로 쓰인 문자 예측', cols:4, value:0, options:SC}
+          {key:'s', type:'seg', label:'주로 쓰인 문자 예측', cols:4, value:0, options:SC},
+          {key:'w', type:'seg', label:'쓴 사람·상황', cols:2, value:0, options:WHO,
+            note:'※ 교육용 모형 — 신분·상황마다 주로 쓰던 문자를 정해 두고, 그 문서가 쓸 수 있는 문자와 겹치는 쪽을 \'맞음\'으로 봅니다(사대부 남성→한문, 양반 여성→한글, 향리→이두, 널리 알리기→한글·언해). 실제로는 사람마다·때마다 달랐어요.'}
         ],
-        compute: function(p){ var d = DC[p.d], j = judge(d, p.s); return {d:d, j:j}; },
+        compute: function(p){
+          var d = DC[p.d], g = setsOf(d, p.w);
+          var j = g.ok.indexOf(p.s) >= 0 ? 0 : g.part.indexOf(p.s) >= 0 ? 1 : 2;
+          return {d:d, j:j, ok2:g.ok, part2:g.part, rare:g.rare};
+        },
         draw: function(c, W, H, p, r, tau){
           var d = DC[p.d], dw = Math.min(170, W * 0.4), dx = W / 2 - dw / 2, dy = 30;
           rbox(c, dx, dy, dw, 190, '#FBF6EA', '#A8702F', 2);
@@ -495,27 +513,43 @@ var LAB = (function anonymous(
           rbox(c, W / 2 - 90, dy + 70 - k * 10, 180, 50, r ? '#FFFFFF' : 'rgba(255,255,255,.7)', PAL[0], 3);
           T(c, lab, W / 2, dy + 103 - k * 10, {size:20, bold:true, align:'center', color:PAL[0], max:170});
           if (r && tau > 0.6){
-            T(c, (r.j === 0 ? '○ ' : r.j === 1 ? '△ ' : '✕ ') + JT[r.j] + ' — 주로: ' + d.ok.map(function(i){ return SS[i]; }).join(' 또는 '), W / 2, H - 70, {bold:true, align:'center', color:JC[r.j], max:W - 30});
+            T(c, (r.j === 0 ? '○ ' : r.j === 1 ? '△ ' : '✕ ') + JT[r.j] + ' — 주로: ' + r.ok2.map(function(i){ return SS[i]; }).join(' 또는 '), W / 2, H - 70, {bold:true, align:'center', color:JC[r.j], max:W - 30});
             wrap(c, d.why, 24, H - 40, W - 48, 20, {size:14, color:'#4A5868'});
           }
         },
         stats: function(p, r){
-          return [['문서 종류', r.d.nm], ['나의 예측', SC[p.s], PAL[0]], ['주로 쓰인 문자', r.d.ok.map(function(i){ return SC[i]; }).join(' / '), PAL[1]],
+          var a = [['문서 종류', r.d.nm], ['쓴 사람·상황', WHO[p.w], p.w ? PAL[5] : null], ['나의 예측', SC[p.s], PAL[0]],
+            ['주로 쓰인 문자', r.ok2.map(function(i){ return SC[i]; }).join(' / ') + (r.part2.length ? ' (부분적으로: ' + r.part2.map(function(i){ return SS[i]; }).join(' · ') + ')' : ''), PAL[1]],
             ['판정', JT[r.j], JC[r.j]], ['까닭', r.d.why, PAL[3]]];
+          if (p.w) a.push(['상황이 바꾼 것', r.rare
+            ? '이 신분·상황이 이 문서를 쓰는 일 자체가 드물었어요 — 그래서 문서의 일반적인 문자와 어긋납니다 (교육용 모형)'
+            : '문서가 쓸 수 있는 문자 가운데 이 상황이 주로 쓰던 ' + WSET[p.w].map(function(i){ return SS[i]; }).join('·') + ' 쪽만 \'맞음\'으로 봅니다 (교육용 모형)', r.rare ? PAL[4] : PAL[5]]);
+          return a;
         },
-        columns: ['문서', '예측', '판정'],
-        record: function(p, r){ return {d:p.d, s:p.s, j:r.j}; },
-        row: function(d){ return [DC[d.d].nm, SS[d.s], JT[d.j]]; },
+        columns: ['문서', '상황', '예측', '판정'],
+        record: function(p, r){ return {d:p.d, s:p.s, j:r.j, w:p.w, rare:r.rare}; },
+        row: function(d){ return [DC[d.d].nm, WS[d.w], SS[d.s], JT[d.j] + (d.rare ? ' (드문 조합)' : '')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('문서별 예측 결과', '<div id="hh5a"></div><p class="ask">공적인 문서와 사적인 문서에서 예측이 어떻게 갈렸나요? "옛날엔 다 한문"이라는 말을 이 결과로 반박해 보세요.</p>') +
-            card('우리말을 한자로 적는 방식', '<div id="hh5b"></div><p class="ask">과제: 조선 시대 한글 편지나 언해 자료 하나를 찾아 내용과 작성자를 조사하고, 같은 시기 한문 자료와 어떤 점이 다른지 비교해 보세요.</p>') + '</div>';
+            card('우리말을 한자로 적는 방식', '<div id="hh5b"></div><p class="ask">과제: 조선 시대 한글 편지나 언해 자료 하나를 찾아 내용과 작성자를 조사하고, 같은 시기 한문 자료와 어떤 점이 다른지 비교해 보세요.</p>') +
+            card('맞힌 수와 상황별 결과', '<div id="hh5c"></div><p class="ask">같은 문서인데도 쓴 사람·상황을 바꾸면 판정이 뒤집힌 경우가 있었나요? 그 문서는 무엇이었고, 왜 그럴까요?</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.d; }), items = [];
           DC.forEach(function(x, i){ var g = by[i]; if (!g) return; var ok = g.filter(function(d){ return d.j === 0; }).length / g.length * 100;
             items.push({label:x.nm, v:ok, color:ok >= 50 ? PAL[1] : PAL[4], text:f(ok, 0) + '% (' + g.length + '회)'}); });
           $('hh5a').innerHTML = hbars(items, 100);
           $('hh5b').innerHTML = tableHTML(['방식', '원리', '쓰인 곳'], [['이두', '우리말 어순에 맞추고 조사·어미를 한자로 표기', '관청 문서, 법률'], ['구결', '한문 원문에 우리말 문법 요소를 작은 글자로 달아 읽기', '경전 학습'],
             ['향찰', '우리말 전체를 한자의 음과 뜻으로 적음', '향가'], ['언해', '한문을 한글로 번역', '교화·보급'], ['국한문 혼용', '한자어는 한자, 조사·어미는 한글', '근대 이후']]);
+          var hit = rec.filter(function(d){ return d.j === 0; }).length;
+          var bw = groupBy(rec, function(d){ return d.w; }), it2 = [];
+          WS.forEach(function(nm, i){ var g = bw[i]; if (!g) return; var h = g.filter(function(d){ return d.j === 0; }).length;
+            it2.push({label:nm, v:h, color:i ? PAL[5] : PAL[0], text:h + ' / ' + g.length + '회'}); });
+          var flip = {}, fl = [];
+          rec.forEach(function(d){ var k = d.d + ',' + d.s; if (!(k in flip)) flip[k] = {}; flip[k][d.j] = 1; });
+          Object.keys(flip).forEach(function(k){ if (Object.keys(flip[k]).length > 1){ var a = k.split(','); fl.push(DC[a[0]].nm + ' + ' + SS[a[1]]); } });
+          $('hh5c').innerHTML = '<p class="msg">맞힌 수 <b>' + hit + ' / ' + rec.length + '회</b>' +
+            (fl.length ? ' — 상황을 바꾸니 판정이 뒤집힌 조합: <b>' + fl.join(', ') + '</b>' : ' — 같은 문서·문자에 상황만 바꿔 보면 판정이 뒤집히는 경우를 찾을 수 있어요.') + '</p>' +
+            hbars(it2, Math.max(1, Math.max.apply(null, it2.map(function(x){ return x.v; }).concat([1]))));
         }
       };
     
@@ -525,7 +559,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

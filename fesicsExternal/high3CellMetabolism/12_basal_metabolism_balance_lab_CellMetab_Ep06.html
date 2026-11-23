@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,11 +439,23 @@ var LAB = (function(){
           {key:'h', type:'range', label:'키', min:150, max:190, step:1, value:170, fmt:function(v){ return v + ' cm'; }},
           {key:'w', type:'range', label:'몸무게', min:40, max:100, step:1, value:60, fmt:function(v){ return v + ' kg'; }},
           {key:'a', type:'seg', label:'활동 수준', cols:4, value:1, options:ACT.map(function(x){ return x.name; })},
-          {key:'in', type:'range', label:'하루 섭취', min:1200, max:3600, step:100, value:2400, fmt:function(v){ return v + ' kcal'; }}
+          {key:'in', type:'range', label:'하루 섭취', min:1200, max:3600, step:100, value:2400, fmt:function(v){ return v + ' kcal'; }},
+          {key:'gu', type:'range', label:'먼저 짐작: 활동을 한 칸 올리면 하루 소비가 몇 kcal 늘까?', min:0, max:600, step:25, value:0,
+            fmt:function(v){ return v === 0 ? '짐작 안 함' : '약 +' + v + ' kcal'; }}
         ],
         compute: function(p){
           var bmr = 10 * p.w + 6.25 * p.h - 5 * 17 + (p.s === 0 ? 5 : -161), tot = bmr * ACT[p.a].k, bal = p.in - tot;
-          return {bmr:bmr, act:tot - bmr, tot:tot, bal:bal, month:bal * 30 / 7700, perKg:bmr / p.w / 24};
+          var out = {bmr:bmr, act:tot - bmr, tot:tot, bal:bal, month:bal * 30 / 7700, perKg:bmr / p.w / 24};
+          var lo = Math.min(p.a, 2), up = lo + 1;
+          out.upFrom = ACT[lo].name; out.upTo = ACT[up].name;
+          out.upDelta = bmr * (ACT[up].k - ACT[lo].k);
+          if (p.gu > 0){
+            var ad = Math.abs(p.gu - out.upDelta);
+            out.gu = p.gu;
+            out.grade = ad < 25 ? '맞음 ✓' : (ad < 75 ? '가까움' : (ad < 200 ? '빗나감' : '크게 빗나감 ✕'));
+            out.gmsg = out.grade + ' — 실제 ' + out.upFrom + ' → ' + out.upTo + '은 +' + f(out.upDelta, 0) + ' kcal/일 (차이 ' + f(ad, 0) + ')';
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, cx = W / 2, py = H * 0.3;
@@ -463,13 +477,20 @@ var LAB = (function(){
           return [['기초 대사량', f(r.bmr, 0) + ' kcal/일 (몸무게 1 kg당 시간당 약 ' + f(r.perKg, 2) + ' kcal)', PAL[0]], ['활동으로 더 쓰는 양', f(r.act, 0) + ' kcal/일'],
             ['하루 소비량', f(r.tot, 0) + ' kcal/일', PAL[3]], ['섭취량', p.in + ' kcal/일', PAL[6]],
             ['에너지 균형', (r.bal > 0 ? '+' : '') + f(r.bal, 0) + ' kcal/일 — ' + (Math.abs(r.bal) < 100 ? '거의 균형' : r.bal > 0 ? '남는 에너지 저장' : '저장 에너지 사용'), Math.abs(r.bal) < 100 ? PAL[1] : PAL[4]],
-            ['30일 단순 모형', (r.month > 0 ? '+' : '') + f(r.month, 2) + ' kg']];
+            ['30일 단순 모형', (r.month > 0 ? '+' : '') + f(r.month, 2) + ' kg']].concat(
+            r.gu ? [['내 짐작 채점', '짐작 +' + r.gu + ' kcal → ' + r.gmsg, Math.abs(r.gu - r.upDelta) < 25 ? PAL[1] : PAL[4]],
+              ['활동 한 칸의 값은 무엇에 달렸나', '기초 대사량 ' + f(r.bmr, 0) + ' kcal × 계수 차 ' + f(ACT[Math.min(p.a, 2) + 1].k - ACT[Math.min(p.a, 2)].k, 3) + ' — 몸무게가 크면 한 칸의 값도 커져요', PAL[6]]] : []);
         },
-        columns: ['성별', '키', '몸무게', '활동', '기초 대사', '소비', '섭취', '균형'],
-        record: function(p, r){ return {s:p.s, h:p.h, w:p.w, a:p.a, bmr:r.bmr, tot:r.tot, i:p.in, bal:r.bal}; },
-        row: function(d){ return [d.s ? '여' : '남', d.h, d.w, ACT[d.a].name, f(d.bmr, 0), f(d.tot, 0), d.i, (d.bal > 0 ? '+' : '') + f(d.bal, 0)]; },
+        columns: ['성별', '키', '몸무게', '활동', '기초 대사', '소비', '섭취', '균형', '한 칸 올릴 때 짐작'],
+        record: function(p, r){ return {s:p.s, h:p.h, w:p.w, a:p.a, bmr:r.bmr, tot:r.tot, i:p.in, bal:r.bal, gu:r.gu || 0, upd:r.upDelta, grade:r.grade || '', uf:r.upFrom, ut:r.upTo}; },
+        row: function(d){ return [d.s ? '여' : '남', d.h, d.w, ACT[d.a].name, f(d.bmr, 0), f(d.tot, 0), d.i, (d.bal > 0 ? '+' : '') + f(d.bal, 0), d.gu ? '+' + d.gu + ' → ' + d.grade : '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var gs = rec.filter(function(d){ return d.gu; });
+          var gcard = !gs.length ? '' : card('활동 한 칸의 값 — 내 짐작과 계산값', tableHTML(['몸무게', '올리는 칸', '내 짐작', '계산값', '채점'],
+              gs.map(function(d){ return [d.w + ' kg', d.uf + ' → ' + d.ut, '+' + d.gu + ' kcal', '+' + f(d.upd, 0) + ' kcal', d.grade]; })) +
+            '<p class="ask">맞힌 ' + gs.filter(function(d){ return /맞음/.test(d.grade); }).length + ' / ' + gs.length + '번. ' +
+            '같은 한 칸인데 몸무게가 40 kg일 때와 100 kg일 때 늘어나는 양이 같았나요? 활동 계수는 기초 대사량에 <b>곱해지는</b> 값이라, 한 칸의 값은 사람마다 다릅니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + gcard +
             card('몸무게와 기초 대사량', '<canvas class="chart" id="bm1"></canvas><div id="bm1b"></div><p class="ask">같은 성별·키에서 몸무게가 1 kg 늘면 기초 대사량은 얼마나 늘어나나요? 식의 계수(10)와 비교하세요.</p>') +
             card('활동 수준별 하루 소비량', '<div id="bm2"></div><p class="ask">과제: 나의 하루(수면·수업·이동·운동)를 시간표로 적고, 활동 계수를 골라 소비량을 추정한 뒤 균형 잡힌 식단 한 끼를 설계해 보세요.</p>') + '</div>';
           var ser = [0, 1].map(function(s){ return {color:s ? PAL[4] : PAL[0], pts:rec.filter(function(d){ return d.s === s; }).map(function(d){ return {x:d.w, y:d.bmr}; })}; });
@@ -488,7 +509,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

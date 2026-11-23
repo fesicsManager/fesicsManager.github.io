@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,11 +445,15 @@ var LAB = (function(){
         params:[
           {key:'s', type:'seg', label:'수용체에 붙은 에피네프린 분자', cols:3, value:0, options:['1개', '10개', '100개']},
           {key:'st', type:'range', label:'어느 단계까지 볼까', min:1, max:6, step:1, value:6, fmt:function(v){ return v + '단계 · ' + ST[v - 1]; }},
-          {key:'m', type:'seg', label:'경로 상태', cols:3, value:0, options:MD.map(function(x){ return x.name; })}
+          {key:'m', type:'seg', label:'경로 상태', cols:3, value:0, options:MD.map(function(x){ return x.name; })},
+          {key:'gd', type:'range', label:'짐작 — 이 단계의 활성 분자 자릿수', min:0, max:11, step:1, value:6,
+            fmt:function(v){ return '10의 ' + v + '제곱 자리'; },
+            note:'신호를 보내기 전에 먼저 자릿수를 적어 보세요. 단계마다 몇 자리씩 뛰는지 알면 셈할 수 있습니다.'}
         ],
         compute:function(p){
           var out = lv(p, p.st - 1), ratio = out - Math.log10(SG[p.s]);
-          return {sig:SG[p.s], st:p.st, out:out, ratio:ratio, glu:p.st === 6};
+          return {sig:SG[p.s], st:p.st, out:out, ratio:ratio, glu:p.st === 6,
+            gd:p.gd, gdDiff:out - p.gd, gdHit:Math.abs(out - p.gd) < 0.5};
         },
         draw:function(c, W, H, p, r, tau){
           var k = r ? tau : 0, bx = Math.min(210, W * 0.45), bw = W - bx - 20;
@@ -477,14 +483,17 @@ var LAB = (function(){
           return [['입력 신호', r.sig + '분자'], ['관찰 단계', r.st + '단계 · ' + ST[r.st - 1]], ['경로 상태', MD[p.m].name],
             ['활성 분자 수', num(r.out) + ' (log₁₀ = ' + f(r.out, 1) + ')', PAL[0]],
             ['신호 1개당 증폭', num(r.ratio) + '배', PAL[1]],
-            ['해석', r.glu ? '포도당-1-인산 ' + num(r.out) + '개가 혈당으로' : '다음 단계에서 계속 곱해짐']];
+            ['해석', r.glu ? '포도당-1-인산 ' + num(r.out) + '개가 혈당으로' : '다음 단계에서 계속 곱해짐'],
+            ['짐작한 자릿수 → 실제', '10의 ' + r.gd + '제곱 → 10의 ' + f(r.out, 1) + '제곱 (' + (r.gdDiff > 0 ? '+' : '') + f(r.gdDiff, 1) + ' 자리)' + (r.gdHit ? ' · 맞힘' : ' · 빗나감'), r.gdHit ? PAL[1] : PAL[4]]];
         },
-        columns:['신호 수', '단계', '경로', 'log₁₀(활성 분자)'],
-        record:function(p, r){ return {s:p.s, st:r.st, m:p.m, out:r.out}; },
-        row:function(d){ return [SG[d.s], d.st, MD[d.m].s, f(d.out, 1)]; },
+        columns:['신호 수', '단계', '경로', 'log₁₀(활성 분자)', '짐작 자릿수', '차이', '맞힘'],
+        record:function(p, r){ return {s:p.s, st:r.st, m:p.m, out:r.out, gd:r.gd, diff:r.gdDiff, hit:r.gdHit}; },
+        row:function(d){ return [SG[d.s], d.st, MD[d.m].s, f(d.out, 1),
+          d.gd == null ? '−' : d.gd, d.gd == null ? '−' : ((d.diff > 0 ? '+' : '') + f(d.diff, 1)), d.gd == null ? '−' : (d.hit ? '○' : '×')]; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('단계에 따른 활성 분자 수 (로그 눈금)', '<canvas class="chart" id="sa1"></canvas>' + legend(MD.map(function(m, i){ return {label:m.s, color:PAL[i === 0 ? 0 : i === 1 ? 5 : 4]}; })) + '<p class="ask">log 값이 단계마다 계단처럼 올라갔나요? 로그 눈금에서 덧셈으로 보이는 것은 실제로는 무엇인가요?</p>') +
+            card('짐작한 자릿수 채점', '<div id="sa3"></div><p class="ask">빗나간 기록은 몇 자리 차이였나요? 단계가 하나 늘 때 자릿수가 몇 씩 뛰는지, 경로 이상이 몇 자리를 바꾸는지 적어 보세요.</p>') +
             card('입력 신호 10배 → 출력은?', '<div id="sa2"></div><p class="ask">과제: 같은 에피네프린이 심장근에서는 박동을, 간에서는 글리코젠 분해를 일으킵니다. "같은 신호, 다른 반응"이 가능한 까닭을 수용체·전달 단백질로 설명해 보세요.</p>') + '</div>';
           var cl = [PAL[0], PAL[5], PAL[4]];
           drawScatter($('sa1'), {series:[0, 1, 2].map(function(m){ return {color:cl[m], pts:rec.filter(function(d){ return d.m === m; }).map(function(d){ return {x:d.st, y:d.out}; })}; }), xLabel:'단계', yLabel:'log₁₀(활성 분자 수)'});
@@ -495,6 +504,18 @@ var LAB = (function(){
             rows.push(cells);
           });
           $('sa2').innerHTML = rows.length ? tableHTML(['단계 (정상 경로)', '신호 1개', '신호 10개', '신호 100개'], rows) + '<p class="msg">칸 값은 log₁₀(활성 분자 수)입니다. 한 행에서 1씩 늘면 10배예요.</p>' : '<p class="msg">정상 경로 기록이 아직 없어요.</p>';
+          (function(){
+            var gr = rec.filter(function(d){ return d.gd != null; });
+            if (!gr.length){ $('sa3').innerHTML = '<p class="msg">자릿수를 먼저 적고 신호를 보내면 여기에서 채점해 줍니다.</p>'; return; }
+            var hit = gr.filter(function(d){ return d.hit; }).length;
+            var err = gr.reduce(function(a, d){ return a + Math.abs(d.diff); }, 0) / gr.length;
+            var low = gr.filter(function(d){ return d.diff > 0.5; }).length;
+            $('sa3').innerHTML = '<p>맞힌 횟수 <b>' + hit + ' / ' + gr.length + '</b> · 평균 오차 <b>' + f(err, 1) + ' 자리</b></p>' +
+              tableHTML(['단계', '경로', '나의 짐작', '실제', '맞힘'],
+                gr.slice(-8).map(function(d){ return [d.st + '단계', MD[d.m].s, '10^' + d.gd, '10^' + f(d.out, 1), d.hit ? '○' : '×']; })) +
+              (low ? '<p class="msg">실제보다 <b>작게</b> 짐작한 기록이 ' + low + '개 있습니다 — 곱이 쌓이는 증폭은 사람의 어림보다 늘 큽니다.</p>' : '') +
+              '<p class="msg">※ 단계별 증폭률은 교육용 모형값입니다. 경로 이상(PDE 과다·G 계속 켜짐)은 자릿수를 1 만큼 내리거나 올립니다.</p>';
+          })();
         }
       };
     })();
@@ -503,7 +524,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

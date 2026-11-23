@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>탄성파의 전달과 반사·투과 | 고3 역학과 에너지</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -391,13 +393,15 @@ return {
   },
   draw: function(c, W, H, p, r, tau){
     var A = MED[p.a], B = MED[p.b], C = r ? r.C : coef(A, B);
+    var narrow = W < 560;
     var y0 = 40, hh = 170, mid = W * 0.48;
     c.fillStyle = 'rgba(90,150,220,' + Math.min(0.35, 0.06 + A.rho / 6000) + ')'; c.fillRect(10, y0, mid - 10, hh);
     c.fillStyle = 'rgba(180,120,60,' + Math.min(0.4, 0.06 + B.rho / 6000) + ')'; c.fillRect(mid, y0, W - mid - 10, hh);
     c.strokeStyle = '#5B6776'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(mid, y0); c.lineTo(mid, y0 + hh); c.stroke();
     txt(c, A.name, 18, y0 - 10, {bold:true}); txt(c, B.name, mid + 8, y0 - 10, {bold:true});
     txt(c, 'Z₁ = ' + Math.round(C.Z1).toLocaleString(), 18, y0 + hh + 24, {color:'#4A5868'});
-    txt(c, 'Z₂ = ' + Math.round(C.Z2).toLocaleString() + ' kg/(m²·s)', mid + 8, y0 + hh + 24, {color:'#4A5868'});
+    /* 좁은 화면에서는 두 임피던스 값이 겹치므로 아래 줄에 */
+    txt(c, 'Z₂ = ' + Math.round(C.Z2).toLocaleString() + ' kg/(m²·s)', narrow ? 18 : mid + 8, y0 + hh + (narrow ? 48 : 24), {color:'#4A5868'});
     if (!r){ txt(c, '보내면 파동이 그려집니다', 18, y0 + hh / 2, {color:'#4A5868'}); }
     else {
       var k = Math.min(tau / 0.9, 1), cy = y0 + hh / 2, amp = 40, wl = 46;
@@ -417,20 +421,21 @@ return {
         for (var x3 = mid; x3 <= W - 12; x3 += 2){ var ph3 = (x3 - tf) / wl2 * 2 * Math.PI, env3 = Math.exp(-Math.pow((x3 - tf) / (60 * B.v / A.v), 2)); var y3 = cy - tA * env3 * Math.sin(ph3); if (x3 === mid) c.moveTo(x3, y3); else c.lineTo(x3, y3); }
         c.stroke();
         txt(c, '반사파', 24, cy + amp + 22, {color:'#C8463D', bold:true});
-        txt(c, '투과파 (파장 ' + (B.v > A.v ? '길어짐' : B.v < A.v ? '짧아짐' : '그대로') + ')', mid + 8, cy + amp + 22, {color:'#2E9E78', bold:true});
+        txt(c, '투과파 (파장 ' + (B.v > A.v ? '길어짐' : B.v < A.v ? '짧아짐' : '그대로') + ')', narrow ? 24 : mid + 8, cy + amp + (narrow ? 0 : 22), {color:'#2E9E78', bold:true});
       } else txt(c, '입사파', 24, cy + amp + 22, {color:'#2B5FA3', bold:true});
     }
     // 에너지 막대
-    var by = 270;
-    txt(c, '에너지 나뉨', 12, by, {bold:true});
-    var bx = 130, bw = W - bx - 24, k2 = r ? Math.min(1, Math.max(0, (tau - 0.5) / 0.4)) : 0;
+    var by = narrow ? 314 : 270;
+    /* 좁은 화면: 이름표를 막대 위로, 투과 비율은 막대 아래로 */
+    txt(c, '에너지 나뉨', 12, by - (narrow ? 24 : 0), {bold:true});
+    var bx = narrow ? 16 : 130, bw = W - bx - 24, k2 = r ? Math.min(1, Math.max(0, (tau - 0.5) / 0.4)) : 0;
     c.fillStyle = '#E6EBF1'; c.fillRect(bx, by - 16, bw, 26);
     c.fillStyle = '#C8463D'; c.fillRect(bx, by - 16, bw * C.R * k2, 26);
     c.fillStyle = '#2E9E78'; c.fillRect(bx + bw * C.R * k2, by - 16, bw * C.T * k2, 26);
     txt(c, '반사 ' + f(C.R * 100, 1) + ' %', bx + 8, by - 2, {color:'#fff', bold:true});
-    txt(c, '투과 ' + f(C.T * 100, 1) + ' %', bx + bw - 8, by - 2, {align:'right', color:'#fff', bold:true});
-    txt(c, '경계에서 위상', 12, by + 46, {bold:true});
-    txt(c, C.flip ? '위상 뒤집힘 (Z₂ > Z₁ · 고정단 반사)' : C.Z2 < C.Z1 ? '위상 그대로 (Z₂ < Z₁ · 자유단 반사)' : '경계가 없어 반사 없음', 130, by + 46, {});
+    txt(c, '투과 ' + f(C.T * 100, 1) + ' %', bx + bw - 8, by + (narrow ? 26 : -2), {align:'right', color:narrow ? '#2E9E78' : '#fff', bold:true});
+    txt(c, '경계에서 위상', 12, by + (narrow ? 56 : 46), {bold:true});
+    txt(c, C.flip ? '위상 뒤집힘 (Z₂ > Z₁ · 고정단 반사)' : C.Z2 < C.Z1 ? '위상 그대로 (Z₂ < Z₁ · 자유단 반사)' : '경계가 없어 반사 없음', narrow ? 12 : 130, by + (narrow ? 82 : 46), {});
     txt(c, '파동 속력: ' + A.name + ' ' + A.v.toLocaleString() + ' m/s → ' + B.name + ' ' + B.v.toLocaleString() + ' m/s (진동수는 그대로)', 12, H - 16, {color:'#4A5868'});
   },
   stats: function(p, r){
@@ -461,7 +466,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

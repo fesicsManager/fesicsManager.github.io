@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,6 +442,16 @@ var LAB = (function(){
       var ALL = []; (function(){ for (var i = 0; i < 100; i++) ALL.push(i); })();
       var SMP = [{n:'고속도로 창밖 (길 옆 10칸)', s:'길 옆 10칸', c:ROAD}, {n:'골고루 20칸', s:'골고루 20칸', c:RAND}, {n:'모눈 100칸 전부', s:'100칸 전부', c:ALL}];
       var PRED = ['약 10%', '약 30%', '약 50%', '약 70%'];
+      var ZN = ['준비된 대로', '서쪽 절반(왼쪽 5열)', '동쪽 절반(오른쪽 5열)', '아래 절반(6~10줄)'];
+      function zcells(cs, z){
+        if (!z) return cs;
+        var pool = [], i, col, row;
+        for (i = 0; i < 100; i++){ col = i % 10; row = Math.floor(i / 10);
+          if ((z === 1 && col < 5) || (z === 2 && col >= 5) || (z === 3 && row >= 5)) pool.push(i); }
+        var out = [], n = Math.min(cs.length, pool.length), step = pool.length / n;
+        for (var j = 0; j < n; j++) out.push(pool[Math.floor(j * step)]);
+        return out;
+      }
       return {
         sceneHeight: function(w){ return w < 500 ? 420 : 440; },
         idle: '셀 칸과 나의 예측을 고른 뒤 <b>칸 세기</b>를 누르세요.',
@@ -447,15 +459,19 @@ var LAB = (function(){
         params: [
           {key:'s', type:'seg', label:'어떤 칸을 셀까', cols:3, value:0, options:SMP.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'나의 예측 (산지 비율)', cols:4, value:1, options:PRED,
-            note:'뭉치는 "산은 가끔 있는 장식!"이라고 했어요.'}
+            note:'뭉치는 "산은 가끔 있는 장식!"이라고 했어요.'},
+          {key:'z', type:'seg', label:'내가 고를 곳 (표본 자리)', cols:2, value:0, options:ZN,
+            note:'같은 칸 수라도 내가 어디에서 고르느냐에 따라 답이 뒤집혀요. 서쪽만 고르면 평야만, 동쪽만 고르면 산지만 세게 돼요. ※ 개략도는 교육용 모형이에요.'}
         ],
         compute: function(p){
-          var cs = SMP[p.s].c, m = cs.filter(function(i){ return G[i] === 'M'; }).length, pct = m / cs.length * 100;
+          var cs = zcells(SMP[p.s].c, p.z), m = cs.filter(function(i){ return G[i] === 'M'; }).length, pct = m / cs.length * 100;
           var best = Math.max(0, Math.min(3, Math.round((pct - 10) / 20)));
-          return {n:cs.length, m:m, pct:pct, best:best, ok:p.g === 3};
+          var vd = pct >= 90 ? '산지만 골라 세었어요 — 반대로 치우쳤어요' : pct >= 60 ? '국토 전체(약 70%)와 비슷해요'
+            : pct >= 35 ? '전체보다 산지가 적게 나왔어요' : '크게 치우쳤어요 — 이 표본으로는 알 수 없어요';
+          return {n:cs.length, m:m, pct:pct, best:best, ok:p.g === 3, z:p.z, vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
-          var k = r ? Math.min(tau / 0.85, 1) : 0, cs = SMP[p.s].c, size = Math.min((W - 40) / 10, (H - 90) / 10), gx = (W - size * 10) / 2, gy = 14;
+          var k = r ? Math.min(tau / 0.85, 1) : 0, cs = zcells(SMP[p.s].c, p.z), size = Math.min((W - 40) / 10, (H - 90) / 10), gx = (W - size * 10) / 2, gy = 14;
           var counted = r ? Math.floor(cs.length * k) : 0, mc = 0;
           for (var i = 0; i < 100; i++){
             var x = gx + (i % 10) * size, y = gy + Math.floor(i / 10) * size, mt = G[i] === 'M', col = i % 10;
@@ -466,26 +482,29 @@ var LAB = (function(){
             c.strokeStyle = done ? '#1E2833' : 'rgba(30,40,51,.35)'; c.lineWidth = done ? 3 : 1.5; c.strokeRect(xx + 2, yy + 2, size - 4, size - 4);
             if (done && G[q] === 'M') mc++;
           }
-          if (p.s === 0){ c.strokeStyle = '#5C6B7A'; c.lineWidth = 3; c.setLineDash([8, 5]); c.beginPath();
+          if (p.s === 0 && !p.z){ c.strokeStyle = '#5C6B7A'; c.lineWidth = 3; c.setLineDash([8, 5]); c.beginPath();
             ROAD.forEach(function(q, t){ var x = gx + (q % 10 + 0.5) * size, y = gy + (Math.floor(q / 10) + 0.5) * size; if (t === 0) c.moveTo(x, y); else c.lineTo(x, y); }); c.stroke(); c.setLineDash([]); }
           txt(c, '개략도', gx + size * 10, gy + size * 10 + 20, {align:'right', color:'#9AA5B1'});
           txt(c, r ? '산지 ' + mc + '칸 / 센 칸 ' + counted + '칸' + (k >= 1 ? ' → 약 ' + Math.round(r.pct) + '%' : '') : '■ 갈색 산지  ■ 초록 평야', 16, H - 16, {bold:true, color:r && k >= 1 ? (r.pct >= 60 ? PAL[2] : PAL[1]) : '#1E2833'});
         },
         stats: function(p, r){
-          return [['센 칸', SMP[p.s].n], ['산지 칸', r.m + '칸 / ' + r.n + '칸'], ['산지 비율', '약 ' + Math.round(r.pct) + '%', PAL[2]],
+          return [['센 칸', SMP[p.s].n], ['고른 곳', ZN[r.z]], ['산지 칸', r.m + '칸 / ' + r.n + '칸'], ['산지 비율', '약 ' + Math.round(r.pct) + '%', PAL[2]],
             ['나의 예측', PRED[p.g] + (r.ok ? ' — 국토 전체(약 70%)와 같음' : ' — 국토 전체는 약 70%'), r.ok ? PAL[1] : PAL[4]],
-            ['이 방법의 특징', p.s === 0 ? '사람이 사는 낮은 곳만 보게 돼요 — 치우친 결과' : p.s === 1 ? '골고루 뽑아 전체와 비슷하게 나와요' : '전부 세어 가장 정확해요']];
+            ['이 방법의 특징', r.z === 1 ? '평야가 많은 서쪽만 보게 돼요 — 치우친 결과' : r.z === 2 ? '산이 많은 동쪽만 보게 돼요 — 반대로 치우친 결과' : r.z === 3 ? '아래 절반만 보게 돼요' : p.s === 0 ? '사람이 사는 낮은 곳만 보게 돼요 — 치우친 결과' : p.s === 1 ? '골고루 뽑아 전체와 비슷하게 나와요' : '전부 세어 가장 정확해요'],
+            ['판정', r.vd, r.pct >= 60 && r.pct < 90 ? PAL[1] : PAL[4]]];
         },
-        columns: ['센 칸', '산지 칸', '산지 비율', '나의 예측'],
-        record: function(p, r){ return {s:p.s, g:p.g, m:r.m, n:r.n, pct:r.pct}; },
-        row: function(d){ return [SMP[d.s].s, d.m + '/' + d.n, '약 ' + Math.round(d.pct) + '%', PRED[d.g]]; },
+        columns: ['센 칸', '고른 곳', '산지 칸', '산지 비율', '나의 예측'],
+        record: function(p, r){ return {s:p.s, g:p.g, z:p.z, m:r.m, n:r.n, pct:r.pct}; },
+        row: function(d){ return [SMP[d.s].s, ZN[d.z].split('(')[0], d.m + '/' + d.n, '약 ' + Math.round(d.pct) + '%', PRED[d.g]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('세는 방법별 산지 비율', '<div id="mt1"></div><p class="ask">"길 옆 10칸"만 센 결과가 국토 전체와 다른 까닭은 무엇일까요? 뭉치가 우리나라를 평평하다고 생각한 이유와 연결해 보세요.</p>') +
             card('나의 예측', '<div id="mt2"></div><p class="ask">과제: 우리 지역 지형도를 구해 모눈종이를 덮고 산지 칸과 평지 칸을 세어 보세요. 학교와 우리 집은 어느 칸에 있는지도 표시해 보세요.</p>') + '</div>';
-          var seen = {}, items = [];
-          rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; items.push({label:SMP[d.s].s, v:d.pct, color:d.s === 0 ? PAL[1] : PAL[2], text:'약 ' + Math.round(d.pct) + '%'}); });
-          $('mt1').innerHTML = hbars(items, 100) + (items.length < 3 ? '<p class="msg">세 가지 방법을 모두 해 보세요.</p>' : '');
+          var seen = {}, items = [], ss = {};
+          rec.forEach(function(d){ var key = d.s + '|' + d.z; if (seen[key]) return; seen[key] = 1; ss[d.s] = 1;
+            items.push({label:SMP[d.s].s + (d.z ? ' · ' + ZN[d.z].split('(')[0] : ''), v:d.pct, color:d.z ? PAL[4] : d.s === 0 ? PAL[1] : PAL[2], text:'약 ' + Math.round(d.pct) + '%'}); });
+          $('mt1').innerHTML = hbars(items, 100) + (Object.keys(ss).length < 3 ? '<p class="msg">세 가지 방법을 모두 해 보세요.</p>' : '')
+            + '<p class="msg">같은 칸 수라도 <b>어디에서 고르는지</b>에 따라 답이 10%에서 100%까지 뒤집혀요.</p>';
           var g = groupBy(rec, function(d){ return d.g; }), rows = [];
           Object.keys(g).forEach(function(key){ rows.push([PRED[key], g[key].length + '번', key === '3' ? '국토 전체와 같음' : '다름']); });
           $('mt2').innerHTML = tableHTML(['나의 예측', '기록', '국토 전체(약 70%)와'], rows);
@@ -497,7 +516,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

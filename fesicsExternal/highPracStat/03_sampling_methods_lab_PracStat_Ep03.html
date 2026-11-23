@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -515,19 +517,21 @@ var LAB = (function anonymous(
           return {est:est, mu:mu, sd:sd, inn:inn, rate:inn / n, n:n, th:M[p.m].th[p.sc], thin:M[p.m].inr[p.sc]};
         },
         draw:function(c, W, H, p, r, tau){
-          var o = plotBox(c, 76, 20, W - 100, H - 110, [4.5, 8.5, 0.5], [0, r && r.n > 1 ? 40 : 10, r && r.n > 1 ? 10 : 2], '추정한 평균 수면 시간 (시간)', r && r.n > 1 ? '비율 (%)' : '횟수');
-          c.globalAlpha = 0.25; c.fillStyle = PAL[1]; c.fillRect(o.X(6.3), 20, o.X(6.7) - o.X(6.3), H - 110); c.globalAlpha = 1;
-          seg(c, o.X(6.5), 20, o.X(6.5), H - 90, PAL[4], 2.5);
+          /* 좁은 화면: 눈금 맨 위 숫자와 결과 글이 겹치지 않게 그래프를 조금 내린다 */
+          var narrow = W < 560, py = narrow ? 42 : 20, phh = H - 110 - (narrow ? 22 : 0);
+          var o = plotBox(c, 76, py, W - 100, phh, [4.5, 8.5, 0.5], [0, r && r.n > 1 ? 40 : 10, r && r.n > 1 ? 10 : 2], '추정한 평균 수면 시간 (시간)', r && r.n > 1 ? '비율 (%)' : '횟수');
+          c.globalAlpha = 0.25; c.fillStyle = PAL[1]; c.fillRect(o.X(6.3), py, o.X(6.7) - o.X(6.3), phh); c.globalAlpha = 1;
+          seg(c, o.X(6.5), py, o.X(6.5), py + phh, PAL[4], 2.5);
           if (!r) return;
           var k = Math.min(1, tau / 0.85), shown = Math.max(1, Math.floor(r.n * k)), bins = {}, bw = 0.1;
           for (var i = 0; i < shown; i++){ var b = Math.floor(r.est[i] / bw + 1e-9); bins[b] = (bins[b] || 0) + 1; }
-          Object.keys(bins).forEach(function(b){
+          Object.keys(bins).forEach(function(b){   /* 눈금 자리는 plotBox 가 돌려준 X·Y 를 그대로 쓴다 */
             var x0 = b * bw, v = r.n > 1 ? bins[b] / r.n * 100 : bins[b];
             if (x0 < 4.5 || x0 >= 8.5) return;
             var inb = x0 >= 6.3 - 1e-9 && x0 < 6.7 - 1e-9;
             c.fillStyle = inb ? PAL[1] : PAL[0]; c.fillRect(o.X(x0) + 1, o.Y(Math.min(v, r.n > 1 ? 40 : 10)), o.X(x0 + bw) - o.X(x0) - 2, o.Y(0) - o.Y(Math.min(v, r.n > 1 ? 40 : 10)));
           });
-          if (k >= 1) T(c, (r.n > 1 ? '평균 ' + f(r.mu, 2) + ' · 흔들림 ' + f(r.sd, 2) + ' · 안에 든 비율 ' + f(r.rate * 100, 0) + '%' : '이번 추정값 ' + f(r.est[0], 2) + '시간'), 76, 16, {bold:true, size:15, color:'#1E2833', max:W - 100});
+          if (k >= 1) T(c, (r.n > 1 ? '평균 ' + f(r.mu, 2) + ' · 흔들림 ' + f(r.sd, 2) + ' · 안에 든 비율 ' + f(r.rate * 100, 0) + '%' : '이번 추정값 ' + f(r.est[0], 2) + '시간'), 76, narrow ? 24 : 16, {bold:true, size:15, color:'#1E2833', max:W - 100});
         },
         stats:function(p, r){
           var s = [['방법 · 학교', M[p.m].s + ' · ' + SC[p.sc]]];
@@ -558,7 +562,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

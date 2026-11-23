@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -467,15 +469,37 @@ var LAB = (function(){
         {n:'공감적 듣기', say:'“밤새 준비했는데 결과가 안 나와서 속상하겠다. 어떤 부분이 제일 아쉬웠어?”', len:14, cont:9, self:6}
       ];
       var VW = ['대화가 세 번 이상 이어진 쌍', '고민한 쪽이 스스로 방법을 말한 쌍'];
+      /* 반응 문장을 내가 짜 보게 했다. 세 조각을 하나도 넣지 않으면 예전 값과 똑같다.
+         늘어나는 양은 교육용 모형값. */
+      var PART = ['재진술 (들은 말을 되짚어 주기)', '감정 반영 (느낌에 이름 붙이기)', '열린 질문 (묻고 기다리기)'];
+      var PS = ['재진술', '감정 반영', '열린 질문'];
+      var HAS = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [1, 1, 1]];   // 각 반응이 이미 담고 있는 조각
+      var DC = [2, 2, 3], DS = [1, 2, 3], DL = [3, 3, 5];       // 넣을 때 늘어나는 이어짐·스스로·어절
+      function mix(t, on){
+        var x = RT[t], add = [0, 1, 2].map(function(i){ return on[i] && !HAS[t][i] ? 1 : 0; });
+        var cont = x.cont, self = x.self, len = x.len;
+        add.forEach(function(a, i){ if (a){ cont += DC[i]; self += DS[i]; len += DL[i]; } });
+        var eff = [0, 1, 2].map(function(i){ return HAS[t][i] || (on[i] ? 1 : 0); });
+        return {cont:Math.min(10, cont), self:Math.min(10, self), len:Math.min(20, len),
+          add:add, eff:eff, score:eff[0] + eff[1] + eff[2]};
+      }
       return {
         sceneHeight: function(w){ return w < 560 ? 420 : 380; },
         idle: '반응 유형과 볼 기록을 고른 뒤 <b>이 반응으로 대화하기</b>를 누르세요.',
         shortHint: '네 반응을 모두 기록하고, ‘스스로 방법을 말한 쌍’ 보기로도 비교해 보세요.',
         params: [
           {key:'t', type:'seg', label:'반응 유형', cols:2, value:0, options:RT.map(function(x){ return x.n + ' <small>' + x.say + '</small>'; })},
-          {key:'v', type:'seg', label:'볼 기록', cols:2, value:0, options:VW}
+          {key:'a0', type:'seg', label:'① ' + PART[0], cols:2, value:0, options:['안 넣음', '넣음']},
+          {key:'a1', type:'seg', label:'② ' + PART[1], cols:2, value:0, options:['안 넣음', '넣음']},
+          {key:'a2', type:'seg', label:'③ ' + PART[2], cols:2, value:0, options:['안 넣음', '넣음']},
+          {key:'v', type:'seg', label:'볼 기록', cols:2, value:0, options:VW,
+            note:'※ 세 조각을 넣을 때 늘어나는 숫자는 실제 조사가 아니라 교육용 모형값이에요. 공감적 듣기는 세 조각을 이미 담고 있습니다.'}
         ],
-        compute: function(p){ var x = RT[p.t]; return {x:x, hit:p.v === 0 ? x.cont : x.self}; },
+        compute: function(p){
+          var x = RT[p.t], m = mix(p.t, [p.a0, p.a1, p.a2]);
+          return {x:x, m:m, cont:m.cont, self:m.self, len:m.len, score:m.score,
+            hit:p.v === 0 ? m.cont : m.self};
+        },
         draw: function(c, W, H, p, r, tau){
           var x = RT[p.t], k = r ? Math.min(1, tau / 0.7) : 0, gap = (W - 40) / 10;
           c.save(); c.beginPath(); c.rect(10, 6, W - 20, 50); c.clip();
@@ -497,25 +521,42 @@ var LAB = (function(){
             var y = 218 + i * 34, on = i === p.t;
             c.font = (on ? '700 ' : '') + '15px ' + FONT; c.fillStyle = on ? '#1E2833' : '#8C99A8'; c.textAlign = 'left'; c.fillText(o.n, 20, y + 18);
             c.fillStyle = '#EEF2F7'; c.fillRect(120, y + 4, bw, 20);
-            var w = bw * o.len / 15 * (on && r ? k : 1); c.fillStyle = on ? PAL[6] : '#C9D2DC'; c.fillRect(120, y + 4, (on && !r) ? 0 : w, 20);
-            if (!on || r) txt(c, o.len + '어절', 126 + w, y + 20, {color:'#4A5868'});
+            var lv = on && r ? r.len : o.len;
+            var w = bw * Math.min(1, lv / 20) * (on && r ? k : 1); c.fillStyle = on ? PAL[6] : '#C9D2DC'; c.fillRect(120, y + 4, (on && !r) ? 0 : w, 20);
+            if (!on || r) txt(c, lv + '어절', 126 + w, y + 20, {color:'#4A5868'});
           });
         },
         stats: function(p, r){
-          return [['반응 유형', r.x.n + ' — ' + r.x.say], ['다음 말 평균 길이', r.x.len + '어절', PAL[6]], ['대화가 세 번 이상 이어진 쌍', r.x.cont + ' / 10', PAL[1]],
-            ['스스로 방법을 말한 쌍', r.x.self + ' / 10', PAL[3]], ['가장 긴 다음 말과 비교', r.x.len === 14 ? '가장 김' : '공감적 듣기(14어절)의 ' + f(r.x.len / 14 * 100, 0) + '%']];
+          var eff = r.m.eff, on = PS.filter(function(s, i){ return eff[i]; });
+          var out = [['반응 유형', r.x.n + ' — ' + r.x.say],
+            ['내가 짠 반응에 든 조각', on.length ? on.join(' + ') + ' (' + r.score + '/3)' : '없음 (0/3)', r.score === 3 ? PAL[1] : r.score ? PAL[6] : PAL[4]],
+            ['다음 말 평균 길이', r.len + '어절' + (r.len !== r.x.len ? '  (조각 넣기 전 ' + r.x.len + '어절)' : ''), PAL[6]],
+            ['대화가 세 번 이상 이어진 쌍', r.cont + ' / 10' + (r.cont !== r.x.cont ? '  (전 ' + r.x.cont + ')' : ''), PAL[1]],
+            ['스스로 방법을 말한 쌍', r.self + ' / 10' + (r.self !== r.x.self ? '  (전 ' + r.x.self + ')' : ''), PAL[3]],
+            ['점수로 보면', r.score === 3 ? '세 조각을 다 넣었어요 — 공감적 듣기와 같은 모양이에요' : '아직 ' + PS.filter(function(s, i){ return !eff[i]; }).join('·') + ' 이 빠졌어요', r.score === 3 ? PAL[1] : PAL[6]],
+            ['가장 긴 다음 말과 비교', r.len >= 14 ? '가장 김' : '공감적 듣기(14어절)의 ' + f(r.len / 14 * 100, 0) + '%']];
+          return out;
         },
-        columns: ['반응', '다음 말', '이어짐', '스스로 방법'],
-        record: function(p, r){ return {t:p.t, len:r.x.len, cont:r.x.cont, self:r.x.self}; },
-        row: function(d){ return [RT[d.t].n, d.len + '어절', d.cont + '쌍', d.self + '쌍']; },
+        columns: ['반응', '넣은 조각', '다음 말', '이어짐', '스스로 방법'],
+        record: function(p, r){ return {t:p.t, eff:r.m.eff.slice(), score:r.score, len:r.len, cont:r.cont, self:r.self}; },
+        row: function(d){ var eff = d.eff || [0, 0, 0];
+          return [RT[d.t].n, PS.filter(function(s, i){ return eff[i]; }).join('+') || '없음', d.len + '어절', d.cont + '쌍', d.self + '쌍']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('반응 유형별 대화 기록 (가상 10쌍)', '<div id="el1"></div><p class="ask">해결책을 준 반응과 공감적 듣기 가운데, 고민한 쪽이 스스로 방법을 말한 쌍은 어디서 더 많았나요? 왜 그럴까요?</p>') +
+            card('내가 짠 반응 — 조각 수와 결과', '<div id="el3"></div><p class="ask">조각을 하나씩 더 넣을 때 ‘스스로 방법을 말한 쌍’이 어떻게 바뀌었나요? 세 조각 가운데 어느 것이 가장 크게 끌어올렸나요?</p>') +
             card('확인 질문과 위험 신호', '<div id="el2"></div><p class="ask">과제: 친구와 역할을 바꿔 가며 같은 고민에 네 가지 반응을 해 보고, 고민한 쪽의 다음 말 길이와 기분을 기록해 표로 비교해 보세요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.t] = d; });
           var items = [];
           Object.keys(seen).forEach(function(t){ var x = RT[t]; items.push({label:x.n + ' · 이어짐', v:x.cont, color:PAL[1], text:x.cont + '쌍'}); items.push({label:x.n + ' · 스스로 방법', v:x.self, color:PAL[3], text:x.self + '쌍'}); });
           $('el1').innerHTML = items.length ? hbars(items, 10) : '<p class="msg">기록을 쌓아 보세요.</p>';
+          var rows3 = [], sn = {};
+          rec.forEach(function(d){ var eff = d.eff || [0, 0, 0], key = d.t + '_' + eff.join(''); if (sn[key]) return; sn[key] = 1;
+            rows3.push([RT[d.t].n, PS.filter(function(s, i){ return eff[i]; }).join(' + ') || '없음', d.score + '/3', d.len + '어절', d.cont + '쌍', d.self + '쌍']); });
+          var one = [0, 1, 2].map(function(i){ var on = [0, 0, 0]; on[i] = 1; var m = mix(0, on);
+            return [PS[i] + ' 하나만 (해결책 제시에 더함)', PS[i], '1/3', m.len + '어절', m.cont + '쌍', m.self + '쌍']; });
+          $('el3').innerHTML = tableHTML(['반응', '넣은 조각', '점수', '다음 말', '이어짐', '스스로 방법'], one.concat(rows3)) +
+            '<p class="msg">위 세 줄은 조각을 하나만 넣었을 때의 모형값이고, 아래는 내가 짜 본 기록입니다. ※ 교육용 모형값.</p>';
           $('el2').innerHTML = tableHTML(['상황', '듣는 사람이 할 일'], [['상대가 무엇을 원하는지 모를 때', '“방법을 같이 찾아볼까, 아니면 일단 털어놓고 싶어?”라고 확인하기'], ['상대가 정보를 원할 때', '해결책도 도움이 됨 — 다만 끝까지 들은 뒤에'], ['괴롭힘·자해 같은 위험 신호', '들어주는 것만으로 끝내지 말고 믿을 수 있는 어른이나 상담 창구에 함께 알리기']]);
         }
       };
@@ -525,7 +566,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

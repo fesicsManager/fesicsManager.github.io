@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -310,8 +312,8 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -408,13 +410,17 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var tkR = -1e9;
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke();
+    var tkS = f(v, decOf(xr[2])), tkW = c.measureText(tkS).width / 2;
+    if (X(v) - tkW > tkR + 4){ c.fillText(tkS, X(v), y + h + 6); tkR = X(v) + tkW; } }
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
   if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
   if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
-  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; var xlCx = x + w / 2, xlCv = c.canvas.width / (c.getTransform().a || 1);
+  c.fillText(xLabel, xlCx, y + h + 30, Math.max(60, 2 * Math.min(xlCx, xlCv - xlCx) - 8));
   c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
   c.textBaseline = 'alphabetic';
   return {X:X, Y:Y};
@@ -444,6 +450,8 @@ var LAB = (function(){
         'ㅋ':'차청', 'ㅌ':'차청', 'ㅍ':'차청', 'ㅊ':'차청', 'ㅎ':'차청', 'ㄲ':'전탁', 'ㄸ':'전탁', 'ㅃ':'전탁', 'ㅆ·ㅉ':'전탁', 'ㆅ':'전탁'};
       var CTL = {'불청불탁':1, '전청':2, '차청':3, '전탁':4}, CTC = {'불청불탁':PAL[5], '전청':PAL[0], '차청':PAL[4], '전탁':PAL[3]};
       var OLD = {'ㆆ':1, 'ㆅ':1};
+      var PGN = ['예사소리 (전청)', '거센소리 (차청)', '된소리 (전탁)', '울림소리 (불청불탁)'];
+      var PGCT = ['전청', '차청', '전탁', '불청불탁'];
       var sp = null;
       function speak(s){
         try {
@@ -485,14 +493,19 @@ var LAB = (function(){
         shortHint: '다섯 기본자 줄을 모두 돌아보며 가획 표의 빈칸을 채워 보세요.',
         params: [
           {key:'g', type:'seg', label:'기본자 (본뜬 발음 기관)', cols:3, value:0, options:G.map(function(x){ return '<b>' + x.b + '</b> ' + x.grp.replace(/\(.*\)/, ''); })},
-          {key:'st', type:'seg', label:'획 단계', cols:2, value:0, options:ST, note:'ㄱ 줄은 ㄱ→ㅋ에서 끝나요(획 둘 더한 글자는 해례본에 없음). 이런 조합은 실행되지 않아요.'}
+          {key:'st', type:'seg', label:'획 단계', cols:2, value:0, options:ST, note:'ㄱ 줄은 ㄱ→ㅋ에서 끝나요(획 둘 더한 글자는 해례본에 없음). 이런 조합은 실행되지 않아요.'},
+          {key:'pg', type:'seg', label:'글자를 가린 채 짐작 — 이 단계면 어떤 소리일까?', cols:2, value:0, options:PGN,
+            note:'글자는 가려 두었어요. 발음 기관과 획 단계만 보고 소리의 세기를 먼저 고른 뒤 만들어 보기를 누르면 해례본 청탁으로 채점해요.'}
         ],
         compute: function(p){
           var g = G[p.g], L = g.L[p.st];
           if (!L) return {fail:'해례본에서 ㄱ 줄은 ㄱ → ㅋ 두 단계뿐이에요. 획을 둘 더한 글자는 없습니다.'};
           var ct = CT[L];
           speak(g.say[p.st]);
-          return {g:g, L:L, ct:ct, lvl:CTL[ct], from:g.from[p.st], old:!!OLD[L], say:g.say[p.st]};
+          var ok = PGCT[p.pg] === ct;
+          var vd = ok ? '짐작이 맞았어요 — 획을 더하면 소리가 세져요'
+            : '짐작과 달라요 — 이 칸은 ' + ct + '이에요';
+          return {g:g, L:L, ct:ct, lvl:CTL[ct], from:g.from[p.st], old:!!OLD[L], say:g.say[p.st], pg:p.pg, ok:ok, vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
           var g = G[p.g], narrow = W < 560;
@@ -501,23 +514,23 @@ var LAB = (function(){
           mouth(c, 20, 20, mw, mh, g.part, k);
           txt(c, '발음 기관 개략도', 24, 20 + mh + 22, {color:'#4A5868'});
           var gx = narrow ? W / 2 : 20 + mw + (W - 20 - mw) / 2, gy = narrow ? mh + 120 : 150;
-          var L = r ? r.L : g.L[p.st] || g.b;
+          var L = r ? r.L : '?';     /* 글자를 가리고 먼저 짐작하게 한다 */
           c.textAlign = 'center'; c.textBaseline = 'middle';
           if (r && p.st > 0){
             c.font = '700 ' + (narrow ? 52 : 70) + 'px ' + FONT; c.fillStyle = '#B8C3D0'; c.fillText(g.b, gx - (narrow ? 90 : 110), gy);
             arrow(c, gx - (narrow ? 60 : 70), gy, gx - (narrow ? 40 : 50), gy, '#8C99A8', 2);
           }
-          c.font = '700 ' + (narrow ? 80 : 110) + 'px ' + FONT; c.fillStyle = r ? (r.old ? '#8C99A8' : CTC[r.ct]) : '#1E2833';
+          c.font = '700 ' + (narrow ? 80 : 110) + 'px ' + FONT; c.fillStyle = r ? (r.old ? '#8C99A8' : CTC[r.ct]) : '#B8C3D0';
           c.globalAlpha = r ? Math.min(1, 0.3 + tau) : 1; c.fillText(L, gx + (r && p.st > 0 ? 20 : 0), gy); c.globalAlpha = 1;
           c.textAlign = 'left'; c.textBaseline = 'alphabetic';
           if (r){
             txt(c, r.from + (r.old ? ' — 지금은 안 씀' : ''), gx, gy + (narrow ? 60 : 80), {align:'center', color:'#4A5868'});
-            var bx = 20, bw = W - 40, by = H - 56, seg4 = bw / 4, names = ['불청불탁', '전청', '차청', '전탁(나란히)'];
+            var bx = 20, bw = W - 40, by = H - 56, seg4 = bw / 4, names = seg4 < 60 ? ['불청불탁', '전청', '차청', '전탁'] : ['불청불탁', '전청', '차청', '전탁(나란히)'];
             for (var i = 0; i < 4; i++){
               var on = r.lvl === i + 1;
               c.fillStyle = on ? CTC[['불청불탁', '전청', '차청', '전탁'][i]] : '#E6EBF1'; c.globalAlpha = on ? Math.min(1, tau * 1.5) : 1;
               c.fillRect(bx + i * seg4 + 2, by, seg4 - 4, 30); c.globalAlpha = 1;
-              c.font = '15px ' + FONT; c.fillStyle = on ? '#fff' : '#4A5868'; c.textAlign = 'center'; c.fillText(names[i], bx + i * seg4 + seg4 / 2, by + 20); c.textAlign = 'left';
+              c.font = (seg4 < 60 ? '12px ' : '15px ') + FONT; c.fillStyle = on ? '#fff' : '#4A5868'; c.textAlign = 'center'; c.fillText(names[i], bx + i * seg4 + seg4 / 2, by + 20); c.textAlign = 'left';
             }
             var ht = '해례본 청탁 — 오른쪽으로 갈수록 거센/된소리', hf = 18; c.font = '18px ' + FONT;
             while (hf > 12 && c.measureText(ht).width > W - 28){ hf--; c.font = hf + 'px ' + FONT; }   /* 좁은 화면: 폭에 맞게 글자 줄임 */
@@ -528,18 +541,22 @@ var LAB = (function(){
         stats: function(p, r){
           return [['만든 글자', r.L + (r.old ? ' (지금은 쓰지 않는 글자)' : ''), CTC[r.ct]], ['본뜬 모양', r.g.b + ' — ' + r.g.shape + ' · ' + r.g.grp],
             ['만든 방법', r.from], ['해례본 청탁', r.ct, CTC[r.ct]],
+            ['내 짐작', PGN[r.pg] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.ok ? PAL[1] : PAL[4]],
             ['읽어 볼 음절', r.say ? r.say + ' (입에 손을 대고 숨이 얼마나 세게 나오는지 느껴 보세요)' : '오늘날 소리로 읽기 어려운 글자예요']];
         },
-        columns: ['줄', '단계', '글자', '청탁'],
-        record: function(p, r){ return {g:p.g, st:p.st, L:r.L, ct:r.ct}; },
-        row: function(d){ return [G[d.g].b + ' 줄', ST[d.st], d.L, d.ct]; },
+        columns: ['줄', '단계', '내 짐작', '맞음', '글자', '청탁'],
+        record: function(p, r){ return {g:p.g, st:p.st, L:r.L, ct:r.ct, pg:r.pg, ok:r.ok}; },
+        row: function(d){ return [G[d.g].b + ' 줄', ST[d.st], PGN[d.pg].split(' ')[0], d.ok ? '○' : '✕', d.L, d.ct]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 채운 가획 표', '<div id="hg1"></div><p class="ask">한 줄 안에서 왼쪽에서 오른쪽으로 갈수록 소리가 어떻게 달라지나요? 글자 모양만 보고 소리의 세기를 짐작할 수 있는 까닭을 써 보세요.</p>') +
             card('청탁별로 찾은 글자 수', '<div id="hg2"></div><p class="ask">과제: ㄱ·ㄴ·ㅁ·ㅅ·ㅇ을 발음할 때 입과 혀의 모양을 그림으로 그리고, 가획 표를 직접 채워 보세요.</p>') + '</div>';
           var found = {}; rec.forEach(function(d){ found[d.g + '_' + d.st] = 1; });
           var rows = G.map(function(g, i){ return ['<b>' + g.b + '</b>'].concat([0, 1, 2, 3].map(function(s){ return g.L[s] ? (found[i + '_' + s] ? '<b>' + g.L[s] + '</b>' : '<span style="color:#B8C3D0">?</span>') : '—'; })); });
-          $('hg1').innerHTML = tableHTML(['줄'].concat(ST), rows);
+          var okN = rec.filter(function(d){ return d.ok; }).length;
+          $('hg1').innerHTML = tableHTML(['줄'].concat(ST), rows)
+            + '<p class="msg">채운 칸 ' + Object.keys(found).length + '개 · 소리 세기 짐작 ' + okN + ' / ' + rec.length + ' 맞음.</p>';
           var cnt = {}; rec.forEach(function(d){ cnt[d.ct] = cnt[d.ct] || {}; cnt[d.ct][d.L] = 1; });
           var tot = {'불청불탁':3, '전청':6, '차청':5, '전탁':5};
           $('hg2').innerHTML = hbars(Object.keys(tot).map(function(k){ var n = cnt[k] ? Object.keys(cnt[k]).length : 0; return {label:k, v:n, color:CTC[k], text:n + ' / ' + tot[k] + '칸'}; }), 6) +
@@ -552,7 +569,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -448,21 +450,48 @@ var LAB = (function(){
           fur:[[1.5, 1.4, 1.0, 2.0, '침대'], [2.7, 0.1, 1.2, 0.6, '책상'], [0.1, 0.1, 1.0, 0.6, '옷장']],
           path:[[0.6, 3.9], [0.7, 2.6], [1.0, 1.0], [2.0, 0.8], [3.1, 1.0], [3.5, 2.4], [3.0, 3.6], [1.6, 3.7], [0.6, 3.9]]}];
       function plen(pts){ var s = 0; for (var i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; }
+      /* 방 D — 가구 자리를 직접 골라 그 배치에서 동선과 빈 바닥을 계산한다 (교육용 모형) */
+      var BD = ['왼쪽 벽', '오른쪽 벽', '방 가운데'], DK = ['창문 옆', '문 옆', '맞은편 벽'], CZ = ['문 옆', '침대 쪽'];
+      function ov(a, b){ return a[0] < b[0] + b[2] - 0.01 && b[0] < a[0] + a[2] - 0.01 && a[1] < b[1] + b[3] - 0.01 && b[1] < a[1] + a[3] - 0.01; }
+      function myRoom(p){
+        var dp = (p.dp || 30) / 10, A = 4 * dp;
+        var bed = p.bd === 0 ? [0.1, 0.3, 1.0, 2.0] : p.bd === 1 ? [2.9, 0.1, 1.0, 2.0] : [1.5, Math.max(0.1, (dp - 2) / 2), 1.0, 2.0];
+        var desk = p.dk === 0 ? [0.1, Math.max(0.1, dp - 1.4), 1.2, 0.6] : p.dk === 1 ? [1.2, Math.max(0.1, dp - 0.8), 1.2, 0.6] : [2.6, 0.1, 1.2, 0.6];
+        var clo = p.cz === 0 ? [0.1, Math.max(0.1, dp - 0.8), 1.0, 0.6] : [2.9, Math.max(0.1, dp - 0.8), 1.0, 0.6];
+        var fur = [[bed[0], bed[1], bed[2], bed[3], '침대'], [desk[0], desk[1], desk[2], desk[3], '책상'], [clo[0], clo[1], clo[2], clo[3], '옷장']];
+        var bad = ov(bed, desk) || ov(bed, clo) || ov(desk, clo);
+        function ctr(b){ return [b[0] + b[2] / 2, b[1] + b[3] / 2]; }
+        var door = [0.6, dp - 0.1];
+        var path = [door, ctr(desk), ctr(bed), ctr(clo), door];
+        var L = plen(path), d = Math.round(L * 20);
+        var furA = 1.0 * 2.0 + 1.2 * 0.6 + 1.0 * 0.6;
+        var free = Math.max(0.5, Math.round((A - furA - L * 0.6) * 10) / 10);
+        return {n:'방 D (내가 꾸민 방, ' + f(A, 0) + '㎡)', s:'방 D', a:A, d:d, f:free, bad:bad,
+          sun:p.dk === 0 ? '옆 창문에서' : p.dk === 1 ? '옆에서 조금' : '등 뒤에서 (그림자 짐)',
+          bg:p.dk === 0 ? '빈 벽' : p.dk === 1 ? '방문' : '침대',
+          good:!bad && d <= 130, fur:fur, path:path, L:L};
+      }
+      function RM(i, p){ return i === 3 ? myRoom(p) : R[i]; }
       function cm(a, b, unit, less, more){ return a === b ? '같아요(' + a + unit + ')' : a < b ? (b - a) + unit + ' ' + less : (a - b) + unit + ' ' + more; }
       return {
         sceneHeight: 400,
         idle: '볼 방과 견줄 방을 고른 뒤 <b>하루 동선 그리기</b>를 누르세요.',
         shortHint: '방 B를 방 C와 견주어 보세요. 더 넓은 방 C보다 방 B가 덜 걷나요? 빈 바닥은 어떤가요?',
         params: [
-          {key:'r', type:'seg', label:'볼 방', cols:3, value:1, options:R.map(function(x){ return x.n; })},
-          {key:'q', type:'seg', label:'견줄 방', cols:3, value:2, options:R.map(function(x){ return x.n; })}
+          {key:'r', type:'seg', label:'볼 방', cols:2, value:3, options:R.map(function(x){ return x.n; }).concat(['방 D (내가 꾸민 방)'])},
+          {key:'q', type:'seg', label:'견줄 방', cols:2, value:1, options:R.map(function(x){ return x.n; }).concat(['방 D (내가 꾸민 방)'])},
+          {key:'dp', type:'range', label:'방 D 세로 길이 (가로는 4m)', min:25, max:45, step:5, value:30, fmt:function(v){ return f(v / 10, 1) + 'm → ' + f(4 * v / 10, 0) + '㎡'; }},
+          {key:'bd', type:'seg', label:'방 D — 침대 자리', cols:3, value:1, options:BD},
+          {key:'dk', type:'seg', label:'방 D — 책상 자리', cols:3, value:0, options:DK},
+          {key:'cz', type:'seg', label:'방 D — 옷장 자리', cols:2, value:1, options:CZ,
+            note:'가구 자리를 바꾸면 문→책상→침대→옷장→문 동선과 빈 바닥이 그 배치에서 다시 계산됩니다. 가구가 겹치면 알려 줍니다. (하루 이동은 동선 한 바퀴를 20번 다닌 거리로 셈)'}
         ],
         compute: function(p){
-          var a = R[p.r], b = R[p.q];
+          var a = RM(p.r, p), b = RM(p.q, p);
           return {a:a, b:b, same:p.r === p.q, dd:a.d - b.d, df:a.f - b.f};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var rm = R[p.r], depth = rm.a / 4, sc = Math.min((W - 60) / 4, (H - 90) / 4), ox = (W - 4 * sc) / 2, oy = 50;
+          var rm = RM(p.r, p), depth = rm.a / 4, sc = Math.min((W - 60) / 4, (H - 90) / 4.5), ox = (W - 4 * sc) / 2, oy = 50;
           function X(x){ return ox + x * sc; } function Y(y){ return oy + y * sc; }
           c.fillStyle = '#FBFAF6'; c.fillRect(X(0), Y(0), 4 * sc, depth * sc);
           c.strokeStyle = '#26313D'; c.lineWidth = 4; c.beginPath(); c.moveTo(X(1.0), Y(depth)); c.lineTo(X(4), Y(depth)); c.lineTo(X(4), Y(0)); c.lineTo(X(0), Y(0)); c.lineTo(X(0), Y(depth)); c.lineTo(X(0.2), Y(depth)); c.stroke();
@@ -475,7 +504,10 @@ var LAB = (function(){
               else { var t = (goal - acc) / sl; c.lineTo(X(pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t), Y(pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t)); break; } }
             c.stroke(); c.setLineDash([]); }
           tfit(c, rm.n, 16, 30, {bold:true});
-          if (r && tau >= 1) tfit(c, '하루 이동 약 ' + rm.d + 'm · 빈 바닥 약 ' + rm.f + '㎡', W / 2, Math.min(H - 12, Y(depth) + 30), {align:'center', bold:true, color:rm.good ? PAL[1] : PAL[4]});
+          if (r && tau >= 1){
+            tfit(c, '하루 이동 약 ' + rm.d + 'm · 빈 바닥 약 ' + rm.f + '㎡', W / 2, Math.min(H - 30, Y(depth) + 30), {align:'center', bold:true, color:rm.good ? PAL[1] : PAL[4]});
+            if (rm.bad) tfit(c, '가구가 겹쳐요 — 자리를 바꿔 보세요', W / 2, Math.min(H - 8, Y(depth) + 52), {align:'center', bold:true, color:PAL[4]});
+          }
         },
         stats: function(p, r){
           var a = r.a, b = r.b, interp;
@@ -489,21 +521,33 @@ var LAB = (function(){
               '두 방 모두 아무렇게나 놓은 방이에요. 더 넓은 방 C가 오히려 더 많이 걸어요. 넓이만 늘린다고 동선이 짧아지지 않아요.';
             interp = a.s + '는 ' + s1 + ', 하루 이동 거리는 ' + s2 + ', 빈 바닥은 ' + s3 + '. ' + tail;
           }
-          return [['볼 방', a.n], ['하루 이동 거리 (침대·책상·문 사이)', '약 ' + a.d + 'm', a.good ? PAL[1] : PAL[4]], ['쓸 수 있는 빈 바닥', '약 ' + a.f + '㎡'],
+          return [['볼 방', a.n + (a.bad ? ' — 가구가 겹쳐요' : '')],
+            ['방 D의 배치', p.r === 3 || p.q === 3 ? '침대 ' + BD[p.bd] + ' · 책상 ' + DK[p.dk] + ' · 옷장 ' + CZ[p.cz] : '(방 D를 골라야 쓰여요)'],
+            ['하루 이동 거리 (침대·책상·문 사이)', '약 ' + a.d + 'm' + (a.L ? ' (한 바퀴 ' + f(a.L, 1) + 'm × 20번, 교육용 모형)' : ''), a.good ? PAL[1] : PAL[4]],
+            ['쓸 수 있는 빈 바닥', '약 ' + a.f + '㎡'],
             ['책상에 드는 햇빛', a.sun], ['온라인 수업 화면 뒤', a.bg], ['견줄 방 (' + b.s + ')', '이동 약 ' + b.d + 'm · 빈 바닥 약 ' + b.f + '㎡ · 햇빛 ' + b.sun + ' · 화면 뒤 ' + b.bg],
             ['해석', interp, PAL[3]]];
         },
         columns: ['볼 방', '견줄 방', '이동 거리', '빈 바닥'],
-        record: function(p, r){ return {r:p.r, q:p.q}; },
-        row: function(d){ return [R[d.r].s, R[d.q].s, R[d.r].d + 'm / ' + R[d.q].d + 'm', R[d.r].f + '㎡ / ' + R[d.q].f + '㎡']; },
+        record: function(p, r){ return {r:p.r, q:p.q, lay:p.r === 3 || p.q === 3 ? BD[p.bd] + '·' + DK[p.dk] + '·' + CZ[p.cz] : '',
+          ra:{s:r.a.s + (r.a.s === '방 D' ? ' (' + f(r.a.a, 0) + '㎡)' : ''), n:r.a.n, a:r.a.a, d:r.a.d, f:r.a.f, sun:r.a.sun, bg:r.a.bg, good:r.a.good},
+          rb:{s:r.b.s, n:r.b.n, a:r.b.a, d:r.b.d, f:r.b.f, sun:r.b.sun, bg:r.b.bg, good:r.b.good}}; },
+        row: function(d){ return [d.ra.s, d.rb.s, d.ra.d + 'm / ' + d.rb.d + 'm', d.ra.f + '㎡ / ' + d.rb.f + '㎡']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('방 세 개의 하루 생활 (가상 실험)', '<div id="l7a"></div><p class="ask">더 넓은 방 C보다 방 B가 나은 점은 무엇인가요? "방은 넓기만 하면 살기 좋다"는 말이 왜 맞지 않는지 표로 설명해 보세요.</p>') +
             card('하루 이동 거리', '<div id="l7b"></div><p class="ask">과제: 내 방이나 우리 집 거실의 평면도를 모눈종이에 그리고, 생활 행위별 자리와 하루 동선을 표시해 보세요. 동선을 줄이는 배치를 하나 제안하고, 화면 없는 자리 하나와 가족이 함께 정할 디지털 약속 하나를 적어 보세요.</p>') + '</div>';
-          var seen = [];
-          rec.forEach(function(d){ [d.r, d.q].forEach(function(i){ if (seen.indexOf(i) < 0) seen.push(i); }); }); seen.sort();
-          $('l7a').innerHTML = seen.length ? tableHTML(['방', '하루 이동', '빈 바닥', '책상 햇빛', '화면 뒤'], seen.map(function(i){ return [R[i].n, '약 ' + R[i].d + 'm', '약 ' + R[i].f + '㎡', R[i].sun, R[i].bg]; })) : '<p class="msg">방을 바꿔 가며 실행해 보세요.</p>';
-          $('l7b').innerHTML = seen.length ? hbars(seen.map(function(i){ return {label:R[i].s + ' (' + R[i].a + '㎡)', v:R[i].d, color:R[i].good ? PAL[1] : PAL[4], text:'약 ' + R[i].d + 'm'}; }), 240) : '<p class="msg">기록이 쌓이면 막대가 나와요.</p>';
+          var seen = [], keys = {};
+          rec.forEach(function(d){ [d.ra, d.rb].forEach(function(o){ var kk = o.n + '|' + o.d + '|' + o.f; if (keys[kk]) return; keys[kk] = 1; seen.push(o); }); });
+          seen.sort(function(x, y){ return x.d - y.d; });
+          var lrows = [], ls = {};
+          rec.forEach(function(d){ if (!d.lay || ls[d.lay + d.ra.a]) return; ls[d.lay + d.ra.a] = 1;
+            var o = d.ra.s.indexOf('방 D') === 0 ? d.ra : d.rb;
+            lrows.push([d.lay, f(o.a, 0) + '㎡', '약 ' + o.d + 'm', '약 ' + o.f + '㎡', o.sun]); });
+          $('l7a').innerHTML = seen.length ? tableHTML(['방', '하루 이동', '빈 바닥', '책상 햇빛', '화면 뒤'], seen.map(function(o){ return [o.n, '약 ' + o.d + 'm', '약 ' + o.f + '㎡', o.sun, o.bg]; })) +
+            (lrows.length ? '<p class="msg">내가 바꿔 본 방 D 배치 (교육용 모형)</p>' + tableHTML(['배치 (침대·책상·옷장)', '넓이', '하루 이동', '빈 바닥', '책상 햇빛'], lrows) +
+              '<p class="msg">넓이를 늘리는 것보다 가구 자리를 바꾸는 것이 동선을 더 많이 줄였나요?</p>' : '') : '<p class="msg">방을 바꿔 가며 실행해 보세요.</p>';
+          $('l7b').innerHTML = seen.length ? hbars(seen.map(function(o){ return {label:o.s + ' (' + f(o.a, 0) + '㎡)', v:o.d, color:o.good ? PAL[1] : PAL[4], text:'약 ' + o.d + 'm'}; }), 240) : '<p class="msg">기록이 쌓이면 막대가 나와요.</p>';
           uniq([]);
         }
       };
@@ -513,7 +557,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

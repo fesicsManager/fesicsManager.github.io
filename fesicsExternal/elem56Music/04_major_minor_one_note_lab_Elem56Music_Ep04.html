@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -487,19 +489,29 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
       var MD = ['화음', '짧은 가락'];
       var MEL = [0, 2, 4, 7, 4, 2, 0];
       function nm(s){ var k = ((s % 12) + 12) % 12, names = ['도', '도♯', '레', '미♭', '미', '파', '파♯', '솔', '솔♯', '라', '시♭', '시']; return (s >= 12 ? '높은 ' : s < 0 ? '낮은 ' : '') + names[k]; }
+      /* 둘째 조작 - 세 음을 각각 반음씩 더 움직인다. 어떤 조합이 장3화음·단3화음이 되는지 직접 찾는다 */
       function calc(p){
-        var C = CH[p.c].c, g1 = C[1] - C[0], g2 = C[2] - C[1], ch = 0;
+        var off = [p.n1 || 0, p.n2 || 0, p.n3 || 0];
+        var C = CH[p.c].c.map(function(v, i){ return v + off[i]; });
+        var g1 = C[1] - C[0], g2 = C[2] - C[1], ch = 0;
         [0, 4, 7].forEach(function(o, i){ if (C[i] !== o) ch++; });
         var kind = g1 === 4 && g2 === 3 ? '장3화음' : g1 === 3 && g2 === 4 ? '단3화음' : '장·단3화음 기본 모양 아님';
-        var mel = MEL.map(function(m){ if (p.c === 4) return m + 2; return m === 0 ? C[0] : m === 4 ? C[1] : m === 7 ? C[2] : m; });
-        return {C:C, g1:g1, g2:g2, ch:ch, kind:kind, cmin:p.c === 2, mel:mel, names:C.map(nm)};
+        var mel = MEL.map(function(m){ if (m === 0) return C[0]; if (m === 4) return C[1]; if (m === 7) return C[2]; return (p.c === 4 ? m + 2 : m); });
+        var moved = off.some(function(v){ return v !== 0; });
+        return {C:C, off:off, moved:moved, g1:g1, g2:g2, ch:ch, kind:kind,
+          cmin:(C[0] === 0 && C[1] === 3 && C[2] === 7), mel:mel, names:C.map(nm)};
       }
+      function offTxt(off){ return ['도', '미', '솔'].map(function(nn, i){ return nn + ' ' + (off[i] === 0 ? '그대로' : sgn(off[i], 0) + '반음'); }).join(' · '); }
       return {
         sceneHeight: 400,
         idle: '바꿀 방법과 듣기 방식을 고른 뒤 <b>들어 보기</b>를 누르세요.',
-        shortHint: '다섯 가지 방법을 모두 기록해 보세요. "미를 반음 내리기"는 가락으로도 들어 보세요.',
+        shortHint: '세 음을 반음씩 직접 움직여 <b>장3화음</b>과 <b>단3화음</b>을 모두 찾아 보세요.',
         params: [
           {key:'c', type:'seg', label:'도–미–솔을 어떻게 바꿀까', cols:3, value:0, options:CH.map(function(x){ return x.n; })},
+          {key:'n1', type:'range', label:'첫째 음(도 자리) 더 움직이기', min:-2, max:2, step:1, value:0, fmt:function(v){ return v === 0 ? '그대로' : sgn(v, 0) + ' 반음'; }},
+          {key:'n2', type:'range', label:'둘째 음(미 자리) 더 움직이기', min:-2, max:2, step:1, value:0, fmt:function(v){ return v === 0 ? '그대로' : sgn(v, 0) + ' 반음'; }},
+          {key:'n3', type:'range', label:'셋째 음(솔 자리) 더 움직이기', min:-2, max:2, step:1, value:0, fmt:function(v){ return v === 0 ? '그대로' : sgn(v, 0) + ' 반음'; },
+            note:'세 칸을 직접 움직여 보세요. 아래쪽 간격이 4 + 3이면 장3화음, 3 + 4면 단3화음이에요. 몇 가지 조합을 찾을 수 있나요? ※ 간격 숫자는 건반에서 반음을 몇 칸 떨어졌는지 센 것이에요.'},
           {key:'m', type:'seg', label:'듣기', cols:2, value:0, options:MD}
         ],
         compute: function(p){
@@ -511,7 +523,7 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
         draw: function(c, W, H, p, r, tau){
           var q = r || calc(p), marks = {}, show = !!r;
           if (show) q.C.forEach(function(s){ marks[s] = isW(s) ? '#F6D5D2' : PAL[4]; });
-          var kb = keyboard(c, 16, 24, W - 32, 110, -1, 12, marks);
+          var kb = keyboard(c, 16, 24, W - 32, 110, -3, 13, marks);
           [0, 4, 7].forEach(function(s){ c.strokeStyle = PAL[0]; c.lineWidth = 2; c.setLineDash([4, 3]); c.beginPath(); c.arc(kb.X(s), kb.Y(s), Math.min(12, kb.kw * 0.42), 0, Math.PI * 2); c.stroke(); c.setLineDash([]); });
           if (show) q.C.forEach(function(s, i){ disc(c, kb.X(s), kb.Y(s), Math.min(8, kb.kw * 0.3), PAL[4]); });
           var y0 = 180, gx = 30, gw = W - 60;
@@ -529,22 +541,37 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
           txtF(c, show ? '바뀐 음 ' + q.ch + '개' : '', 16, H - 14, {color:'#4A5868'}, W - 32);
         },
         stats: function(p, r){
-          return [['바꾼 방법', CH[p.c].n], ['세 음', r.names.join(' – ')], ['쌓은 간격 (반음 수)', r.g1 + ' + ' + r.g2, PAL[0]],
+          return [['바꾼 방법', CH[p.c].n + (r.moved ? ' + 직접 움직이기' : '')], ['더 움직인 양', offTxt(r.off)],
+            ['세 음', r.names.join(' – ')], ['쌓은 간격 (반음 수)', r.g1 + ' + ' + r.g2, PAL[0]],
             ['화음 판정', r.kind, r.kind === '장3화음' ? PAL[0] : r.kind === '단3화음' ? PAL[3] : PAL[7]],
             ['바뀐 음 수', r.ch + '개'], ['도 단3화음(도–미♭–솔)이 되었나', r.cmin ? '예 — 가운데 음 반음 하나로!' : '아니요', r.cmin ? PAL[1] : PAL[4]]];
         },
         columns: ['바꾼 방법', '세 음', '간격', '판정', '바뀐 음 수'],
-        record: function(p, r){ return {c:p.c, m:p.m, g:r.g1 + ' + ' + r.g2, kind:r.kind, ch:r.ch, names:r.names.join('–')}; },
-        row: function(d){ return [CH[d.c].s, d.names, d.g, d.kind, d.ch + '개']; },
+        record: function(p, r){ return {c:p.c, m:p.m, off:r.off.join(','), moved:r.moved, g:r.g1 + ' + ' + r.g2, kind:r.kind, ch:r.ch, names:r.names.join('–')}; },
+        row: function(d){ return [CH[d.c].s + (d.moved ? ' +직접' : ''), d.names, d.g, d.kind, d.ch + '개']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('한 음씩 바꿔 본 결과', '<div id="m4a"></div><p class="ask">도–미–솔을 도–미♭–솔로 바꾸려면 몇 개의 음을, 얼마나 움직여야 했나요? 세 음을 모두 바꾼 것은 단3화음이 되었나요?</p>') +
-            card('간격으로 본 장·단', '<div id="m4b"></div><p class="ask">과제: 건반 앱으로 내가 아는 짧은 가락을 치고, 그 안의 "미"를 모두 "미♭"으로 바꿔 다시 쳐 보세요. 두 느낌을 한 낱말씩 적어 오기.</p>') + '</div>';
-          var g = groupBy(rec, function(d){ return d.c; }), rows = [], items = [];
-          Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; rows.push([CH[d.c].s, d.names, d.ch + '개', d.kind]);
-            items.push({label:CH[d.c].s, v:d.ch, color:d.kind === '단3화음' ? PAL[3] : d.kind === '장3화음' ? PAL[0] : PAL[7], text:d.g + ' · ' + d.kind}); });
+            card('간격으로 본 장·단', '<div id="m4b"></div><p class="ask">과제: 건반 앱으로 내가 아는 짧은 가락을 치고, 그 안의 "미"를 모두 "미♭"으로 바꿔 다시 쳐 보세요. 두 느낌을 한 낱말씩 적어 오기.</p>') +
+            card('내가 찾아낸 장3화음·단3화음', '<div id="m4c"></div><p id="m4j" class="ask"></p>') + '</div>';
+          var g = groupBy(rec, function(d){ return d.names; }), rows = [], items = [];
+          Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; rows.push([CH[d.c].s + (d.moved ? ' +직접' : ''), d.names, d.ch + '개', d.kind]);
+            items.push({label:d.names, v:d.ch, color:d.kind === '단3화음' ? PAL[3] : d.kind === '장3화음' ? PAL[0] : PAL[7], text:d.g + ' · ' + d.kind}); });
           $('m4a').innerHTML = tableHTML(['방법', '세 음', '바뀐 음', '판정'], rows);
           $('m4b').innerHTML = hbars(items, 3) + '<p class="msg">막대 길이 = 바뀐 음 수</p>';
+          /* 어떤 조합이 장3화음·단3화음이 되었는지 - 조작에 따라 판정이 갈린다 */
+          var uniq = Object.keys(g).map(function(k){ return g[k][0]; });
+          var maj = uniq.filter(function(d){ return d.kind === '장3화음'; });
+          var min3 = uniq.filter(function(d){ return d.kind === '단3화음'; });
+          var nei = uniq.filter(function(d){ return d.kind.indexOf('아님') >= 0; });
+          $('m4c').innerHTML = tableHTML(['판정', '찾은 수', '세 음 보기'], [
+            ['장3화음 (4 + 3)', maj.length + '개', maj.length ? maj.map(function(d){ return d.names; }).join(' / ') : '아직 없음'],
+            ['단3화음 (3 + 4)', min3.length + '개', min3.length ? min3.map(function(d){ return d.names; }).join(' / ') : '아직 없음'],
+            ['둘 다 아님', nei.length + '개', nei.length ? nei.map(function(d){ return d.names; }).join(' / ') : '없음']]);
+          var best = min3.length ? Math.min.apply(null, min3.map(function(d){ return d.ch; })) : null;
+          $('m4j').innerHTML = (min3.length === 0)
+            ? '아직 단3화음을 못 찾았어요. 간격이 <b>3 + 4</b>가 되게 세 칸을 움직여 보세요. 가운데 음만 한 칸 내리면 어떻게 될까요?'
+            : ('단3화음을 ' + min3.length + '가지 찾았고, 그 가운데 <b>음을 ' + best + '개만 움직인 것</b>도 있었어요. 장3화음은 ' + maj.length + '가지였지요. 세 음을 아무렇게나 움직이면 대부분 장도 단도 아니었어요 — 장·단을 가르는 것은 <b>어느 음을 움직였나</b>가 아니라 <b>쌓인 간격이 4 + 3인가 3 + 4인가</b>입니다.');
         }
       };
     })();
@@ -553,7 +580,8 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

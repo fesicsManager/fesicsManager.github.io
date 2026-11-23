@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -305,9 +306,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -451,6 +453,8 @@ var RXN = [
   {name:'광합성', eq:'6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂', ox:{el:'O', a:-2, b:0}, rd:{el:'C', a:4, b:0}, e:24, obs:'빛에너지를 흡수해 포도당을 만듦', type:'생명 현상'}
 ];
 var TEST = ['반응식으로 산화수 따지기', '실제로 섞어 보기'];
+var PICK = ['Zn', 'Mg', 'Fe', 'C', 'O', 'H'];
+function baseEl(s){ return String(s).split(' ')[0]; }
 return {
   sceneHeight: 450,
   idle: '반응을 고른 뒤 <b>분석하기</b>를 누르세요. 산화수 변화와 이동한 전자 수를 봅니다.',
@@ -458,11 +462,16 @@ return {
   params: [
     {key:'r', type:'seg', label:'반응', cols:3, value:0, options:RXN.map(function(x){ return x.name; })},
     {key:'m', type:'seg', label:'방법', value:0, options:TEST,
-      note:'산화수는 원자 하나가 가지는 전하로 보았을 때의 값입니다. 산화수가 커지면 산화, 작아지면 환원입니다.'}
+      note:'산화수는 원자 하나가 가지는 전하로 보았을 때의 값입니다. 산화수가 커지면 산화, 작아지면 환원입니다.'},
+    {key:'pk', type:'seg', label:'먼저 찍어 보기 — 이 반응에서 산화되는 원소는?', cols:3, value:0, options:PICK,
+      note:'분석하기를 누르면 산화수 배정으로 채점합니다. 같은 원소가 산화도 되고 환원도 되는 반응(과산화 수소 분해)도 있으니 주의하세요.'}
   ],
   compute: function(p){
-    var R = RXN[p.r];
-    return {R:R, dOx:R.ox.b - R.ox.a, dRd:R.rd.b - R.rd.a, e:R.e, mode:p.m};
+    var R = RXN[p.r], pick = PICK[p.pk], oxEl = baseEl(R.ox.el), rdEl = baseEl(R.rd.el);
+    var ok = pick === oxEl, both = oxEl === rdEl;
+    var vd = ok ? (both ? '맞았습니다 — 다만 같은 원소가 환원도 됩니다' : '맞았습니다 — 산화수가 커진 원소입니다')
+      : pick === rdEl ? '그 원소는 산화수가 작아졌으니 환원되는 쪽입니다' : '그 원소는 이 반응에서 산화수가 바뀌지 않습니다';
+    return {R:R, dOx:R.ox.b - R.ox.a, dRd:R.rd.b - R.rd.a, e:R.e, mode:p.m, pick:pick, oxEl:oxEl, rdEl:rdEl, ok:ok, both:both, vd:vd};
   },
   draw: function(c, W, H, p, r, tau){
     var R = RXN[p.r], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -520,13 +529,15 @@ return {
   },
   stats: function(p, r){
     return [['반응', r.R.eq], ['종류', r.R.type],
+      ['내가 찍은 산화되는 원소', r.pick + (r.ok ? ' — 맞음' : ' — 틀림'), r.ok ? PAL[1] : PAL[4]],
       ['산화되는 원소', r.R.ox.el + ': ' + sgn(r.R.ox.a, 0) + ' → ' + sgn(r.R.ox.b, 0) + ' (' + sgn(r.dOx, 0) + ')', PAL[4]],
       ['환원되는 원소', r.R.rd.el + ': ' + sgn(r.R.rd.a, 0) + ' → ' + sgn(r.R.rd.b, 0) + ' (' + sgn(r.dRd, 0) + ')', PAL[0]],
-      ['이동한 전자', r.e + ' mol'], ['관찰', r.R.obs]];
+      ['이동한 전자', r.e + ' mol'], ['관찰', r.R.obs],
+      ['판정', r.vd, r.ok ? PAL[1] : PAL[4]]];
   },
-  columns: ['반응', '종류', '산화되는 원소', '환원되는 원소', '전자 (mol)', '관찰'],
-  record: function(p, r){ return {ri:p.r, name:r.R.name, eq:r.R.eq, type:r.R.type, ox:r.R.ox, rd:r.R.rd, e:r.e, obs:r.R.obs}; },
-  row: function(d){ return [d.eq, d.type, d.ox.el + ' ' + sgn(d.ox.a, 0) + '→' + sgn(d.ox.b, 0), d.rd.el + ' ' + sgn(d.rd.a, 0) + '→' + sgn(d.rd.b, 0), d.e, d.obs]; },
+  columns: ['반응', '종류', '내가 찍은 원소', '맞음', '산화되는 원소', '환원되는 원소', '전자 (mol)'],
+  record: function(p, r){ return {ri:p.r, name:r.R.name, eq:r.R.eq, type:r.R.type, ox:r.R.ox, rd:r.R.rd, e:r.e, obs:r.R.obs, pick:r.pick, ok:r.ok}; },
+  row: function(d){ return [d.eq, d.type, d.pick, d.ok ? '○' : '✕', d.ox.el + ' ' + sgn(d.ox.a, 0) + '→' + sgn(d.ox.b, 0), d.rd.el + ' ' + sgn(d.rd.a, 0) + '→' + sgn(d.rd.b, 0), d.e]; },
   minRec: 3,
   verify: function(rec, box){
     var seen = {}, list = [];
@@ -539,7 +550,9 @@ return {
       return [d.eq, d.ox.el + ': ' + sgn(d.ox.a, 0) + ' → ' + sgn(d.ox.b, 0), d.rd.el + ': ' + sgn(d.rd.a, 0) + ' → ' + sgn(d.rd.b, 0), d.e]; }), 'wrap');
     drawScatter($('ch1'), {xLabel:'산화수 변화 크기', yLabel:'이동한 전자 (mol)', tightX:true,
       series:[{color:PAL[4], pts:list.map(function(d){ return {x:Math.abs(d.ox.b - d.ox.a), y:d.e}; })}]});
-    $('ro2').innerHTML = list.map(function(d){ return '<li>' + d.name + ': 산화수 변화 ' + Math.abs(d.ox.b - d.ox.a) + ', 전자 ' + d.e + ' mol → 계수 ' + f(d.e / Math.abs(d.ox.b - d.ox.a), 0) + '</li>'; }).join('');
+    var okN = rec.filter(function(d){ return d.ok; }).length;
+    $('ro2').innerHTML = list.map(function(d){ return '<li>' + d.name + ': 산화수 변화 ' + Math.abs(d.ox.b - d.ox.a) + ', 전자 ' + d.e + ' mol → 계수 ' + f(d.e / Math.abs(d.ox.b - d.ox.a), 0) + '</li>'; }).join('')
+      + '<li><b>내가 찍은 산화되는 원소: ' + okN + ' / ' + rec.length + ' 맞음</b></li>';
   }
 };
 })();
@@ -548,7 +561,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,12 +436,14 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var LD = [
-        {n:'다리를 쭉 펴고 발뒤꿈치로', s:'다리 펴기', bar:9.2, bend:0.1, c:PAL[4], snd:'쿵!'},
-        {n:'발바닥 전체로 쿵 딱 멈추기', s:'딱 멈추기', bar:6.2, bend:0.3, c:PAL[6], snd:'쿵'},
-        {n:'한 발로만 내리기', s:'한 발', bar:7.4, bend:0.25, c:PAL[3], snd:'쿵', wob:true},
-        {n:'발 앞쪽부터, 무릎·엉덩이 살짝 굽히기', s:'무릎 굽히기', bar:2.4, bend:1, c:PAL[1], snd:'톡'}
+        {n:'다리를 쭉 펴고 발뒤꿈치로', s:'다리 펴기', bar:9.2, bend:0.1, c:PAL[4], snd:'쿵!', st:2},
+        {n:'발바닥 전체로 쿵 딱 멈추기', s:'딱 멈추기', bar:6.2, bend:0.3, c:PAL[6], snd:'쿵', st:3},
+        {n:'한 발로만 내리기', s:'한 발', bar:7.4, bend:0.25, c:PAL[3], snd:'쿵', wob:true, st:2.5},
+        {n:'발 앞쪽부터, 무릎·엉덩이 살짝 굽히기', s:'무릎 굽히기', bar:2.4, bend:1, c:PAL[1], snd:'톡', st:12}
       ];
-      var HT = [{n:'발목 높이 디딤판', s:'발목 높이', k:0.85}, {n:'무릎보다 낮은 디딤판', s:'무릎 아래', k:1}];
+      var HT = [{n:'발목 높이 디딤판', s:'발목 높이', k:0.85, hcm:12}, {n:'무릎보다 낮은 디딤판', s:'무릎 아래', k:1, hcm:35}];
+      /* 매트가 푹신하면 몸이 멈추기까지 더 긴 거리를 쓴다 — 아래 cm 는 교육용 모형값 */
+      var MT = [{n:'얇은 매트 (1cm)', s:'얇은 매트', add:0}, {n:'두꺼운 매트 (6cm)', s:'두꺼운 매트', add:6}, {n:'아주 푹신한 매트 (14cm)', s:'푹신한 매트', add:14}];
       var S = 1101;
       function R(){ S = (S * 1664525 + 1013904223) >>> 0; return S / 4294967296; }
       return {
@@ -448,13 +452,21 @@ var LAB = (function(){
         shortHint: '같은 높이에서 네 가지 방법을 모두 해 보세요. 바꾸는 것은 내리는 방법 하나뿐이에요.',
         params: [
           {key:'m', type:'seg', label:'어떻게 내리나요?', cols:2, value:0, options:LD.map(function(x){ return x.n; })},
-          {key:'h', type:'seg', label:'디딤판 높이', cols:2, value:1, options:HT.map(function(x){ return x.n; }), note:'높이와 사람은 그대로 두고 방법만 바꿔야 공정한 비교예요.'}
+          {key:'h', type:'seg', label:'디딤판 높이', cols:2, value:1, options:HT.map(function(x){ return x.n; }), note:'높이와 사람은 그대로 두고 방법만 바꿔야 공정한 비교예요.'},
+          {key:'mt', type:'seg', label:'매트 두께', cols:3, value:0, options:MT.map(function(x){ return x.n; }), note:'푹신한 매트는 몸이 멈추기까지 쓰는 거리를 늘려 줘요. ※ cm 값은 교육용 모형값이에요.'}
         ],
         compute: function(p){
-          var m = LD[p.m], k = HT[p.h].k, bars = [];
-          for (var i = 0; i < 3; i++) bars.push(Math.max(1, Math.min(10, Math.round((m.bar * k + (R() - 0.5) * 1.4) * 10) / 10)));
+          /* 소리 막대는 '몸이 멈추는 데 쓴 거리'에 반비례한다고 본 교육용 모형이다.
+             멈추는 거리 = 내리는 방법이 주는 거리 + 매트가 더해 주는 거리.
+             매트가 얇으면(0cm 더함) 예전 값이 그대로 나온다. */
+          var m = LD[p.m], HH = HT[p.h], k = HH.k, add = MT[p.mt].add;
+          var sTot = m.st + add, soft = m.st / sTot, bars = [];
+          for (var i = 0; i < 3; i++) bars.push(Math.max(0.2, Math.min(10, Math.round((m.bar * k * soft + (R() - 0.5) * 1.4 * soft) * 10) / 10)));
           var avg = mean(bars);
-          return {m:m, bars:bars, avg:avg, wob:!!m.wob};
+          /* 내려오는 속력 v = √(2gh), 멈추는 시간 ≈ 2 × 멈추는 거리 ÷ v */
+          var v = Math.sqrt(2 * 9.8 * HH.hcm / 100);
+          var tms = 2 * (sTot / 100) / v * 1000;
+          return {m:m, bars:bars, avg:avg, wob:!!m.wob, sTot:sTot, tms:tms, v:v, add:add};
         },
         draw: function(c, W, H, p, r, tau){
           var m = LD[p.m], gy = H - 60, bx = Math.max(30, W * 0.08), bw = Math.min(90, W * 0.2), bh = 50 + p.h * 25;
@@ -500,23 +512,40 @@ var LAB = (function(){
             ['세 번의 소리 막대', r.bars.map(function(v){ return f(v, 0); }).join(', ') + '칸 (10칸 중)'],
             ['평균', '약 ' + f(r.avg, 1) + '칸', r.avg >= 7 ? PAL[4] : r.avg >= 4 ? PAL[6] : PAL[1]],
             ['몸이 멈추는 모습', r.m.bend > 0.5 ? '발목·무릎·엉덩이가 차례로 굽으며 천천히 멈춤' : '거의 한순간에 딱 멈춤'],
+            ['멈추는 데 쓴 거리', r.m.st + 'cm(방법) + ' + r.add + 'cm(매트) = ' + f(r.sTot, 1) + 'cm'],
+            ['멈추는 데 걸린 시간', '약 ' + f(r.tms, 0) + '/1000초 (내려오는 속력 약 ' + f(r.v, 1) + 'm/초)', PAL[0]],
+            ['판정', r.avg >= 7 ? '충격이 아주 짧은 시간에 몰렸어요 — 시끄럽고 몸에 무리가 커요.'
+                   : r.avg >= 4 ? '충격이 조금 나뉘었어요 — 아직 소리가 꽤 나요.'
+                   : '충격이 긴 시간에 나뉘었어요 — 조용하고 몸에도 부드러워요.',
+              r.avg >= 7 ? PAL[4] : r.avg >= 4 ? PAL[6] : PAL[1]],
             ['소리', r.m.snd + (r.wob ? ' · 몸이 흔들려 넘어지기 쉬움' : '')]];
         },
-        columns: ['방법', '디딤판', '평균 칸', '소리'],
-        record: function(p, r){ return {m:p.m, h:p.h, avg:r.avg}; },
-        row: function(d){ return [LD[d.m].s, HT[d.h].s, f(d.avg, 1) + '칸', LD[d.m].snd]; },
+        columns: ['방법', '디딤판', '매트', '멈추는 거리', '평균 칸'],
+        record: function(p, r){ return {m:p.m, h:p.h, mt:p.mt, avg:r.avg, sTot:r.sTot, tms:r.tms}; },
+        row: function(d){ return [LD[d.m].s, HT[d.h].s, MT[d.mt].s, f(d.sTot, 1) + 'cm', f(d.avg, 1) + '칸']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('방법별 평균 소리 막대 (낮을수록 부드러움)', '<div id="sl1"></div><p class="ask">어느 방법이 가장 조용했나요? 다리를 쭉 편 착지는 왜 소리가 컸을까요? "딱 멈춤"과 "천천히 멈춤"으로 설명해 보세요.</p>') +
-            card('웹툰 예시와 비교', '<div id="sl2"></div><p class="ask">과제: 이불이나 매트 위에서 제자리에서 가볍게 폴짝 뛰었다가 "다리 펴고"와 "무릎 굽혀"로 내려 보고, 가족에게 소리를 들어 봐 달라고 하세요. 높은 곳에서 뛰어내리지 않기. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
+            card('멈추는 거리로 보면 어떨까', '<div id="sl2"></div><p class="ask">같은 "다리 펴기"인데도 푹신한 매트에서는 소리가 훨씬 작아지나요? 그렇다면 조용한 착지를 만드는 것은 <b>방법의 이름</b>일까요, <b>멈추는 데 쓴 거리</b>일까요?<br>과제: 이불이나 매트 위에서 제자리에서 가볍게 폴짝 뛰었다가 "다리 펴고"와 "무릎 굽혀"로 내려 보고, 가족에게 소리를 들어 봐 달라고 하세요. 높은 곳에서 뛰어내리지 않기. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
           var items = [];
           LD.forEach(function(m, i){ var g = rec.filter(function(d){ return d.m === i; }); if (!g.length) return;
             var v = mean(g.map(function(d){ return d.avg; })); items.push({label:m.s, v:v, color:m.c, text:'약 ' + f(v, 1) + '칸'}); });
           $('sl1').innerHTML = hbars(items, 10) + (items.length < 4 ? '<p class="msg">아직 해 보지 않은 방법이 있어요.</p>' : '');
-          $('sl2').innerHTML = tableHTML(['방법', '웹툰 예시', '내 기록'], LD.filter(function(m, i){ return i !== 2; }).map(function(m){
-            var i = LD.indexOf(m), g = rec.filter(function(d){ return d.m === i; });
-            return [m.s, i === 0 ? '거의 끝까지 · 머리까지 찡' : i === 1 ? '절반 넘게' : '낮게 · 톡', g.length ? '약 ' + f(mean(g.map(function(d){ return d.avg; })), 1) + '칸' : '—'];
-          }));
+          /* 내가 기록한 것만으로 '멈추는 거리 ↔ 소리 막대' 를 견준다 (미리 박힌 값 없음) */
+          var srt = rec.slice().sort(function(a, b){ return a.sTot - b.sTot; });
+          var rows2 = srt.map(function(d){
+            return [LD[d.m].s + ' · ' + MT[d.mt].s, f(d.sTot, 1) + 'cm', f(d.tms, 0) + '/1000초', f(d.avg, 1) + '칸'];
+          });
+          var hi = rec.filter(function(d){ return d.m === 3 && d.mt === 0; }), lo = rec.filter(function(d){ return d.m === 0 && d.mt === 2; });
+          var verdict;
+          if (!hi.length || !lo.length) verdict = '<p class="msg">"무릎 굽히기 · 얇은 매트" 와 "다리 펴기 · 푹신한 매트" 를 둘 다 해 보면 결론이 뒤집히는지 알 수 있어요.</p>';
+          else {
+            var hv = mean(hi.map(function(d){ return d.avg; })), lv = mean(lo.map(function(d){ return d.avg; }));
+            verdict = lv < hv
+              ? '<p class="msg">뒤집혔어요! <b>다리를 펴고 푹신한 매트(약 ' + f(lv, 1) + '칸)</b> 가 <b>무릎을 굽히고 얇은 매트(약 ' + f(hv, 1) + '칸)</b> 보다 조용했습니다. 중요한 건 방법의 이름이 아니라 멈추는 데 쓴 거리예요.</p>'
+              : '<p class="msg">이번에는 뒤집히지 않았어요(굽히기 약 ' + f(hv, 1) + '칸, 펴기+푹신한 매트 약 ' + f(lv, 1) + '칸). 매트를 더 두껍게 해서 다시 재 보세요.</p>';
+          }
+          $('sl2').innerHTML = tableHTML(['조건', '멈추는 거리', '멈추는 시간', '평균 칸'], rows2) + verdict;
         }
       };
     })();
@@ -525,7 +554,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

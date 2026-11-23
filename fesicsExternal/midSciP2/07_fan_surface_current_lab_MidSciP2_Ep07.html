@@ -25,6 +25,7 @@
 <!-- labgen:midSciP2 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>해류도 달이 끌어서 흐르나 | 중학교 과학 ②</title>
+<script src="/fesicsExternal/fxbig.js"></script>
 <style>
 :root{
   --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
@@ -61,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,14 +440,21 @@ var LAB = (function(){
       var PO = ['북쪽(위)', '가운데', '남쪽(아래)'];
       var PG = ['① 늘 일정한 방향으로 부는 바람이 바다 표면의 물을 밀기 때문', '② 강물이 바다로 흘러들어 밀어내기 때문', '③ 달이 바닷물을 끌어당기기 때문', '④ 바닷물은 까닭 없이 제멋대로 흐르기 때문'];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
-      function solve(f, q){
-        var dir, dist, ds, dv;
-        if (f === 0){ dir = '거의 그대로'; dist = 1; ds = '1 cm 안팎'; }
-        else if (f === 1){ dir = '서쪽'; dist = 40; ds = '약 40 cm'; }
-        else if (f === 2){ dir = '서쪽'; dist = 90; ds = '약 90 cm'; }
-        else if (f === 3){ dir = '동쪽'; dist = 90; ds = '약 90 cm'; }
-        else { dir = q === 0 ? '동쪽으로 출발해 시계 방향으로 빙 돎' : q === 2 ? '서쪽으로 출발해 시계 방향으로 빙 돎' : '가운데라 천천히 제자리 근처에서 돎'; dist = q === 1 ? 0 : 240; ds = q === 1 ? '거의 제자리' : '한 바퀴 돎'; }
-        return {f:f, q:q, dir:dir, dist:dist, ds:ds, loop:f === 4};
+      /* 1분에 밀려가는 거리(cm) — 교육용 모형값. 거리 = 속력 × 보낸 시간 */
+      var RATE = [0.2, 8, 18, 18, 48];
+      function solve(f, q, mn){
+        mn = mn === undefined ? 5 : mn;
+        var dir, dist, ds;
+        dist = Math.round(RATE[f] * mn);
+        if (f === 0){ dir = '거의 그대로'; ds = dist + ' cm 안팎'; }
+        else if (f === 1 || f === 2){ dir = '서쪽'; ds = '약 ' + dist + ' cm'; }
+        else if (f === 3){ dir = '동쪽'; ds = '약 ' + dist + ' cm'; }
+        else { dir = q === 0 ? '동쪽으로 출발해 시계 방향으로 빙 돎' : q === 2 ? '서쪽으로 출발해 시계 방향으로 빙 돎' : '가운데라 천천히 제자리 근처에서 돎';
+          if (q === 1) dist = 0; ds = q === 1 ? '거의 제자리' : '약 ' + dist + ' cm (빙 돎)'; }
+        var coast = Math.round(RATE[f] * 1.2 * 10) / 10;       /* 바람을 멈춘 뒤 더 가는 거리 — 교육용 모형값 */
+        var wall = dist > 105;
+        return {f:f, q:q, mn:mn, dir:dir, dist:dist, ds:ds, coast:coast, wall:wall, loop:f === 4,
+          vd:f === 0 ? '바람이 없으면 거의 움직이지 않아요' : wall ? '수조 벽에 닿았어요 — 시간을 줄여 보세요' : '거리 = 1분에 ' + RATE[f] + ' cm × ' + mn + '분'};
       }
       return {
         sceneHeight: function(w){ return w < 560 ? 380 : 350; },
@@ -452,14 +462,16 @@ var LAB = (function(){
         idle: '선풍기, 종이 조각 자리, 예측을 고른 뒤 <b>바람 보내기</b>를 누르세요.',
         shortHint: '선풍기를 끔, 동→서 약하게, 동→서 세게, 서→동 세게, 두 대 반대 방향으로 차례로 바꾸어 보세요.',
         params: [
-          {key:'f', type:'seg', label:'선풍기 (5분 동안)', cols:2, value:0, options:FN},
+          {key:'f', type:'seg', label:'선풍기', cols:2, value:0, options:FN},
+          {key:'mn', type:'range', label:'바람을 보낸 시간', min:1, max:10, step:1, value:5, fmt:function(v){ return v + '분'; },
+            note:'움직인 거리는 1분에 밀려가는 거리 × 보낸 시간으로 계산해요. 바람을 멈춘 뒤에도 물은 바로 서지 않고 조금 더 가요. ※ 1분에 밀려가는 거리는 교육용 모형값이에요.'},
           {key:'q', type:'seg', label:'종이 조각을 띄운 자리', cols:3, value:0, options:PO},
           {key:'g', type:'seg', label:'예측: 대양의 표층 해류가 오랫동안 거의 같은 방향으로 흐르는 주된 까닭은?', cols:1, value:2, options:PG,
             note:'뭉치는 "바닷물을 움직이는 건 달이야! ③"이라고 했어요.'}
         ],
-        compute: function(p){ var S = solve(p.f, p.q); S.ok = p.g === 0; return S; },
+        compute: function(p){ var S = solve(p.f, p.q, p.mn); S.ok = p.g === 0; return S; },
         draw: function(c, W, H, p, r, tau){
-          var nar = W < 560, S = solve(p.f, p.q), fs = nar ? 12 : 14;
+          var nar = W < 560, S = solve(p.f, p.q, p.mn), fs = nar ? 12 : 14;
           var tx = nar ? 34 : 60, tw = W - tx * 2, ty = 44, th = Math.min(nar ? 160 : 180, tw * 0.45), sc = tw / 120;
           c.fillStyle = '#CFE6F5'; c.fillRect(tx, ty, tw, th); c.strokeStyle = '#5C6B7A'; c.lineWidth = 2; c.strokeRect(tx, ty, tw, th);
           T(c, '북', tx + tw / 2, ty - 8, 12, '#1E2833', 'center', true); T(c, '남', tx + tw / 2, ty + th + 16, 12, '#1E2833', 'center', true);
@@ -480,7 +492,7 @@ var LAB = (function(){
           var e = r ? Math.min(1, tau * 1.15) : 0, px, py;
           if (!S.loop){
             var x0 = p.f === 3 ? 15 : p.f === 0 ? 60 : 105, dv = p.f === 3 ? 1 : -1;
-            px = tx + (x0 + dv * S.dist * e) * sc; py = qy + (p.f === 0 ? Math.sin(e * 6) * 1.5 : 0);
+            px = tx + Math.max(3, Math.min(117, x0 + dv * S.dist * e)) * sc; py = qy + (p.f === 0 ? Math.sin(e * 6) * 1.5 : 0);
             if (r && S.dist > 1) seg(c, tx + x0 * sc, qy, px, py, 'rgba(217,142,4,.6)', 2, [4, 3]);
           } else {
             var cx = tx + tw / 2, cy = ty + th / 2, rx = tw * 0.36, ry = th * 0.3;
@@ -493,32 +505,35 @@ var LAB = (function(){
           // 눈금
           for (var cm = 0; cm <= 120; cm += 20){ seg(c, tx + cm * sc, ty + th, tx + cm * sc, ty + th + 5, '#5C6B7A', 1); }
           var y0 = ty + th + 46;
-          T(c, '선풍기: ' + FN[p.f] + ' · 종이 조각: ' + PO[p.q], 20, y0, nar ? 13 : 15, '#1E2833', 'left', true);
+          T(c, '선풍기: ' + FN[p.f] + ' · ' + p.mn + '분 · ' + PO[p.q], 20, y0, nar ? 13 : 15, '#1E2833', 'left', true);
           if (r && tau >= 0.92){
             T(c, '움직인 방향: ' + S.dir, 20, y0 + 22, nar ? 12 : 15, PAL[0], 'left', true);
-            T(c, '5분 동안: ' + S.ds, 20, y0 + 44, nar ? 13 : 15, PAL[0], 'left', true);
+            T(c, p.mn + '분 동안: ' + S.ds, 20, y0 + 44, nar ? 13 : 15, PAL[0], 'left', true);
             T(c, r.ok ? '○ 예측이 맞았어요 — 해류는 바람 담당' : '✕ 예측과 달라요 — 해류는 바람이 밀어서', 20, y0 + 66, nar ? 12 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
-          return [['선풍기', FN[r.f]], ['종이 조각 자리', PO[r.q]], ['움직인 방향', r.dir, PAL[0]], ['5분 동안 거리', r.ds, PAL[0]],
-            ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
+          return [['선풍기', FN[r.f]], ['보낸 시간', r.mn + '분'], ['종이 조각 자리', PO[r.q]], ['움직인 방향', r.dir, PAL[0]],
+            ['1분에 밀려가는 거리', RATE[r.f] + ' cm/분'], [r.mn + '분 동안 거리', r.ds, PAL[0]],
+            ['바람을 멈춘 뒤 더 가는 거리', '약 ' + r.coast + ' cm (물은 바로 서지 않아요)', PAL[3]],
+            ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.wall ? PAL[4] : PAL[0]]];
         },
-        columns: ['선풍기', '종이 조각 자리', '움직인 방향', '5분 동안 거리'],
-        record: function(p, r){ return {f:p.f, q:p.q}; },
-        row: function(d){ var S = solve(d.f, d.q); return [FN[d.f], PO[d.q], S.dir, S.ds]; },
+        columns: ['선풍기', '시간', '종이 조각 자리', '움직인 방향', '거리', '멈춘 뒤'],
+        record: function(p, r){ return {f:p.f, q:p.q, mn:p.mn}; },
+        row: function(d){ var S = solve(d.f, d.q, d.mn); return [FN[d.f], d.mn + '분', PO[d.q], S.dir, S.ds, '약 ' + S.coast + ' cm']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('바람과 표층 흐름', '<div id="fc1"></div><p class="ask">바람 방향을 바꾸면 종이 조각이 움직인 방향은 어떻게 되었나요? 바람을 세게 하면 거리는 어떻게 변했나요?</p>') +
             card('5분 동안 움직인 거리', '<div id="fc2"></div><p class="ask">과제: 세계 지도에 무역풍 · 편서풍 화살표를 그리고, 그 바람 때문에 생기는 북태평양 표층 해류를 이어 그려 보세요. 우리나라 주변 난류와 한류를 다른 색으로 표시해 보세요.</p>') + '</div>';
           var seen = {};
-          rec.forEach(function(d){ seen[d.f + '_' + d.q] = d; });
-          var ks = Object.keys(seen).map(function(k){ return seen[k]; }).sort(function(a, b){ return a.f - b.f || a.q - b.q; });
-          $('fc1').innerHTML = tableHTML(['선풍기', '자리', '방향', '거리'], ks.map(function(d){ var S = solve(d.f, d.q); return [FN[d.f], PO[d.q], S.dir, S.ds]; })) +
+          rec.forEach(function(d){ seen[d.f + '_' + d.q + '_' + d.mn] = d; });
+          var ks = Object.keys(seen).map(function(k){ return seen[k]; }).sort(function(a, b){ return a.f - b.f || a.q - b.q || a.mn - b.mn; });
+          $('fc1').innerHTML = tableHTML(['선풍기', '시간', '자리', '방향', '거리'], ks.map(function(d){ var S = solve(d.f, d.q, d.mn); return [FN[d.f], d.mn + '분', PO[d.q], S.dir, S.ds]; })) +
             '<p class="msg">' + (ks.some(function(d){ return d.f === 4; }) ? '반대 방향 바람 두 개를 위아래로 두니 물이 시계 방향으로 빙 돌았어요. 북태평양에서 무역풍(남쪽, 서쪽으로)과 편서풍(북쪽, 동쪽으로)이 만드는 흐름과 같아요. ' : '') +
             '바람이 없으면 종이 조각은 거의 그대로였어요. 바람 방향이 바뀌면 흐름 방향도 바뀌어요.</p>';
-          $('fc2').innerHTML = hbars(ks.map(function(d, i){ var S = solve(d.f, d.q); return {label:FN[d.f].replace('두 대를 위아래로 반대 방향', '두 대 반대') + ' · ' + PO[d.q].slice(0, 2), v:S.loop ? (S.dist ? 120 : 0) : S.dist, color:PAL[i % 8], text:S.ds}; }), 120) +
-            '<p class="msg">약한 바람은 약 40 cm, 센 바람은 약 90 cm — 바람이 셀수록 표층의 물을 더 멀리 밀어요.</p>';
+          $('fc2').innerHTML = hbars(ks.map(function(d, i){ var S = solve(d.f, d.q, d.mn); return {label:FN[d.f].replace('두 대를 위아래로 반대 방향', '두 대 반대') + ' · ' + d.mn + '분 · ' + PO[d.q].slice(0, 2), v:Math.min(120, S.dist), color:PAL[i % 8], text:S.ds}; }), 120) +
+            '<p class="msg">거리는 1분에 밀려가는 거리 × 시간이에요(약한 바람 8 cm/분, 센 바람 18 cm/분). 바람이 셀수록, 오래 불수록 더 멀리 가고, 멈춘 뒤에도 조금 더 가요.</p>';
         }
       };
     })();
@@ -527,7 +542,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

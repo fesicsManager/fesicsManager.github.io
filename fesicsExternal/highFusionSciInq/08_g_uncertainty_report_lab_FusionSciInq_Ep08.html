@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -302,9 +303,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,20 +440,25 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var TT = [0.497, 0.493, 0.501, 0.495, 0.499], HS = [1.20, 1.18], DH = 0.005;
+      var TT = [0.497, 0.493, 0.501, 0.495, 0.499], TM0 = 0.497, H0 = 1.20, OFF = [0, -0.02], DH = 0.005;
+      var G0 = 2 * H0 / (TM0 * TM0);   /* 실제로 잰 1.20 m 자료가 주는 g — 거리를 바꿔도 이 값이 나오도록 시간을 다시 만든다 */
+      /* 낙하 거리를 바꾸면 시간은 길어지지만 타이머가 흔들리는 폭(±0.004 s)은 그대로다 — 교육용 모형 자료 */
+      function times(h){ var t0 = Math.sqrt(2 * h / G0); return TT.map(function(t){ return t - TM0 + t0; }); }
       var RP = ['① 9.8로 고쳐 쓰기', '② 값 ± 불확도로 쓰기', '③ 실패라 싣지 않기', '④ 9.8에 가장 가까운 한 번만'];
       return {
         sceneHeight: 430,
-        idle: '보고 방법과 높이를 고른 뒤 <b>계산하고 보고서 쓰기</b>를 누르세요. 뭉치는 ①과 ④ 사이에서 고민 중이에요.',
-        shortHint: '네 가지 보고 방법을 모두 해 보고, 높이 1.18 m 경우도 한 번 기록해 보세요.',
+        idle: '보고 방법과 낙하 거리를 고른 뒤 <b>계산하고 보고서 쓰기</b>를 누르세요. 거리를 바꾸면 불확도 폭이 실제로 달라집니다.',
+        shortHint: '네 가지 보고 방법을 모두 해 보고, 낙하 거리도 바꿔 가며(0.4 m · 1.2 m · 3.0 m) 기록해 보세요.',
         params: [
           {key:'r', type:'seg', label:'보고 방법', cols:2, value:1, options:RP},
-          {key:'h', type:'seg', label:'낙하 거리 (동료 검토: 높이를 어디서 쟀나)', cols:2, value:0, options:['1.20 m (구슬 아랫면 ~ 접촉판)', '1.18 m (재는 지점이 2 cm 다름)']}
+          {key:'hb', type:'range', label:'낙하 거리', min:0.4, max:3, step:0.1, value:1.2, fmt:function(v){ return f(v, 2) + ' m'; }},
+          {key:'h', type:'seg', label:'높이를 어디서 쟀나 (동료 검토)', cols:2, value:0, options:['잡은 그대로 (구슬 아랫면 ~ 접촉판)', '재는 지점이 2 cm 다름'],
+            note:'1.20 m 는 실제로 다섯 번 잰 시간(0.497 · 0.493 · 0.501 · 0.495 · 0.499 s) 그대로입니다. 거리를 바꾸면 시간은 같은 흔들림 폭(±0.004 s)을 유지한 채 다시 계산한 <b>교육용 모형값</b>입니다.'}
         ],
         compute: function(p){
-          var h = HS[p.h], tm = mean(TT), g = 2 * h / (tm * tm);
-          var dt = (Math.max.apply(null, TT) - Math.min.apply(null, TT)) / 2, rt = 2 * dt / tm, rh = DH / h, rel = rt + rh, dg = g * rel;
-          var each = TT.map(function(t){ return 2 * h / (t * t); });
+          var h = p.hb + OFF[p.h], tt = times(p.hb), tm = mean(tt), g = 2 * h / (tm * tm);
+          var dt = (Math.max.apply(null, tt) - Math.min.apply(null, tt)) / 2, rt = 2 * dt / tm, rh = DH / h, rel = rt + rh, dg = g * rel;
+          var each = tt.map(function(t){ return 2 * h / (t * t); });
           var bi = 0; each.forEach(function(v, i){ if (Math.abs(v - 9.8) < Math.abs(each[bi] - 9.8)) bi = i; });
           var rep, unc, text, honest;
           if (p.r === 0){ rep = 9.8; unc = null; text = 'g = 9.8 m/s² (측정값을 고쳐 씀)'; honest = '조작 — 자료를 기준에 맞게 고침'; }
@@ -460,7 +467,7 @@ var LAB = (function(){
           else { rep = each[bi]; unc = null; text = 'g = ' + f(rep, 2) + ' m/s² (' + (bi + 1) + '회 ' + f(TT[bi], 3) + ' s 한 값)'; honest = '선택적 보고 — 유리한 값만 고름'; }
           var inside = Math.abs(g - 9.8) <= dg;
           if (honest == null) honest = inside ? '숨김 — 들어맞은 결과도 버려짐' : '숨김 — 9.8과 어긋난 결과(계통 오차를 찾을 단서)도 버려짐';
-          return {h:h, tm:tm, g:g, dt:dt, rt:rt, rh:rh, rel:rel, dg:dg, each:each, bi:bi, rep:rep, unc:unc, text:text, honest:honest, good:p.r === 1, inside:inside};
+          return {h:h, hb:p.hb, off:OFF[p.h], tt:tt, tm:tm, g:g, dt:dt, rt:rt, rh:rh, rel:rel, dg:dg, each:each, bi:bi, rep:rep, unc:unc, text:text, honest:honest, good:p.r === 1, inside:inside};
         },
         draw: function(c, W, H, p, r, tau){
           var x = Math.min(W * 0.18, 90), top = 40, bot = 250;
@@ -469,7 +476,7 @@ var LAB = (function(){
           var fall = r ? Math.min(1, tau / 0.5) : 0, y = top + 18 + (bot - top - 28) * fall * fall;
           c.fillStyle = '#9AA6B2'; c.beginPath(); c.arc(x, y, 10, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#4A5868'; c.stroke();
           arrow(c, x + 60, top + 8, x + 60, bot, '#8C99A8', 1.5); arrow(c, x + 60, bot, x + 60, top + 8, '#8C99A8', 1.5);
-          txt(c, 'h = ' + f(HS[p.h], 2) + ' m', x + 70, (top + bot) / 2, {bold:true});
+          txt(c, 'h = ' + f(p.hb + OFF[p.h], 2) + ' m', x + 70, (top + bot) / 2, {bold:true});
           meter(c, x + 70, (top + bot) / 2 + 20, Math.min(130, W - x - 90), r ? f(r.tm * fall, 3) + ' s' : '0.000 s');
           // 수직선 9.4 ~ 10.0
           var x0 = 40, x1 = W - 30, yb = H - 70, X = function(v){ return x0 + (v - 9.4) / 0.6 * (x1 - x0); };
@@ -490,27 +497,37 @@ var LAB = (function(){
             c.fillStyle = r.good ? PAL[1] : PAL[4]; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(r.text, tx2, 60, W - tx2 - 6); }   /* 긴 보고 문장이 오른쪽 끝에서 잘리지 않게 폭 안으로 */
         },
         stats: function(p, r){
-          return [['5회 낙하 시간', TT.map(function(t){ return f(t, 3); }).join(' · ') + ' s → 평균 ' + f(r.tm, 3) + ' s'],
+          return [['5회 낙하 시간', r.tt.map(function(t){ return f(t, 3); }).join(' · ') + ' s → 평균 ' + f(r.tm, 3) + ' s' + (Math.abs(r.hb - 1.2) > 1e-9 ? ' (거리를 바꿔 다시 계산한 교육용 모형값)' : '')],
             ['계산한 g (h = ' + f(r.h, 2) + ' m)', f(r.g, 2) + ' m/s²', PAL[0]],
             ['상대 불확도', '시간 2 × ' + f(r.dt, 3) + ' ÷ ' + f(r.tm, 3) + ' = ' + f(r.rt * 100, 1) + '% + 거리 ' + f(r.rh * 100, 1) + '% = ' + f(r.rel * 100, 1) + '%'],
-            ['불확도', '±' + f(r.dg, 2) + ' m/s² → 범위 ' + f(r.g - r.dg, 2) + ' ~ ' + f(r.g + r.dg, 2), r.inside ? PAL[1] : PAL[4]],
+            ['불확도', '±' + f(r.dg, 2) + ' m/s² → 범위 ' + f(r.g - r.dg, 2) + ' ~ ' + f(r.g + r.dg, 2) + ' (폭 ' + f(2 * r.dg, 2) + ')', r.inside ? PAL[1] : PAL[4]],
+            ['낙하 거리를 바꾸면', '멀리 떨어뜨릴수록 시간이 길어져 2Δt/t 가 작아지고, 거리 불확도 0.5 cm 도 덜 차지합니다 — 지금 ' + f(r.hb, 2) + ' m 에서 상대 불확도 ' + f(r.rel * 100, 1) + '%', PAL[3]],
             ['기준값 9.8', r.inside ? '범위 안 — 측정과 들어맞음' : '범위 밖 — 계통 오차(높이 재는 지점 등)를 점검', r.inside ? PAL[1] : PAL[4]],
             ['보고서에 쓴 문장', r.text + (r.unc != null ? ' (반올림 전 범위 ' + f(r.g - r.dg, 2) + ' ~ ' + f(r.g + r.dg, 2) + ' — 9.8 판정은 이 범위로)' : ''), r.good ? PAL[1] : PAL[6]],
             ['연구 윤리 판정', r.honest, r.good ? PAL[1] : PAL[4]]];
         },
-        columns: ['보고 방법', 'h(m)', '계산한 g', '보고한 값', '9.8 포함?', '윤리'],
-        record: function(p, r){ return {r:p.r, h:r.h, g:r.g, dg:r.dg, text:r.text, inside:r.inside, good:r.good}; },
-        row: function(d){ return [RP[d.r].slice(0, 1), f(d.h, 2), f(d.g, 2), d.text.replace(/ \(.*\)$/, ''), d.inside ? '예' : '아니오', d.good ? '정직' : '문제']; },
+        columns: ['보고 방법', 'h(m)', '계산한 g', '불확도 폭', '보고한 값', '9.8 포함?', '윤리'],
+        record: function(p, r){ return {r:p.r, h:r.h, hb:r.hb, off:r.off, g:r.g, dg:r.dg, rel:r.rel, text:r.text, inside:r.inside, good:r.good}; },
+        row: function(d){ return [RP[d.r].slice(0, 1), f(d.h, 2), f(d.g, 2), '±' + f(d.dg, 2) + ' (' + f(d.rel * 100, 1) + '%)', d.text.replace(/ \(.*\)$/, ''), d.inside ? '예' : '아니오', d.good ? '정직' : '문제']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('보고 방법 비교', '<div id="fg1"></div><p class="ask">④처럼 9.8에 가장 가까운 한 값(9.79)만 실으면 무엇이 사라지나요? 원자료를 모두 실어야 하는 까닭을 말해 보세요.</p>') +
+            card('낙하 거리와 불확도 폭', '<canvas class="chart" id="fg3" role="img" aria-label="낙하 거리에 따른 상대 불확도"></canvas><p class="ask">멀리서 떨어뜨릴수록 불확도 폭이 어떻게 되나요? 시간 쪽과 거리 쪽 중 어느 것이 더 크게 줄었나요?</p>') +
             card('동료 검토: 높이 재는 지점', '<div id="fg2"></div><p class="ask">과제: 이번 세트 실험 중 하나를 골라 보고서 틀(질문·방법·원자료·값 ± 불확도·논의·결론)대로 쓰고, 다른 모둠의 동료 검토를 받아 수정본과 수정 이유를 함께 제출하세요.</p>') + '</div>';
           var seen = {}, rows = [];
           rec.forEach(function(d){ var k = d.r + '_' + d.h; if (seen[k]) return; seen[k] = 1; rows.push([RP[d.r], f(d.h, 2) + ' m', d.text, d.good ? '✓ 정직' : '✗ 문제']); });
           $('fg1').innerHTML = tableHTML(['보고 방법', 'h', '보고 문장', '판정'], rows);
-          var byh = groupBy(rec, function(d){ return d.h; }), items = [];
+          drawScatter($('fg3'), {xLabel:'낙하 거리 (m)', yLabel:'상대 불확도 (%)', tightX:true, tightY:true,
+            series:[{color:PAL[3], pts:rec.map(function(d){ return {x:d.hb, y:d.rel * 100}; })}]});
+          var byh = groupBy(rec, function(d){ return f(d.h, 2); }), items = [];
           Object.keys(byh).forEach(function(k){ var d = byh[k][0]; items.push({label:'h = ' + f(d.h, 2) + ' m', v:d.g - 9.4, color:d.inside ? PAL[1] : PAL[4], text:f(d.g, 2) + ' ± ' + f(d.dg, 2) + (d.inside ? ' (9.8 포함)' : ' (9.8 밖)')}); });
-          $('fg2').innerHTML = hbars(items, 0.6) + (Object.keys(byh).length < 2 ? '<p class="msg">1.18 m 경우도 기록해 비교해 보세요.</p>' : '<p class="msg">높이 2 cm 차이로 g가 약 1.7% 바뀌었어요. 처음 잡은 거리 불확도 0.4%보다 큽니다.</p>');
+          var pairs = groupBy(rec, function(d){ return f(d.hb, 2) + '_' + d.r; }), msg = '', best = null;
+          Object.keys(pairs).forEach(function(k){ var g2 = pairs[k]; if (g2.length < 2) return;
+            var gs = g2.map(function(d){ return d.g; }), lo = Math.min.apply(null, gs), hi = Math.max.apply(null, gs);
+            if (hi - lo > 0 && (best === null || g2[0].hb < best.hb)) best = {hb:g2[0].hb, pc:(hi - lo) / lo * 100, rel:g2[0].rel * 100}; });
+          if (best) msg = '<p class="msg">낙하 거리 ' + f(best.hb, 2) + ' m 에서 높이 2 cm 차이로 g 가 약 ' + f(best.pc, 1) + '% 바뀌었어요. 같은 2 cm 라도 <b>멀리서 떨어뜨릴수록 차지하는 몫이 작아집니다</b>.</p>';
+          else msg = '<p class="msg">같은 낙하 거리에서 “재는 지점이 2 cm 다름”도 기록해 비교해 보세요. 낙하 거리를 바꿔 가며 해 보면 2 cm 가 차지하는 몫이 달라집니다.</p>';
+          $('fg2').innerHTML = hbars(items, 0.6) + msg;
         }
       };
     })();
@@ -519,7 +536,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

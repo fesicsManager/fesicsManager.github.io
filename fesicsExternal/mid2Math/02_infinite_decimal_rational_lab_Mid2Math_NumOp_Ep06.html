@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,6 +443,12 @@ var LAB = (function(){
         {s:'1.41421356…(√2)', ip:1, irr:true, dg:'41421356237309504880', why:'√2는 순환하지 않는 무한소수로 알려져 있어요(3학년에서 증명).'}
       ];
       var PR = ['유리수다 (분수로 쓸 수 있다)', '유리수가 아니다'];
+      var NONS = ['없음', '1', '12'], REPS = ['3', '12', '142857', '7', '6', '9', '09'];
+      /* 내가 만든 순환소수 — 정수 부분·순환 안 하는 자리·순환마디를 직접 고른다 */
+      function mkMine(p){
+        var ip = p.ip == null ? 0 : p.ip, non = NONS[p.nn || 0] === '없음' ? '' : NONS[p.nn || 0], rp = REPS[p.rp || 0];
+        return {s:ip + '.' + non + rp + rp + '…', ip:ip, non:non, rep:rp, mine:true};
+      }
       function gcd(a, b){ a = Math.abs(a); b = Math.abs(b); while (b){ var t = a % b; a = b; b = t; } return a; }
       function rep(s, n){ var o = ''; for (var i = 0; i < n; i++) o += s; return o; }
       function toFrac(x){
@@ -453,18 +461,22 @@ var LAB = (function(){
       function digitsOf(x){ if (x.irr) return x.dg; var s = x.non; while (s.length < 20) s += x.rep; return s.slice(0, 20); }
       return {
         sceneHeight: 400,
-        idle: '소수 하나와 나의 예측을 고른 뒤 <b>분수로 바꿔 보기</b>를 누르세요.',
+        idle: '소수 하나와 나의 예측을 고른 뒤 <b>분수로 바꿔 보기</b>를 누르세요. “내가 만든 순환소수”를 고르면 순환마디를 직접 지어 시험할 수 있습니다.',
         shortHint: '순환소수 다섯 개와 순환하지 않는 소수 세 개를 모두 해 보세요. “무한”인 것은 같은데 무엇이 다른가요?',
         params: [
-          {key:'x', type:'seg', label:'무한소수', cols:2, value:1, options:DC.map(function(d){ return d.s; })},
+          {key:'x', type:'seg', label:'무한소수', cols:2, value:1, options:DC.map(function(d){ return d.s; }).concat(['내가 만든 순환소수'])},
+          {key:'ip', type:'range', label:'내가 만들기 — 정수 부분', min:0, max:3, step:1, value:0, fmt:function(v){ return String(v); }},
+          {key:'nn', type:'seg', label:'내가 만들기 — 순환하지 않는 자리', cols:3, value:0, options:NONS},
+          {key:'rp', type:'seg', label:'내가 만들기 — 순환마디', cols:4, value:0, options:REPS},
           {key:'g', type:'seg', label:'나의 예측', cols:2, value:1, options:PR}
         ],
         compute: function(p){
-          var x = DC[p.x], fr = x.irr ? null : toFrac(x);
-          return {x:x, fr:fr, rational:!x.irr, ok:(p.g === 0) === !x.irr, check:fr ? longDiv(fr.n, fr.d, 12) + '…' : ''};
+          var x = (p.x === DC.length ? mkMine(p) : DC[p.x]), fr = x.irr ? null : toFrac(x);
+          return {x:x, fr:fr, rational:!x.irr, ok:(p.g === 0) === !x.irr, check:fr ? longDiv(fr.n, fr.d, 12) + '…' : '',
+            whole:(fr && fr.d === 1)};
         },
         draw: function(c, W, H, p, r, tau){
-          var x = DC[p.x], dg = digitsOf(x), n = Math.min(20, Math.floor((W - 90) / 22)), cw = (W - 90) / n;
+          var x = (r && r.x) ? r.x : (p.x === DC.length ? mkMine(p) : DC[p.x]), dg = digitsOf(x), n = Math.min(20, Math.floor((W - 90) / 22)), cw = (W - 90) / n;
           txt(c, x.s, 20, 36, {bold:true});
           var y = 80;
           txt(c, x.ip + '.', 20, y + 26, {bold:true});
@@ -488,6 +500,7 @@ var LAB = (function(){
               txt(c, '= ' + r.fr.rawN + '/' + r.fr.rawD + ' = ' + r.fr.n + '/' + r.fr.d, 20, y + 130, {bold:true, color:PAL[0]});
               txt(c, '검산: ' + r.fr.n + ' ÷ ' + r.fr.d + ' =', 20, y + 170, {color:'#4A5868'});
               txt(c, r.check, 20, y + 200, {bold:true, color:PAL[1]});
+              if (r.whole) txt(c, '분수가 정수가 되었어요 — 0.999…는 1과 같은 수예요', 20, y + 230, {bold:true, color:PAL[4]});
               c.globalAlpha = 1;
             }
           }
@@ -499,14 +512,18 @@ var LAB = (function(){
             ['분수로', r.rational ? r.fr.rawN + '/' + r.fr.rawD + ' = ' + r.fr.n + '/' + r.fr.d : '나타낼 수 없음 — ' + x.why, PAL[0]],
             ['검산 (분수를 다시 나누기)', r.rational ? r.check : '해당 없음'],
             ['분류', r.rational ? '무한소수지만 유리수' : '유리수가 아님 (무리수)', r.rational ? PAL[1] : PAL[4]],
-            ['나의 예측', PR[p.g] + (r.ok ? ' — 맞았어요' : ' — 결과와 달라요'), r.ok ? PAL[1] : PAL[4]]];
+            ['나의 예측', PR[p.g] + (r.ok ? ' — 맞았어요' : ' — 결과와 달라요'), r.ok ? PAL[1] : PAL[4]]]
+            .concat(x.mine ? [['내가 지은 소수', '정수 부분 ' + x.ip + ' · 순환 안 하는 자리 “' + (x.non || '없음') + '” · 순환마디 “' + x.rep + '”'],
+              ['되돌아왔나', r.rational ? (r.whole ? '분수로 돌아왔는데 정수가 되었습니다 — 0.999… = 1 처럼 겹쳐 쓰이는 수입니다' : '분수로 돌아왔습니다 — 어떤 순환소수를 지어도 분수로 쓸 수 있습니다') : '—',
+                r.whole ? PAL[4] : PAL[1]]] : []);
         },
         columns: ['소수', '순환?', '분수', '예측'],
-        record: function(p, r){ return {x:p.x, rat:r.rational, fr:r.rational ? r.fr.n + '/' + r.fr.d : '—', ok:r.ok}; },
-        row: function(d){ return [DC[d.x].s, d.rat ? '순환' : '순환 안 함', d.fr, d.ok ? '맞음' : '틀림']; },
+        record: function(p, r){ return {x:p.x, s:r.x.s, rat:r.rational, fr:r.rational ? r.fr.n + '/' + r.fr.d : '—', ok:r.ok, mine:!!r.x.mine, whole:!!r.whole}; },
+        row: function(d){ return [d.s, d.rat ? '순환' : '순환 안 함', d.fr, d.ok ? '맞음' : '틀림']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('무한소수 분류표', '<div id="ir1"></div><p class="ask">“무한소수”라는 공통점만 보고 판단했을 때 틀린 소수는 어느 쪽이었나요? 유리수를 가르는 기준은 “끝나느냐”가 아니라 무엇인가요?</p>') +
+            card('내가 지어 본 순환소수', '<div id="ir3"></div><p class="ask">어떤 순환마디를 지어도 분수로 돌아왔나요? 순환마디를 9 로 두었을 때 나온 값을 보고 0.999… 가 무엇과 같은 수인지 적어 보세요.</p>') +
             card('종류별 예측 적중', '<div id="ir2"></div><p class="ask">과제: 0.2777…과 0.454545…를 분수로 바꾸고, 계산기로 나누어 검산하세요. 순환하지 않는 무한소수를 하나 직접 만들어 규칙을 설명해 보세요.</p>') + '</div>';
           var seen = {}, rows = [];
           rec.forEach(function(d){ if (seen[d.x]) return; seen[d.x] = 1; rows.push([DC[d.x].s, d.rat ? '순환소수' : '순환 안 함', d.fr, d.rat ? '유리수' : '유리수 아님']); });
@@ -514,6 +531,11 @@ var LAB = (function(){
           var g = groupBy(rec, function(d){ return d.rat ? '순환소수' : '순환하지 않는 소수'; }), items = [];
           Object.keys(g).forEach(function(k){ var x = g[k], v = x.filter(function(d){ return d.ok; }).length / x.length * 100; items.push({label:k, v:v, color:k === '순환소수' ? PAL[2] : PAL[7], text:f(v, 0) + '% (' + x.length + '회)'}); });
           $('ir2').innerHTML = hbars(items, 100);
+          var mine = rec.filter(function(d){ return d.mine; });
+          $('ir3').innerHTML = mine.length
+            ? tableHTML(['내가 지은 소수', '분수', '결론'], mine.map(function(d){ return [d.s, d.fr, d.whole ? '분수가 정수 — 0.999… = 1' : '유리수']; })) +
+              '<p class="msg">지어 본 ' + mine.length + '개 모두 분수로 돌아왔어요(' + mine.filter(function(d){ return d.rat; }).length + '개). 되풀이되는 마디가 있으면 언제나 분수로 쓸 수 있어요. 순환마디가 9 일 때는 분수가 정수가 되는데, 0.999… 와 1 은 같은 수예요.</p>'
+            : '<p class="msg">“내가 만든 순환소수”를 골라 순환마디를 직접 지어 보세요.</p>';
         }
       };
     })();
@@ -522,7 +544,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

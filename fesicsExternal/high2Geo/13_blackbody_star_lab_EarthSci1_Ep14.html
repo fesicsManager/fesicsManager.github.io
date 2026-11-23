@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -307,9 +308,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -455,26 +457,35 @@ var ST = [
 var WIEN = 2.898e6, RES = 10;
 function planck(lam, T){ var l = lam * 1e-9; return 1 / (Math.pow(l, 5) * (Math.exp(1.4388e-2 / (l * T)) - 1)); }
 function cls(T){ return T >= 30000 ? 'O' : T >= 10000 ? 'B' : T >= 7500 ? 'A' : T >= 6000 ? 'F' : T >= 5200 ? 'G' : T >= 3700 ? 'K' : 'M'; }
+function fmtR(R){ return R >= 100 ? String(Math.round(R)) : R >= 10 ? f(R, 1) : f(R, 2); }
+function starOf(p){ return p.mode ? {name:'직접 정한 별', T:p.Tm, R:Math.pow(10, p.Rm)} : ST[p.s]; }
 function starColor(T){ var t = Math.min(1, Math.max(0, (T - 3000) / 9000)); var r = 255, g = Math.round(150 + 90 * t), b = Math.round(90 + 165 * t); if (T > 10000){ r = Math.round(255 - 60 * Math.min(1, (T - 10000) / 15000)); } return 'rgb(' + r + ',' + g + ',' + b + ')'; }
 return {
   sceneHeight: 450,
   idle: '별을 고른 뒤 <b>스펙트럼 측정하기</b>를 누르세요. 파장별 복사 세기를 재어 가장 센 파장을 찾습니다.',
-  shortHint: '자유 탐구 탭에서 여러 별의 스펙트럼을 측정해 기록하세요.',
+  shortHint: '자유 탐구 탭에서 여러 별의 스펙트럼을 측정해 기록하세요. 온도·반지름을 직접 정해 만든 별도 기록됩니다.',
   params: [
     {key:'s', type:'seg', label:'별', value:0, options:ST.map(function(x){ return x.name + '<small>반지름 ' + x.R + ' R☉</small>'; }),
-      note:'별을 흑체로 보고, 가장 센 파장은 분광기로 10 nm 단위로 읽습니다. 반지름은 간섭계 등으로 따로 잰 값입니다.'}
+      note:'별을 흑체로 보고, 가장 센 파장은 분광기로 10 nm 단위로 읽습니다. 반지름은 간섭계 등으로 따로 잰 값입니다.'},
+    {key:'mode', type:'seg', label:'무엇을 재어 볼까', value:0, options:['고른 별 그대로', '온도·반지름 직접 정하기'],
+      note:'직접 정하기로 바꾸면 아래 두 눈금으로 별을 하나 만들어 재어 봅니다. 기본값은 고른 별 그대로입니다. 같은 표면 온도의 주계열성 반지름을 (표면 온도 ÷ 5772 K) R☉ 로 어림한 교육용 모형값과 견주어, 4배보다 크면 거성·50배보다 크면 초거성, 0.25배보다 작으면 백색왜성급으로 판정합니다.'},
+    {key:'Tm', type:'range', label:'직접 정한 표면 온도', min:3000, max:30000, step:100, value:5772,
+      fmt:function(v){ return Math.round(v).toLocaleString() + ' K'; }},
+    {key:'Rm', type:'range', label:'직접 정한 반지름 (10의 거듭제곱 눈금)', min:-1, max:3, step:0.05, value:0,
+      fmt:function(v){ return fmtR(Math.pow(10, v)) + ' R☉'; }}
   ],
   compute: function(p){
-    var S = ST[p.s], lm = Math.round(WIEN / S.T / RES) * RES, T = WIEN / lm, L = Math.pow(S.R, 2) * Math.pow(T / 5772, 4);
-    return {S:S, lm:lm, T:T, L:L, cls:cls(T)};
+    var S = starOf(p), lm = Math.round(WIEN / S.T / RES) * RES, T = WIEN / lm, L = Math.pow(S.R, 2) * Math.pow(T / 5772, 4);
+    var q = S.R / (T / 5772), cat = q >= 50 ? '초거성' : q >= 4 ? '거성' : q <= 0.25 ? '백색왜성급' : '주계열성';
+    return {S:S, lm:lm, T:T, L:L, cls:cls(T), q:q, cat:cat};
   },
   draw: function(c, W, H, p, r, tau){
-    var S = ST[p.s];
+    var S = starOf(p);
     // 별
     var rad = 16 + Math.min(40, 10 * Math.log10(1 + S.R * 10));
     glow(c, 60, 70, rad * 2, starColor(S.T), 0.8);
     c.fillStyle = starColor(S.T); c.beginPath(); c.arc(60, 70, rad, 0, Math.PI * 2); c.fill();
-    txt(c, S.name, 120, 60, {bold:true}); txt(c, '반지름 ' + S.R + ' R☉', 120, 88, {color:'#4A5868'});
+    txt(c, S.name, 120, 60, {bold:true}); txt(c, '반지름 ' + (p.mode ? fmtR(S.R) : S.R) + ' R☉', 120, 88, {color:'#4A5868'});
     // 스펙트럼 그래프 (100~3000 nm)
     var P = plotBox(c, 70, 150, W - 100, H - 220, [0, 3000, 500], [0, 1, 0.25], '파장 (nm)', '상대 세기');
     // 가시광 띠
@@ -488,23 +499,24 @@ return {
   },
   stats: function(p, r){
     return [['가장 센 파장 λmax', r.lm + ' nm', '#C8463D'], ['표면 온도 T = 2.898×10⁶ ÷ λmax', Math.round(r.T).toLocaleString() + ' K', PAL[0]], ['분광형', r.cls + '형'],
-      ['광도 L = (R/R☉)² × (T/5772 K)⁴', (r.L >= 100 ? Math.round(r.L).toLocaleString() : f(r.L, r.L < 0.01 ? 5 : 2)) + ' L☉', PAL[6]]];
+      ['광도 L = (R/R☉)² × (T/5772 K)⁴', (r.L >= 100 ? Math.round(r.L).toLocaleString() : f(r.L, r.L < 0.01 ? 5 : 2)) + ' L☉', PAL[6]],
+      ['같은 온도의 주계열성 반지름과 비교', f(r.q, 2) + '배 → ' + r.cat, r.cat === '주계열성' ? PAL[1] : '#C8463D']];
   },
-  columns: ['별', 'λmax (nm)', '표면 온도 (K)', '분광형', '반지름 (R☉)', '광도 (L☉)'],
-  record: function(p, r){ return {s:p.s, lm:r.lm, T:r.T, cls:r.cls, R:r.S.R, L:r.L}; },
-  row: function(d){ return [ST[d.s].name, d.lm, Math.round(d.T).toLocaleString(), d.cls, d.R, d.L >= 100 ? Math.round(d.L).toLocaleString() : f(d.L, d.L < 0.01 ? 5 : 2)]; },
+  columns: ['별', 'λmax (nm)', '표면 온도 (K)', '분광형', '반지름 (R☉)', '광도 (L☉)', '분류'],
+  record: function(p, r){ return {s:p.s, nm:r.S.name, lm:r.lm, T:r.T, cls:r.cls, R:r.S.R, L:r.L, q:r.q, cat:r.cat}; },
+  row: function(d){ return [d.nm, d.lm, Math.round(d.T).toLocaleString(), d.cls, fmtR(d.R), d.L >= 100 ? Math.round(d.L).toLocaleString() : f(d.L, d.L < 0.01 ? 5 : 2), d.cat + ' (' + f(d.q, 2) + '배)']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('H-R도 (기록한 별)', '<canvas class="chart" id="hr" style="height:340px" role="img" aria-label="흑체 복사로 별의 물리량 구하기 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><p class="ask">왼쪽 아래에서 오른쪽 위로 이어지는 띠에 놓인 별과 그렇지 않은 별은 무엇이 다른가요? 베텔게우스는 표면 온도가 낮은데 왜 매우 밝을까요?</p>') +
       card('표면 온도와 별의 색', '<div id="ro2"></div><p class="ask">표면 온도가 높을수록 가장 센 파장은 어느 쪽(짧은/긴 파장)으로 가나요? 이것이 별의 색과 어떤 관계인가요?</p>') + '</div>';
     var o = fitCanvas($('hr')), c = o.c, W = o.W, H = o.H;
     var P = plotBox(c, 80, 14, W - 100, H - 80, [25000, 0, -5000], [-3, 6, 1], '표면 온도 (K)', 'log(광도/L☉)');
-    var seen = {};
-    rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; var x = P.X(Math.min(25000, d.T)), y = P.Y(Math.log10(d.L));
+    var key = function(d){ return d.nm + '|' + d.lm + '|' + d.R; }, seen = {};
+    rec.forEach(function(d){ var k = key(d); if (seen[k]) return; seen[k] = 1; var x = P.X(Math.min(25000, d.T)), y = P.Y(Math.log10(d.L));
       c.fillStyle = starColor(d.T); c.strokeStyle = '#1E2833'; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 8, 0, Math.PI * 2); c.fill(); c.stroke();
-      txt(c, ST[d.s].name, x + 10, y - 8, {color:'#1E2833'}); });
-    var rows = rec.filter(function(d, i, a){ return a.findIndex(function(e){ return e.s === d.s; }) === i; }).sort(function(a, b){ return b.T - a.T; });
-    $('ro2').innerHTML = hbars(rows.map(function(d){ return {label:ST[d.s].name, v:d.T, color:starColor(d.T), text:Math.round(d.T).toLocaleString() + ' K, ' + d.cls + '형, λmax ' + d.lm + ' nm'}; }), 25000);
+      txt(c, d.nm, x + 10, y - 8, {color:'#1E2833'}); });
+    var rows = rec.filter(function(d, i, a){ return a.findIndex(function(e){ return key(e) === key(d); }) === i; }).sort(function(a, b){ return b.T - a.T; });
+    $('ro2').innerHTML = hbars(rows.map(function(d){ return {label:d.nm, v:d.T, color:starColor(d.T), text:Math.round(d.T).toLocaleString() + ' K, ' + d.cls + '형, λmax ' + d.lm + ' nm, ' + d.cat}; }), 25000);
   }
 };
 })();
@@ -513,7 +525,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -474,9 +476,12 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         {n:'3대째 사는 외국인 상인', s:'외국인 거주민', ok:false, why:'대를 이어 살며 세금을 내도 시민이 될 수 없었음'},
         {n:'노예', s:'노예', ok:false, why:'노예는 시민이 아님'},
         {n:'시민 집안의 15세 소년', s:'시민 집안 소년', ok:false, why:'아직 성인이 아님'},
-        {n:'어머니가 외국인인 남성 (기원전 451년 이후 출생)', s:'어머니가 외국인', ok:false, why:'시민권법: 부모가 모두 시민이어야 함'}
+        {n:'아버지는 시민, 어머니는 외국인인 성인 남성', s:'어머니가 외국인', ok:false, lawDep:true, why:'시민권법: 부모가 모두 시민이어야 함'}
       ];
       var POP = [200000, 250000, 300000], CIT = 30000;
+      var LAWN = ['기원전 451년 시민권법 이전', '시민권법 이후'];
+      /* 시민권법이 시민의 범위를 좁혀 투표권자 수가 줄었다고 본다 (교육용 어림값) */
+      var CITL = [36000, 30000];
       return {
         sceneHeight: 400,
         idle: '사람 카드·나의 예상·주민 수 추정을 고른 뒤 <b>민회 입구에서 확인</b>을 누르세요.',
@@ -484,11 +489,18 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         params: [
           {key:'w', type:'seg', label:'사람 카드', cols:2, value:0, options:PP.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'나의 예상', cols:2, value:0, options:['투표할 수 있다', '투표할 수 없다']},
-          {key:'n', type:'seg', label:'아테네 지역 주민 수 추정', cols:3, value:1, options:['약 20만 명', '약 25만 명', '약 30만 명']}
+          {key:'n', type:'seg', label:'아테네 지역 주민 수 추정', cols:3, value:1, options:['약 20만 명', '약 25만 명', '약 30만 명']},
+          {key:'law', type:'seg', label:'언제인가', cols:2, value:1, options:LAWN,
+            note:'기원전 451년 페리클레스의 시민권법은 부모가 모두 시민일 때만 시민으로 인정했어요. 같은 사람 카드인데 판정이 바뀌는 카드를 찾아보세요. (투표권자 수는 교육용 어림값)'}
         ],
-        compute: function(p){ var P = PP[p.w], share = CIT / POP[p.n] * 100; return {P:P, hit:(p.g === 0) === P.ok, share:share, dots:Math.round(share)}; },
+        compute: function(p){
+          var P = PP[p.w], cit = CITL[p.law], share = cit / POP[p.n] * 100;
+          var ok = P.lawDep ? (p.law === 0) : P.ok;
+          var why = P.lawDep ? (p.law === 0 ? '시민권법 이전에는 아버지가 시민이면 시민으로 보았음' : '시민권법: 부모가 모두 시민이어야 함') : P.why;
+          return {P:P, ok:ok, why:why, lawDep:!!P.lawDep, law:p.law, cit:cit, hit:(p.g === 0) === ok, share:share, dots:Math.round(share)};
+        },
         draw: function(c, W, H, p, r, tau){
-          var s = fz(W), P = PP[p.w], k = r ? ease(tau) : 0, share = CIT / POP[p.n] * 100, nd = Math.round(share);
+          var s = fz(W), P = PP[p.w], k = r ? ease(tau) : 0, share = CITL[p.law] / POP[p.n] * 100, nd = Math.round(share);
           c.fillStyle = '#F7F9FC'; c.fillRect(0, 0, W, H);
           var gw = Math.min(W * 0.5, 260), gs = gw / 10, gx = 16, gy = 50;
           tx(c, '주민 100명으로 줄이면', gx, 32, {bold:true, size:s - 1});
@@ -498,26 +510,32 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           rrect(c, cx, 50, cw, 120, 10, '#FFF9EC', '#C9A55A', 2);
           wrapT(c, P.n, cx + 12, 80, cw - 24, s + 4, {bold:true, size:s, max:3});
           rrect(c, cx, 200, cw, 90, 10, '#EFE7DA', '#A8885A', 2); tx(c, '민회', cx + cw / 2, 252, {align:'center', bold:true, size:s + 4, color:'#6E5432'});
-          if (r){ stamp(c, cx + cw / 2, 330, P.ok ? '입장 가능' : '입장 불가', P.ok ? PAL[2] : PAL[0], k, s + 2);
+          if (r){ stamp(c, cx + cw / 2, 330, r.ok ? '입장 가능' : '입장 불가', r.ok ? PAL[2] : PAL[0], k, s + 2);
             tx(c, '내 예상 ' + (r.hit ? '맞음' : '다름'), cx + cw / 2, H - 14, {align:'center', size:s - 1, color:r.hit ? PAL[2] : PAL[0]}); }
         },
         stats: function(p, r){
-          return [['사람', r.P.n], ['나의 예상', p.g === 0 ? '투표할 수 있다' : '투표할 수 없다'], ['실제', (r.P.ok ? '투표할 수 있었음' : '투표할 수 없었음') + ' — ' + r.P.why, r.P.ok ? PAL[2] : PAL[0]],
+          return [['사람', r.P.n], ['언제', LAWN[p.law]], ['나의 예상', p.g === 0 ? '투표할 수 있다' : '투표할 수 없다'],
+            ['실제', (r.ok ? '투표할 수 있었음' : '투표할 수 없었음') + ' — ' + r.why, r.ok ? PAL[2] : PAL[0]],
+            ['이 카드는 법에 따라 바뀌나', r.lawDep ? '✅ 바뀝니다 — 시민권법 이전엔 가능, 이후엔 불가' : '❌ 바뀌지 않습니다 (성별·나이·노예 여부는 법과 무관)', r.lawDep ? PAL[6] : '#1E2833'],
             ['내 예상', r.hit ? '맞았어요' : '달랐어요', r.hit ? PAL[2] : PAL[6]],
-            ['투표권자 비율', '성인 남성 시민 약 3만 ÷ 주민 ' + POP[p.n] / 10000 + '만 = 약 ' + f(r.share, 0) + '%', PAL[1]]];
+            ['투표권자 비율', '성인 남성 시민 약 ' + (r.cit / 10000).toFixed(1) + '만 ÷ 주민 ' + POP[p.n] / 10000 + '만 = 약 ' + f(r.share, 0) + '%', PAL[1]]];
         },
-        columns: ['사람', '나의 예상', '실제', '맞음', '주민 추정', '투표권자 비율'],
-        record: function(p, r){ return {w:p.w, g:p.g, n:p.n, hit:r.hit, share:r.share}; },
-        row: function(d){ return [PP[d.w].s, d.g === 0 ? '가능' : '불가', PP[d.w].ok ? '가능' : '불가', d.hit ? '○' : '×', POP[d.n] / 10000 + '만', f(d.share, 0) + '%']; },
+        columns: ['사람', '언제', '나의 예상', '실제', '맞음', '주민 추정', '투표권자 비율'],
+        record: function(p, r){ return {w:p.w, g:p.g, n:p.n, hit:r.hit, share:r.share, law:p.law, ok:r.ok, why:r.why, lawDep:r.lawDep, cit:r.cit}; },
+        row: function(d){ return [PP[d.w].s, d.law ? '법 이후' : '법 이전', d.g === 0 ? '가능' : '불가', (d.ok ? '가능' : '불가') + (d.lawDep ? ' ⚠' : ''), d.hit ? '○' : '×', POP[d.n] / 10000 + '만', f(d.share, 0) + '%']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('사람 카드별 확인 결과', '<div id="m3a"></div><p class="ask">투표할 수 있던 카드와 없던 카드를 가른 기준 세 가지(성별·부모의 신분·나이)를 말해 보세요. 재산은 기준이었나요?</p>') +
             card('주민 수 추정과 투표권자 비율', '<div id="m3b"></div><p class="ask">과제: 아테네 민회와 우리 학교 학생회 선거를 ‘누가 투표하나·누가 대표가 되나·어떻게 뽑나(선거·제비뽑기)’ 세 칸으로 비교하고, 주민 구성 원그래프에서 투표권이 있던 부분에만 색칠해 보세요.</p>') + '</div>';
           var u = uniq(rec, function(d){ return d.w; });
-          $('m3a').innerHTML = tableHTML(['사람', '실제', '까닭', '내 예상'], u.map(function(d){ var P = PP[d.w]; return [P.s, P.ok ? '가능' : '불가', P.why, d.hit ? '맞음' : '다름']; })) +
-            '<p class="msg">맞힌 비율 ' + f(rec.filter(function(d){ return d.hit; }).length / rec.length * 100, 0) + '%</p>';
-          $('m3b').innerHTML = hbars(POP.map(function(n, i){ var v = CIT / n * 100; return {label:'주민 ' + n / 10000 + '만' + (rec.some(function(d){ return d.n === i; }) ? ' ✓' : ''), v:v, color:PAL[1], text:'약 ' + f(v, 0) + '%'}; }), 100) +
-            '<p class="msg">어느 추정을 써도 주민 열 명 가운데 한두 명쯤입니다.</p>';
+          $('m3a').innerHTML = tableHTML(['사람', '언제', '실제', '까닭', '내 예상'], u.map(function(d){ var P = PP[d.w]; return [P.s, d.law ? '법 이후' : '법 이전', d.ok ? '가능' : '불가', d.why, d.hit ? '맞음' : '다름']; })) +
+            '<p class="msg">맞힌 비율 ' + f(rec.filter(function(d){ return d.hit; }).length / rec.length * 100, 0) + '%</p>' +
+            (function(){ var dep = rec.filter(function(d){ return d.lawDep; }), laws = {}; dep.forEach(function(d){ laws[d.law] = d.ok; });
+              if (Object.keys(laws).length < 2) return '<p class="msg">“아버지는 시민, 어머니는 외국인” 카드를 <b>시민권법 이전</b>과 <b>이후</b>로 각각 확인해 보세요. 같은 사람인데 판정이 뒤집힙니다 — 시민은 타고난 것이 아니라 <b>법이 정한 범위</b>였습니다.</p>';
+              return '<p class="msg">같은 카드(어머니가 외국인)의 판정 — 법 이전 ' + (laws[0] ? '가능' : '불가') + ' / 법 이후 ' + (laws[1] ? '가능' : '불가') + '. 사람이 바뀐 것이 아니라 <b>기준이 바뀌었습니다.</b> 성별·나이·노예 여부로 걸린 카드는 법이 바뀌어도 그대로였습니다.</p>'; })();
+          var lw = rec[rec.length - 1].law;
+          $('m3b').innerHTML = hbars(POP.map(function(n, i){ var v = CITL[lw] / n * 100; return {label:'주민 ' + n / 10000 + '만' + (rec.some(function(d){ return d.n === i; }) ? ' ✓' : ''), v:v, color:PAL[1], text:'약 ' + f(v, 0) + '%'}; }), 100) +
+            '<p class="msg">' + LAWN[lw] + ' 기준(투표권자 약 ' + (CITL[lw] / 10000).toFixed(1) + '만 명)으로 그렸어요. 어느 추정을 써도 주민 열 명 가운데 한두 명쯤이고, 시민권법 뒤에는 그 몫이 더 줄었습니다. (투표권자 수는 교육용 어림값)</p>';
         }
       };
     
@@ -527,7 +545,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

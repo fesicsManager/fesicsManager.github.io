@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,22 +443,39 @@ var LAB = (function(){
       function mlabel(k){ return YL[Math.floor(k / 12)] + ' ' + (k % 12 + 1) + '월'; }
       var CE = ['바로 전달 (올해 6월)', '작년 같은 달 (작년 7월)', '올해 3월', '3년 전체 월 평균'], CS = ['전달', '전년 동월', '3월', '전체 평균'];
       var AVG = mean(D), REFI = [29, 18, 26, -1];
+      /* 올해 7월 값을 바꿔 가며, 같은 기준에서도 결론이 바뀌는지 본다 */
+      var VAL = [900, 1200, 1500, 1800], VS = ['900개', '1,200개 (받은 자료)', '1,500개', '1,800개'];
+      var CACHE = {};
+      function DS(sc){
+        if (!CACHE[sc]){
+          var d = D.slice(); d[30] = VAL[sc];
+          var m = d.map(function(v, k){ if (k < 11) return null; var s = 0; for (var j = k - 11; j <= k; j++) s += d[j]; return s / 12; });
+          CACHE[sc] = {d:d, m:m, avg:mean(d)};
+        }
+        return CACHE[sc];
+      }
       return {
         sceneHeight: 440,
         idle: '비교 기준과 보기 방식을 고른 뒤 <b>비교하기</b>를 누르세요.',
         shortHint: '네 가지 기준을 모두 기록해 보세요. "늘었다"와 "줄었다"가 기준에 따라 뒤집힙니다.',
         params: [
-          {key:'c', type:'seg', label:'올해 7월(1,200개)을 무엇과 비교할까', cols:2, value:0, options:CE},
+          {key:'c', type:'seg', label:'올해 7월을 무엇과 비교할까', cols:2, value:0, options:CE},
+          {key:'sc', type:'seg', label:'올해 7월 판매량을 손보면', cols:2, value:1, options:VS,
+            note:'자료를 손봐 가며 같은 기준에서도 결론이 바뀌는지 보세요. 1,200개가 받은 자료의 값입니다.'},
           {key:'v', type:'seg', label:'보기', cols:2, value:1, options:['월별 판매량만', '12개월 이동 평균 겹치기']}
         ],
         compute: function(p){
-          var ref = REFI[p.c] < 0 ? AVG : D[REFI[p.c]], ch = (D[30] - ref) / ref * 100;
-          var maNow = MA[30], maYear = MA[18];
-          var mo = [0, 1, 2].filter(function(y){ return y * 12 + 6 <= 30; }).map(function(y){ return D[y * 12 + 6] / D[y * 12 + 5]; });
-          return {ref:ref, ch:ch, maNow:maNow, maYear:maYear, maCh:(maNow - maYear) / maYear * 100, jj:mean(mo) * 100 - 100};
+          var C = DS(p.sc), d = C.d, m = C.m;
+          var ref = REFI[p.c] < 0 ? C.avg : d[REFI[p.c]], ch = (d[30] - ref) / ref * 100;
+          var maNow = m[30], maYear = m[18];
+          var mo = [0, 1, 2].filter(function(y){ return y * 12 + 6 <= 30; }).map(function(y){ return d[y * 12 + 6] / d[y * 12 + 5]; });
+          return {ref:ref, ch:ch, maNow:maNow, maYear:maYear, maCh:(maNow - maYear) / maYear * 100, jj:mean(mo) * 100 - 100,
+            cur:d[30], sc:p.sc};
         },
         draw: function(c, W, H, p, r, tau){
-          var pb = plotBox(c, 70, 24, W - 96, H - 110, [0, 30, 6], [0, 1600, 400], '개월 (재작년 1월 = 0)', '판매량 (개)');
+          var C0 = DS(p.sc), D = C0.d, MA = C0.m, AVG = C0.avg;
+          var yMax = Math.max(1600, Math.ceil(Math.max.apply(null, D) / 400) * 400);
+          var pb = plotBox(c, 70, 24, W - 96, H - 110, [0, 30, 6], [0, yMax, 400], '개월 (재작년 1월 = 0)', '판매량 (개)');
           var k = r ? Math.min(tau / 0.8, 1) : 1, n = Math.max(2, Math.floor(31 * k)), j;
           for (j = 1; j < 3; j++) seg(c, pb.X(j * 12 - 0.5), 24, pb.X(j * 12 - 0.5), H - 86, '#C9D3DE', 1, [4, 4]);
           c.strokeStyle = PAL[0]; c.lineWidth = 2.5; c.beginPath();
@@ -471,21 +490,41 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['올해 7월', '1,200개'], ['비교 기준', CE[p.c] + ' = ' + Math.round(r.ref).toLocaleString() + '개', PAL[1]],
+          return [['올해 7월', r.cur.toLocaleString() + '개' + (r.sc === 1 ? ' (받은 자료)' : ' (내가 손본 값)')],
+            ['비교 기준', CE[p.c] + ' = ' + Math.round(r.ref).toLocaleString() + '개', PAL[1]],
             ['변화율', sgn(r.ch, 1) + '%', r.ch >= 0 ? PAL[1] : PAL[4]],
             ['해마다 7월 ÷ 6월', '평균 ' + sgn(r.jj, 0) + '% — 여름이 오면 늘 느는 몫', PAL[6]],
             ['12개월 이동 평균', '작년 7월 ' + f(r.maYear, 0) + ' → 올해 7월 ' + f(r.maNow, 0) + ' (' + sgn(r.maCh, 1) + '%)', PAL[6]],
             ['해석', p.c === 1 ? '같은 계절끼리 비교 — 장사는 작년보다 약간 줄었음' : p.c === 3 ? '계절이 섞인 평균과 비교 — 여름이라 높게 보일 뿐' : '계절 차이가 그대로 들어간 비교 — "여름이 왔다"는 뜻', p.c === 1 ? PAL[1] : PAL[4]]];
         },
-        columns: ['비교 기준', '기준값', '변화율', '판단'],
-        record: function(p, r){ return {c:p.c, ref:r.ref, ch:r.ch}; },
-        row: function(d){ return [CS[d.c], Math.round(d.ref).toLocaleString(), sgn(d.ch, 1) + '%', d.ch >= 0 ? '늘었다' : '줄었다']; },
+        columns: ['7월 값', '비교 기준', '기준값', '변화율', '판단'],
+        record: function(p, r){ return {c:p.c, ref:r.ref, ch:r.ch, sc:r.sc, cur:r.cur}; },
+        row: function(d){ return [d.cur == null ? '1,200' : d.cur.toLocaleString(), CS[d.c], Math.round(d.ref).toLocaleString(), sgn(d.ch, 1) + '%', d.ch >= 0 ? '늘었다' : '줄었다']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('비교 기준별 "올해 7월 변화율"', '<div id="sv5a"></div><p class="ask">"늘었다"와 "줄었다"가 갈렸나요? 장사가 잘되는지 판단하려면 어느 기준이 알맞은가요? 그 까닭은?</p>') +
+            card('자료를 손보면 결론이 어떻게 바뀌나', '<div id="sv5c"></div><p class="ask">같은 기준에서도 7월 값만 바꾸니 "늘었다"와 "줄었다"가 갈렸나요? 그렇다면 결론을 정하는 것은 기준인가요, 자료인가요, 둘 다인가요?</p>') +
             card('해마다 7월과 12개월 이동 평균', '<div id="sv5b"></div><p class="ask">과제: 공공데이터포털에서 3년 이상의 월별 자료(관광객 수·전력 사용량 등) 하나를 받아 선 그래프와 12개월 이동 평균을 그리고, 최근 달을 "전달 대비"와 "전년 동월 대비"로 각각 계산해 두 결론이 어떻게 다른지 쓰세요.</p>') + '</div>';
           $('sv5a').innerHTML = hbars(rec.map(function(d){ return {label:CS[d.c], v:Math.abs(d.ch), color:d.ch >= 0 ? PAL[1] : PAL[4], text:sgn(d.ch, 1) + '%'}; }), 200) + '<p class="msg">막대 길이는 변화율의 크기, 색은 방향(초록 = 늘었다, 빨강 = 줄었다)입니다.</p>';
           $('sv5b').innerHTML = tableHTML(['해', '6월', '7월', '7월 ÷ 6월', '7월 이동 평균'], [0, 1, 2].map(function(y){ var a = D[y * 12 + 5], b = D[y * 12 + 6], m = MA[y * 12 + 6]; return [YL[y], a.toLocaleString(), b.toLocaleString(), sgn((b / a - 1) * 100, 0) + '%', m == null ? '—' : f(m, 0)]; }));
+          (function(){
+            var cell = {}, scs = {}, cs = {};
+            rec.forEach(function(d){ var s = d.sc == null ? 1 : d.sc; cell[s + '|' + d.c] = d; scs[s] = 1; cs[d.c] = 1; });
+            var scK = Object.keys(scs).sort(), cK = Object.keys(cs).sort();
+            if (!scK.length){ $('sv5c').innerHTML = '<p class="msg">7월 값을 손봐 가며 기록하면 여기에서 모아 줍니다.</p>'; return; }
+            var rows = scK.map(function(s){
+              return [VS[s]].concat(cK.map(function(k){ var d = cell[s + '|' + k]; return d ? (sgn(d.ch, 0) + '% ' + (d.ch >= 0 ? '늘었다' : '줄었다')) : '·'; }));
+            });
+            var flip = 0;
+            cK.forEach(function(k){
+              var signs = scK.map(function(s){ var d = cell[s + '|' + k]; return d ? (d.ch >= 0 ? 1 : -1) : 0; }).filter(function(x){ return x; });
+              if (signs.length > 1 && signs.some(function(x){ return x !== signs[0]; })) flip++;
+            });
+            $('sv5c').innerHTML = tableHTML(['7월 값'].concat(cK.map(function(k){ return CS[k]; })), rows, 'wrap') +
+              (flip ? '<p class="msg">기준을 고정해 두고 자료만 바꿨는데 결론이 뒤집힌 기준이 <b>' + flip + '개</b> 있습니다 — 같은 기준이라도 <b>자료가 달라지면</b> 결론이 바뀝니다.</p>'
+                    : '<p class="msg">같은 기준에서 7월 값을 <b>두 가지 이상</b> 넣어 보세요 — 어디서 결론이 뒤집히는지 보입니다.</p>') +
+              '<p class="msg">※ 판매량 자료는 교육용 모형값입니다. 손본 값은 더더욱 실제 자료가 아닙니다.</p>';
+          })();
         }
       };
     })();
@@ -494,7 +533,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

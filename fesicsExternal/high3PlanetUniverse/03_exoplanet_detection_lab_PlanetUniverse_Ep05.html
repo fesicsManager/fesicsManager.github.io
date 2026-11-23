@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -305,9 +306,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -334,6 +336,13 @@ function wrapT(c, s, x, y, maxW, lh, o){
   }
   txt(c, line, x, y + n * lh, o);
   return y + (n + 1) * lh;
+}
+function lineCountT(c, s, maxW, bold){   /* wrapT 가 쓸 줄 수를 그리지 않고 세기만 한다 */
+  c.font = (bold ? '700 ' : '') + '18px ' + FONT;
+  var ws = String(s).split(' '), line = '', n = 1;
+  for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i];
+    if (line && c.measureText(t).width > maxW){ n++; line = ws[i]; } else line = t; }
+  return n;
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -471,7 +480,7 @@ function calc(st, pl, a){
   return {P:P / DAY, K:K, dep:dep, dur:dur};
 }
 return {
-  sceneHeight: 470,
+  sceneHeight: function (w){ return w < 560 ? 526 : 470; },
   idle: '별과 행성, 궤도 반지름, 관측 방법을 정한 뒤 <b>관측하기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 행성 질량과 궤도를 바꿔 가며 두 방법으로 기록하세요.',
   params: [
@@ -488,8 +497,8 @@ return {
       dep:Math.round(C.dep * 10000) / 10000, dur:Math.round(C.dur * 100) / 100, m:p.m, det:p.m === 0 ? detK : detD};
   },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, nar = W < 480, phN = nar ? H - 292 : H - 270;   /* 좁은 화면: 아래 판정 글 두 줄 자리 */
-    var bot = function(s, o){ if (nar) wrapT(c, s, 12, H - 36, W - 24, 22, o); else txt(c, s, 12, H - 14, o); };
+    var k = r ? Math.min(tau / 0.9, 1) : 0, nar = W < 480, phN = nar ? H - 336 : H - 270;   /* 좁은 화면: 아래 판정 글 세 줄 자리 */
+    var bot = function(s, o){ if (nar){ var nb = lineCountT(c, s, W - 24, o && o.bold); wrapT(c, s, 12, H - 14 - (nb - 1) * 22, W - 24, 22, o); } else txt(c, s, 12, H - 14, o); };
     if (p.m === 0){
       // 별의 흔들림 + 시선 속도 그래프
       /* 아래 그래프와 같은 위상: 2주기 동안 행성이 2바퀴. 위쪽 = 먼 쪽(관측자 반대). 시선 속도 sin 이 0 에서 시작하도록 행성은 별 뒤(위)에서 출발 */
@@ -578,7 +587,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

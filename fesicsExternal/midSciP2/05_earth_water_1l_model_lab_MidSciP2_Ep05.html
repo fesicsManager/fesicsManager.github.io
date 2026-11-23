@@ -25,6 +25,7 @@
 <!-- labgen:midSciP2 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>바다가 넓으면 마실 물도 넉넉하나 | 중학교 과학 ②</title>
+<script src="/fesicsExternal/fxbig.js"></script>
 <style>
 :root{
   --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
@@ -61,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -442,10 +445,18 @@ var LAB = (function(){
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function ml(v){ if (v >= 5) return '약 ' + Math.round(v) + ' mL'; if (v >= 1) return '약 ' + (Math.round(v * 10) / 10) + ' mL'; return '약 ' + (Math.round(v * 100) / 100) + ' mL'; }
       function pc(f){ var v = f / 10; return v >= 10 ? Math.round(v * 10) / 10 + '%' : v >= 0.1 ? Math.round(v * 100) / 100 + '%' : Math.round(v * 1000) / 1000 + '%'; }
-      function solve(t, w){
-        var f = 0; SETS[w].forEach(function(i){ f += WT[i].f; });
+      /* 조건에 따라 물의 몫이 달라진다 — 교육용 모형값 */
+      var SCN = ['지금 그대로', '빙하가 10% 녹아 담수로', '지하수를 절반 끌어 씀', '빙하 10% 녹고 지하수 절반 씀'];
+      function fracs(sc){
+        var w = WT.map(function(x){ return x.f; });
+        if (sc === 1 || sc === 3){ var m = w[1] * 0.1; w[1] -= m; w[3] += m; }
+        if (sc === 2 || sc === 3){ var g = w[2] / 2; w[2] -= g; w[0] += g; }
+        return w;
+      }
+      function solve(t, w, sc){
+        var fr = fracs(sc || 0), f = 0; SETS[w].forEach(function(i){ f += fr[i]; });
         var v = f * TOT[t] / 1000, drops = Math.round(v / 0.05), spoon = v / 15;
-        return {t:t, w:w, f:f, v:v, vs:ml(v), ps:pc(f), drops:drops, spoon:spoon,
+        return {t:t, w:w, sc:sc || 0, fr:fr, easy:fr[2] + fr[3], f:f, v:v, vs:ml(v), ps:pc(f), drops:drops, spoon:spoon,
           sp:spoon >= 1 ? '큰 숟가락 약 ' + (spoon >= 10 ? Math.round(spoon) : Math.round(spoon * 10) / 10) + '개' : v >= 1 ? '큰 숟가락 하나도 안 됨' : '약 ' + drops + '방울'};
       }
       return {
@@ -457,11 +468,20 @@ var LAB = (function(){
           {key:'t', type:'seg', label:'모형 물병 크기 (지구의 물 전체)', cols:3, value:0, options:TN},
           {key:'w', type:'seg', label:'살펴볼 물', cols:2, value:0, options:CH},
           {key:'g', type:'seg', label:'예측: 지구의 물 가운데 사람이 바로 쓰기 쉬운 물에 대한 설명으로 가장 알맞은 것은?', cols:1, value:0, options:PG,
-            note:'뭉치는 "바다가 저렇게 넓은데! ①"이라고 했어요.'}
+            note:'뭉치는 "바다가 저렇게 넓은데! ①"이라고 했어요.'},
+          {key:'sc', type:'seg', label:'조건을 바꿔 보기', cols:2, value:0, options:SCN,
+            note:'빙하가 녹으면 호수·하천수가 늘고, 지하수를 끌어 쓰면 줄어요. 바로 쓰기 쉬운 물(컵 3~4)의 양이 조건에 따라 달라져요. ※ 녹는 양·끌어 쓰는 양은 교육용 모형값이에요.'}
         ],
-        compute: function(p){ var S = solve(p.t, p.w); S.ok = p.g === 3; return S; },
+        compute: function(p){
+          var S = solve(p.t, p.w, p.sc), base = 8;
+          S.ok = p.g === 3;
+          S.vd = p.sc === 0 ? '바로 쓰기 쉬운 물은 전체의 약 0.8%뿐이에요'
+            : S.easy > base + 0.05 ? '바로 쓰기 쉬운 물이 1 L 모형에서 약 ' + (Math.round((S.easy - base) * 10) / 10) + ' mL 늘었어요'
+            : S.easy < base - 0.05 ? '바로 쓰기 쉬운 물이 1 L 모형에서 약 ' + (Math.round((base - S.easy) * 10) / 10) + ' mL 줄었어요' : '거의 그대로예요';
+          return S;
+        },
         draw: function(c, W, H, p, r, tau){
-          var nar = W < 560, S = solve(p.t, p.w), e = r ? Math.min(1, tau * 1.3) : 0, tot = TOT[p.t];
+          var nar = W < 560, S = solve(p.t, p.w, p.sc), e = r ? Math.min(1, tau * 1.3) : 0, tot = TOT[p.t], fr = fracs(p.sc);
           var iw = (W - 30) / 5, ch = nar ? 130 : 150, cy = 40, fs = nar ? 11 : 13;
           // 물병
           var bx = 15 + iw * 0.18, bw = iw * 0.64;
@@ -471,7 +491,7 @@ var LAB = (function(){
           T(c, TN[p.t], bx + bw / 2, cy + ch + 18, fs, '#1E2833', 'center', true);
           // 컵 네 개
           for (var i = 0; i < 4; i++){
-            var x = 15 + iw * (i + 1) + iw * 0.12, w = iw * 0.76, v = WT[i].f * tot / 1000, hgt = ch * WT[i].f / 1000 * e;
+            var x = 15 + iw * (i + 1) + iw * 0.12, w = iw * 0.76, v = fr[i] * tot / 1000, hgt = ch * fr[i] / 1000 * e;
             c.fillStyle = '#FFFFFF'; c.fillRect(x, cy, w, ch);
             c.fillStyle = WT[i].col; c.fillRect(x + 1, cy + ch - hgt, w - 2, hgt);
             if (e > 0 && i > 0){ c.fillStyle = WT[i].col; c.fillRect(x + 1, cy + ch - 2, w - 2, 2); }
@@ -490,12 +510,14 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['모형 전체', TN[r.t] + ' (' + TOT[r.t] + ' mL)'], ['살펴볼 물', CH[r.w]], ['담는 양', r.vs, PAL[0]], ['전체에서 비율', r.ps, PAL[0]],
-            ['어림', r.sp], ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
+          return [['모형 전체', TN[r.t] + ' (' + TOT[r.t] + ' mL)'], ['조건', SCN[r.sc]], ['살펴볼 물', CH[r.w]], ['담는 양', r.vs, PAL[0]], ['전체에서 비율', r.ps, PAL[0]],
+            ['바로 쓰기 쉬운 물 (컵 3~4)', ml(r.easy * TOT[r.t] / 1000), r.easy >= 8 ? PAL[1] : PAL[4]],
+            ['어림', r.sp], ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.easy >= 8 ? PAL[1] : PAL[4]]];
         },
-        columns: ['모형 전체', '살펴본 물', '담는 양', '전체에서 비율', '어림'],
-        record: function(p, r){ return {t:p.t, w:p.w}; },
-        row: function(d){ var S = solve(d.t, d.w); return [TN[d.t], CH[d.w], S.vs, S.ps, S.sp]; },
+        columns: ['모형 전체', '조건', '살펴본 물', '담는 양', '전체에서 비율', '쓰기 쉬운 물'],
+        record: function(p, r){ return {t:p.t, w:p.w, sc:p.sc}; },
+        row: function(d){ var S = solve(d.t, d.w, d.sc); return [TN[d.t], SCN[d.sc].split(' ')[0], CH[d.w], S.vs, S.ps, ml(S.easy * TOT[d.t] / 1000)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('1 L 모형의 네 컵', '<div id="ew1"></div><p class="ask">지하수와 호수·하천수를 합치면 큰 숟가락(15 mL) 하나보다 많나요, 적나요? 넓은 바다가 있는데도 물을 아껴 써야 하는 까닭은 무엇일까요?</p>') +
@@ -503,10 +525,10 @@ var LAB = (function(){
           $('ew1').innerHTML = tableHTML(['컵', '물의 종류', '담는 양', '비율'], WT.map(function(d, i){ return ['컵 ' + (i + 1), d.n, i === 3 ? '1 mL에 못 미침 (약 6방울)' : ml(d.f), pc(d.f)]; })) +
             '<p class="msg">지하수와 호수·하천수를 합쳐도 약 8 mL로 큰 숟가락 하나가 안 돼요. 담수 약 25 mL 가운데 17 mL가 빙하예요.</p>';
           var seen = {};
-          rec.forEach(function(d){ seen[d.t + '_' + d.w] = d; });
-          var ks = Object.keys(seen).map(function(k){ return seen[k]; }).sort(function(a, b){ return a.t - b.t || a.w - b.w; });
-          $('ew2').innerHTML = hbars(ks.map(function(d, i){ var S = solve(d.t, d.w); return {label:TN[d.t].replace(' 물병', '').replace(' 양동이', '') + ' ' + CH[d.w].replace(/ \(.*\)/, ''), v:S.f, color:PAL[i % 8], text:S.vs}; }), 1000) +
-            '<p class="msg">막대 길이는 전체 물 가운데 비율이에요. 물병을 10 L로 키워도 바로 쓰기 쉬운 물은 약 80 mL, 작은 컵 하나도 안 돼요.</p>';
+          rec.forEach(function(d){ seen[d.t + '_' + d.w + '_' + d.sc] = d; });
+          var ks = Object.keys(seen).map(function(k){ return seen[k]; }).sort(function(a, b){ return a.t - b.t || a.w - b.w || a.sc - b.sc; });
+          $('ew2').innerHTML = hbars(ks.map(function(d, i){ var S = solve(d.t, d.w, d.sc); return {label:TN[d.t].replace(' 물병', '').replace(' 양동이', '') + ' ' + CH[d.w].replace(/ \(.*\)/, '') + (d.sc ? ' · ' + SCN[d.sc].split(' ')[0] : ''), v:S.f, color:d.sc ? PAL[4] : PAL[i % 8], text:S.vs}; }), 1000) +
+            '<p class="msg">막대 길이는 전체 물 가운데 비율이에요. 물병을 10 L로 키워도 바로 쓰기 쉬운 물은 약 80 mL, 작은 컵 하나도 안 돼요. 빙하가 녹으면 조금 늘고, 지하수를 끌어 쓰면 크게 줄어요.</p>';
         }
       };
     })();
@@ -515,7 +537,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

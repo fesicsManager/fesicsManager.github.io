@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,7 +479,7 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
       var ADJ = ['조정 없음', '회의 시간 옮기기', '+ 돌봄 나누기', '+ 근무 시간 조정'];
       var MOVE = ['회의는 목요일 점심으로', '동생 저녁은 다른 가족과 나눔', '근무는 토요일로'];
       return {
-        sceneHeight: 420,
+        sceneHeight: function(w){ return w < 560 ? 580 : 420; },
         idle: '역할 수와 구조 조정을 고른 뒤 <b>수요일 7시 일정 맞춰 보기</b>를 누르세요.',
         shortHint: '조정 없이 역할 수를 2·3·4·5개로 바꿔 본 뒤, 4개에서 구조 조정을 하나씩 켜 보세요.',
         params: [
@@ -489,25 +491,33 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           return {n:n, moved:moved, m:m, pairs:m * (m - 1) / 2, full:n * (n - 1) / 2, unmet:Math.max(0, m - 1)};
         },
         draw: function(c, W, H, p, r, tau){
-          var n = p.n + 2, moved = r ? r.moved : 0, s = fz(W), k = r ? ease(tau) : 0;
+          var n = p.n + 2, moved = r ? r.moved : 0, s = fz(W), k = r ? ease(tau) : 0, narrow = W < 560;
           c.fillStyle = '#F7F9FC'; c.fillRect(0, 0, W, H);
-          var bx = W - Math.min(170, W * 0.36), cx = bx / 2, cy = H * 0.5, R = Math.min(cx - 50, H * 0.33);
-          rrect(c, bx, 40, W - bx - 10, H - 90, 10, '#EEF3EA', '#9DB48F', 1.5);
-          tx(c, '다른 시간으로', bx + (W - bx - 10) / 2, 62, {align:'center', bold:true, size:s - 1, color:'#4E6B40'});
+          /* 좁은 화면: ‘다른 시간으로’ 칸을 오른쪽이 아니라 아래에 두어 역할 이름이 겹치지 않게 한다 */
+          var bx, cx, cy, R, boxX, boxY, boxW, boxH;
+          if (narrow){
+            cx = W / 2; cy = (H - 200) * 0.5 + 20; R = Math.min(cx - 48, (H - 200) * 0.3);
+            boxX = 10; boxY = H - 160; boxW = W - 20; boxH = 150;
+          } else {
+            bx = W - Math.min(170, W * 0.36); cx = bx / 2; cy = H * 0.5; R = Math.min(cx - 50, H * 0.33);
+            boxX = bx; boxY = 40; boxW = W - bx - 10; boxH = H - 90;
+          }
+          rrect(c, boxX, boxY, boxW, boxH, 10, '#EEF3EA', '#9DB48F', 1.5);
+          tx(c, '다른 시간으로', boxX + boxW / 2, boxY + 22, {align:'center', bold:true, size:s - 1, color:'#4E6B40'});
           var pos = [];
           for (var i = 0; i < n; i++){
             var ang = -Math.PI / 2 + i * Math.PI * 2 / n, x0 = cx + R * Math.cos(ang), y0 = cy + R * Math.sin(ang);
-            var isMoved = i < moved, x1 = bx + (W - bx - 10) / 2, y1 = 100 + i * 70;
+            var isMoved = i < moved, x1 = boxX + boxW / 2, y1 = narrow ? boxY + 56 + i * 34 : 100 + i * 70;
             pos.push({x:isMoved ? lerp(x0, x1, k) : x0, y:isMoved ? lerp(y0, y1, k) : y0, mv:isMoved});
           }
           for (var a = 0; a < n; a++) for (var b = a + 1; b < n; b++){
             if (pos[a].mv || pos[b].mv){ if (k < 1) { c.globalAlpha = 1 - k; seg(c, pos[a].x, pos[a].y, pos[b].x, pos[b].y, '#E0A9A4', 2); c.globalAlpha = 1; } continue; }
             seg(c, pos[a].x, pos[a].y, pos[b].x, pos[b].y, r ? PAL[0] : '#C9D2DC', r ? 3 : 2, r ? null : [5, 5]);
           }
-          for (var j = 0; j < n; j++){ var q = pos[j]; disc(c, q.x, q.y, 24, q.mv ? '#9DB48F' : (RO[j].kind === '귀속' ? PAL[3] : PAL[1]), '#fff');
-            tx(c, RO[j].st, q.x, q.y + 42, {align:'center', bold:true, size:s - 1}); tx(c, RO[j].kind, q.x, q.y + 5, {align:'center', size:s - 3, color:'#fff'}); }
+          for (var j = 0; j < n; j++){ var q = pos[j]; disc(c, q.x, q.y, narrow ? 20 : 24, q.mv ? '#9DB48F' : (RO[j].kind === '귀속' ? PAL[3] : PAL[1]), '#fff');
+            tx(c, RO[j].st, q.x, q.y + (narrow ? 36 : 42), {align:'center', bold:true, size:s - 1}); tx(c, RO[j].kind, q.x, q.y + 5, {align:'center', size:s - 3, color:'#fff'}); }
           tx(c, '수요일 저녁 7시', cx, 28, {align:'center', bold:true, size:s + 1});
-          if (r) stamp(c, cx, H - 26, '남은 충돌 ' + r.pairs + '쌍', r.pairs > 3 ? PAL[0] : PAL[2], k, s + 1);
+          if (r) stamp(c, narrow ? W / 2 : cx, narrow ? boxY - 14 : H - 26, '남은 충돌 ' + r.pairs + '쌍', r.pairs > 3 ? PAL[0] : PAL[2], k, s + 1);
         },
         stats: function(p, r){
           return [['동시에 요구되는 역할', r.n + '개 (지위 ' + r.n + '개)'], ['조정 전 충돌 쌍', r.full + '쌍 = ' + r.n + '×' + (r.n - 1) + '÷2', PAL[0]],
@@ -537,7 +547,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

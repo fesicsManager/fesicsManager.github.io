@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,6 +439,17 @@ var LAB = (function(){
         {n:'D국 — 분쟁 없음, 차별 금지 제도와 기본 생활 보장이 작동', s:'D국', dv:0, sv:1, dvT:'없음', svT:'적음', neg:'해당', pos:'가까움'}
       ];
       var DF = ['소극적 평화 (직접적 폭력이 없음)', '적극적 평화 (구조적 폭력까지 없음)'];
+      var DVT = ['없음', '일부 있음', '있음'], SVT = ['거의 없음', '적음', '큼'];
+      /* 두 지표를 직접 밀어 만드는 나라 — 갈퉁의 두 정의를 그대로 적용해 판정한다 */
+      function cust(p){
+        var dv = p.dv == null ? 0 : p.dv, sv = p.sv == null ? 2 : p.sv;
+        return {n:'내가 만든 나라 (직접 ' + DVT[dv] + ' · 구조 ' + SVT[sv] + ')', s:'내 나라', dv:dv, sv:sv,
+          dvT:DVT[dv], svT:SVT[sv],
+          neg:(dv === 0 ? '해당' : dv === 1 ? '불안정' : '아님'),
+          pos:(dv === 0 && sv === 0 ? '가까움' : dv === 0 && sv === 1 ? '아직 아님' : '아님'),
+          mine:true};
+      }
+      function pick(p){ return p.c < CO.length ? CO[p.c] : cust(p); }
       function todo(co, d){
         var t = [];
         if (co.dv > 0) t.push(co.dv === 2 ? '무력 충돌 멈추기·휴전' : '국경 충돌 관리·재발 막기');
@@ -451,15 +464,18 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 400,
-        idle: '나라와 평화의 정의를 고른 뒤 <b>이 정의로 판정하기</b>를 누르세요.',
-        shortHint: 'B국을 두 정의로 모두 판정해 보세요. 이 세트의 핵심 사례예요.',
+        idle: '나라와 평화의 정의를 고른 뒤 <b>이 정의로 판정하기</b>를 누르세요. 마지막 칸을 고르면 두 폭력 지표를 직접 밀어 볼 수 있어요.',
+        shortHint: 'B국을 두 정의로 모두 판정하고, “내가 만든 나라”로 판정이 갈리는 경계도 찾아보세요.',
         params: [
-          {key:'c', type:'seg', label:'가상 사례', cols:2, value:1, options:CO.map(function(x){ return x.n; })},
+          {key:'c', type:'seg', label:'가상 사례', cols:2, value:1, options:CO.map(function(x){ return x.n; }).concat(['내가 만든 나라 — 아래 두 칸으로'])},
+          {key:'dv', type:'range', label:'직접적 폭력 (전쟁·충돌·폭행)', min:0, max:2, step:1, value:0, fmt:function(v){ return DVT[v]; }},
+          {key:'sv', type:'range', label:'구조적 폭력 (차별·배제·빈곤을 낳는 제도)', min:0, max:2, step:1, value:2, fmt:function(v){ return SVT[v]; },
+            note:'두 칸은 “내가 만든 나라”를 골랐을 때만 쓰입니다. 판정은 갈퉁의 정의를 그대로 적용한 것입니다 — 직접적 폭력이 없으면 소극적 평화, 구조적 폭력까지 없어야 적극적 평화. 지표의 세 단계는 비교를 위해 단순하게 나눈 <b>교육용 모형</b>입니다.'},
           {key:'d', type:'seg', label:'평화의 정의', cols:2, value:0, options:DF}
         ],
-        compute: function(p){ var co = CO[p.c]; return {co:co, v:p.d === 0 ? co.neg : co.pos, todo:todo(co, p.d)}; },
+        compute: function(p){ var co = pick(p); return {co:co, v:p.d === 0 ? co.neg : co.pos, todo:todo(co, p.d)}; },
         draw: function(c, W, H, p, r, tau){
-          var co = CO[p.c], k = r ? Math.min(tau / 0.7, 1) : 0, cx = W / 2, cy = H * 0.42, rad = Math.min(110, W * 0.28);
+          var co = r ? r.co : pick(p), k = r ? Math.min(tau / 0.7, 1) : 0, cx = W / 2, cy = H * 0.42, rad = Math.min(110, W * 0.28);
           c.fillStyle = '#EEF3EA'; c.beginPath(); c.ellipse(cx, cy, rad * 1.3, rad * 0.8, 0, 0, Math.PI * 2); c.fill();
           txt(c, co.s + ' (개략 도식)', cx, cy - rad * 0.8 - 12, {align:'center', bold:true});
           for (var i = 0; i < 6; i++){ c.fillStyle = PAL[0]; c.beginPath(); c.arc(cx - rad * 0.8 + i * rad * 0.32, cy + 10, 7, 0, Math.PI * 2); c.fill(); }
@@ -477,21 +493,28 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['사례', r.co.n], ['직접적 폭력', r.co.dvT, PAL[4]], ['구조적 폭력', r.co.svT, PAL[7]],
-            ['정의', DF[p.d], PAL[3]], ['판정', r.v, PAL[0]], ['해야 할 일 목록', r.todo.join(' · '), PAL[1]],
+            ['정의', DF[p.d], PAL[3]], ['판정', r.v, PAL[0]],
+            ['다른 정의로 보면', (p.d === 0 ? '적극적 평화: ' + r.co.pos : '소극적 평화: ' + r.co.neg), PAL[5]],
+            ['해야 할 일 목록', r.todo.join(' · '), PAL[1]],
             ['칸트와 비교', '칸트의 세 확정 조항은 전쟁의 원인을 제도로 줄이는 설계 — 소극적 평화를 오래가게 하는 쪽으로 읽을 수 있어요']];
         },
-        columns: ['사례', '정의', '판정', '할 일 수'],
-        record: function(p, r){ return {c:p.c, d:p.d, v:r.v, n:r.todo.length}; },
-        row: function(d){ return [CO[d.c].s, d.d ? '적극적' : '소극적', d.v, d.n + '개']; },
+        columns: ['사례', '직접적 폭력', '구조적 폭력', '정의', '판정', '할 일 수'],
+        record: function(p, r){ return {c:p.c, key:r.co.s + '|' + r.co.dvT + '|' + r.co.svT, s:r.co.s, dvT:r.co.dvT, svT:r.co.svT,
+          neg:r.co.neg, pos:r.co.pos, mine:!!r.co.mine, d:p.d, v:r.v, n:r.todo.length}; },
+        row: function(d){ return [d.s, d.dvT, d.svT, d.d ? '적극적' : '소극적', d.v, d.n + '개']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('가상 사례 판정표 (내 기록)', '<div id="pq1"></div><p class="ask">B국은 소극적 기준과 적극적 기준에서 판정이 어떻게 달랐나요? 정의를 바꾸면 무엇이 평화의 과제가 되나요?</p>') +
             card('정의별 평균 "해야 할 일" 수', '<div id="pq2"></div><p class="ask">과제: 우리 지역이나 학교에서 "평화롭다"고 여겨지는 공간 하나를 골라 직접적 폭력과 구조적 폭력의 지표를 각각 세 개씩 정하고, 자료를 모아 소극적·적극적 평화 기준으로 따로 평가해 보세요. 어느 기준을 택할지에 대한 자신의 판단과 그 근거도 덧붙이세요.</p>') + '</div>';
-          var rows = [];
-          CO.forEach(function(co, i){ var g = rec.filter(function(d){ return d.c === i; }); if (!g.length) return;
+          var rows = [], keys = [], gap = [];
+          rec.forEach(function(d){ if (keys.indexOf(d.key) < 0) keys.push(d.key); });
+          keys.forEach(function(k){ var g = rec.filter(function(d){ return d.key === k; }); var d0 = g[0];
             var a = g.filter(function(d){ return d.d === 0; }), b = g.filter(function(d){ return d.d === 1; });
-            rows.push([co.s, a.length ? a[0].v : '—', b.length ? b[0].v : '—']); });
-          $('pq1').innerHTML = tableHTML(['사례', '소극적 평화', '적극적 평화'], rows);
+            rows.push([d0.s, d0.dvT, d0.svT, a.length ? a[0].v : '—', b.length ? b[0].v : '—']);
+            if (d0.neg === '해당' && d0.pos !== '가까움') gap.push(d0.s + ' (직접 ' + d0.dvT + ' · 구조 ' + d0.svT + ')'); });
+          $('pq1').innerHTML = tableHTML(['사례', '직접적 폭력', '구조적 폭력', '소극적 평화', '적극적 평화'], rows) +
+            (gap.length ? '<p class="msg"><b>두 판정이 갈린 경우</b> — ' + gap.join(' · ') + '. 총성이 멎었다는 것만으로는 적극적 평화가 되지 않습니다.</p>'
+              : '<p class="msg">“내가 만든 나라”에서 직접적 폭력을 <b>없음</b>으로, 구조적 폭력을 <b>큼</b>으로 두고 두 정의로 각각 판정해 보세요 — 판정이 갈리는 경계가 바로 보입니다.</p>');
           var it = [0, 1].map(function(d){ var g = rec.filter(function(x){ return x.d === d; }); var m = g.length ? mean(g.map(function(x){ return x.n; })) : 0;
             return {label:d ? '적극적 평화' : '소극적 평화', v:m, color:d ? PAL[3] : PAL[4], text:g.length ? f(m, 1) + '개' : '기록 없음'}; });
           $('pq2').innerHTML = hbars(it, 4);
@@ -503,7 +526,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

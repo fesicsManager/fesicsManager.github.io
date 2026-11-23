@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,6 +442,8 @@ var LAB = (function(){
         {n:'explain me', s:'Explain me this.', norm:'오류', real:true, lv:[0, 0, 0], now:'explain은 "누구에게"를 바로 받지 않음', safe:'Explain this to me.'}
       ];
       var G = ['일상 대화', '뉴스·잡지', '학술·격식 글'], LV = ['거의 없음', '드묾', '흔함', '매우 흔함'];
+      /* 쓰임 수준을 열기 전에 먼저 찍게 하고 채점한다 */
+      var PG = ['진짜 오류일 것', '규범 논쟁일 것 (실제로 널리 쓰임)'];
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
         var ws = String(s).split(' '), line = '', n = 0;
@@ -447,27 +451,38 @@ var LAB = (function(){
           if (c.measureText(t).width > maxW && line){ txt(c, line, x, y + n * lh, o); n++; line = ws[i]; } else line = t; }
         if (line){ txt(c, line, x, y + n * lh, o); n++; } return n;
       }
+      function lineCount(c, s, maxW, o){
+        o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+        var ws = String(s).split(' '), line = '', n = 0;
+        for (var i = 0; i < ws.length; i++){ var t = line ? line + ' ' + ws[i] : ws[i];
+          if (c.measureText(t).width > maxW && line){ n++; line = ws[i]; } else line = t; }
+        if (line) n++; return n;
+      }
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 560 ? (w < 400 ? 660 : 580) : 420; },
         idle: '표현과 장르를 고른 뒤 <b>용례 확인하기</b>를 누르세요.',
         shortHint: '논쟁 표현 네 개와 학습자 오류 세 개를 고루 확인하면 두 무리가 확실히 갈립니다.',
         params: [
           {key:'x', type:'seg', label:'표현', cols:2, value:0, options:X.map(function(x){ return x.n + ' <small>' + x.s + '</small>'; })},
-          {key:'g', type:'seg', label:'쓰려는 장르', cols:3, value:0, options:G}
+          {key:'g', type:'seg', label:'쓰려는 장르', cols:3, value:0, options:G},
+          {key:'pg', type:'seg', label:'열기 전에 먼저 찍기', cols:2, value:0, options:PG}
         ],
         compute: function(p){
           var x = X[p.x], lv = x.lv[p.g];
           var verdict = x.real ? '진짜 오류 — 어느 장르에서도 거의 쓰이지 않아요' : lv >= 2 ? '이 장르에서 널리 쓰여요 — 자리가 있는 표현' : lv === 1 ? '쓰이긴 하지만 이 장르에서는 피하는 편' : '이 장르에서는 피하는 표현';
-          return {x:x, lv:lv, verdict:verdict, kind:x.real ? '진짜 오류' : '규범 논쟁'};
+          var guessReal = p.pg === 0, right = guessReal === x.real;
+          return {x:x, lv:lv, verdict:verdict, kind:x.real ? '진짜 오류' : '규범 논쟁', right:right,
+            guess:PG[p.pg]};
         },
         draw: function(c, W, H, p, r, tau){
           var x = X[p.x], k = r ? Math.min(tau / 0.7, 1) : 0, narrow = W < 560;
           wrap(c, '"' + x.s + '"', 20, 36, W - 40, 24, {bold:true});
           var lw = narrow ? W - 40 : W * 0.4, ly = 70;
-          c.fillStyle = '#F4EFE6'; c.fillRect(20, ly, lw, narrow ? 80 : 150);
+          var nn = lineCount(c, x.norm, lw - 24), boxH = narrow ? 44 + nn * 22 : 150;
+          c.fillStyle = '#F4EFE6'; c.fillRect(20, ly, lw, boxH);
           txt(c, '📕 규범 문법의 판정', 32, ly + 28, {bold:true, color:'#A8702F'});
           wrap(c, x.norm, 32, ly + 56, lw - 24, 22, {color:'#4A5868'});
-          var bx = narrow ? 20 : 40 + lw, by = narrow ? ly + 100 : ly, bw = narrow ? W - 40 : W - bx - 20;
+          var bx = narrow ? 20 : 40 + lw, by = narrow ? ly + boxH + 20 : ly, bw = narrow ? W - 40 : W - bx - 20;
           txt(c, '📊 실제 쓰임 수준 (대략)', bx, by + 24, {bold:true, color:PAL[0]});
           G.forEach(function(g, i){
             var y = by + 44 + i * 40, sel = i === p.g, lab = narrow ? 110 : 120, full = bw - lab - 10;
@@ -478,17 +493,20 @@ var LAB = (function(){
           });
           if (r && k >= 1){
             var col = r.x.real ? PAL[4] : r.lv >= 2 ? PAL[1] : PAL[6], vy = narrow ? by + 180 : 270;
-            wrap(c, '판정: ' + r.verdict, 20, vy, W - 40, 22, {bold:true, color:col});
-            wrap(c, '안전한 선택: ' + r.x.safe, 20, vy + 50, W - 40, 22, {color:'#4A5868'});
+            var vn = wrap(c, '판정: ' + r.verdict, 20, vy, W - 40, 22, {bold:true, color:col});
+            wrap(c, '안전한 선택: ' + r.x.safe, 20, vy + vn * 22 + 16, W - 40, 22, {color:'#4A5868'});
           }
         },
         stats: function(p, r){
           return [['표현', r.x.s], ['규범 문법', r.x.norm, PAL[2]], ['현재 위치', r.x.now, PAL[0]],
-            [G[p.g] + '에서의 쓰임 (대략)', LV[r.lv], r.lv >= 2 ? PAL[1] : PAL[6]], ['분류', r.x.real ? r.verdict : r.kind + ' — ' + r.verdict, r.x.real ? PAL[4] : PAL[1]], ['안전한 선택', r.x.safe]];
+            [G[p.g] + '에서의 쓰임 (대략)', LV[r.lv], r.lv >= 2 ? PAL[1] : PAL[6]], ['분류', r.x.real ? r.verdict : r.kind + ' — ' + r.verdict, r.x.real ? PAL[4] : PAL[1]],
+            ['내가 먼저 찍은 것', r.guess + (r.right ? ' — 맞음' : ' — 틀림 (' + r.kind + '이었어요)'), r.right ? PAL[1] : PAL[4]],
+            ['안전한 선택', r.x.safe],
+            ['※', '쓰임 수준은 용례를 어림해 네 단계로 나눈 교육용 모형값입니다 — 실제 말뭉치 빈도수가 아닙니다.']];
         },
-        columns: ['표현', '장르', '쓰임 (대략)', '분류'],
-        record: function(p, r){ return {x:p.x, g:p.g, lv:r.lv, real:r.x.real}; },
-        row: function(d){ return [X[d.x].n, G[d.g], LV[d.lv], d.real ? '진짜 오류' : '규범 논쟁']; },
+        columns: ['표현', '장르', '쓰임 (대략)', '분류', '내 찍기'],
+        record: function(p, r){ return {x:p.x, g:p.g, pg:p.pg, lv:r.lv, real:r.x.real, right:r.right}; },
+        row: function(d){ return [X[d.x].n, G[d.g], LV[d.lv], d.real ? '진짜 오류' : '규범 논쟁', d.right == null ? '—' : (d.right ? '○' : '✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('표현 × 장르 쓰임 수준 (내가 확인한 칸)', '<div id="nu1"></div><p class="ask">"틀렸다"고 배운 표현 가운데 실제로 널리 쓰이는 것은 무엇이었나요? 같은 표현도 장르에 따라 수준이 달라졌나요?</p>') +
@@ -501,7 +519,9 @@ var LAB = (function(){
           [false, true].forEach(function(real){ var g = rec.filter(function(d){ return d.real === real; }); if (!g.length) return;
             var m = mean(g.map(function(d){ return d.lv; }));
             items.push({label:real ? '진짜 오류 무리' : '규범 논쟁 무리', v:m, color:real ? PAL[4] : PAL[0], text:'평균 수준 ' + f(m, 1) + ' / 3 (' + g.length + '회)'}); });
-          $('nu2').innerHTML = hbars(items, 3) + (items.length < 2 ? '<p class="msg">두 무리를 모두 확인해 보세요.</p>' : '');
+          var hit = rec.filter(function(d){ return d.right; }).length;
+          $('nu2').innerHTML = hbars(items, 3) + (items.length < 2 ? '<p class="msg">두 무리를 모두 확인해 보세요.</p>' : '') +
+            '<p class="msg">먼저 찍기 맞힌 수: ' + hit + ' / ' + rec.length + '</p>';
         }
       };
     })();
@@ -510,7 +530,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,18 +441,30 @@ var LAB = (function(){
         {name:'색·붓질 강조', short:'색·붓질', keep:'따뜻함·느낌', drop:'정확한 형태·치수'},
         {name:'단계 그림 + 화살표', short:'단계', keep:'동작 순서', drop:'명암·질감·배경'}
       ];
-      var SC = [[5, 2, 2, 1], [2, 5, 1, 2], [3, 1, 5, 1], [2, 2, 1, 5]];
+      /* 정보 네 가지: 겉모양·명암 / 속 구조 / 분위기·색 / 동작 순서 */
+      var INFO = ['겉모양·명암', '속 구조', '분위기·색', '동작 순서'];
+      var NEED = [[1, 0, 0.2, 0], [0.2, 1, 0, 0.3], [0.2, 0, 1, 0], [0.3, 0, 0, 1]];      /* 목적이 필요로 하는 정보 */
+      var GIVE = [[1, 0, 0.3, 0], [0.3, 1, 0, 0.2], [0.2, 0, 1, 0], [0.3, 0, 0, 1]];      /* 방식이 담아낼 수 있는 정보 */
+      function onOf(p){ return [p.i0, p.i1, p.i2, p.i3]; }
+      function scoreOf(u, s, on){
+        var need = NEED[u], give = GIVE[s], a = 0, b = 0;
+        for (var i = 0; i < 4; i++){ b += need[i]; a += need[i] * (on[i] ? give[i] : 0); }
+        return b ? a / b * 5 : 0;
+      }
       function rr(c, x, y, w, h, r){ c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
       function rng(seed){ var s = seed >>> 0; return function(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
-      function bottle(c, cx, top, bw, bh, style){
+      function bottle(c, cx, top, bw, bh, style, on){
+        on = on || [1, 1, 1, 1];
         var x0 = cx - bw / 2, capH = bh * 0.16;
         if (style === 0){
-          c.fillStyle = 'rgba(40,49,61,.15)'; c.beginPath(); c.ellipse(cx + 10, top + bh + 6, bw * 0.7, 10, 0, 0, Math.PI * 2); c.fill();
-          var g = c.createLinearGradient(x0, 0, x0 + bw, 0); g.addColorStop(0, '#5C6B7A'); g.addColorStop(0.3, '#E8EEF4'); g.addColorStop(0.55, '#A8B4C2'); g.addColorStop(1, '#4A5868');
+          if (on[0]){ c.fillStyle = 'rgba(40,49,61,.15)'; c.beginPath(); c.ellipse(cx + 10, top + bh + 6, bw * 0.7, 10, 0, 0, Math.PI * 2); c.fill(); }
+          var g;
+          if (on[0]){ g = c.createLinearGradient(x0, 0, x0 + bw, 0); g.addColorStop(0, '#5C6B7A'); g.addColorStop(0.3, '#E8EEF4'); g.addColorStop(0.55, '#A8B4C2'); g.addColorStop(1, '#4A5868'); }
+          else g = '#D7DEE6';
           c.fillStyle = g; rr(c, x0, top + capH, bw, bh - capH, 16); c.fill();
           var g2 = c.createLinearGradient(x0, 0, x0 + bw, 0); g2.addColorStop(0, '#26313D'); g2.addColorStop(0.35, '#6F7E8E'); g2.addColorStop(1, '#1E2833');
           c.fillStyle = g2; rr(c, x0 + bw * 0.1, top, bw * 0.8, capH + 6, 6); c.fill();
-          c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 3; c.beginPath(); c.moveTo(x0 + bw * 0.25, top + capH + 20); c.lineTo(x0 + bw * 0.25, top + bh - 20); c.stroke();
+          if (on[0]){ c.strokeStyle = 'rgba(255,255,255,.6)'; c.lineWidth = 3; c.beginPath(); c.moveTo(x0 + bw * 0.25, top + capH + 20); c.lineTo(x0 + bw * 0.25, top + bh - 20); c.stroke(); }
         } else if (style === 1){
           c.strokeStyle = '#26313D'; c.lineWidth = 2.5; rr(c, x0, top + capH, bw, bh - capH, 16); c.stroke();
           rr(c, x0 + 10, top + capH + 10, bw - 20, bh - capH - 20, 10); c.stroke();
@@ -462,17 +476,17 @@ var LAB = (function(){
           c.strokeStyle = '#26313D'; c.lineWidth = 2.5; rr(c, x0 + bw * 0.1, top, bw * 0.8, capH + 6, 6); c.stroke();
           seg(c, x0 + bw * 0.14, top + capH + 4, x0 + bw * 0.86, top + capH + 4, '#C8463D', 4);
           var lx = x0 + bw + 12, labs = [['뚜껑 패킹', top + capH + 4], ['바깥 벽', top + bh * 0.35], ['진공층', top + bh * 0.55], ['안쪽 벽', top + bh * 0.75]];
-          labs.forEach(function(L, j){ seg(c, x0 + bw - (j === 2 ? 5 : j === 3 ? 10 : 0), L[1], lx, L[1], '#4A5868', 1); txt(c, L[0], lx + 4, L[1] + 6, {color:'#4A5868'}); });
+          if (on[1]) labs.forEach(function(L, j){ seg(c, x0 + bw - (j === 2 ? 5 : j === 3 ? 10 : 0), L[1], lx, L[1], '#4A5868', 1); txt(c, L[0], lx + 4, L[1] + 6, {color:'#4A5868'}); });
         } else if (style === 2){
           var rn = rng(11);
           for (var k = 0; k < 60; k++){
             var a = rn() * Math.PI * 2, d = bw * (0.9 + rn() * 0.9);
-            c.strokeStyle = ['#D98E04', '#C8463D', '#E8B04A', '#A8702F'][k % 4]; c.globalAlpha = 0.35; c.lineWidth = 6 + rn() * 8;
+            c.strokeStyle = on[2] ? ['#D98E04', '#C8463D', '#E8B04A', '#A8702F'][k % 4] : ['#B9C0C8', '#9AA3AD', '#CED4DA', '#8A939C'][k % 4]; c.globalAlpha = 0.35; c.lineWidth = 6 + rn() * 8;
             c.beginPath(); c.moveTo(cx + Math.cos(a) * d * 0.5, top + bh / 2 + Math.sin(a) * d * 0.6); c.lineTo(cx + Math.cos(a + 0.4) * d, top + bh / 2 + Math.sin(a + 0.4) * d * 0.8); c.stroke();
           }
           c.globalAlpha = 1;
           for (var m = 0; m < 14; m++){
-            c.strokeStyle = m % 2 ? '#7657B3' : '#2B5FA3'; c.lineWidth = 7; c.globalAlpha = 0.7;
+            c.strokeStyle = on[2] ? (m % 2 ? '#7657B3' : '#2B5FA3') : (m % 2 ? '#A8B0B8' : '#8E979F'); c.lineWidth = 7; c.globalAlpha = 0.7;
             var yy = top + capH + (bh - capH) * m / 14; c.beginPath(); c.moveTo(x0 + rn() * 8, yy); c.lineTo(x0 + bw - rn() * 8, yy + 6 - rn() * 12); c.stroke();
           }
           c.globalAlpha = 1; c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 3;
@@ -485,10 +499,10 @@ var LAB = (function(){
             c.strokeStyle = '#26313D'; c.lineWidth = 2.5; rr(c, -pw / 2, -sb / 2 + sb * 0.16, pw, sb * 0.84, 8); c.stroke();
             if (q === 0){ rr(c, -pw * 0.4, -sb / 2, pw * 0.8, sb * 0.18, 4); c.stroke(); }
             c.restore();
-            txt(c, ['①', '②', '③'][q], px, top + 12, {bold:true, align:'center', color:PAL[0]});
-            if (q === 0){ c.strokeStyle = PAL[4]; c.lineWidth = 2.5; c.beginPath(); c.arc(px, ty - 2, pw * 0.55, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); arrow(c, px + pw * 0.45, ty - 12, px + pw * 0.55, ty - 2, PAL[4], 2.5); }
+            if (on[3]) txt(c, ['①', '②', '③'][q], px, top + 12, {bold:true, align:'center', color:PAL[0]});
+            if (q === 0 && on[3]){ c.strokeStyle = PAL[4]; c.lineWidth = 2.5; c.beginPath(); c.arc(px, ty - 2, pw * 0.55, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); arrow(c, px + pw * 0.45, ty - 12, px + pw * 0.55, ty - 2, PAL[4], 2.5); }
             if (q === 2){ c.strokeStyle = PAL[5]; c.lineWidth = 3; c.beginPath(); c.moveTo(px - pw * 0.6, ty + sb * 0.25); c.lineTo(px - pw * 0.6, ty + sb * 0.8); c.stroke(); c.strokeStyle = '#26313D'; c.strokeRect(px - pw * 0.9, ty + sb * 0.8, pw * 0.6, sb * 0.3); }
-            if (q < 2) arrow(c, px + gap * 0.32, ty + sb * 0.6, px + gap * 0.62, ty + sb * 0.6, '#5C6B7A', 2);
+            if (q < 2 && on[3]) arrow(c, px + gap * 0.32, ty + sb * 0.6, px + gap * 0.62, ty + sb * 0.6, '#5C6B7A', 2);
           }
         }
       }
@@ -499,9 +513,22 @@ var LAB = (function(){
         params: [
           {key:'u', type:'seg', label:'그림의 목적', cols:2, value:1, options:PU},
           {key:'s', type:'seg', label:'그리는 방식', cols:2, value:0, options:ST.map(function(x){ return x.name; }),
-            note:'같은 물병이지만 방식마다 살리는 정보와 버리는 정보가 다릅니다.'}
+            note:'같은 물병이지만 방식마다 살리는 정보와 버리는 정보가 다릅니다.'},
+          {key:'i0', type:'seg', label:'그림에 넣을 정보 ① 겉모양·명암', cols:2, value:1, options:['빼기', '넣기']},
+          {key:'i1', type:'seg', label:'② 속 구조', cols:2, value:1, options:['빼기', '넣기']},
+          {key:'i2', type:'seg', label:'③ 분위기·색', cols:2, value:1, options:['빼기', '넣기']},
+          {key:'i3', type:'seg', label:'④ 동작 순서', cols:2, value:1, options:['빼기', '넣기'],
+            note:'정보를 빼면 그림에서 그 부분이 사라지고 목적 달성도도 함께 떨어집니다. 어떤 정보를 빼도 괜찮은지 목적별로 확인해 보세요.'}
         ],
-        compute: function(p){ var sc = SC[p.u][p.s]; return {sc:sc, st:ST[p.s], best:SC[p.u].indexOf(5)}; },
+        compute: function(p){
+          var on = onOf(p), sc = scoreOf(p.u, p.s, on);
+          var bestS = 0, bestV = -1;
+          for (var i = 0; i < ST.length; i++){ var v = scoreOf(p.u, i, [1, 1, 1, 1]); if (v > bestV){ bestV = v; bestS = i; } }
+          var lostInfo = [];
+          for (var j = 0; j < 4; j++) if (!on[j] && NEED[p.u][j] > 0 && GIVE[p.s][j] > 0) lostInfo.push(INFO[j]);
+          return {sc:sc, st:ST[p.s], best:bestS, on:on, lost:lostInfo,
+            full:scoreOf(p.u, p.s, [1, 1, 1, 1]), shown:INFO.filter(function(x, i2){ return on[i2]; })};
+        },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 1;
           c.fillStyle = '#FBFAF7'; c.fillRect(0, 0, W, H);
@@ -509,31 +536,34 @@ var LAB = (function(){
           txt(c, '방식: ' + ST[p.s].short, 16, 54, {color:'#4A5868'});
           var bw = Math.min(W * 0.2, 110), bh = H * 0.5, top = 90;
           c.save(); c.beginPath(); c.rect(0, 64, W, (H - 64) * (r ? k : 1)); c.clip();
-          if (r || true) bottle(c, W / 2 - (p.s === 1 ? bw * 0.35 : 0), top, bw, bh, p.s);
+          bottle(c, W / 2 - (p.s === 1 ? bw * 0.35 : 0), top, bw, bh, p.s, onOf(p));
           c.restore();
           var by = H - 44, bx = 16, bwid = W - 32;
           c.fillStyle = '#E6EBF1'; c.fillRect(bx, by, bwid, 18);
           if (r){
             var sc = r.sc * Math.min(tau / 0.6, 1);
             c.fillStyle = r.sc >= 4 ? PAL[1] : r.sc >= 3 ? PAL[6] : PAL[4]; c.fillRect(bx, by, bwid * sc / 5, 18);
-            txt(c, '목적 달성도(모형) ' + r.sc + ' / 5', bx, by - 8, {bold:true});
+            txt(c, '목적 달성도(모형) ' + f(r.sc, 1) + ' / 5', bx, by - 8, {bold:true});
             txt(c, '생략: ' + r.st.drop, W - 16, H - 6, {align:'right', color:'#4A5868'});
           } else txt(c, '목적 달성도는 그린 뒤에 나와요', bx, by - 8, {color:'#4A5868'});
         },
         stats: function(p, r){
           var verdict = r.sc >= 4 ? '이 목적에 잘 맞는 방식' : r.sc >= 3 ? '쓸 수는 있지만 더 맞는 방식이 있어요' : '목적과 어긋난 방식';
-          return [['목적', PU[p.u]], ['방식', r.st.name], ['목적 달성도 (모형)', r.sc + ' / 5 — ' + verdict, r.sc >= 4 ? PAL[1] : r.sc >= 3 ? PAL[6] : PAL[4]],
+          return [['목적', PU[p.u]], ['방식', r.st.name],
+            ['그림에 넣은 정보', r.shown.join(' · ') || '아무것도 넣지 않음', PAL[0]],
+            ['목적 달성도 (모형)', f(r.sc, 1) + ' / 5 — ' + verdict, r.sc >= 4 ? PAL[1] : r.sc >= 3 ? PAL[6] : PAL[4]],
+            ['정보를 다 넣었다면', f(r.full, 1) + ' / 5' + (r.lost.length ? ' — 뺀 정보 때문에 ' + f(r.full - r.sc, 1) + '만큼 떨어졌어요 (' + r.lost.join(', ') + ')' : ' — 뺀 정보가 이 목적에는 필요 없었어요'), r.lost.length ? PAL[4] : PAL[1]],
             ['살린 정보', r.st.keep, PAL[0]], ['생략한 정보', r.st.drop, PAL[7]], ['이 목적에 가장 맞는 방식', ST[r.best].name, PAL[3]]];
         },
-        columns: ['목적', '방식', '달성도', '생략한 것'],
-        record: function(p, r){ return {u:p.u, s:p.s, sc:r.sc}; },
-        row: function(d){ return [PU[d.u], ST[d.s].short, d.sc + ' / 5', ST[d.s].drop]; },
+        columns: ['목적', '방식', '넣은 정보', '달성도'],
+        record: function(p, r){ return {u:p.u, s:p.s, sc:r.sc, on:r.on.slice(), shown:r.shown.join('·') || '없음'}; },
+        row: function(d){ return [PU[d.u], ST[d.s].short, d.shown, f(d.sc, 1) + ' / 5']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('목적 × 방식 달성도 표 (내가 그려 본 칸만)', '<div id="dp1"></div><p class="ask">같은 방식인데 목적이 바뀌자 점수가 바뀌었나요? 모든 목적에서 1등인 방식이 있었나요?</p>') +
             card('방식별 평균 달성도', '<div id="dp2"></div><p class="ask">과제: 같은 사물을 세 가지 목적(구조 설명·분위기 전달·사용법 안내)으로 각각 그리고, 각 그림에서 무엇을 생략했는지 적어 보세요.</p>') + '</div>';
-          var got = {}; rec.forEach(function(d){ got[d.u + '_' + d.s] = d.sc; });
-          var rows = PU.map(function(u, i){ return [u].concat(ST.map(function(s, j){ var v = got[i + '_' + j]; return v == null ? '·' : '<b>' + v + '</b>'; })); });
+          var got = {}; rec.forEach(function(d){ if (got[d.u + '_' + d.s] == null || d.sc > got[d.u + '_' + d.s]) got[d.u + '_' + d.s] = d.sc; });
+          var rows = PU.map(function(u, i){ return [u].concat(ST.map(function(s, j){ var v = got[i + '_' + j]; return v == null ? '·' : '<b>' + f(v, 1) + '</b>'; })); });
           $('dp1').innerHTML = tableHTML(['목적 \\ 방식'].concat(ST.map(function(s){ return s.short; })), rows);
           var g = groupBy(rec, function(d){ return d.s; }), items = [];
           ST.forEach(function(s, j){ if (!g[j]) return; var m = mean(g[j].map(function(d){ return d.sc; })); items.push({label:s.short, v:m, color:PAL[j], text:f(m, 1) + ' (' + distinct(g[j].map(function(d){ return d.u; })) + '가지 목적)'}); });
@@ -546,7 +576,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

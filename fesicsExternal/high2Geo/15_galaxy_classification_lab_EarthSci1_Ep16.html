@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -458,18 +460,28 @@ var PEC = [
   {name:'세이퍼트 은하', ex:'NGC 1068', obs:'나선 은하인데 중심핵이 아주 밝고, 스펙트럼에 폭이 넓은 방출선', band:'가시광·적외선에서 중심핵이 밝음', why:'중심핵 둘레 기체가 빠르게 움직여 방출선의 폭이 넓어짐'},
   {name:'퀘이사', ex:'3C 273', obs:'별처럼 점으로 보이는데 적색 편이가 매우 큼', band:'전 파장에서 매우 밝음', why:'아주 멀리 있는데도 밝게 보일 만큼 엄청난 에너지를 냄'}
 ];
-var MODE = ['보통 은하 관측', '특이 은하 관측'];
+var MODE = ['보통 은하 관측', '특이 은하 관측', '모습으로 맞히기'];
+var CLS = ['타원', '정상 나선', '막대 나선', '불규칙'];
+var QORD = [3, 0, 4, 5, 1, 2];   /* 맞히기 문제 순서 */
+function qTarget(p){ return QORD[p.qn - 1]; }
 return {
   sceneHeight: function(w){ return w < 420 ? 520 : 430; },   /* 좁은 화면은 은하 설명을 관측 창 아래에 써서 더 길게 */
-  idle: '관측할 은하를 고른 뒤 <b>망원경으로 보기</b>를 누르세요.',
-  shortHint: '자유 탐구 탭에서 보통 은하를 여러 종류 관측하고, 특이 은하도 관측해 기록하세요.',
+  idle: '관측 종류와 은하를 고른 뒤 <b>망원경으로 보기</b>를 누르세요. 「모습으로 맞히기」는 이름을 가린 은하의 분류를 먼저 고르고 확인합니다.',
+  shortHint: '자유 탐구 탭에서 보통 은하를 여러 종류 관측하고, 특이 은하도 관측해 기록하세요. 「모습으로 맞히기」로 분류를 추리해 보면 더 좋습니다.',
   params: [
-    {key:'md', type:'seg', label:'관측 종류', value:0, options:MODE},
+    {key:'md', type:'seg', cols:3, label:'관측 종류', value:0, options:MODE},
     {key:'g', type:'seg', label:'보통 은하', cols:3, value:0, options:GAL.map(function(x){ return x.name + '<small>' + x.type + '</small>'; })},
-    {key:'q', type:'seg', label:'특이 은하', cols:3, value:0, options:PEC.map(function(x){ return x.name + '<small>' + x.ex + '</small>'; }),
-      note:'허블의 분류는 은하의 겉모습(형태)으로 나눈 것입니다. 성간 물질 비율은 은하 종류별 대표적인 값입니다.'}
+    {key:'q', type:'seg', label:'특이 은하', cols:3, value:0, options:PEC.map(function(x){ return x.name + '<small>' + x.ex + '</small>'; })},
+    {key:'qn', type:'range', label:'맞히기 문제 번호', min:1, max:6, step:1, value:1, fmt:function(v){ return v + '번'; }},
+    {key:'ans', type:'seg', cols:2, label:'맞히기 — 내가 고른 분류', value:0, options:CLS,
+      note:'허블의 분류는 은하의 겉모습(형태)으로 나눈 것입니다. 성간 물질 비율은 은하 종류별 대표적인 값입니다. 「모습으로 맞히기」에서는 이름과 성간 물질을 가리고, 모습만 보고 분류를 고른 뒤 확인합니다.'}
   ],
-  compute: function(p){ return p.md === 0 ? {mode:0, G:GAL[p.g]} : {mode:1, Q:PEC[p.q]}; },
+  compute: function(p){
+    if (p.md === 1) return {mode:1, Q:PEC[p.q]};
+    if (p.md === 2){ var tg = qTarget(p), G = GAL[tg];
+      return {mode:2, G:G, tg:tg, ans:CLS[p.ans], hit:(G.type === CLS[p.ans])}; }
+    return {mode:0, G:GAL[p.g], tg:p.g};
+  },
   draw: function(c, W, H, p, r, tau){
     /* 좁은 화면(nar): 오른쪽 글자가 은하 그림 위에 겹쳐 → 은하를 가운데에, 글은 관측 창 아래에 */
     var nar = W < 420, by = 292;
@@ -480,8 +492,8 @@ return {
       ws.forEach(function(w2){ var t2 = cur ? cur + ' ' + w2 : w2; if (cur && c.measureText(t2).width > W - 16 - x){ ls.push(cur); cur = w2; } else cur = t2; }); if (cur) ls.push(cur);
       ls.forEach(function(l, j){ txt(c, l, x, y + j * 24, o); }); return ls.length; };
     for (var s = 0; s < 60; s++){ var sx = 20 + (s * 97 % 310), sy = 38 + (s * 53 % 224); c.fillStyle = 'rgba(255,255,255,' + (0.2 + (s % 5) * 0.12) + ')'; c.fillRect(sx, sy, 1.6, 1.6); }
-    if (p.md === 0){
-      var G = GAL[p.g];
+    if (p.md !== 1){
+      var tg2 = (p.md === 2) ? qTarget(p) : p.g, G = GAL[tg2], rev2 = (p.md !== 2) || !!r;
       c.save(); c.translate(cx, cy);
       if (G.shape === 'E'){
         var rr = 70 * k + 20; c.fillStyle = G.color; c.globalAlpha = 0.9;
@@ -507,14 +519,14 @@ return {
       }
       c.restore();
       if (nar){
-        txt(c, G.name + ' · ' + G.type + ' 은하', 12, 296, {bold:true});
+        txt(c, rev2 ? G.name + ' · ' + G.type + ' 은하' : '??? — 모습만 보고 분류를 골라 보세요', 12, 296, {bold:true});
         by = 330;
-        if (r && tau >= 1){ txt(c, '성간 물질 ' + G.gas + ' %', 12, 324, {color:'#2B5FA3', bold:true}); by = 350 + 24 * wr(G.age, 12, 350, {color:'#8A6A12'}) + 10; }
+        if (rev2 && r && tau >= 1){ txt(c, '성간 물질 ' + G.gas + ' %', 12, 324, {color:'#2B5FA3', bold:true}); by = 350 + 24 * wr(G.age, 12, 350, {color:'#8A6A12'}) + 10; }
       } else {
         var tx = Math.min(W - 150, cx + 150);
-        txt(c, G.name, tx, 60, {bold:true, color:'#fff'});
-        txt(c, G.type + ' 은하', tx, 88, {color:'#CFE0F5'});
-        if (r && tau >= 1){ txt(c, '성간 물질 ' + G.gas + ' %', tx, 124, {color:'#9BD5FF'}); wr(G.age, tx, 152, {color:'#E8C98A'}); }
+        txt(c, rev2 ? G.name : '???', tx, 60, {bold:true, color:'#fff'});
+        txt(c, rev2 ? G.type + ' 은하' : '모습만 보고 추리', tx, 88, {color:'#CFE0F5'});
+        if (rev2 && r && tau >= 1){ txt(c, '성간 물질 ' + G.gas + ' %', tx, 124, {color:'#9BD5FF'}); wr(G.age, tx, 152, {color:'#E8C98A'}); }
       }
     } else {
       var Q = PEC[p.q];
@@ -541,24 +553,37 @@ return {
         ws.forEach(function(w){ var t2 = cur ? cur + ' ' + w : w; if (cur && c.measureText(t2).width > W - 24){ out.push(cur); cur = w; } else cur = t2; }); if (cur) out.push(cur);
         out.forEach(function(l, j){ txt(c, l, 12, yy + j * 24, o); }); return (out.length - 1) * 24; };
       if (r.mode === 0) wl('나선팔이 뚜렷할수록 성간 물질이 많고 젊은 별이 많습니다', by, {color:'#4A5868'});
+      else if (r.mode === 2){
+        var dy2 = wl((r.hit ? '✅ 맞혔습니다 — ' : '❌ 틀렸습니다 — ') + '내 답 ' + r.ans + ' / 실제 ' + r.G.type + ' (' + r.G.name + ')', by, {bold:true, color:r.hit ? '#2E9E78' : '#C8463D'});
+        wl('나선팔이 뚜렷할수록 성간 물질이 많고 젊은 별이 많습니다', by + 28 + dy2, {color:'#4A5868'});
+      }
       else { var dy = wl('관측 특징: ' + r.Q.obs, by, {color:'#1E2833'}); wl('해석: ' + r.Q.why, by + 28 + dy, {color:'#4A5868'}); }
     }
   },
   stats: function(p, r){
     if (r.mode === 0) return [['은하', r.G.name + ' (' + r.G.type + ')', PAL[0]], ['성간 물질 비율', r.G.gas + ' %', PAL[1]], ['구성 천체의 나이', r.G.age]];
+    if (r.mode === 2) return [['맞히기', '내 답 ' + r.ans + ' / 실제 ' + r.G.type + ' — ' + (r.hit ? '✅ 맞혔습니다' : '❌ 틀렸습니다'), r.hit ? PAL[1] : PAL[4]],
+      ['은하', r.G.name + ' (' + r.G.type + ')', PAL[0]], ['성간 물질 비율', r.G.gas + ' %', PAL[1]], ['구성 천체의 나이', r.G.age],
+      ['무엇이 단서였나', '나선팔이 있는지 · 중심에 막대가 있는지 · 모양이 일정한지를 차례로 보면 네 분류를 가를 수 있습니다.']];
     return [['특이 은하', r.Q.name + ' (' + r.Q.ex + ')', PAL[4]], ['관측 특징', r.Q.obs], ['밝게 보이는 파장', r.Q.band], ['해석', r.Q.why]];
   },
   columns: ['관측', '이름', '분류·특징', '성간 물질 (%)', '구성 천체'],
-  record: function(p, r){ return r.mode === 0 ? {md:0, g:p.g} : {md:1, q:p.q}; },
-  row: function(d){ return d.md === 0 ? ['보통 은하', GAL[d.g].name, GAL[d.g].type, GAL[d.g].gas, GAL[d.g].age] : ['특이 은하', PEC[d.q].name, PEC[d.q].obs, '−', PEC[d.q].ex]; },
+  record: function(p, r){ return r.mode === 1 ? {md:1, q:p.q} : (r.mode === 2 ? {md:2, g:r.tg, ans:r.ans, hit:r.hit} : {md:0, g:p.g}); },
+  row: function(d){
+    if (d.md === 1) return ['특이 은하', PEC[d.q].name, PEC[d.q].obs, '−', PEC[d.q].ex];
+    if (d.md === 2) return ['맞히기', GAL[d.g].name, '내 답 ' + d.ans + (d.hit ? ' ✅' : ' ❌ (실제 ' + GAL[d.g].type + ')'), GAL[d.g].gas, GAL[d.g].age];
+    return ['보통 은하', GAL[d.g].name, GAL[d.g].type, GAL[d.g].gas, GAL[d.g].age];
+  },
   minRec: 3,
   verify: function(rec, box){
     var gs = [], seen = {}, qs = [], seen2 = {};
-    rec.forEach(function(d){ if (d.md === 0){ if (!seen[d.g]){ seen[d.g] = 1; gs.push(d.g); } } else if (!seen2[d.q]){ seen2[d.q] = 1; qs.push(d.q); } });
+    rec.forEach(function(d){ if (d.md === 1){ if (!seen2[d.q]){ seen2[d.q] = 1; qs.push(d.q); } } else if (!seen[d.g]){ seen[d.g] = 1; gs.push(d.g); } });
+    var quiz = rec.filter(function(d){ return d.md === 2; });
     box.innerHTML = '<div class="vgrid">' +
       card('은하 종류와 성간 물질', '<div id="ro1"></div><p class="ask">나선팔이 뚜렷한 은하일수록 성간 물질이 많습니다. 성간 물질이 많은 은하에 젊고 푸른 별이 많은 까닭은 무엇일까요?</p>') +
       card('허블 분류 정리', '<div id="ro2"></div><p class="ask">허블의 분류는 무엇을 기준으로 나눈 것인가요? 이 분류가 은하의 진화 순서를 뜻하지는 않는다는 점도 함께 생각해 보세요.</p>') +
-      card('특이 은하의 관측 특징', '<div id="ro3"></div><p class="ask">세 특이 은하의 공통점은 중심에서 아주 큰 에너지가 나온다는 것입니다. 보통 은하와 다른 이 점을 무엇으로 설명할 수 있을까요?</p>') + '</div>';
+      card('특이 은하의 관측 특징', '<div id="ro3"></div><p class="ask">세 특이 은하의 공통점은 중심에서 아주 큰 에너지가 나온다는 것입니다. 보통 은하와 다른 이 점을 무엇으로 설명할 수 있을까요?</p>') +
+      card('모습으로 맞히기 결과', '<div id="ro4"></div><p class="ask">어떤 분류끼리 헷갈렸나요? 정상 나선과 막대 나선을 가르는 단서는 무엇인가요?</p>') + '</div>';
     $('ro1').innerHTML = gs.length ? hbars(gs.map(function(i){ return {label:GAL[i].name + ' (' + GAL[i].type + ')', v:GAL[i].gas, color:GAL[i].shape === 'E' ? '#E8C98A' : GAL[i].shape === 'I' ? '#4FA97F' : '#4A86C5', text:GAL[i].gas + ' %'}; }), 25)
       : '<p class="msg">보통 은하를 관측해 기록하세요.</p>';
     $('ro2').innerHTML = tableHTML(['분류', '겉모습', '기록 여부'], [['타원 (E0~E7)', '나선팔 없이 둥글거나 길쭉함', gs.some(function(i){ return GAL[i].shape === 'E'; }) ? 'O' : '·'],
@@ -567,6 +592,11 @@ return {
       ['불규칙 (Irr)', '일정한 모양이 없음', gs.some(function(i){ return GAL[i].shape === 'I'; }) ? 'O' : '·']], 'wrap');
     $('ro3').innerHTML = qs.length ? tableHTML(['특이 은하', '관측 특징', '밝게 보이는 파장'], qs.map(function(i){ return [PEC[i].name + ' (' + PEC[i].ex + ')', PEC[i].obs, PEC[i].band]; }), 'wrap')
       : '<p class="msg">특이 은하도 관측해 기록하세요.</p>';
+    var hit4 = quiz.filter(function(d){ return d.hit; }).length;
+    $('ro4').innerHTML = quiz.length
+      ? tableHTML(['문제 은하', '내 답', '실제 분류', '결과'], quiz.map(function(d){ return [GAL[d.g].name, d.ans, GAL[d.g].type, d.hit ? '맞힘' : '틀림']; }), 'wrap')
+        + '<p class="msg">맞히기 ' + quiz.length + '번 가운데 ' + hit4 + '번 맞혔습니다.</p>'
+      : '<p class="msg">아직 「모습으로 맞히기」 기록이 없어요. 관측 종류를 바꿔 문제를 풀어 보세요.</p>';
   }
 };
 })();
@@ -575,7 +605,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

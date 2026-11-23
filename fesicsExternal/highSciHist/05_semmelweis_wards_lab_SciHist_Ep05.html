@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,6 +443,28 @@ var LAB = (function(){
       ];
       var ERA = [{name:'1848년 의학계의 눈', short:'1848년', mech:'없음 — 세균설 이전, 나쁜 공기(독기)설이 우세', resp:'자료는 있으나 받아들이기 어려움 (의사가 옮긴다는 결론, 설명할 원리 없음)'},
         {name:'1880년대 의학계의 눈', short:'1880년대', mech:'있음 — 파스퇴르·리스터·코흐 이후 미생물이 감염을 일으킨다는 설명', resp:'손 씻기·소독의 이유가 생김'}];
+      /* 원인 후보를 하나 골라 '이 비교로 지워지는가'를 따진다.
+         '후보 지우기 안 함'(0번)이 기본값이라 예전 결과가 그대로 나온다.
+         kill[비교 번호] = 그 비교가 이 후보를 지우는지 */
+      var CAND = [
+        {n:'후보 지우기 안 함', s:'—'},
+        {n:'나쁜 공기(독기)', s:'나쁜 공기', kill:[1, 0, 0],
+          why:['두 병동은 같은 건물·같은 공기인데 사망률이 크게 달랐다 → 공기로는 설명되지 않는다',
+               '공기를 바꾼 것이 아니라 손을 씻었을 뿐인데 크게 줄었다 → 이 비교만으로는 공기를 지우기 어렵다',
+               '두 병동이 같아졌다는 것만으로는 공기를 지울 수 없다']},
+        {n:'산모의 분만 자세', s:'분만 자세', kill:[0, 1, 0],
+          why:['병동마다 자세가 달랐으니 이 비교로는 지울 수 없다',
+               '같은 병동에서 자세는 그대로인데 손 씻기만으로 사망률이 줄었다 → 자세는 지워진다',
+               '자세를 바꾼 기록이 없으니 이 비교로는 지울 수 없다']},
+        {n:'사제의 병동 방문', s:'사제 방문', kill:[0, 1, 1],
+          why:['사제는 두 병동을 모두 지나갔으니 이 비교로는 갈리지 않는다',
+               '사제의 경로를 바꾸지 않았는데도 사망률이 줄었다 → 사제 방문은 지워진다',
+               '사제 경로는 그대로인데 두 병동이 같아졌다 → 사제 방문은 지워진다']},
+        {n:'해부실을 거친 손', s:'해부실 손', kill:[0, 0, 0],
+          why:['제1병동만 해부 실습을 한 의대생이 맡았다 → 차이와 들어맞는다',
+               '손을 씻자 사망률이 크게 줄었다 → 들어맞는다',
+               '두 병동이 모두 손을 씻으니 같아졌다 → 들어맞는다']}
+      ];
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       function cm(n){ return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
       return {
@@ -451,11 +475,15 @@ var LAB = (function(){
           {key:'cmp', type:'seg', label:'비교할 쌍', cols:1, value:0, options:CMP.map(function(x){ return x.name; })},
           {key:'n', type:'range', label:'각 병동의 산모 수 (가정)', min:1000, max:5000, step:500, value:3000, fmt:function(v){ return cm(v) + '명'; }},
           {key:'era', type:'seg', label:'누구의 눈으로 볼까', cols:2, value:0, options:ERA.map(function(e){ return e.name; }),
-            note:'자료(숫자)는 같습니다. 바뀌는 것은 &lsquo;왜 그런지&rsquo;를 설명할 원리가 있느냐예요.'}
+            note:'자료(숫자)는 같습니다. 바뀌는 것은 &lsquo;왜 그런지&rsquo;를 설명할 원리가 있느냐예요.'},
+          {key:'cd', type:'seg', label:'지워 볼 원인 후보', cols:2, value:0, options:CAND.map(function(x){ return x.n; }),
+            note:'후보를 하나 골라 세 비교를 모두 해 보세요. 자료로 지워지는 후보와 끝까지 버티는 후보를 가려낼 수 있어요.'}
         ],
         compute: function(p){
           var C = CMP[p.cmp], dA = p.n * C.A.r / 100, dB = p.n * C.B.r / 100, ratio = C.A.r / C.B.r;
-          return {C:C, dA:dA, dB:dB, ratio:ratio, big:ratio > 1.5};
+          var cd = CAND[p.cd || 0], killed = cd.kill ? !!cd.kill[p.cmp] : null;
+          return {C:C, dA:dA, dB:dB, ratio:ratio, big:ratio > 1.5,
+            cd:cd, cdi:p.cd || 0, killed:killed, cdWhy:cd.kill ? cd.why[p.cmp] : null};
         },
         draw: function(c, W, H, p, r, tau){
           var C = CMP[p.cmp], cell = Math.min((W / 2 - 34) / 10, 24), gw = cell * 10, gap = (W - 2 * gw) / 3;
@@ -479,19 +507,44 @@ var LAB = (function(){
             [r.C.B.lab, '약 ' + f(r.C.B.r, 1) + '% → ' + cm(p.n) + '명 중 약 ' + cm(r.dB) + '명', PAL[0]],
             ['위험 비 (A ÷ B)', f(r.ratio, 1) + '배', r.big ? PAL[4] : PAL[1]],
             ['자료가 보여 주는 것', r.big ? 'A 쪽 사망이 뚜렷이 많음' : '두 쪽의 차이가 거의 없음'],
-            ['왜 그런지 설명할 원리(기전)', ERA[p.era].mech, PAL[3]], ['의학계의 반응', ERA[p.era].resp, PAL[6]]];
+            ['왜 그런지 설명할 원리(기전)', ERA[p.era].mech, PAL[3]], ['의학계의 반응', ERA[p.era].resp, PAL[6]]]
+            .concat(r.cdi === 0 ? [['원인 후보 지우기', '후보를 골라 보세요 — 이 비교로 지워지는지 따져 줍니다.']]
+              : [['지워 볼 후보', r.cd.n, PAL[3]],
+                 ['이 비교로 지워지나', r.killed ? '지워집니다' : '지워지지 않습니다 — 아직 버팁니다', r.killed ? PAL[4] : PAL[1]],
+                 ['까닭', r.cdWhy]]);
         },
-        columns: ['비교', '산모 수(가정)', 'A 사망(어림)', 'B 사망(어림)', 'A ÷ B', '시점'],
-        record: function(p, r){ return {cmp:p.cmp, n:p.n, era:p.era, dA:r.dA, dB:r.dB, ratio:r.ratio}; },
-        row: function(d){ return [CMP[d.cmp].short, cm(d.n) + '명', cm(d.dA) + '명', cm(d.dB) + '명', f(d.ratio, 1) + '배', ERA[d.era].short]; },
+        columns: ['비교', '산모 수(가정)', 'A 사망(어림)', 'B 사망(어림)', 'A ÷ B', '후보', '지워짐'],
+        record: function(p, r){ return {cmp:p.cmp, n:p.n, era:p.era, dA:r.dA, dB:r.dB, ratio:r.ratio, cd:r.cdi, killed:r.killed}; },
+        row: function(d){ return [CMP[d.cmp].short, cm(d.n) + '명', cm(d.dA) + '명', cm(d.dB) + '명', f(d.ratio, 1) + '배',
+          CAND[d.cd || 0].s, d.killed == null ? '—' : (d.killed ? '지워짐' : '버팀')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('두 병동 산욕열 사망률 (어림값)', '<div id="sm5a"></div><p class="ask">손 씻기 도입 뒤 두 병동의 차이는 어떻게 되었나요? 오늘 기준으로 이 비교는 설득력이 있나요, 없나요? 그런데도 1848년에 받아들여지지 않은 까닭은 무엇일까요?</p>') +
+            card('어느 후보가 자료에 버티나 (내가 지운 것으로 계산)', '<div id="sm5c"></div><p class="ask">세 비교를 모두 거쳐 끝까지 버틴 후보는 무엇이었나요? 그 후보가 1848년에 받아들여지지 않은 것은 자료가 모자라서였나요, 설명할 원리가 없어서였나요?</p>') +
             card('자료와 설명의 연표', '<div id="sm5b"></div><p class="ask">과제: 손 씻기 전후 세균 배양 비교 실험을 설계해 보세요. 대조군, 바꾸는 조건 하나, 기록표를 정하고, 배지는 뚜껑을 밀봉한 채로만 관찰한다는 안전 수칙을 넣으세요.</p>') + '</div>';
           $('sm5a').innerHTML = hbars([
             {label:'제1병동 · 도입 전', v:9.9, color:PAL[4], text:'약 9.9%'}, {label:'제2병동 · 도입 전', v:3.9, color:PAL[0], text:'약 3.9%'},
             {label:'제1병동 · 도입 후', v:1.3, color:PAL[4], text:'약 1.3%'}, {label:'제2병동 · 도입 후', v:1.3, color:PAL[0], text:'약 1.3%'}], 11) +
             '<p class="msg">내 기록 ' + rec.length + '개 중 &lsquo;차이가 뚜렷함&rsquo;(위험 비 1.5배 초과) ' + rec.filter(function(d){ return d.ratio > 1.5; }).length + '개</p>';
+          /* 후보마다 내가 해 본 비교 가운데 몇 개에서 지워졌는지 센다 */
+          var rows3 = [], survivor = null, tested = 0;
+          CAND.forEach(function(x, i){ if (!i) return;
+            var a = rec.filter(function(d){ return d.cd === i; });
+            if (!a.length){ rows3.push([x.s, '—', '—', '—']); return; }
+            tested++;
+            var cmps = {}; a.forEach(function(d){ cmps[d.cmp] = 1; });
+            var kills = a.filter(function(d){ return d.killed; }), nk = {};
+            kills.forEach(function(d){ nk[d.cmp] = 1; });
+            var done = Object.keys(cmps).length, kc = Object.keys(nk).length;
+            if (kc === 0 && done === CMP.length) survivor = x.s;
+            rows3.push([x.s, done + ' / 3', kc ? kc + '곳에서 지워짐' : '지워지지 않음',
+              kc ? '탈락' : (done === CMP.length ? '끝까지 버팀' : '아직 남음')]);
+          });
+          $('sm5c').innerHTML = tableHTML(['원인 후보', '해 본 비교', '결과', '판정'], rows3)
+            + '<p class="msg">' + (!tested
+              ? '"지워 볼 원인 후보"를 골라 세 비교를 모두 해 보세요. 어느 후보가 자료에 버티는지 여기서 가려 줍니다.'
+              : (survivor ? '세 비교를 모두 거쳐 끝까지 버틴 후보는 <b>' + survivor + '</b> 하나였습니다. 그래도 1848년에는 받아들여지지 않았어요 — 자료는 있었지만 <b>왜 그런지 설명할 원리</b>가 아직 없었기 때문입니다.'
+                : '후보마다 세 비교를 모두 해 보면, 끝까지 버티는 후보가 하나로 좁혀집니다.')) + '</p>';
           var eras = distinct(rec.map(function(d){ return d.era; }));
           $('sm5b').innerHTML = tableHTML(['때', '일'], [['1847년', '제멜바이스, 염소 용액 손 씻기 도입'], ['1860년대', '파스퇴르의 미생물 연구'], ['1865년', '제멜바이스 사망'], ['1867년', '리스터의 소독법 발표'], ['1870~1880년대', '코흐의 세균 연구']]) +
             (eras < 2 ? '<p class="msg">같은 비교를 두 시점의 눈으로 모두 기록해 보세요.</p>' : '<p class="msg">같은 숫자인데 시점에 따라 &lsquo;설명할 원리&rsquo;만 달라졌습니다.</p>');
@@ -503,7 +556,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

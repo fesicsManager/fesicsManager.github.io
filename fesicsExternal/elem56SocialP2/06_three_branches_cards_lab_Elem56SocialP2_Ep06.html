@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>대통령이 나라 일을 다 하나</h1>
-    <p>가상 뉴스 카드를 하나 고르고, <b>누가 한 일인지</b> 예측해 보세요. 헌법 조문에 따라 국회·정부·법원 가운데 맡은 곳으로 카드가 옮겨 가요.<br><span style="font-size:.9em;color:#a86825">※ 뉴스 카드는 모두 가상이에요. 헌법 조문은 실제 조문을 그대로 옮겼어요.</span></p>
+    <p>가상 뉴스 카드를 하나 고르고, <b>누가 한 일인지</b>와 <b>그곳이 잘못하면 누가 멈추는지</b>를 예측해 보세요. 헌법 조문에 따라 국회·정부·법원 가운데 맡은 곳으로 카드가 옮겨 가요.<br><span style="font-size:.9em;color:#a86825">※ 뉴스 카드는 모두 가상이에요. 헌법 조문은 실제 조문을 그대로 옮겼어요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,6 +438,9 @@ var LAB = (function(){
       var B = ['국회', '정부', '법원'], GO = ['국회', '정부', '법원', '대통령 혼자 다 함'];
       var ART = ['제40조 — 입법권은 국회에 속한다.', '제66조 ④ — 행정권은 대통령을 수반으로 하는 정부에 속한다.', '제101조 ① — 사법권은 법관으로 구성된 법원에 속한다.'];
       var JOB = ['법을 만들고 고치기', '법에 따라 나라 살림하기', '다툼을 법에 따라 판단하기'], BC = [PAL[0], PAL[6], PAL[3]];
+      /* 견제: 그 기관이 잘못했을 때 멈추는 곳 */
+      var CHK = [2, 0, 0];
+      var CHW = ['법원이 그 법이 헌법에 맞는지 가려요 (위헌 여부 판단)', '국회가 국정 감사와 예산 심사로 따져요', '국회가 법관 탄핵 소추를 할 수 있어요'];
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
         var ws = String(s).split(' '), line = '', n = 0;
@@ -445,16 +450,17 @@ var LAB = (function(){
       }
       return {
         sceneHeight: function(w){ return w < 420 ? 450 : 400; },
-        idle: '뉴스 카드와 예측을 고른 뒤 <b>맡은 곳 찾기</b>를 누르세요.',
+        idle: '뉴스 카드와 두 가지 예측을 고른 뒤 <b>맡은 곳 찾기</b>를 누르세요.',
         shortHint: '카드 9장을 모두 해 보세요. 대통령 혼자 다 한 카드가 있었나요?',
         params: [
           {key:'c', type:'seg', label:'가상 뉴스 카드', cols:3, value:0, options:CD.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'예측: 누가 한 일일까?', cols:4, value:3, options:GO,
-            note:'뭉치는 "대통령은 나라의 왕! 법도 만들고, 나라 살림도 하고, 재판도 다 해!"라고 했어요.'}
+          {key:'g', type:'seg', label:'예측 ①: 누가 한 일일까?', cols:4, value:3, options:GO,
+            note:'뭉치는 "대통령은 나라의 왕! 법도 만들고, 나라 살림도 하고, 재판도 다 해!"라고 했어요.'},
+          {key:'k', type:'seg', label:'예측 ②: 그곳이 잘못하면 누가 멈출까?', cols:3, value:0, options:B}
         ],
         compute: function(p){
-          var d = CD[p.c];
-          return {d:d, b:d.b, ok:p.g === d.b};
+          var d = CD[p.c], chk = CHK[d.b];
+          return {d:d, b:d.b, ok:p.g === d.b, chk:chk, okk:p.k === chk, chw:CHW[d.b]};
         },
         draw: function(c, W, H, p, r, tau){
           var d = CD[p.c], k = r ? Math.min(tau / 0.8, 1) : 0, bw = (W - 40) / 3, by = 200;
@@ -479,21 +485,26 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['뉴스 카드 (가상)', r.d.n], ['맡은 곳', B[r.b] + ' — ' + JOB[r.b], BC[r.b]], ['헌법', ART[r.b]],
-            ['내 예측', GO[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
+            ['내 예측 ①', GO[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
+            ['내 예측 ② (멈추는 곳)', B[p.k] + (r.okk ? ' — ○' : ' — ✕'), r.okk ? PAL[1] : PAL[4]],
+            ['잘못하면 멈추는 곳 (견제)', B[r.chk] + ' — ' + r.chw, BC[r.chk]],
             ['뭉치의 주장과 비교', p.g === 3 ? '대통령 혼자 다 하는 일이 아니에요. 대통령은 정부를 이끌어요' : '나라 일은 세 곳이 나눠 맡아요']];
         },
-        columns: ['뉴스 카드', '내 예측', '맡은 곳', '판정'],
-        record: function(p, r){ return {c:p.c, g:p.g, b:r.b, ok:r.ok}; },
-        row: function(d){ return [CD[d.c].n, GO[d.g], B[d.b], d.ok ? '○' : '✕']; },
+        columns: ['뉴스 카드', '내 예측 ①', '맡은 곳', '내 예측 ②', '멈추는 곳'],
+        record: function(p, r){ return {c:p.c, g:p.g, b:r.b, ok:r.ok, k:p.k, chk:r.chk, okk:r.okk}; },
+        row: function(d){ return [CD[d.c].n, GO[d.g], B[d.b] + (d.ok ? ' ○' : ' ✕'), B[d.k], B[d.chk] + (d.okk ? ' ○' : ' ✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('맡은 곳별 카드 수', '<div id="tb1"></div><p class="ask">9장 중 대통령 혼자 다 한 카드는 몇 장이었나요? 세 곳은 각각 몇 장씩 맡았나요?</p>') +
-            card('내 예측 기록', '<div id="tb2"></div><p class="ask">과제: 일주일 동안 신문이나 뉴스에서 국회, 정부, 법원이 한 일을 하나씩 찾아 세 칸 표에 적어 보세요.</p>') + '</div>';
+            card('내 예측 기록', '<div id="tb2"></div><p class="ask">한 곳이 다른 곳 일을 하려 들면 누가 멈추나요? 과제: 일주일 동안 신문이나 뉴스에서 국회, 정부, 법원이 한 일을 하나씩 찾아 세 칸 표에 적어 보세요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.c] = 1; });
           var items = B.map(function(bn, bi){ var n = Object.keys(seen).filter(function(k){ return CD[k].b === bi; }).length; return {label:bn, v:n, color:BC[bi], text:n + '장'}; });
           items.push({label:'대통령 혼자', v:0, color:PAL[4], text:'0장'});
           $('tb1').innerHTML = hbars(items, 3) + (Object.keys(seen).length < 9 ? '<p class="msg">카드 ' + Object.keys(seen).length + '장 / 9장을 해 봤어요.</p>' : '');
-          $('tb2').innerHTML = tableHTML(['내 예측', '기록', '맞힘'], GO.map(function(gn, gi){ var a = rec.filter(function(d){ return d.g === gi; }); return [gn, a.length + '번', a.filter(function(d){ return d.ok; }).length + '번']; }).filter(function(x){ return x[1] !== '0번'; }));
+          var kn = rec.filter(function(d){ return d.okk; }).length;
+          $('tb2').innerHTML = tableHTML(['내 예측 ①', '기록', '맞힘'], GO.map(function(gn, gi){ var a = rec.filter(function(d){ return d.g === gi; }); return [gn, a.length + '번', a.filter(function(d){ return d.ok; }).length + '번']; }).filter(function(x){ return x[1] !== '0번'; }))
+            + tableHTML(['견제하는 곳', '맡은 곳', '어떻게 멈추나'], B.map(function(bn, bi){ return [B[CHK[bi]], bn, CHW[bi]]; }), 'wrap')
+            + '<p>"잘못하면 누가 멈추나"를 맞힌 기록: ' + rec.length + '번 중 ' + kn + '번</p>';
         }
       };
     })();
@@ -502,7 +513,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

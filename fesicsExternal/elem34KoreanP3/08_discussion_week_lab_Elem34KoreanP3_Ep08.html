@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -238,8 +239,9 @@ tbody tr:hover{background:#F5F8FB}
 </ul>
 <p>의견이 다른 친구는 적이 아니라, 내가 못 본 걱정을 찾아 주는 짝이에요.</p>
 <div class="fx-model"><b>📌 실험과 실제의 차이</b><br>
-· 두 모둠의 결과는 제로 랩의 가상 실험이에요. 모둠이 두 개뿐이라 실제로는 모둠마다 다르게 나올 수 있어요.<br>
-· A모둠은 이틀째에 공이 화분에 맞아서 그만두었어요(정한 대로 한 날 2일).</div>
+· 지킨 날, 토의 시간, &ldquo;좋다&rdquo;고 한 사람 수는 <b>따진 걱정되는 점 수</b>로 계산한 제로 랩의 <b>교육용 모형값</b>이에요. 실제 교실에서는 다르게 나올 수 있어요.<br>
+· 걱정을 하나도 따지지 않으면 이틀째에 공이 화분에 맞아서 그만두게 돼요(지킨 날 2일).<br>
+· 걱정을 따질수록 지킨 날이 늘지만 <b>토의 시간도 길어져요</b>. 3개를 따진 것과 4개를 따진 것은 지킨 날이 같아요.</div>
 </div>
 </section>
 
@@ -296,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -431,8 +434,7 @@ function hbars(items, max){
 }
 
 /* ================= 실험별 설정 ================= */
-var LAB = (function anonymous(
-) {
+var LAB = (function(){
 
   function T(c, s, x, y, o){
     o = o || {}; var sz = o.size || 18, fw = o.bold ? '700 ' : '';
@@ -463,91 +465,104 @@ var LAB = (function anonymous(
     if (fill){ c.fillStyle = fill; c.fill(); } if (stroke){ c.strokeStyle = stroke; c.lineWidth = lw || 2; c.stroke(); }
   }
   function ease(t){ return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); }
-  function kid(c, x, y, col, s){
-    s = s || 1; c.fillStyle = col; c.beginPath(); c.arc(x, y - 22 * s, 8 * s, 0, Math.PI * 2); c.fill();
-    c.fillRect(x - 7 * s, y - 12 * s, 14 * s, 18 * s);
-  }
 
-
-      var GR = [
-        {n:'A모둠 — 처음 의견으로 바로', s:'A모둠', ideas:['공놀이'], worries:[], like:2, days:2, pick:'교실 공놀이', jump:true},
-        {n:'B모둠 — 모두 말한 뒤 정하기', s:'B모둠', ideas:['공놀이', '종이접기', '끝말잇기', '그림 그리기', '책 읽기'], worries:['교실 공놀이는 창문·화분이 위험하다', '시끄러우면 옆 반에 방해', '준비물이 없으면 못 한다', '혼자만 하는 놀이는 심심하다'], like:5, days:5, pick:'종이접기와 끝말잇기', jump:false}
-      ];
       var STEP = ['의견 모으기', '까닭 듣기', '좋은 점·걱정 따지기', '정하기'];
+      var WORRY = ['교실 공놀이는 창문·화분이 위험하다', '시끄러우면 옆 반에 방해가 된다', '준비물이 없으면 못 한다', '혼자만 하는 놀이는 심심하다'];
+      /* 따진 걱정 수(0~4)에 따른 결과 — 제로 랩의 교육용 모형값 */
+      var DAYS = [2, 3, 4, 5, 5];
+      var LIKE = [2, 3, 4, 5, 5];
+      var STOPMSG = ['2일째에 공이 화분에 맞아서 그만뒀어요.', '3일째에 옆 반에서 시끄럽다고 해서 그만뒀어요.',
+        '4일째에 준비물이 없어서 못 했어요.', '', ''];
+      function mins(w){ return 5 + 6 * w; }
+      function ideas(w){ return w === 0 ? 1 : 5; }
+      function pick(w){ return w === 0 ? '교실 공놀이' : w <= 2 ? '교실 공놀이 (조심해서)' : '종이접기와 끝말잇기'; }
       return {
         sceneHeight: 450,
-        idle:'토의 방법과 지켜볼 날을 고른 뒤 <b>토의하고 지켜보기</b>를 누르세요.',
-        shortHint:'두 모둠을 모두 5일째까지 지켜보세요. 2일째와 3일째 사이에 무슨 일이 있었나요?',
+        idle:'따질 걱정되는 점 수와 지켜볼 날을 고른 뒤 <b>토의하고 지켜보기</b>를 누르세요.',
+        shortHint:'걱정되는 점을 0개·2개·4개까지 따져 보고, 지켜본 날을 5일째까지 늘려 보세요.',
         params:[
-          {key:'g', type:'seg', label:'토의 방법', cols:2, value:0, options:GR.map(function(x){ return x.n; })},
+          {key:'w', type:'range', label:'토의에서 따질 걱정되는 점 수', min:0, max:4, step:1, value:0, fmt:function(v){ return v + '개'; }},
           {key:'d', type:'range', label:'지켜본 날 (학교 가는 날)', min:1, max:5, step:1, value:5, fmt:function(v){ return v + '일째까지'; }}
         ],
         compute:function(p){
-          var g = GR[p.g], done = Math.min(p.d, g.days);
-          return {g:g, done:done, stopped:p.d > g.days};
+          var days = DAYS[p.w], done = Math.min(p.d, days);
+          return {w:p.w, days:days, done:done, stopped:p.d > days, min:mins(p.w), ideas:ideas(p.w), like:LIKE[p.w], pick:pick(p.w),
+            jump:p.w === 0, worries:WORRY.slice(0, p.w)};
         },
         draw:function(c, W, H, p, r, tau){
-          var g = GR[p.g], k = r ? ease(tau / 0.85) : 0, sw = (W - 36) / 4;
-          T(c, '🗣️ 토의 차례 — ' + g.s, 18, 26, {size:15, bold:true, color:'#4A5868'});
+          var k = r ? ease(tau / 0.85) : 0, sw = (W - 36) / 4, jump = p.w === 0;
+          T(c, '🗣️ 토의 차례 — 걱정 ' + p.w + '개 따짐', 18, 26, {size:15, bold:true, color:'#4A5868', max:W - 36});
           STEP.forEach(function(s, i){
-            var used = !g.jump || i === 0 || i === 3, on = r && used && k > i * 0.15;
+            var used = !jump || i === 0 || i === 3, on = r && used && k > i * 0.15;
             rbox(c, 18 + i * sw, 38, sw - 8, 40, on ? '#E3F1EA' : '#F1F3F6', on ? PAL[1] : '#D5DCE5', 1.5);
             c.font = (on ? '700 ' : '') + '12px ' + FONT; var cut = s.indexOf('·');
             if (c.measureText(s).width > sw - 14 && cut > 0){ T(c, s.slice(0, cut + 1), 18 + i * sw + (sw - 8) / 2, 55, {size:13, align:'center', bold:on, color:on ? PAL[1] : '#8C99A8', max:sw - 14}); T(c, s.slice(cut + 1), 18 + i * sw + (sw - 8) / 2, 71, {size:13, align:'center', bold:on, color:on ? PAL[1] : '#8C99A8', max:sw - 14}); }
             else T(c, s, 18 + i * sw + (sw - 8) / 2, 63, {size:13, align:'center', bold:on, color:on ? PAL[1] : '#8C99A8', max:sw - 14});
           });
-          if (r && g.jump && k > 0.2){ c.strokeStyle = PAL[4]; c.lineWidth = 2.5; c.setLineDash([6, 4]); c.beginPath(); c.moveTo(18 + sw / 2, 84); c.quadraticCurveTo(W / 2, 112, 18 + 3.5 * sw - 4, 84); c.stroke(); c.setLineDash([]);
+          if (r && jump && k > 0.2){ c.strokeStyle = PAL[4]; c.lineWidth = 2.5; c.setLineDash([6, 4]); c.beginPath(); c.moveTo(18 + sw / 2, 84); c.quadraticCurveTo(W / 2, 112, 18 + 3.5 * sw - 4, 84); c.stroke(); c.setLineDash([]);
             T(c, '건너뜀!', W / 2, 118, {size:13, bold:true, align:'center', color:PAL[4]}); }
           var y = 142;
-          T(c, '나온 의견 ' + (r ? g.ideas.length : '?') + '개', 18, y, {size:15, bold:true, color:PAL[0]});
-          if (r) T(c, g.ideas.slice(0, Math.max(1, Math.ceil(g.ideas.length * k))).join(' · '), 18, y + 22, {size:14, color:'#1E2833', max:W - 36});
-          T(c, '찾아낸 걱정되는 점 ' + (r ? g.worries.length : '?') + '개', 18, y + 50, {size:15, bold:true, color:PAL[4]});
-          if (r) T(c, g.worries.length ? g.worries[0] + (g.worries.length > 1 ? ' 외 ' + (g.worries.length - 1) + '개' : '') : '(찾지 않았어요)', 18, y + 72, {size:14, color:'#1E2833', max:W - 36});
-          if (r) T(c, '정한 것: ' + g.pick + '  ·  "좋다" ' + g.like + '명 / 6명', 18, y + 100, {size:15, bold:true, color:PAL[3], max:W - 36});
+          T(c, '나온 의견 ' + (r ? r.ideas : '?') + '개', 18, y, {size:15, bold:true, color:PAL[0], max:W - 36});
+          if (r) T(c, r.ideas === 1 ? '공놀이' : '공놀이 · 종이접기 · 끝말잇기 · 그림 그리기 · 책 읽기', 18, y + 22, {size:14, color:'#1E2833', max:W - 36});
+          T(c, '따진 걱정되는 점 ' + p.w + '개 · 토의 ' + mins(p.w) + '분', 18, y + 50, {size:15, bold:true, color:PAL[4], max:W - 36});
+          if (r) T(c, r.worries.length ? r.worries[0] + (r.worries.length > 1 ? ' 외 ' + (r.worries.length - 1) + '개' : '') : '(걱정을 따지지 않았어요)', 18, y + 72, {size:14, color:'#1E2833', max:W - 36});
+          if (r) T(c, '정한 것: ' + r.pick + '  ·  "좋다" ' + r.like + '명 / 6명', 18, y + 100, {size:15, bold:true, color:PAL[3], max:W - 36});
           var cy = 290, dw = (W - 36) / 5;
-          T(c, '📅 일주일 지켜보기 (' + p.d + '일째까지)', 18, cy - 10, {size:15, bold:true, color:'#4A5868'});
+          T(c, '📅 일주일 지켜보기 (' + p.d + '일째까지)', 18, cy - 10, {size:15, bold:true, color:'#4A5868', max:W - 36});
           for (var dd = 0; dd < 5; dd++){
-            var vis = r && dd < p.d && k > 0.5 + dd * 0.1, ok = dd < g.days;
+            var vis = r && dd < p.d && k > 0.5 + dd * 0.1, ok = r && dd < r.days;
             rbox(c, 18 + dd * dw, cy, dw - 8, 70, vis ? (ok ? '#E3F1EA' : '#F7E6E4') : '#F7F9FC', vis ? (ok ? PAL[1] : PAL[4]) : '#D5DCE5', 1.5);
-            T(c, (dd + 1) + '일', 18 + dd * dw + (dw - 8) / 2, cy + 22, {size:13, align:'center', color:'#4A5868'});
+            T(c, (dd + 1) + '일', 18 + dd * dw + (dw - 8) / 2, cy + 22, {size:13, align:'center', color:'#4A5868', max:dw - 14});
             if (vis) T(c, ok ? '✓' : '✕', 18 + dd * dw + (dw - 8) / 2, cy + 54, {size:24, bold:true, align:'center', color:ok ? PAL[1] : PAL[4]});
           }
           if (r && k >= 1){
-            var msg = r.stopped ? '2일째에 공이 화분에 맞아서 그만뒀어요.' : (g.days === 5 ? '걱정을 미리 찾아 안전한 놀이로 정했어요.' : '아직은 정한 대로 하고 있어요.');
-            T(c, '정한 대로 한 날: ' + p.d + '일 중 ' + r.done + '일', 18, H - 40, {size:17, bold:true, color:r.done === p.d ? PAL[1] : PAL[4]});
+            var msg = r.stopped ? STOPMSG[p.w] : (r.days === 5 ? '걱정을 미리 찾아 안전한 놀이로 정했어요.' : '아직은 정한 대로 하고 있어요.');
+            T(c, '정한 대로 한 날: ' + p.d + '일 중 ' + r.done + '일', 18, H - 40, {size:17, bold:true, color:r.done === p.d ? PAL[1] : PAL[4], max:W - 36});
             T(c, msg, 18, H - 14, {size:14, color:'#4A5868', max:W - 36});
           }
         },
         stats:function(p, r){
-          return [['토의 방법', r.g.n], ['나온 의견 수', r.g.ideas.length + '개', PAL[0]], ['찾아낸 걱정되는 점', r.g.worries.length + '개', PAL[4]],
-            ['정한 것에 "좋다"고 한 사람', '6명 중 ' + r.g.like + '명', PAL[3]], ['정한 것', r.g.pick],
-            ['정한 대로 한 날 (가상)', p.d + '일 중 ' + r.done + '일' + (r.stopped ? ' — 2일째에 그만둠' : ''), r.done === p.d ? PAL[1] : PAL[4]]];
+          var next = p.w < 4 ? (DAYS[p.w + 1] === r.days ? '지킨 날은 ' + DAYS[p.w + 1] + '일로 그대로예요 (토의만 6분 더 걸려요)' : '지킨 날이 ' + DAYS[p.w + 1] + '일로 하루 늘어요')
+            : '더 따질 걱정이 없어요 (3개를 따졌을 때와 지킨 날이 같아요)';
+          return [['따진 걱정되는 점', p.w + '개', PAL[4]],
+            ['토의에 걸린 시간 (교육용 모형)', r.min + '분'],
+            ['나온 의견 수', r.ideas + '개', PAL[0]],
+            ['정한 것', r.pick],
+            ['정한 것에 "좋다"고 한 사람', '6명 중 ' + r.like + '명', PAL[3]],
+            ['정한 대로 한 날 (교육용 모형)', p.d + '일 중 ' + r.done + '일' + (r.stopped ? ' — ' + STOPMSG[p.w] : ''), r.done === p.d ? PAL[1] : PAL[4]],
+            ['걱정을 하나 더 따지면', next, DAYS[Math.min(4, p.w + 1)] > r.days ? PAL[1] : PAL[7]]];
         },
-        columns:['모둠', '지켜본 날', '정한 대로 한 날', '나온 의견'],
-        record:function(p, r){ return {g:p.g, d:p.d, done:r.done}; },
-        row:function(d){ return [GR[d.g].s, d.d + '일', d.done + '일', GR[d.g].ideas.length + '개']; },
+        columns:['따진 걱정', '지켜본 날', '정한 대로 한 날', '토의 시간'],
+        record:function(p, r){ return {w:p.w, d:p.d, done:r.done}; },
+        row:function(d){ return [d.w + '개', d.d + '일', d.done + '일', mins(d.w) + '분']; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('두 모둠 견주기 (제로 랩의 가상 실험)', '<div id="e3h1"></div><p class="ask">A모둠은 빨리 정했는데 왜 이틀 만에 멈췄을까요? B모둠이 찾아낸 걱정되는 점이 어떤 일을 했는지 말해 보세요.</p>') +
+            card('걱정되는 점을 몇 개 따졌을 때 (교육용 모형)', '<div id="e3h1"></div><p class="ask">걱정을 하나도 따지지 않으면 며칠 만에 멈췄나요? 3개를 따진 것과 4개를 따진 것은 지킨 날이 <b>같았어요</b>. 그러면 4개째 걱정은 쓸모가 없었을까요? 토의 시간도 함께 보고 말해 보세요.</p>') +
             card('내가 지켜본 기록', '<div id="e3h2"></div><p class="ask">과제: 가족회의를 열어 &lsquo;주말에 무엇을 할까&rsquo;를 정해 보세요. 모두 의견과 까닭을 한 번씩 말하고, 좋은 점과 걱정되는 점을 표로 적은 뒤 정해 보세요.</p>') + '</div>';
-          $('e3h1').innerHTML = tableHTML(['', 'A모둠 (처음 의견으로 바로)', 'B모둠 (모두 말한 뒤 정하기)'], [
-            ['나온 의견 수', '1개', '5개'], ['찾아낸 걱정되는 점', '0개', '4개'], ['정한 것에 &lsquo;좋다&rsquo;고 한 사람', '2명', '5명'], ['정한 대로 한 날 (5일 중)', '2일', '5일']]);
+          var ws = [0, 1, 2, 3, 4];
+          $('e3h1').innerHTML = tableHTML(['따진 걱정', '나온 의견', '토의 시간', '정한 것', '5일 중 지킨 날', '"좋다"', '나'], ws.map(function(w){
+            return [w + '개', ideas(w) + '개', mins(w) + '분', pick(w), DAYS[w] + '일', LIKE[w] + '명', rec.some(function(d){ return d.w === w; }) ? '해 봄' : '·'];
+          })) + hbars(ws.map(function(w){
+            return {label:'걱정 ' + w + '개', v:DAYS[w], color:DAYS[w] === 5 ? PAL[1] : PAL[4], text:DAYS[w] + '일 / 5일'};
+          }), 5) + '<p class="note">※ 위 숫자는 제로 랩의 교육용 모형값이에요. 실제 교실에서는 다르게 나올 수 있어요.</p>';
           var items = [];
-          GR.forEach(function(g, i){ var a = rec.filter(function(d){ return d.g === i; });
-            if (!a.length){ items.push({label:g.s + ' (아직)', v:0, color:'#C9D3DF', text:'—'}); return; }
-            var best = a.reduce(function(m, d){ return d.d > m.d ? d : m; });
-            items.push({label:g.s + ' · ' + best.d + '일째까지', v:best.done, color:best.done === best.d ? PAL[1] : PAL[4], text:best.done + '일 / ' + best.d + '일'}); });
-          $('e3h2').innerHTML = hbars(items, 5);
+          ws.forEach(function(w){
+            var a = rec.filter(function(d){ return d.w === w; });
+            if (!a.length) return;
+            var bst = a.reduce(function(m, d){ return d.d > m.d ? d : m; });
+            items.push({label:'걱정 ' + w + '개 · ' + bst.d + '일째까지', v:bst.done, color:bst.done === bst.d ? PAL[1] : PAL[4], text:bst.done + '일 / ' + bst.d + '일'});
+          });
+          $('e3h2').innerHTML = items.length ? hbars(items, 5) : '<p class="msg">아직 지켜본 기록이 없어요.</p>';
         }
       };
-    
 })();
 
 /* ================= 엔진 ================= */
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

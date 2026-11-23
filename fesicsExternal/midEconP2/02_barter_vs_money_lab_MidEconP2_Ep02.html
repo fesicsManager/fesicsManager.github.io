@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,17 +439,29 @@ var LAB = (function(){
       var NS = [3, 5, 10, 20, 50, 100];
       var MODE = ['물물교환', '화폐 사용'];
       function comma(n){ return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+      /* 비율 수가 가격 수의 몇 배가 되는 지점을 먼저 짐작하고 채점한다 */
+      var KS = [2, 5, 10, 20], KN = ['2배', '5배', '10배', '20배'];
+      var PG = ['5종류', '11종류', '21종류', '41종류'];
+      var PGV = [5, 11, 21, 41];
+      function needN(k){ return 2 * k + 1; }   /* (n−1)/2 = k → n = 2k+1 */
       return {
         sceneHeight: 430,
         idle: '물건 종류 수와 교환 방식을 고른 뒤 <b>비교 계산하기</b>를 누르세요.',
         shortHint: '3·10·100종류에서 두 방식을 모두 기록해 보세요. 물건이 늘 때 어느 쪽이 폭발적으로 늘어나나요?',
         params: [
           {key:'n', type:'seg', label:'마을의 물건 종류', cols:3, value:2, options:NS.map(function(x){ return x + '종류'; })},
-          {key:'m', type:'seg', label:'교환 방식', cols:2, value:0, options:MODE}
+          {key:'m', type:'seg', label:'교환 방식', cols:2, value:0, options:MODE},
+          {key:'k', type:'seg', label:'찾을 지점 — 비율 수가 가격 수의', cols:4, value:2, options:KN},
+          {key:'pg', type:'seg', label:'먼저 짐작 — 그 지점은 몇 종류일 때?', cols:4, value:0, options:PG}
         ],
         compute: function(p){
           var n = NS[p.n], pairs = n * (n - 1) / 2, know = p.m === 0 ? pairs : n, meet = p.m === 0 ? (n - 1) * (n - 1) : 2 * (n - 1);
-          return {n:n, pairs:pairs, prices:n, know:know, meet:meet};
+          var kk = KS[p.k], want = needN(kk), ans = PGV[p.pg], ok = ans === want;
+          var ratio = pairs / n;
+          return {n:n, pairs:pairs, prices:n, know:know, meet:meet,
+            kk:kk, want:want, ok:ok, ratio:ratio,
+            gmsg:PG[p.pg] + ' → 실제로는 ' + want + '종류일 때 ' + kk + '배가 돼요 ((n − 1) ÷ 2 = ' + kk + ')' + (ok ? ' — 맞음' : ' — 틀림'),
+            hereMsg:'지금 ' + n + '종류에서는 ' + f(ratio, 1) + '배예요 — ' + (ratio >= kk ? '이미 ' + kk + '배를 넘었어요' : kk + '배가 되려면 ' + want + '종류가 필요해요')};
         },
         draw: function(c, W, H, p, r, tau){
           var n = NS[p.n], shown = Math.min(n, 20), cx = W / 2, cy = H * 0.44, R = Math.min(W * 0.36, H * 0.34), k = r ? Math.min(tau / 0.9, 1) : 0, pts = [];
@@ -467,11 +481,14 @@ var LAB = (function(){
           return [['물건 종류', r.n + '종류'], ['교환 방식', MODE[p.m], p.m === 0 ? PAL[4] : PAL[6]],
             ['알아야 할 비율·가격 수', comma(r.know) + '개' + (p.m === 0 ? ' (화폐라면 ' + r.n + '개)' : ' (물물교환이라면 ' + comma(r.pairs) + '개)'), PAL[0]],
             ['원하는 물건까지 만남 기댓값', '약 ' + comma(r.meet) + '번 (단순 모형)', PAL[3]],
-            ['배수', '물물교환 비율 수는 가격 수의 ' + f(r.pairs / r.n, 1) + '배']];
+            ['배수', '물물교환 비율 수는 가격 수의 ' + f(r.pairs / r.n, 1) + '배'],
+            ['지금 종류에서의 배수', r.hereMsg, r.ratio >= r.kk ? PAL[4] : '#4A5868'],
+            ['먼저 짐작 채점', r.gmsg, r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['물건 종류', '방식', '비율·가격 수', '만남 기댓값'],
-        record: function(p, r){ return {n:r.n, m:p.m, know:r.know, meet:r.meet}; },
-        row: function(d){ return [d.n + '종류', MODE[d.m], comma(d.know), comma(d.meet)]; },
+        columns: ['물건 종류', '방식', '비율·가격 수', '만남 기댓값', '찾을 배수', '짐작'],
+        record: function(p, r){ return {n:r.n, m:p.m, know:r.know, meet:r.meet, k:p.k, pg:p.pg, ok:r.ok, want:r.want}; },
+        row: function(d){ return [d.n + '종류', MODE[d.m], comma(d.know), comma(d.meet),
+          d.k == null ? '—' : KN[d.k], d.pg == null ? '—' : (PG[d.pg] + ' / 답 ' + d.want + '종류 ' + (d.ok ? '○' : '✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('물건 종류별 비교 (웹툰 표와 같은지 확인)', '<div id="bm1"></div><p class="ask">3종류일 땐 3개 대 3개로 같은데, 100종류에선 4,950개 대 100개입니다. 왜 물물교환 쪽만 폭발적으로 늘어날까요?</p>') +
@@ -480,7 +497,9 @@ var LAB = (function(){
           var rows = Object.keys(ns).map(Number).sort(function(a, b){ return a - b; }).map(function(n){ return [n + '종류', comma(n * (n - 1) / 2), String(n), comma((n - 1) * (n - 1)) + ' 대 ' + comma(2 * (n - 1))]; });
           $('bm1').innerHTML = tableHTML(['물건', '물물교환 비율', '화폐 가격', '만남 (물물 대 화폐)'], rows);
           var mx = Math.max.apply(null, rec.map(function(d){ return d.meet; }));
-          $('bm2').innerHTML = hbars(rec.slice(-10).map(function(d){ return {label:d.n + '종류 · ' + MODE[d.m], v:d.meet, color:d.m === 0 ? PAL[4] : PAL[6], text:comma(d.meet) + '번'}; }), mx);
+          var hit = rec.filter(function(d){ return d.ok; }).length;
+          $('bm2').innerHTML = hbars(rec.slice(-10).map(function(d){ return {label:d.n + '종류 · ' + MODE[d.m], v:d.meet, color:d.m === 0 ? PAL[4] : PAL[6], text:comma(d.meet) + '번'}; }), mx) +
+            '<p class="msg">배수 지점 짐작: ' + hit + ' / ' + rec.length + ' 맞힘 (' + KN.map(function(kn, i){ return kn + ' → ' + needN(KS[i]) + '종류'; }).join(' · ') + ')</p>';
         }
       };
     })();
@@ -489,7 +508,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

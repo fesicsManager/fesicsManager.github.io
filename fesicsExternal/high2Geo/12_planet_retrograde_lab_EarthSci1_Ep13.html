@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -307,9 +308,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -445,6 +447,7 @@ var LAB = (function(){
 // 원 궤도, 같은 평면을 가정. 공전 주기는 케플러 제3법칙 P² = a³ (년, AU)
 var PL = [{name:'금성', a:0.723, color:'#D98E04'}, {name:'화성', a:1.524, color:'#C8463D'}, {name:'목성', a:5.203, color:'#A8702F'}, {name:'토성', a:9.537, color:'#7657B3'}];
 var SPAN = [1, 2, 4];
+var NB = ['0번', '1번', '2번', '3번 이상'];   /* 관측 전에 찍어 보는 역행 횟수 칸 */
 function lon(pl, t){   // t: 일
   var Pe = 365.25, Pp = 365.25 * Math.pow(pl.a, 1.5), ae = 2 * Math.PI * t / Pe, ap = 2 * Math.PI * t / Pp + Math.PI;
   var ex = Math.cos(ae), ey = Math.sin(ae), px = pl.a * Math.cos(ap), py = pl.a * Math.sin(ap);
@@ -470,11 +473,16 @@ return {
   params: [
     {key:'pl', type:'seg', label:'관측할 행성', cols:4, value:1, options:PL.map(function(x){ return x.name; })},
     {key:'y', type:'seg', label:'관측 기간', cols:3, value:1, options:SPAN.map(function(v){ return v + '년'; }),
-      note:'행성의 궤도는 태양을 중심으로 한 원이고 모두 같은 평면에 있다고 가정합니다. 궤도 반지름(AU)은 실제 값입니다.'}
+      note:'행성의 궤도는 태양을 중심으로 한 원이고 모두 같은 평면에 있다고 가정합니다. 궤도 반지름(AU)은 실제 값입니다.'},
+    {key:'pn', type:'seg', label:'관측하기 전에 찍어 보기 — 역행이 몇 번 일어날까', cols:4, value:0, options:['찍지 않음'].concat(NB),
+      note:'찍지 않음이 기본값입니다. 회합 주기(지구와 그 행성이 다시 같은 배치가 되는 주기)와 관측 기간을 견주어 먼저 찍어 두면, 관측이 끝난 뒤 맞았는지 채점해 측정 결과와 기록 표에 남습니다. 역행 한 번을 세는 기준(6일 이상 거꾸로 움직임)은 교육용 모형값입니다.'}
   ],
   compute: function(p){
     var s = sim(PL[p.pl], SPAN[p.y]), r0 = s.retro[0] || null;
-    return {s:s, n:s.retro.length, dur:r0 ? r0.e - r0.s : null, arc:r0 ? r0.sL - r0.eL : null};
+    var n = s.retro.length, pn = p.pn || 0;
+    return {s:s, n:n, dur:r0 ? r0.e - r0.s : null, arc:r0 ? r0.sL - r0.eL : null,
+      pn:pn, bk:Math.min(n, 3), hit:pn ? (pn - 1 === Math.min(n, 3)) : null,
+      syn:s.syn, exp:SPAN[p.y] * 365.25 / s.syn};
   },
   draw: function(c, W, H, p, r, tau){
     var pl = PL[p.pl], k = r ? Math.min(tau / 0.9, 1) : 0, s = r ? r.s : sim(pl, 0.01), idx = Math.round(k * (s.pts.length - 1)), o = s.pts[idx].o;
@@ -502,11 +510,16 @@ return {
     var a = [['관측 기간 동안 역행한 횟수', r.n + '번', PAL[4]]];
     if (r.dur != null){ a.push(['첫 역행이 이어진 기간', r.dur + '일']); a.push(['역행하는 동안 거꾸로 움직인 각도', f(r.arc, 1) + '°']); }
     if (r.s.retro.length >= 2) a.push(['두 역행 가운데 시점 사이 간격', Math.round((r.s.retro[1].s + r.s.retro[1].e) / 2 - (r.s.retro[0].s + r.s.retro[0].e) / 2) + '일', PAL[0]]);
+    if (r.pn){
+      a.push(['회합 주기 ' + Math.round(r.syn) + '일로 어림한 횟수 (관측 기간 ÷ 회합 주기)', f(r.exp, 2) + '번']);
+      a.push(['찍은 횟수 ' + NB[r.pn - 1] + ' → 실제 ' + r.n + '번', r.hit ? '맞음' : '빗나감', r.hit ? PAL[1] : '#C8463D']);
+    }
     return a;
   },
-  columns: ['행성', '관측 기간 (년)', '역행 횟수', '역행 기간 (일)', '역행 각도 (°)', '역행 간격 (일)'],
-  record: function(p, r){ var q = r.s.retro; return {pl:p.pl, y:SPAN[p.y], n:r.n, dur:r.dur, arc:r.arc, gap:q.length >= 2 ? Math.round((q[1].s + q[1].e) / 2 - (q[0].s + q[0].e) / 2) : null}; },
-  row: function(d){ return [dot(PL[d.pl].color) + PL[d.pl].name, d.y, d.n, d.dur == null ? '−' : d.dur, d.arc == null ? '−' : f(d.arc, 1), d.gap == null ? '−' : d.gap]; },
+  columns: ['행성', '관측 기간 (년)', '역행 횟수', '역행 기간 (일)', '역행 각도 (°)', '역행 간격 (일)', '찍은 횟수 → 판정'],
+  record: function(p, r){ var q = r.s.retro; return {pl:p.pl, y:SPAN[p.y], n:r.n, dur:r.dur, arc:r.arc, gap:q.length >= 2 ? Math.round((q[1].s + q[1].e) / 2 - (q[0].s + q[0].e) / 2) : null, pn:r.pn, hit:r.hit}; },
+  row: function(d){ return [dot(PL[d.pl].color) + PL[d.pl].name, d.y, d.n, d.dur == null ? '−' : d.dur, d.arc == null ? '−' : f(d.arc, 1), d.gap == null ? '−' : d.gap,
+    d.pn ? NB[d.pn - 1] + ' → ' + (d.hit ? '맞음' : '빗나감') : '—']; },
   minRec: 3,
   verify: function(rec, box){
     var used = [0, 1, 2, 3].filter(function(i){ return rec.some(function(d){ return d.pl === i && d.dur != null; }); });
@@ -516,8 +529,11 @@ return {
     $('ro1').innerHTML = used.length ? hbars(used.map(function(i){ var g = rec.filter(function(d){ return d.pl === i && d.dur != null; }); return {label:PL[i].name, v:mean(g.map(function(d){ return d.dur; })), color:PL[i].color, text:Math.round(mean(g.map(function(d){ return d.dur; }))) + '일, ' + f(mean(g.map(function(d){ return d.arc; })), 1) + '°'}; }), 160)
       : '<p class="msg">역행이 나타난 기록이 있으면 비교할 수 있어요.</p>';
     var gp = [0, 1, 2, 3].filter(function(i){ return rec.some(function(d){ return d.pl === i && d.gap != null; }); });
-    $('ro2').innerHTML = gp.length ? tableHTML(['행성', '관측으로 구한 간격 (일)', '공전 주기로 계산한 회합 주기 (일)'], gp.map(function(i){ var g = rec.filter(function(d){ return d.pl === i && d.gap != null; }); return [PL[i].name, Math.round(mean(g.map(function(d){ return d.gap; }))), Math.round(365.25 / Math.abs(1 - 1 / Math.pow(PL[i].a, 1.5)))]; }))
-      : '<p class="msg">관측 기간을 길게 해서 역행이 2번 나타나면 간격을 구할 수 있어요. 화성은 4년, 금성·목성·토성은 2년 이상 관측해 보세요.</p>';
+    var tried = rec.filter(function(d){ return d.pn; }), hits = tried.filter(function(d){ return d.hit; }).length;
+    var tally = tried.length ? '<p class="msg">관측하기 전에 역행 횟수를 찍은 것: ' + tried.length + '번 가운데 <b>' + hits + '번</b> 맞음</p>'
+      : '<p class="msg">관측하기 전에 「역행이 몇 번 일어날까」를 찍어 두면 맞힌 수가 여기에 쌓입니다.</p>';
+    $('ro2').innerHTML = tally + (gp.length ? tableHTML(['행성', '관측으로 구한 간격 (일)', '공전 주기로 계산한 회합 주기 (일)'], gp.map(function(i){ var g = rec.filter(function(d){ return d.pl === i && d.gap != null; }); return [PL[i].name, Math.round(mean(g.map(function(d){ return d.gap; }))), Math.round(365.25 / Math.abs(1 - 1 / Math.pow(PL[i].a, 1.5)))]; }))
+      : '<p class="msg">관측 기간을 길게 해서 역행이 2번 나타나면 간격을 구할 수 있어요. 화성은 4년, 금성·목성·토성은 2년 이상 관측해 보세요.</p>');
   }
 };
 })();
@@ -526,7 +542,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

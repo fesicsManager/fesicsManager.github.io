@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -288,9 +289,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -425,7 +427,9 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var ST = [{name:'① 그냥 좋다', hit:5, cue:false}, {name:'② 유명한 화가 그림이라서 좋다', hit:5, cue:false},
-        {name:'③ 하늘에 굵은 소용돌이 붓질이 반복되어 바람이 세게 부는 것 같다', hit:18, cue:true}, {name:'④ 아주 비싼 그림이라서 좋다', hit:5, cue:false}];
+        {name:'③ 하늘에 굵은 소용돌이 붓질이 반복되어 바람이 세게 부는 것 같다', hit:18, cue:true}, {name:'④ 아주 비싼 그림이라서 좋다', hit:5, cue:false},
+        {name:'⑤ 내가 고른 단서로 쓴 감상문 (아래에서 고르기)', hit:5, cue:false, custom:true}];
+      var CU = ['넣기', '빼기'];
       var PN = ['가', '나', '다', '라'], PC = [PAL[0], PAL[1], PAL[6], PAL[3]];
       function pic(c, x, y, w, h, i){
         c.save(); c.beginPath(); c.rect(x, y, w, h); c.clip();
@@ -450,8 +454,8 @@ var LAB = (function(){
         }
         c.restore();
       }
-      function picks(si){
-        var hit = ST[si].hit, out = [], wrong = [1, 2, 3], j;
+      function picks(hit){
+        var out = [], wrong = [1, 2, 3], j;
         for (j = 0; j < 20; j++) out.push(j < hit ? 0 : wrong[(j - hit) % 3]);
         var order = [7, 2, 15, 11, 0, 18, 4, 9, 13, 1, 16, 6, 19, 3, 10, 14, 5, 12, 8, 17];
         return order.map(function(o){ return out[o]; });
@@ -462,9 +466,22 @@ var LAB = (function(){
         shortHint: '네 감상문을 모두 들려주고 맞힌 사람 수를 비교해 보세요.',
         minRec: 2,
         params: [
-          {key:'s', type:'seg', label:'들려줄 감상문', cols:1, value:0, options:ST.map(function(x){ return x.name; })}
+          {key:'s', type:'seg', label:'들려줄 감상문', cols:1, value:0, options:ST.map(function(x){ return x.name; })},
+          {key:'q1', type:'seg', label:'⑤ 단서: 색 ("짙은 파랑 밤하늘")', cols:2, value:1, options:CU},
+          {key:'q2', type:'seg', label:'⑤ 단서: 자리 ("왼쪽에 큰 나무")', cols:2, value:1, options:CU},
+          {key:'q3', type:'seg', label:'⑤ 단서: 붓질 ("굵은 소용돌이")', cols:2, value:1, options:CU,
+            note:'⑤ 를 고르면 담은 단서 수로 맞히는 사람 수를 계산해요. 단서가 0개면 아무렇게나 고른 것과 같습니다. (맞히는 사람 수는 교육용 모형값)'}
         ],
-        compute: function(p){ var pk = picks(p.s), cnt = [0, 0, 0, 0]; pk.forEach(function(v){ cnt[v]++; }); return {pk:pk, cnt:cnt, hit:cnt[0], cue:ST[p.s].cue}; },
+        compute: function(p){
+          var custom = !!ST[p.s].custom;
+          var nc = (p.q1 === 0 ? 1 : 0) + (p.q2 === 0 ? 1 : 0) + (p.q3 === 0 ? 1 : 0);
+          /* 단서 0개면 네 장 중 하나를 찍는 수준(약 5명), 세 개면 ③ 과 같은 18명이 되도록 어림 */
+          var hitN = custom ? Math.min(20, 5 + Math.round(13 * nc / 3)) : ST[p.s].hit;
+          var pk = picks(hitN), cnt = [0, 0, 0, 0]; pk.forEach(function(v){ cnt[v]++; });
+          var cues = [];
+          if (p.q1 === 0) cues.push('색'); if (p.q2 === 0) cues.push('자리'); if (p.q3 === 0) cues.push('붓질');
+          return {pk:pk, cnt:cnt, hit:cnt[0], cue:custom ? (nc > 0) : ST[p.s].cue, custom:custom, nc:nc, cues:cues};
+        },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#FBFAF7'; c.fillRect(0, 0, W, H);
           var gw = (W - 32 - 18) / 4, gh = Math.min(gw * 0.75, 130), y0 = 16;
@@ -479,21 +496,28 @@ var LAB = (function(){
           if (r && tau >= 0.9) txt(c, '맞힌 친구 ' + r.hit + ' / 20명', 16, H - 14, {bold:true, color:r.cue ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
-          return [['감상문', ST[p.s].name], ['맞힌 친구', r.hit + ' / 20명', r.cue ? PAL[1] : PAL[4]],
+          return [['감상문', ST[p.s].name],
+            ['담은 단서', r.custom ? (r.nc + '개' + (r.cues.length ? ' — ' + r.cues.join(' · ') : ' (하나도 없음)')) : '정해진 감상문', r.custom ? PAL[3] : 0],
+            ['맞힌 친구', r.hit + ' / 20명', r.cue ? PAL[1] : PAL[4]],
             ['고른 그림', PN.map(function(n, i){ return n + ' ' + r.cnt[i] + '명'; }).join(' · ')],
             ['그림 속 근거', r.cue ? '있어요 — 붓질·하늘·바람 (보기·따지기)' : '없어요 — 운에 맡기는 정도(약 4명 중 1명)', r.cue ? PAL[1] : PAL[7]]];
         },
-        columns: ['감상문', '맞힘', '근거'],
-        record: function(p, r){ return {s:p.s, hit:r.hit, cue:r.cue}; },
-        row: function(d){ return [ST[d.s].name.split(' ')[0], d.hit + ' / 20', d.cue ? '있음' : '없음']; },
+        columns: ['감상문', '담은 단서', '맞힘', '근거'],
+        record: function(p, r){ return {s:p.s, hit:r.hit, cue:r.cue, custom:r.custom, nc:r.nc, cues:r.cues.join('·')}; },
+        row: function(d){ return [ST[d.s].name.split(' ')[0], d.custom ? (d.nc + '개' + (d.cues ? ' (' + d.cues + ')' : '')) : '—', d.hit + ' / 20', d.cue ? '있음' : '없음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('감상문별 맞힌 친구 수 (20명)', '<div id="ag1"></div><p class="ask">"그냥 좋다"는 아무렇게나 고른 것과 같은 5명이었어요. 근거가 있는 감상문은 무엇이 달랐나요?</p>') +
             card('감상 네 걸음으로 다시 쓰기', '<div id="ag2"></div><p class="ask">과제: 교과서나 미술관 누리집에서 그림 하나를 골라 감상 네 걸음으로 감상문을 쓰고, 그림을 안 본 가족에게 읽어 준 뒤 그림 네 장 중에서 맞혀 보게 하세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.s; }), items = [];
-          ST.forEach(function(s, i){ if (g[i]) items.push({label:s.name.split(' ')[0], v:s.hit, color:s.cue ? PAL[1] : PAL[4], text:s.hit + '명'}); });
+          ST.forEach(function(s, i){ var gg = g[i]; if (!gg) return; var last = gg[gg.length - 1];
+            items.push({label:s.name.split(' ')[0] + (s.custom ? ' (단서 ' + last.nc + '개)' : ''), v:last.hit, color:last.cue ? PAL[1] : PAL[4], text:last.hit + '명'}); });
           items.push({label:'아무렇게나', v:5, color:PAL[7], text:'약 5명 (4장 중 1장)'});
-          $('ag1').innerHTML = hbars(items, 20);
+          $('ag1').innerHTML = hbars(items, 20)
+            + (function(){ var cu = rec.filter(function(d){ return d.custom; });
+              if (cu.length < 2) return '<p class="msg">⑤ 를 골라 단서를 0개 → 1개 → 3개로 늘려 가며 들려줘 보세요. 느낌만 적은 감상문과 무엇이 다른지 숫자로 보입니다.</p>';
+              var k = {}; cu.forEach(function(d){ k[d.nc] = d; }); var ks = Object.keys(k).map(Number).sort(function(a, b){ return a - b; });
+              return '<p class="msg">내가 담은 단서 수 → 맞힌 친구: ' + ks.map(function(x){ return x + '개 → ' + k[x].hit + '명'; }).join(' · ') + '. 단서가 하나도 없으면 <b>네 장 중 하나를 찍는 것</b>과 같은 5명쯤이고, 색·자리·붓질을 모두 담으면 18명쯤이 맞혔습니다. 감상은 느낌을 적는 일이 아니라 <b>그림에서 본 것을 근거로 대는</b> 일입니다. (맞히는 사람 수는 교육용 모형값)</p>'; })();
           $('ag2').innerHTML = tableHTML(['걸음', '질문', '예시 (가 그림)'], [['보기', '무엇이 보이나', '밤하늘, 큰 나무, 작은 마을'], ['따지기', '색·선·크기·배치', '굵은 소용돌이 붓질, 왼쪽에 큰 나무'], ['풀기', '왜 그렇게 했을까', '바람과 움직임을 느끼게 하려고'], ['판단', '나는 어떻게 생각하나', '근거와 함께 내 느낌 말하기']]);
         }
       };
@@ -503,7 +527,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

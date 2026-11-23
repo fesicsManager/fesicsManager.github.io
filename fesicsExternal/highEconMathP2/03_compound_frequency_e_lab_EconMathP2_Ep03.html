@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -310,6 +312,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; var fs = o.size || 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
@@ -439,6 +448,9 @@ var LAB = (function(){
       var RS = [0.12, 0.06, 1], RN = ['연 12% (웹툰)', '연 6% (과제)', '연 100% (e 확인)'];
       var NS = [1, 2, 4, 12, 365, 8760], NN = ['1년에 한 번', '반년마다', '분기마다', '매달', '매일', '매시간'];
       function amt(r, n){ return 100 * Math.pow(1 + r / n, n); }
+      /* 한계값을 가리고, 끝없이 잘게 나누면 어디서 멈출지 먼저 짐작하게 한다 */
+      var PG = ['표시 이율 그대로 멈춘다', '표시 이율의 1.1배쯤에서 멈춘다', '표시 이율의 1.7배쯤에서 멈춘다', '끝없이 커진다'];
+      function pgBand(r){ var ratio = (Math.exp(r) - 1) / r; return ratio < 1.02 ? 0 : ratio < 1.3 ? 1 : ratio < 2.2 ? 2 : 3; }
       return {
         sceneHeight: 420,
         idle: '연 이율과 붙이는 주기를 고른 뒤 <b>n번 나눠 붙이기</b>를 누르세요.',
@@ -446,21 +458,27 @@ var LAB = (function(){
         params: [
           {key:'r', type:'seg', label:'연 이율 (가상)', cols:3, value:0, options:RN},
           {key:'n', type:'seg', label:'이자 붙이는 주기 (1년에 n번)', cols:3, value:3, options:NN.map(function(x, i){ return x + ' (n = ' + NS[i] + ')'; }),
-            note:'원금 100만 원, 1년 뒤 금액을 만 원 단위로 봅니다.'}
+            note:'원금 100만 원, 1년 뒤 금액을 만 원 단위로 봅니다.'},
+          {key:'pg', type:'seg', label:'먼저 짐작 — 끝없이 잘게 나누면', cols:2, value:3, options:PG,
+            note:'한계값은 누르기 전에는 가려 둡니다. 짐작한 뒤에 눌러 맞춰 보세요.'}
         ],
         compute: function(p){
           var r = RS[p.r], n = NS[p.n], v = amt(r, n), lim = 100 * Math.exp(r), prev = p.n > 0 ? amt(r, NS[p.n - 1]) : null;
-          return {r:r, n:n, v:v, lim:lim, eff:v - 100, prev:prev, gap:lim - v, all:NS.map(function(m){ return amt(r, m); })};
+          var band = pgBand(r), pok = band === p.pg, ratio = (Math.exp(r) - 1) / r;
+          return {r:r, n:n, v:v, lim:lim, eff:v - 100, prev:prev, gap:lim - v, all:NS.map(function(m){ return amt(r, m); }),
+            band:band, pok:pok, ratio:ratio,
+            pmsg:PG[p.pg] + ' → 실제로는 표시 이율의 ' + f(ratio, 3) + '배(' + f(lim - 100, 2) + '%)에서 멈춰요' + (pok ? ' — 맞음' : ' — 틀림')};
         },
         draw: function(c, W, H, p, r, tau){
           var rr = RS[p.r], lim = 100 * Math.exp(rr), lo = 100 + rr * 100 * 0.9, hi = 100 + (lim - 100) * 1.04;
           var ax = axisFrom(lo, hi), bx = W >= 620 ? 84 : 66, bw = W - bx - 24;
           var xl2 = W < 520, P = plotBox(c, bx, 22, bw, H - 130, [0, 4, 1], [ax.lo, ax.hi, ax.step], xl2 ? 'n (로그 눈금)' : 'n (로그 눈금: 1 · 10 · 100 · 1,000 · 10,000)', '1년 뒤 (만 원)');
           if (xl2){ c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText('1 · 10 · 100 · 1,000 · 10,000', bx + bw / 2, 22 + H - 130 + 52); }
-          seg(c, P.X(0), P.Y(lim), P.X(4), P.Y(lim), PAL[4], 2, [7, 5]);
+          if (r) seg(c, P.X(0), P.Y(lim), P.X(4), P.Y(lim), PAL[4], 2, [7, 5]);
           /* 좁은 화면: 글이 그래프보다 길어 왼쪽 눈금 글자와 겹치고 잘리므로 그래프 안 왼쪽(점들이 아직 선 아래인 자리), 선 위에 작게 씀 */
-          if (xl2) txt(c, '한계 100e^' + (rr === 1 ? '1' : f(rr, 2)) + ' ≈ ' + f(lim, 2), P.X(0) + 6, P.Y(lim) - 8, {bold:true, color:PAL[4], size:15, maxW:bw - 12});
-          else txt(c, '한계 100e^' + (rr === 1 ? '1' : f(rr, 2)) + ' ≈ ' + f(lim, 2), P.X(4) - 4, P.Y(lim) - 8, {align:'right', bold:true, color:PAL[4]});
+          var limTxt = r ? '한계 100e^' + (rr === 1 ? '1' : f(rr, 2)) + ' ≈ ' + f(lim, 2) : '한계는 아직 가려 두었어요';
+          if (xl2) txtFit(c, limTxt, P.X(0) + 6, P.Y(lim) - 8, {bold:true, color:PAL[4]}, bw - 12);
+          else txt(c, limTxt, P.X(4) - 4, P.Y(lim) - 8, {align:'right', bold:true, color:PAL[4]});
           var last = r ? Math.min(p.n, Math.floor(tau * (p.n + 1) * 1.1)) : -1;
           c.strokeStyle = PAL[0]; c.lineWidth = 2.5; c.beginPath();
           for (var i = 0; i <= Math.max(last, 0); i++){ var X = P.X(Math.log10(NS[i])), Y = P.Y(amt(rr, NS[i])); if (i === 0) c.moveTo(X, Y); else c.lineTo(X, Y); }
@@ -468,7 +486,7 @@ var LAB = (function(){
           for (i = 0; i < NS.length; i++){ var on = i <= last; c.fillStyle = on ? PAL[0] : '#C9D2DC';
             c.beginPath(); c.arc(P.X(Math.log10(NS[i])), P.Y(amt(rr, NS[i])), i === p.n && on ? 8 : 5, 0, Math.PI * 2); c.fill(); }
           if (r && tau >= 1){ glow(c, P.X(Math.log10(r.n)), P.Y(r.v), 24, PAL[0], 0.8);
-            txt(c, '100 × (1 + ' + (rr === 1 ? '1' : f(rr, 2)) + '/' + r.n + ')^' + r.n + ' ≈ ' + f(r.v, 2) + '만 원', 16, H - 14, {bold:true, color:PAL[0], maxW:W - 24}); }
+            txtFit(c, '100 × (1 + ' + (rr === 1 ? '1' : f(rr, 2)) + '/' + r.n + ')^' + r.n + ' ≈ ' + f(r.v, 2) + '만 원', 16, H - 14, {bold:true, color:PAL[0]}, W - 32); }
           else txt(c, r ? '이자 붙이는 중…' : '원금 100만 원', 16, H - 14, {bold:true});
         },
         stats: function(p, r){
@@ -476,13 +494,15 @@ var LAB = (function(){
             ['1년 뒤 금액', f(r.v, 3) + '만 원', PAL[0]],
             ['실효 이율 (1년 동안 실제로 는 비율)', f(r.eff, 2) + '% (표시 이율 ' + f(r.r * 100, 0) + '%)', PAL[3]]];
           if (r.prev != null) s.push(['바로 앞 주기보다 늘어난 양', '+' + f(r.v - r.prev, 3) + '만 원', PAL[1]]);
+          s.push(['먼저 짐작 채점', r.pmsg, r.pok ? PAL[1] : PAL[4]]);
           s.push(['한계값 100 × e^r', f(r.lim, 3) + '만 원 (남은 차이 ' + f(r.gap, 3) + ')', PAL[4]]);
           s.push(['결론', '자주 붙이면 늘지만 ' + f(r.lim, 2) + '만 원을 넘지 못함']);
           return s;
         },
-        columns: ['연 이율', '주기', 'n', '1년 뒤(만 원)', '한계까지'],
-        record: function(p, r){ return {r:p.r, n:p.n, v:r.v, gap:r.gap}; },
-        row: function(d){ return [f(RS[d.r] * 100, 0) + '%', NN[d.n], NS[d.n], f(d.v, 3), f(d.gap, 3)]; },
+        columns: ['연 이율', '주기', 'n', '1년 뒤(만 원)', '한계까지', '짐작'],
+        record: function(p, r){ return {r:p.r, n:p.n, v:r.v, gap:r.gap, pg:p.pg, pok:r.pok}; },
+        row: function(d){ return [f(RS[d.r] * 100, 0) + '%', NN[d.n], NS[d.n], f(d.v, 3), f(d.gap, 3),
+          d.pg == null ? '—' : (d.pok ? '○' : '✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록한 주기별 1년 뒤 금액', '<div id="ce1"></div><p class="ask">1년 한 번 → 매달은 얼마나 늘었고, 매달 → 매일은 얼마나 늘었나요? 늘어나는 폭이 줄어드는 까닭을 &lsquo;1 + r/n&rsquo;으로 설명해 보세요.</p>') +
@@ -504,7 +524,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

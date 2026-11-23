@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,7 +441,10 @@ var LAB = (function(){
         {n:'④ 늘리든 말든 아무래도 좋다', s:'④ 흐릿함', t:'그러니 늘리든 말든 아무래도 좋다.', red:[], pur:[], v:[0, 0], why:'무엇을 하자는지 모르겠어요', c:PAL[7]}
       ];
       var EG = ['근거 붙이기 (우리 반 기록)', '근거 없이 끝 문장만'];
+      var SZ = [{n:'5분 늘리기 (작게)', w:'5분', k:1}, {n:'20분 늘리기 (크게)', w:'20분', k:2}, {n:'두 배로 늘리기 (아주 크게)', w:'두 배로', k:3}];
+      var PEN = [0, 2, 3];                    /* 근거보다 주장이 클 때 줄어드는 찬성 수 — 교육용 모형값 */
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
+      function tOf(ei, si){ return ei === 2 ? '그러니 쉬는 시간을 ' + SZ[si].w + ' 늘리면 늦는 친구를 줄일 수 있을 것이다.' : EN[ei].t; }
       function wrapMark(c, s, x, y, mw, sz, col, red, pur){
         c.font = sz + 'px ' + FONT;
         var marks = [];
@@ -461,11 +466,17 @@ var LAB = (function(){
         shortHint: '근거를 붙이고 끝 문장 네 가지를 모두 해 보세요. 그다음 "근거 없이"와 비교해 보세요.',
         params: [
           {key:'e', type:'seg', label:'끝 문장의 표현', cols:2, value:0, options:EN.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'근거', cols:2, value:0, options:EG}
+          {key:'g', type:'seg', label:'근거', cols:2, value:0, options:EG},
+          {key:'sz', type:'seg', label:'바라는 것의 크기 (주장의 크기)', cols:1, value:0, options:SZ.map(function(x){ return x.n; }),
+            note:'근거는 "일주일에 여러 번 늦는다"예요. 근거는 그대로인데 바라는 것만 커지면 어떻게 보일까요? ※ 5명 중 찬성 수는 교육용 모형값이에요.'}
         ],
         compute: function(p){
           var en = EN[p.e], yes = en.v[p.g];
-          return {en:en, yes:yes, why:p.g === 1 && p.e === 2 ? '근거가 없어서 왜 그런지 모르겠어요' : en.why, nRed:en.red.length, nPur:en.pur.length};
+          if (p.e === 2) yes = Math.max(0, yes - PEN[p.sz]);
+          var big = p.e === 2 && p.sz > 0;
+          var why = p.g === 1 && p.e === 2 ? '근거가 없어서 왜 그런지 모르겠어요' : big ? '근거는 작은데 바라는 것이 너무 커요' : en.why;
+          var vd = p.e === 2 ? (p.sz === 0 ? '근거와 주장의 크기가 맞아요' : '근거보다 주장이 커요 — 과장이에요') : '표현 자체가 걸려요';
+          return {en:en, yes:yes, why:why, vd:vd, sz:p.sz, txt:tOf(p.e, p.sz), nRed:en.red.length, nPur:en.pur.length};
         },
         draw: function(c, W, H, p, r, tau){
           var en = EN[p.e], sz = W < 500 ? 13 : 16, y = 34;
@@ -473,7 +484,7 @@ var LAB = (function(){
           if (p.g === 0){ T(c, '근거', 24, y, 13, '#4A5868', 'left', true); y = wrapMark(c, EV, 24, y + 22, W - 60, sz, '#1E2833', [], []); }
           else { T(c, '(근거 없음)', 24, y, 13, '#8C99A8', 'left', true); y += 24; }
           T(c, '끝 문장', 24, y + 4, 13, '#4A5868', 'left', true);
-          wrapMark(c, en.t, 24, y + 28, W - 60, sz + 1, en.c, en.red, en.pur);
+          wrapMark(c, tOf(p.e, p.sz), 24, y + 28, W - 60, sz + 1, en.c, en.red, en.pur);
           var fy = 270, fw = Math.min(64, (W - 40) / 5);
           for (var i = 0; i < 5; i++){
             var fx = 20 + fw / 2 + i * fw, show = r && tau > 0.3 + i * 0.1, ok = r && i < r.yes;
@@ -484,25 +495,30 @@ var LAB = (function(){
           if (r && tau >= 1){ T(c, '"생각해 볼 만하다" ' + r.yes + '명 / 5명', 20, fy + 56, sz + 2, en.c, 'left', true); if (H > 340) T(c, '"' + r.why + '"', 20, fy + 86, sz, '#4A5868'); }
         },
         stats: function(p, r){
-          return [['근거', EG[p.g]], ['끝 문장', r.en.t, r.en.c],
+          return [['근거', EG[p.g]], ['끝 문장', r.txt, r.en.c],
+            ['바라는 것의 크기', SZ[r.sz].n],
             ['"생각해 볼 만하다"', r.yes + '명 / 5명 (반대하던 친구)', PAL[0]],
             ['부풀린 말 · 깎아내리는 말', r.nRed + '개 · ' + r.nPur + '개', r.nRed + r.nPur ? PAL[4] : PAL[1]],
-            ['친구들의 반응', r.why]];
+            ['친구들의 반응', r.why],
+            ['판정', r.vd, r.yes >= 3 ? PAL[1] : PAL[4]]];
         },
-        columns: ['근거', '끝 문장', '생각해 볼 만하다'],
-        record: function(p, r){ return {e:p.e, g:p.g, yes:r.yes}; },
-        row: function(d){ return [d.g ? '없음' : '있음', EN[d.e].s, d.yes + '/5']; },
+        columns: ['근거', '끝 문장', '주장 크기', '생각해 볼 만하다'],
+        record: function(p, r){ return {e:p.e, g:p.g, sz:r.sz, yes:r.yes}; },
+        row: function(d){ return [d.g ? '없음' : '있음', EN[d.e].s, SZ[d.sz].w, d.yes + '/5']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('끝 문장별 "생각해 볼 만하다" (근거 있음, 5명 중)', '<div id="cw1"></div><p class="ask">①은 기분이 나빠서, ②는 믿기지 않아서, ④는 주장이 없어서 안 됐어요. 세게 말할수록 잘 먹혔나요?</p>') +
             card('근거가 있을 때와 없을 때', '<div id="cw2"></div><p class="ask">과제: 우리 집이나 우리 반에 바라는 것 하나로 주장하는 글을 다섯 문장으로 써 보세요. "절대·무조건·모든"이 있으면 근거에 맞게 고치고, 상대를 깎아내리는 말이 있으면 지워 보세요. 반대할 것 같은 가족에게 읽어 주고 반응을 적어 보세요.</p>') + '</div>';
           var items = [];
-          EN.forEach(function(en, i){ var g = rec.filter(function(d){ return d.e === i && d.g === 0; }); if (!g.length) return; items.push({label:en.s, v:g[0].yes, color:en.c, text:g[0].yes + '명'}); });
-          $('cw1').innerHTML = items.length ? hbars(items, 5) : '<p class="msg">"근거 붙이기" 기록이 아직 없어요.</p>';
+          EN.forEach(function(en, i){ var g = rec.filter(function(d){ return d.e === i && d.g === 0 && d.sz === 0; }); if (!g.length) return; items.push({label:en.s, v:g[0].yes, color:en.c, text:g[0].yes + '명'}); });
+          [1, 2].forEach(function(k){ var g = rec.filter(function(d){ return d.e === 2 && d.g === 0 && d.sz === k; }); if (!g.length) return;
+            items.push({label:'③ 정중하지만 ' + SZ[k].w, v:g[0].yes, color:PAL[4], text:g[0].yes + '명'}); });
+          $('cw1').innerHTML = items.length ? hbars(items, 5) + '<p class="msg">정중하게 말해도 근거보다 바라는 것이 크면 찬성이 줄어요.</p>' : '<p class="msg">"근거 붙이기" 기록이 아직 없어요.</p>';
           var rows = [];
-          EN.forEach(function(en, i){ var a = rec.filter(function(d){ return d.e === i && d.g === 0; }), b = rec.filter(function(d){ return d.e === i && d.g === 1; }); if (!a.length && !b.length) return;
-            rows.push([en.s, a.length ? a[0].yes + '명' : '—', b.length ? b[0].yes + '명' : '—']); });
-          $('cw2').innerHTML = tableHTML(['끝 문장', '근거 있음', '근거 없음'], rows);
+          EN.forEach(function(en, i){ var a = rec.filter(function(d){ return d.e === i && d.g === 0 && d.sz === 0; }), b = rec.filter(function(d){ return d.e === i && d.g === 1 && d.sz === 0; }); if (!a.length && !b.length) return;
+            rows.push([en.s, '5분', a.length ? a[0].yes + '명' : '—', b.length ? b[0].yes + '명' : '—']); });
+          rec.filter(function(d){ return d.sz > 0; }).slice(-4).forEach(function(d){ rows.push([EN[d.e].s, SZ[d.sz].w, d.g === 0 ? d.yes + '명' : '—', d.g === 1 ? d.yes + '명' : '—']); });
+          $('cw2').innerHTML = tableHTML(['끝 문장', '주장 크기', '근거 있음', '근거 없음'], rows);
         }
       };
     })();
@@ -511,7 +527,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

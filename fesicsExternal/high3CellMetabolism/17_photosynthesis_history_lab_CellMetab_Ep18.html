@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,15 +440,43 @@ var LAB = (function(){
         {name:'세네비에 · CO₂를 뺀 물속 잎', yr:'1782년', sc:6, res:'빛을 비춰도 기포가 거의 생기지 않음', ev:2, real:'광합성에는 CO₂가 필요', his:'식물은 "고정된 공기"(CO₂)를 쓴다'},
         {name:'루벤·카멘 · ¹⁸O로 표지한 물', yr:'1941년', sc:7, res:'발생한 산소에서 ¹⁸O가 검출됨', ev:1, real:'광합성으로 나오는 O₂는 물에서 옴', his:'O₂의 출처는 물이다'}];
       var EV = ['흙이 재료다', '물이 관련된다', '공기(기체)가 관련된다', '빛이 필요하다'];
+      var CD = ['원래 조건 그대로', 'CO₂를 빨아들이는 물질을 넣고', '빛을 가리고'];
+      /* 조건을 하나 바꿨을 때 어떤 결과가 나올지 — 각 실험의 대조 실험에 해당한다 */
+      var ALT = [
+        {c:{res:'버드나무가 거의 자라지 못함 (무게가 늘지 않음)', real:'늘어난 무게의 대부분이 공기 중 CO₂ 에서 왔음이 드러남 — 물과 흙만으로는 자라지 못한다', ev:2},
+         d:{res:'잎이 시들고 자라지 못함', real:'광합성에 빛이 필요하다', ev:3}},
+        {c:{res:'마찬가지로 촛불이 곧 꺼짐', real:'연소에는 O₂ 가 필요하다 — CO₂ 를 없앤 것과는 상관없다', ev:2},
+         d:{res:'마찬가지로 촛불이 곧 꺼짐', real:'연소는 빛이 있든 없든 O₂ 를 쓴다', ev:2}},
+        {c:{res:'박하가 있어도 공기가 회복되지 않음', real:'식물이 O₂ 를 내놓으려면 CO₂ 가 있어야 한다', ev:2},
+         d:{res:'공기가 회복되지 않음', real:'빛이 없으면 광합성이 일어나지 않는다 (잉엔하우스가 뒤에 밝힌 것)', ev:3}},
+        {c:{res:'쥐가 오래 살지 못함', real:'CO₂ 를 계속 빨아들이면 식물이 광합성을 못 해 O₂ 를 공급하지 못한다', ev:2},
+         d:{res:'쥐가 오래 살지 못함', real:'빛이 없으면 식물도 호흡만 해 O₂ 를 쓴다', ev:3}},
+        {c:{res:'공기가 회복되지 않음 (어둠 때문인지 CO₂ 때문인지 가릴 수 없음)', real:'한 번에 두 조건을 바꾸면 어느 것이 원인인지 가릴 수 없다 — 변인은 하나만 바꿔야 한다', ev:-1},
+         d:{res:'원래 조건과 같음 (이미 어둠 속)', real:'이미 바꿔 둔 조건이라 달라지는 것이 없다', ev:3}},
+        {c:{res:'기포가 거의 생기지 않음', real:'광합성에는 CO₂ 가 필요하다 (세네비에의 실험과 같은 결과)', ev:2},
+         d:{res:'기포가 생기지 않음', real:'광합성에는 빛이 필요하다', ev:3}},
+        {c:{res:'원래 조건과 같음 (이미 CO₂ 를 뺀 물)', real:'이미 바꿔 둔 조건이라 달라지는 것이 없다', ev:2},
+         d:{res:'기포가 생기지 않음 (빛도 CO₂ 도 없어 원인을 가릴 수 없음)', real:'두 조건을 함께 바꾸면 어느 것의 증거도 되지 못한다', ev:-1}},
+        {c:{res:'산소가 거의 발생하지 않아 ¹⁸O 를 확인할 수 없음', real:'CO₂ 가 없으면 광합성이 멈춰 추적할 산소 자체가 나오지 않는다', ev:2},
+         d:{res:'산소가 발생하지 않음', real:'빛이 없으면 물이 분해되지 않는다', ev:3}}];
+      function state(p){
+        var e = EX[p.x], cd = p.cd == null ? 0 : p.cd;
+        if (cd === 0) return {res:e.res, real:e.real, ev:e.ev, same:true};
+        var a = cd === 1 ? ALT[p.x].c : ALT[p.x].d;
+        return {res:a.res, real:a.real, ev:a.ev, same:false};
+      }
       return {
         sceneHeight: 400,
-        idle: '실험과 나의 예측을 고르고 <b>실험 재현하기</b>를 누르세요.',
-        shortHint: '여덟 장면을 차례로 재현해 연대표를 채워 보세요.',
+        idle: '실험·조건·나의 예측을 고르고 <b>실험 재현하기</b>를 누르세요. 조건을 바꾸면 결론이 어떻게 달라지는지 볼 수 있어요.',
+        shortHint: '여덟 장면을 원래 조건으로 재현한 뒤, 반 헬몬트의 실험에서 CO₂ 를 빨아들이면 어떻게 되는지도 해 보세요.',
         params: [
           {key:'x', type:'seg', label:'역사적 실험', cols:2, value:0, options:EX.map(function(x){ return x.name; })},
+          {key:'cd', type:'seg', label:'조건 바꿔 보기 (대조 실험)', cols:1, value:0, options:CD,
+            note:'원래 조건은 역사에 기록된 그대로입니다. 조건을 바꾼 결과는 오늘날 알려진 광합성 원리로 예상한 것이며, 두 조건을 한꺼번에 바꾸면 원인을 가릴 수 없다는 점도 함께 보여 줍니다.'},
           {key:'g', type:'seg', label:'나의 예측: 이 실험은 무엇의 증거일까', cols:2, value:0, options:EV}
         ],
-        compute: function(p){ var e = EX[p.x]; return {e:e, match:p.g === e.ev}; },
+        compute: function(p){ var e = EX[p.x], st = state(p);
+          return {e:e, st:st, cd:(p.cd == null ? 0 : p.cd), match:(st.ev < 0 ? null : p.g === st.ev)}; },
         draw: function(c, W, H, p, r, tau){
           var e = EX[p.x], sc = e.sc, cx = W / 2, cy = H * 0.5, k = r ? Math.min(tau / 0.8, 1) : 0;
           function jar(){ c.strokeStyle = '#8C99A8'; c.lineWidth = 3; c.beginPath(); c.moveTo(cx - 90, cy + 90); c.lineTo(cx - 90, cy - 40); c.arc(cx, cy - 40, 90, Math.PI, 0); c.lineTo(cx + 90, cy + 90); c.stroke(); seg(c, cx - 120, cy + 90, cx + 120, cy + 90, '#6A7888', 4); }
@@ -469,29 +499,46 @@ var LAB = (function(){
             c.fillStyle = '#DCEAF5'; c.fillRect(cx - 100, cy - 40, 200, 130); c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.strokeRect(cx - 100, cy - 40, 200, 130);
             c.fillStyle = '#4FAF6A'; c.beginPath(); c.ellipse(cx, cy + 40, 60, 18, 0.2, 0, Math.PI * 2); c.fill();
             if (sc !== 6 || true) glow(c, cx - 120, cy - 100, 50, '#FFD34D', 0.9);
-            var nb = sc === 6 ? 1 : 8;
+            var nb = (sc === 6 || p.cd === 1) ? 1 : 8;
+            if (p.cd === 2) nb = 0;
             if (r) for (var b = 0; b < nb; b++){ var by = cy + 30 - ((tau * 90 + b * 17) % 70); c.strokeStyle = sc === 7 ? PAL[4] : '#3A8FB7'; c.lineWidth = 2; c.beginPath(); c.arc(cx - 50 + b * 14, by, 4, 0, Math.PI * 2); c.stroke(); }
             txt(c, sc === 6 ? 'CO₂ 없음' : sc === 7 ? 'H₂¹⁸O' : '물', cx + 62, cy + 83, {align:'center', color:'#4A5868'});
           }
+          if (p.cd === 2){ c.fillStyle = 'rgba(30,40,60,.42)'; c.fillRect(0, 0, W, H); txt(c, '빛을 가림', cx, 54, {align:'center', bold:true, color:'#fff'}); }
+          if (p.cd === 1) txt(c, 'CO₂ 를 빨아들이는 물질을 넣음', cx, 54, {align:'center', bold:true, color:PAL[4], max:W - 32});
           txt(c, e.yr, 16, 28, {bold:true, color:PAL[2]});
-          if (r && tau >= 1) txt(c, r.match ? '예측 일치' : '예측과 다름', W - 16, 28, {align:'right', bold:true, color:r.match ? PAL[1] : PAL[4]});
+          if (r && tau >= 1) txt(c, r.match === null ? '원인 가릴 수 없음' : (r.match ? '예측 일치' : '예측과 다름'), W - 16, 28,
+            {align:'right', bold:true, color:r.match === null ? PAL[6] : (r.match ? PAL[1] : PAL[4]), max:W * 0.5});
         },
         stats: function(p, r){
-          return [['실험 · 시기', r.e.name + ' · ' + r.e.yr], ['결과', r.e.res, PAL[3]], ['당시 결론', r.e.his], ['오늘날의 해석', r.e.real, PAL[1]],
-            ['이 실험이 주로 가리키는 것', EV[r.e.ev]], ['나의 예측', EV[p.g] + (r.match ? ' — 일치' : ' — 다름'), r.match ? PAL[1] : PAL[4]]];
+          var o = [['실험 · 시기', r.e.name + ' · ' + r.e.yr], ['조건', CD[r.cd], r.cd ? PAL[6] : PAL[7]],
+            ['결과', r.st.res, PAL[3]]];
+          if (r.cd) o.push(['원래 조건이었다면', r.e.res + ' — 당시 결론: ' + r.e.his, PAL[7]]);
+          else o.push(['당시 결론', r.e.his]);
+          o.push(['오늘날의 해석', r.st.real, PAL[1]],
+            ['이 실험이 주로 가리키는 것', r.st.ev < 0 ? '가릴 수 없음 — 변인이 둘이라 어느 것의 증거도 되지 못함' : EV[r.st.ev], r.st.ev < 0 ? PAL[6] : PAL[0]],
+            ['나의 예측', EV[p.g] + (r.match === null ? ' — 이 조건에서는 채점할 수 없어요 (변인이 둘)' : (r.match ? ' — 일치' : ' — 다름')),
+              r.match === null ? PAL[6] : (r.match ? PAL[1] : PAL[4])]);
+          return o;
         },
-        columns: ['시기', '실험', '결과', '나의 예측', '일치'],
-        record: function(p, r){ return {x:p.x, g:p.g, m:r.match}; },
-        row: function(d){ return [EX[d.x].yr, EX[d.x].name, EX[d.x].res, EV[d.g], d.m ? '예' : '아니오']; },
+        columns: ['시기', '실험', '조건', '결과', '나의 예측', '일치'],
+        record: function(p, r){ return {x:p.x, cd:r.cd, g:p.g, m:r.match, ev:r.st.ev, res:r.st.res, real:r.st.real}; },
+        row: function(d){ return [EX[d.x].yr, EX[d.x].name, CD[d.cd], d.res, EV[d.g], d.m === null ? '—' : (d.m ? '예' : '아니오')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 재현한 광합성 연대표', '<div id="ph1"></div><p class="ask">반 헬몬트의 결론 "나무의 재료는 물"에서 빠진 것은 무엇인가요? 이후 어떤 실험이 그 빈칸을 채웠나요?</p>') +
             card('증거 종류별 예측 정확도', '<div id="ph2"></div><p class="ask">과제: 광합성 식의 반응물·생성물 하나하나(CO₂, H₂O, 빛, O₂)가 어느 실험으로 밝혀졌는지 연결표를 만들어 보세요.</p>') + '</div>';
           var seen = {};
-          rec.forEach(function(d){ seen[d.x] = d; });
+          rec.forEach(function(d){ if (d.cd === 0) seen[d.x] = d; });
           var rows = Object.keys(seen).sort(function(a, b){ return a - b; }).map(function(k){ var e = EX[k]; return [e.yr, e.name, e.real]; });
-          $('ph1').innerHTML = tableHTML(['시기', '실험', '오늘날의 해석'], rows) + (rows.length < 8 ? '<p class="msg">아직 재현하지 않은 실험이 ' + (8 - rows.length) + '개 있어요.</p>' : '');
-          var by = groupBy(rec, function(d){ return EX[d.x].ev; }), items = [];
+          var alt = rec.filter(function(d){ return d.cd !== 0; });
+          var amb = alt.filter(function(d){ return d.ev < 0; }).length;
+          $('ph1').innerHTML = tableHTML(['시기', '실험', '오늘날의 해석'], rows) + (rows.length < 8 ? '<p class="msg">아직 원래 조건으로 재현하지 않은 실험이 ' + (8 - rows.length) + '개 있어요.</p>' : '') +
+            (alt.length ? tableHTML(['실험', '바꾼 조건', '그때의 결과'], alt.slice(-6).map(function(d){ return [EX[d.x].name, CD[d.cd], d.res]; })) +
+              '<p class="msg">조건을 하나 바꿔 본 기록 <b>' + alt.length + '건</b>. 반 헬몬트의 실험에서 CO₂ 를 빨아들이면 나무가 자라지 못합니다 — 그가 “물이 재료다”라고 결론 낸 자리에서 빠진 것이 바로 공기였습니다.' +
+              (amb ? ' 그중 ' + amb + '건은 조건이 두 개 바뀌어 <b>원인을 가릴 수 없었습니다</b> — 대조 실험은 변인을 하나만 바꿔야 합니다.' : '') + '</p>'
+            : '<p class="msg">조건을 바꿔 보면(CO₂ 제거 · 빛 가림) 같은 실험이 어떤 결론을 주는지 견줄 수 있어요.</p>');
+          var by = groupBy(rec.filter(function(d){ return d.m !== null; }), function(d){ return d.ev; }), items = [];
           Object.keys(by).forEach(function(k){ var g = by[k], ok = g.filter(function(d){ return d.m; }).length / g.length * 100; items.push({label:EV[k], v:ok, color:ok >= 50 ? PAL[1] : PAL[4], text:f(ok, 0) + '% (' + g.length + '회)'}); });
           $('ph2').innerHTML = hbars(items, 100);
         }
@@ -502,7 +549,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

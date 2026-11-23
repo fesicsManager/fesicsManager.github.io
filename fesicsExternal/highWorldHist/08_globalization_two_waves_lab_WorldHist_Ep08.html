@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -289,9 +290,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -476,9 +478,17 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         shortHint: '1870년, 1913년, 1950년, 1973년, 1998년 앞뒤로 5번 이상 기록해 보세요.',
         params: [
           {key:'y', type:'range', label:'연도', min:1820, max:1998, step:2, value:1913, fmt:function(v){ return v + '년'; }},
+          {key:'y2', type:'range', label:'견줄 연도 (여기서부터 재기)', min:1820, max:1998, step:2, value:1870, fmt:function(v){ return v + '년'; },
+            note:'두 연도 사이의 상승·하락 속도를 재 줍니다. 1870→1913과 1973→1998을 재서 두 물결의 빠르기를 견주어 보세요.'},
           {key:'l', type:'seg', label:'표시할 사건', cols:2, value:0, options:['기술', '충격 · 제도']}
         ],
-        compute: function(p){ var v = val(p.y), ev = (p.l ? SHOCK : TECH).filter(function(e){ return e[0] <= p.y; }); return {v:v, ph:phase(p.y), key:KY.indexOf(p.y) >= 0, ev:ev, vs:v / 7.9}; },
+        compute: function(p){
+          var v = val(p.y), ev = (p.l ? SHOCK : TECH).filter(function(e){ return e[0] <= p.y; });
+          var a = Math.min(p.y, p.y2), b = Math.max(p.y, p.y2), va = val(a), vb = val(b), span = b - a;
+          var slope = span ? (vb - va) / span : 0, ratio = va ? vb / va : 0;
+          return {v:v, ph:phase(p.y), key:KY.indexOf(p.y) >= 0, ev:ev, vs:v / 7.9,
+            a:a, b:b, va:va, vb:vb, span:span, slope:slope, ratio:ratio, dbl:slope > 0 && va > 0 ? Math.log(2) / Math.log(1 + slope / va) : 0};
+        },
         draw: function(c, W, H, p, r, tau){
           var sz = fz(W), px = 70, py = 24, pw = W - px - 16, ph = H - py - 120, k = r ? ease(tau / 0.8) : 1;
           var ax = plotBox(c, px, py, pw, ph, [1820, 2000, W < 520 ? 60 : 30], [0, 20, 5], '연도', '수출 / 세계 GDP (%)');
@@ -489,23 +499,35 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           var ev = p.l ? SHOCK : TECH;
           ev.forEach(function(e, i){ var x = ax.X(e[0]), on = e[0] <= p.y; seg(c, x, py + ph, x, py + ph - 12, on ? PAL[6] : '#C9D2DC', 3);
             if (W > 520 && on) tx(c, e[1], x, py + ph - 18 - (i % 3) * 16, {align:'center', size:11, color:'#7A5A10'}); });
+          if (r){ var xa = ax.X(r.a), xb = ax.X(r.b); c.fillStyle = 'rgba(200,70,61,.10)'; c.fillRect(xa, py, xb - xa, ph);
+            seg(c, xa, ax.Y(r.va), xb, ax.Y(r.vb), PAL[6], 3); }
+          var cx2 = ax.X(p.y2); seg(c, cx2, py, cx2, py + ph, PAL[6], 2, [6, 4]);
           var cx = ax.X(p.y); seg(c, cx, py, cx, py + ph, PAL[4], 2);
           var v = val(p.y) * (r ? k : 1); c.fillStyle = PAL[4]; c.beginPath(); c.arc(cx, ax.Y(v), 7, 0, Math.PI * 2); c.fill();
           tx(c, p.y + '년 · 약 ' + f(val(p.y), 1) + '%' + (KY.indexOf(p.y) >= 0 ? '' : ' (보간)'), 14, H - 30, {bold:true, size:sz});
-          tx(c, phase(p.y), 14, H - 8, {size:sz - 1, color:'#4A5868'});
+          tx(c, r ? (r.a + '→' + r.b + '년 · ' + (r.slope >= 0 ? '+' : '') + f(r.slope * 10, 2) + '%p / 10년') : phase(p.y), 14, H - 8, {size:sz - 1, color:r ? PAL[6] : '#4A5868', bold:!!r});
         },
         stats: function(p, r){ return warnGap(p.y, [['연도', p.y + '년' + (r.key ? ' (추정 기준 연도)' : ' (보간값)')], ['수출 / 세계 GDP', '약 ' + f(r.v, 1) + '%', PAL[0]], ['1913년 수준(7.9%)과 비교', '약 ' + f(r.vs, 2) + '배', r.vs >= 1 ? PAL[1] : PAL[4]],
-          ['시기', r.ph, PAL[6]], [(p.l ? '지금까지의 충격·제도' : '지금까지의 기술'), r.ev.length ? r.ev.map(function(e){ return e[0] + ' ' + e[1]; }).join(' · ') : '—']]); },
-        columns: ['연도', '수출 비중 %', '1913 대비', '시기'],
-        record: function(p, r){ return {y:p.y, v:r.v, vs:r.vs, ph:r.ph, key:r.key}; },
-        row: function(d){ return [d.y, f(d.v, 1) + (d.key ? '' : '*'), f(d.vs, 2) + '배', d.ph]; },
+          ['시기', r.ph, PAL[6]],
+          ['잰 구간', r.span ? (r.a + '년 약 ' + f(r.va, 1) + '% → ' + r.b + '년 약 ' + f(r.vb, 1) + '% (' + r.span + '년)') : '두 연도가 같아요 — 견줄 연도를 옮겨 보세요'],
+          ['오르내린 속도', r.span ? ((r.slope >= 0 ? '+' : '') + f(r.slope * 10, 2) + '%p / 10년') : '—', r.slope >= 0 ? PAL[1] : PAL[4]],
+          ['몇 배가 되었나', r.span ? f(r.ratio, 2) + '배' + (r.dbl > 0 ? ' — 이 속도면 두 배가 되는 데 약 ' + f(r.dbl, 0) + '년' : '') : '—', PAL[3]],
+          [(p.l ? '지금까지의 충격·제도' : '지금까지의 기술'), r.ev.length ? r.ev.map(function(e){ return e[0] + ' ' + e[1]; }).join(' · ') : '—']]); },
+        columns: ['연도', '수출 비중 %', '1913 대비', '잰 구간', '속도 %p/10년'],
+        record: function(p, r){ return {y:p.y, v:r.v, vs:r.vs, ph:r.ph, key:r.key, a:r.a, b:r.b, span:r.span, slope:r.slope, ratio:r.ratio}; },
+        row: function(d){ return [d.y, f(d.v, 1) + (d.key ? '' : '*'), f(d.vs, 2) + '배', d.span ? d.a + '→' + d.b : '—', d.span ? (d.slope >= 0 ? '+' : '') + f(d.slope * 10, 2) : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내 기록과 추정 기준값', '<canvas class="chart" id="gw1"></canvas>' + legend([{label:'내 기록', color:PAL[4]}, {label:'매디슨 추정 기준값', color:PAL[0]}]) + '<p class="ask">1950년에 떨어진 비중이 1913년 수준을 다시 넘어선 것은 어느 기록 사이인가요? "세계화는 1990년대에 시작됐다"는 주장을 이 그래프로 반박해 보세요.</p>') +
             card('시기별 기록', '<div id="gw2"></div><p class="ask">과제: 1870년부터 현재까지 세계 무역/GDP 비율 그래프를 그리고 두 번의 세계화와 그 사이 후퇴기를 표시해 보세요. 첫 번째 세계화가 무너진 원인 3가지를 찾아 오늘날에도 해당하는지 각각 판단해 보세요.</p>') + '</div>';
           drawScatter($('gw1'), {series:[{color:PAL[0], hollow:true, pts:KY.map(function(y, i){ return {x:y - 1820, y:KV[i]}; })}, {color:PAL[4], pts:rec.map(function(d){ return {x:d.y - 1820, y:d.v}; })}], xLabel:'1820년부터 지난 햇수', yLabel:'수출 / 세계 GDP (%)', xHi:180, xStep:40});
           var g = groupBy(rec, function(d){ return d.ph; });
-          $('gw2').innerHTML = tableHTML(['시기', '기록', '평균 수출 비중'], Object.keys(g).map(function(k){ return [k, g[k].length + '회', f(mean(g[k].map(function(d){ return d.v; })), 1) + '%']; })) + '<p class="msg">* 표시는 기준 연도 사이의 보간값입니다.</p>';
+          var sp = {}, srows = [];
+          rec.forEach(function(d){ if (!d.span) return; var kk = d.a + '_' + d.b; if (sp[kk]) return; sp[kk] = 1;
+            srows.push([d.a + '→' + d.b + '년', d.span + '년', (d.slope >= 0 ? '+' : '') + f(d.slope * 10, 2) + '%p', f(d.ratio, 2) + '배']); });
+          $('gw2').innerHTML = tableHTML(['시기', '기록', '평균 수출 비중'], Object.keys(g).map(function(k){ return [k, g[k].length + '회', f(mean(g[k].map(function(d){ return d.v; })), 1) + '%']; })) +
+            (srows.length ? '<p class="msg">내가 잰 구간의 빠르기</p>' + tableHTML(['구간', '걸린 햇수', '10년당', '몇 배'], srows) : '') +
+            '<p class="msg">* 표시는 기준 연도 사이의 보간값입니다. 기준 연도 사이를 직선으로 이은 값이라 구간 속도도 어림값입니다.</p>';
         }
       };
     
@@ -515,7 +537,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

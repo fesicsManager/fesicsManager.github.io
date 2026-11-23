@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -505,30 +507,42 @@ return (function(){
         {n:'(가) ‘옛것이냐 새것이냐’만 보기', sh:'(가) 옛것/새것', ok:3},
         {n:'(나) 형식이 얼마나 정해져 있는지 + 무엇을 노래하는지 보기', sh:'(나) 형식+내용', ok:8}
       ];
+      /* 내가 직접 순서를 놓아 본다. 살펴보는 작품을 몇 번째 자리에 놓을지 고르면,
+         기록이 쌓이는 대로 다섯 자리를 내가 채운 셈이 된다.
+         기본값은 (ㄷ)의 제자리(3번째)라서 예전 결과가 그대로 나온다. */
+      var POS = ['1번째', '2번째', '3번째', '4번째', '5번째'];
       function syl(s){ return s.replace(/\s/g, '').length; }
       function seven(s){ var n = 0, i = 0; for (; i < s.length && n < 7; i++) if (s[i] !== ' ') n++; return [s.slice(0, i), s.slice(i).trim()]; }
       return {
-        sceneHeight: 540,
+        sceneHeight: function (w){ return w < 560 ? 640 : 540; },
         idle: '단서·작품·나의 예측을 고른 뒤 <b>이 단서로 순서 맞히기</b>를 누르세요.',
         shortHint: '두 단서를 모두 써 보고, 다섯 작품을 하나씩 살펴보세요. (ㄴ)과 (ㄹ)은 왜 헷갈리기 쉬울까요?',
         params: [
           {key:'c', type:'seg', label:'순서를 맞힐 때 쓸 단서 (연구원 10명)', cols:1, value:0, options:CL.map(function(x){ return x.n; })},
           {key:'k', type:'seg', label:'살펴볼 작품', cols:5, value:2, options:P.map(function(x){ return x.o; })},
-          {key:'g', type:'range', label:'나의 예측 — 다섯 편을 모두 순서대로 놓을 사람 (10명 중)', min:0, max:10, step:1, value:5, fmt:function(v){ return v + '명'; }}
+          {key:'g', type:'range', label:'나의 예측 — 다섯 편을 모두 순서대로 놓을 사람 (10명 중)', min:0, max:10, step:1, value:5, fmt:function(v){ return v + '명'; }},
+          {key:'pos', type:'seg', label:'내가 놓을 자리 — 이 작품은 몇 번째일까', cols:5, value:2, options:POS,
+            note:'형식이 얼마나 정해져 있는지와 무엇을 노래하는지만 보고 자리를 정해 보세요. 다섯 작품을 하나씩 놓으면 내 순서를 채점해 줘요.'}
         ],
         compute: function(p){
           var x = P[p.k], cnt = x.count ? x.L.map(function(l){ var s = seven(l); return [syl(s[0]), syl(s[1])]; }) : null;
-          return {x:x, cl:CL[p.c], cnt:cnt, diff:p.g - CL[p.c].ok};
+          var myPos = (p.pos == null ? 2 : p.pos), ok = (myPos === p.k);   /* P 의 순서가 곧 시대 순서다 */
+          return {x:x, cl:CL[p.c], cnt:cnt, diff:p.g - CL[p.c].ok, myPos:myPos, posOk:ok};
         },
         draw: function(c, W, H, p, r, tau){
           c.__W = W;
           var x = P[p.k], y = 12, i;
+          var narP = W < 560;
           var h0 = 30; x.L.forEach(function(l){ h0 += nL(c, l, W - 64, {size:15}) * 22; }); h0 += 26;
+          if (x.count && r && narP) h0 += x.L.length * 17;   /* 좁은 화면: 글자 수를 아래 줄에 적으니 상자도 키움 */
           rbox(c, 20, y, W - 40, h0, '#FFFDF6', '#E5B66A', 2);
           tx(c, x.k + (r && x.k !== x.g ? ' ' + x.g : '') + (x.src ? ' — ' + x.src : ''), 32, y + 22, {bold:true, size:14, color:'#8A4B00'});
           var yy = y + 46;
           x.L.forEach(function(l){
-            if (x.count && r){ var s = seven(l); tx(c, s[0], 32, yy, {size:16, bold:true, color:PAL[0]}); c.font = '700 16px ' + FONT; var w0 = c.measureText(s[0] + ' ').width; tx(c, s[1], 32 + w0, yy, {size:16, bold:true, color:PAL[3]}); tx(c, syl(s[0]) + '·' + syl(s[1]), W - 34, yy, {size:14, bold:true, align:'right', color:PAL[6]}); yy += 22; }
+            if (x.count && r){ var s = seven(l), csz = narP ? 14 : 16;
+              tx(c, s[0], 32, yy, {size:csz, bold:true, color:PAL[0]}); c.font = '700 ' + csz + 'px ' + FONT; var w0 = c.measureText(s[0] + ' ').width; tx(c, s[1], 32 + w0, yy, {size:csz, bold:true, color:PAL[3]});
+              if (narP){ tx(c, syl(s[0]) + '·' + syl(s[1]), 32, yy + 17, {size:12, bold:true, color:PAL[6]}); yy += 39; }
+              else { tx(c, syl(s[0]) + '·' + syl(s[1]), W - 34, yy, {size:14, bold:true, align:'right', color:PAL[6]}); yy += 22; } }
             else yy += wrapT(c, l, 32, yy, W - 64, 22, {size:15, color:x.desc ? '#5C6B7A' : '#1E2833'}) * 22;
           });
           y += h0 + 14;
@@ -561,19 +575,39 @@ return (function(){
         stats: function(p, r){
           var x = r.x, s = [['작품', (x.k === x.g ? x.k : x.k + ' ' + x.g) + (x.src ? ' (' + x.src + ')' : '')], ['대표 시기', x.era], ['형식', x.form, PAL[3]], ['주로 담은 내용', x.topic]];
           if (r.cnt) s.push(['줄마다 글자 수 (직접 셈)', r.cnt.map(function(q){ return q[0] + '·' + q[1]; }).join(' / ') + ' → 7·5조', PAL[6]]);
-          s.push(['단서', r.cl.n], ['다섯 편을 모두 순서대로', r.cl.ok + '명 / 10명', p.c ? PAL[1] : PAL[6]], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[2]]);
+          s.push(['내가 놓은 자리', POS[r.myPos] + ' → ' + (r.posOk ? '제자리예요!' : '제자리는 ' + POS[p.k] + '예요.'), r.posOk ? PAL[1] : PAL[4]]);
+          s.push(['단서', r.cl.n], ['다섯 편을 모두 순서대로', r.cl.ok + '명 / 10명 (수업용 예시)', p.c ? PAL[1] : PAL[6]], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[2]]);
           return s;
         },
-        columns: ['단서', '살펴본 작품', '갈래', '모두 순서대로', '나의 예측'],
-        record: function(p, r){ return {c:p.c, k:p.k, g:p.g}; },
-        row: function(d){ return [CL[d.c].sh, P[d.k].k, P[d.k].g, CL[d.c].ok + '/10', d.g + '명']; },
+        columns: ['단서', '살펴본 작품', '갈래', '내가 놓은 자리', '채점', '나의 예측'],
+        record: function(p, r){ return {c:p.c, k:p.k, g:p.g, pos:r.myPos, posOk:r.posOk}; },
+        row: function(d){ return [CL[d.c].sh, P[d.k].k, P[d.k].g, d.pos == null ? '—' : POS[d.pos],
+          d.posOk == null ? '—' : (d.posOk ? '○' : '✕'), d.g + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('단서별 — 다섯 편을 모두 순서대로 놓은 사람 (10명 중)', '<div id="hk45a"></div><p class="ask">‘옛것이냐 새것이냐’만 본 (가)는 3명, 형식과 내용을 함께 본 (나)는 8명이 다 맞혔어요. (ㄴ)과 (ㄹ)이 왜 ‘중간’에 놓이는지, 그리고 ‘1919년에 자유시가 갑자기 뚝 떨어졌다’는 말이 왜 틀렸는지 설명해 보세요. 시조가 지금도 쓰인다는 점도 함께 적어 보세요.</p>') +
+            card('내가 놓은 순서 채점 (내가 고른 자리로 계산)', '<div id="hk45c"></div><p class="ask">제자리에 놓기 어려웠던 작품은 어느 것이었나요? 형식이 정해진 정도만 보면 (ㄴ) 사설시조와 (ㄹ) 신체시가 왜 헷갈릴까요?</p>') +
             card('갈래의 흐름 — 내가 살펴본 작품', '<div id="hk45b"></div><p class="ask">과제: 교과서에서 시대가 다른 시가 세 편을 골라 ‘형식이 얼마나 정해져 있나’, ‘무엇을 노래하나’ 두 기준으로 표를 만드세요. 그리고 세 편 사이에 이어진 점 하나와 달라진 점 하나를 문학사의 흐름으로 설명해 보세요.</p>') + '</div>';
           $('hk45a').innerHTML = hbars(CL.map(function(x, i){ return {label:x.sh, v:x.ok, color:i ? PAL[1] : PAL[6], text:x.ok + '/10'}; }), 10);
           var seen = {}; rec.forEach(function(d){ seen[d.k] = 1; });
           $('hk45b').innerHTML = tableHTML(['갈래', '대표 시기', '형식', '내용', '살펴봄'], P.map(function(x, i){ return [x.g + ' ' + x.k, x.era, x.form, x.topic, seen[i] ? '✓' : '—']; }));
+          /* 작품마다 내가 마지막으로 놓은 자리를 모아 내 순서를 채점한다 */
+          var last = {};
+          rec.forEach(function(x){ if (x.pos != null) last[x.k] = x; });
+          var ks = Object.keys(last);
+          var rows3 = P.map(function(x, i){
+            var a = last[i];
+            return [x.g + ' ' + x.k, x.lvT, a ? POS[a.pos] : '—', POS[i], a ? (a.posOk ? '제자리' : '빗나감') : '—'];
+          });
+          var hits = ks.filter(function(k){ return last[k].posOk; }).length;
+          var dup = {}, clash = 0;
+          ks.forEach(function(k){ var pp = last[k].pos; if (dup[pp]) clash++; dup[pp] = 1; });
+          $('hk45c').innerHTML = tableHTML(['작품', '형식이 정해진 정도', '내가 놓은 자리', '제자리', '채점'], rows3)
+            + '<p class="msg">' + (ks.length
+              ? '다섯 작품 가운데 <b>' + ks.length + '편</b>을 놓아 보고 <b>' + hits + '편</b>을 제자리에 놓았어요.'
+                + (clash ? ' 다만 같은 자리에 두 편 이상을 놓은 곳이 ' + clash + '군데 있어요 — 자리는 하나씩만 쓸 수 있습니다.' : '')
+                + (ks.length < 5 ? ' 남은 작품도 놓아 보세요.' : (hits === 5 ? ' 다섯 편을 모두 제자리에 놓았습니다!' : ''))
+              : '"내가 놓을 자리"를 고르고 다섯 작품을 하나씩 살펴보면, 내 순서를 여기서 채점해 줍니다.') + '</p>';
         }
       };
     })();
@@ -583,7 +617,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

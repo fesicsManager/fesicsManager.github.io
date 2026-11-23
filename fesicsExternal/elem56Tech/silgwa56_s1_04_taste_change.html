@@ -113,7 +113,9 @@ tbody tr:nth-child(even){background:#fafcff}
 <div class="ctrl"><label for="size">자른 크기</label><select id="size"><option>크게</option><option>보통</option><option>아주 잘게</option></select></div>
 <div class="ctrl"><label for="s1">냄새 <span class="val" id="v1">3</span>점</label><input type="range" id="s1" min="1" max="5" step="1" value="3"></div>
 <div class="ctrl"><label for="s2">식감 <span class="val" id="v2">3</span>점</label><input type="range" id="s2" min="1" max="5" step="1" value="3"></div>
-<div class="ctrl"><label for="s3">맛 <span class="val" id="v3">3</span>점</label><input type="range" id="s3" min="1" max="5" step="1" value="3"></div></div>
+<div class="ctrl"><label for="s3">맛 <span class="val" id="v3">3</span>점</label><input type="range" id="s3" min="1" max="5" step="1" value="3"></div>
+<div class="ctrl"><label for="pred">짐작 — 같은 재료를 생으로 먹을 때와 비교하면</label>
+<select id="pred"><option>점수가 오를 것</option><option>비슷할 것</option><option>점수가 내릴 것</option></select></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">맛본 결과 그리기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -147,6 +149,9 @@ var LAB=(function(){
 var out,c,cvv,shown=null;
 var food=document.getElementById('food'),cook=document.getElementById('cook'),size=document.getElementById('size');
 var s1=document.getElementById('s1'),s2=document.getElementById('s2'),s3=document.getElementById('s3');
+var pred=document.getElementById('pred'),base={};
+function myWord(){return pred.value==='점수가 오를 것'?'점수가 오름':(pred.value==='점수가 내릴 것'?'점수가 내림':'비슷');}
+function realWord(d){return d>=2?'점수가 오름':(d<=-2?'점수가 내림':'비슷');}
 s1.oninput=function(){document.getElementById('v1').textContent=s1.value;};
 s2.oninput=function(){document.getElementById('v2').textContent=s2.value;};
 s3.oninput=function(){document.getElementById('v3').textContent=s3.value;};
@@ -186,7 +191,7 @@ function draw(prog){
   c.fillText(label,cx,cvv.height-20);
 }
 return {
-  columns:['재료','조리 방법','크기','냄새','식감','맛','합계'],
+  columns:['재료','조리 방법','크기','냄새','식감','맛','합계','짐작'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='실제로 한 입 맛본 뒤 세 가지 점수를 정하고 <b>맛본 결과 그리기</b>를 눌러 보세요.';},
   run:function(done){
@@ -194,13 +199,24 @@ return {
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/25,1));
       if(t>=25){clearInterval(iv);
         var sum=shown.v[0]+shown.v[1]+shown.v[2];
-        out.innerHTML='<b>'+shown.f+'</b>을(를) <b>'+shown.c+'</b> 먹었을 때 합계 <b>'+sum+'점</b>. 같은 재료를 다른 방법으로도 해 보세요.';
+        var msg='<b>'+shown.f+'</b>을(를) <b>'+shown.c+'</b> 먹었을 때 합계 <b>'+sum+'점</b>. 같은 재료를 다른 방법으로도 해 보세요.';
+        if(shown.c==='생으로'){
+          base[shown.f]=sum;
+          msg+='<br>이 값을 <b>'+shown.f+'</b>의 기준(생으로 '+sum+'점)으로 삼았습니다. 이제 조리 방법을 바꿔 보세요.';
+        }else if(base[shown.f]!=null){
+          var dd=sum-base[shown.f],rw=realWord(dd),mw=myWord();
+          msg+='<br>생으로 '+base[shown.f]+'점 → '+shown.c+' '+sum+'점 (차이 '+(dd>0?'+':'')+dd+'점) · 실제 <b>'+rw+'</b> / 내 짐작 '+mw+' — '+
+               (rw===mw?'<b>맞혔습니다.</b>':'<b>빗나갔습니다.</b> 내가 싫어한 것은 재료였을까요, 그 재료의 한 가지 모습이었을까요?');
+        }else{
+          msg+='<br>같은 재료를 <b>생으로</b> 먼저 한 번 기록하면, 다음부터 짐작을 채점해 줍니다.';
+        }
+        out.innerHTML=msg;
         done();}},30);
   },
   record:function(){
     var v=[Number(s1.value),Number(s2.value),Number(s3.value)];
-    return {cells:[food.value,cook.value,size.value,v[0],v[1],v[2],v[0]+v[1]+v[2]],
-            raw:{f:food.value,c:cook.value,sum:v[0]+v[1]+v[2]}};
+    return {cells:[food.value,cook.value,size.value,v[0],v[1],v[2],v[0]+v[1]+v[2],pred.value],
+            raw:{f:food.value,c:cook.value,sum:v[0]+v[1]+v[2],p:pred.value}};
   },
   verify:function(rs){
     var byFood={};
@@ -219,7 +235,27 @@ return {
            '<div class="barwrap"><div class="bar" style="width:'+(arr[j].s/15*100)+'%"></div></div>';
       }
     }
-    h+='</div><div><h3>읽어 내기</h3>';
+    h+='</div><div><h3>짐작 채점과 조리법별 평균</h3>';
+    var bs={},byC={},okN=0,totN=0;
+    for(var q=0;q<rs.length;q++){ if(rs[q].raw.c==='생으로') bs[rs[q].raw.f]=rs[q].raw.sum; }
+    for(var q2=0;q2<rs.length;q2++){
+      var r2=rs[q2].raw;
+      if(!byC[r2.c])byC[r2.c]={s:0,n:0};
+      byC[r2.c].s+=r2.sum;byC[r2.c].n++;
+      if(r2.c!=='생으로'&&bs[r2.f]!=null&&r2.p){
+        var dd2=r2.sum-bs[r2.f];
+        var rw2=dd2>=2?'점수가 오름':(dd2<=-2?'점수가 내림':'비슷');
+        var mw2=r2.p==='점수가 오를 것'?'점수가 오름':(r2.p==='점수가 내릴 것'?'점수가 내림':'비슷');
+        totN++; if(rw2===mw2)okN++;
+      }
+    }
+    var bestC='',bv=-1,lines='';
+    for(var kk in byC){var av=byC[kk].s/byC[kk].n; if(av>bv){bv=av;bestC=kk;}
+      lines+='<div style="font-size:.95rem">'+kk+' · 평균 '+av.toFixed(1)+'점 ('+byC[kk].n+'회)</div><div class="barwrap"><div class="bar" style="width:'+(av/15*100)+'%"></div></div>';}
+    h+=lines+'<p style="font-size:1.03rem;line-height:1.8">평균이 가장 높았던 방법은 <b>'+bestC+'</b>('+bv.toFixed(1)+'점)입니다.</p>';
+    h+= totN? '<p style="font-size:1.03rem;line-height:1.8">짐작 채점 <b>'+okN+' / '+totN+'번</b> 맞혔습니다.'+(okN<totN?' 빗나간 쪽이 바로 <b>조리 방법이 맛을 바꾼 자리</b>입니다.':'')+'</p>'
+             : '<p style="font-size:1rem;line-height:1.8">아직 채점할 짝이 없습니다. 같은 재료를 <b>생으로</b> 한 번, 다른 방법으로 한 번 기록해 보세요.</p>';
+    h+='<h3 style="margin-top:.8rem">읽어 내기</h3>';
     h+=found
       ? '<p style="font-size:1.03rem;line-height:1.85">같은 재료인데 조리 방법에 따라 점수가 <b>달라졌습니다</b>. 그렇다면 내가 싫어했던 것은 재료였을까요, 그 재료의 <b>한 가지 모습</b>이었을까요?</p>'
       : '<p style="font-size:1.03rem;line-height:1.85">아직 같은 재료를 <b>다른 방법</b>으로 기록한 적이 없습니다. 재료 하나를 골라 조리 방법만 바꿔 다시 기록해 보세요.</p>';

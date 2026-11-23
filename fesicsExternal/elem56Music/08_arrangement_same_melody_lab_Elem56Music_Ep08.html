@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -490,38 +492,59 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
         {n:'장구 3박 (간단히)', s:'장구', harm:'화음 없음', rh:'쿵 딱 딱', inst:'장구'}, {n:'기타 펼침화음', s:'기타', harm:'도미솔 · 도미솔 · 솔시레', rh:'한 음씩 펼침', inst:'기타'}];
       var MO = ['가락 켜기', '가락 끄기'], SL = 0.2;
       var HZ = MEL.map(function(m){ return Math.round(semi(m.s)); });
+      /* 둘째 조작 - 가락 자체를 고쳐 본다. 무엇을 고치면 '다른 노래'가 되는지 가른다 */
+      var MV = [
+        {n:'그대로', s:'그대로', same:true, why:'아니요 — 9음의 계이름·길이·높이 모두 같음'},
+        {n:'빠르기 2배', s:'빠르기2배', same:true, why:'아니요 — 빠르기만 달라졌고 음과 순서는 그대로예요'},
+        {n:'한 옥타브 올리기', s:'옥타브↑', same:true, why:'아니요 — 다 같이 올라가서 음 사이 간격이 그대로라 같은 노래예요'},
+        {n:'넷째 음만 바꾸기', s:'한 음 바꿈', same:false, why:'예 — 넷째 음 하나가 달라져 조금 다른 노래가 되었어요'},
+        {n:'순서 거꾸로', s:'거꾸로', same:false, why:'예 — 음의 순서가 거꾸로여서 완전히 다른 노래예요'}
+      ];
+      function melOf(mv){
+        if (mv === 2) return MEL.map(function(m){ return {s:m.s + 12, a:m.a}; });
+        if (mv === 3) return MEL.map(function(m, i){ return {s:(i === 3 ? 11 : m.s), a:m.a}; });
+        if (mv === 4) return MEL.map(function(m, i){ return {s:MEL[MEL.length - 1 - i].s, a:m.a}; });
+        return MEL.map(function(m){ return {s:m.s, a:m.a}; });
+      }
       function calc(p){
         if (p.ac === 0 && p.m === 1) return {fail:'반주도 가락도 꺼져 있어요. 반주를 고르거나 가락을 켜 주세요.'};
         var A0 = AC[p.ac], changed = p.ac === 0 ? '바뀐 층 없음' : [A0.harm !== '—' && A0.harm !== '화음 없음' ? '화음' : null, '리듬', '악기'].filter(function(x){ return x; }).join('·') + ' 층';
-        return {A:A0, changed:changed, hz:HZ, sig:HZ.join('·'), names:MEL.map(function(m){ return nameOf(m.s); })};
+        var mv = p.mv || 0, mel = melOf(mv), hz = mel.map(function(m){ return Math.round(semi(m.s)); });
+        return {A:A0, changed:changed, mv:mv, M:MV[mv], mel:mel, sl:(mv === 1 ? SL / 2 : SL),
+          hz:hz, sig:hz.join('·'), names:mel.map(function(m){ return nameOf(m.s); })};
       }
       return {
         sceneHeight: 400,
         idle: '반주와 가락 켜기를 고른 뒤 <b>들어 보기</b>를 누르세요.',
-        shortHint: '반주 네 가지를 모두 들어 보고, 반주를 켠 채 가락만 꺼서도 들어 보세요.',
+        shortHint: '반주 네 가지를 들어 본 뒤, <b>가락 고치기</b>도 바꿔 어느 것이 \'다른 노래\'가 되는지 가려 보세요.',
         params: [
           {key:'ac', type:'seg', label:'반주', cols:4, value:1, options:AC.map(function(x){ return x.n; })},
+          {key:'mv', type:'seg', label:'가락 고치기', cols:3, value:0, options:MV.map(function(x){ return x.n; }),
+            note:'반주를 바꾸는 것과 가락을 고치는 것은 다릅니다. 어느 쪽이 \'다른 노래\'를 만들까요? ※ 진동수는 표준 조율(라 = 440 Hz)로 계산한 <b>교육용 값</b>이고, \'같은 노래인가\'는 음 사이 관계가 그대로인지로 가린 모형 판정이에요.'},
           {key:'m', type:'seg', label:'가락', cols:2, value:0, options:MO}
         ],
         compute: function(p){
           var r = calc(p); if (r.fail) return r;
-          var S = session(2, 0.18);
+          var S = session(2, 0.18), sl = r.sl;
           if (S){
-            if (p.m === 0) MEL.forEach(function(m){ tone(S, semi(m.s), m.a * SL, SL * 0.92, 0.45, 'triangle'); });
-            for (var b = 0; b < 3; b++){ var C = CH[b].r, t0 = b * 3 * SL;
-              if (p.ac === 1){ tone(S, semi(C[0]), t0, SL * 0.9, 0.3, 'sine'); for (var k = 1; k < 3; k++) C.forEach(function(s){ tone(S, semi(s + 12), t0 + k * SL, SL * 0.6, 0.1, 'triangle'); }); }
-              else if (p.ac === 2){ thump(S, t0, 140, 70, 0.3, 0.8); hiss(S, t0 + SL, 0.05, 0.4, 'highpass', 3000, 0.7); hiss(S, t0 + 2 * SL, 0.05, 0.4, 'highpass', 3000, 0.7); }
-              else if (p.ac === 3){ for (var j = 0; j < 3; j++) ping(S, semi(C[j] + 12), t0 + j * SL, 0.5, 0.25); }
+            if (p.m === 0) r.mel.forEach(function(m){ tone(S, semi(m.s), m.a * sl, sl * 0.92, 0.45, 'triangle'); });
+            for (var b = 0; b < 3; b++){ var C = CH[b].r, t0 = b * 3 * sl;
+              if (p.ac === 1){ tone(S, semi(C[0]), t0, sl * 0.9, 0.3, 'sine'); for (var k = 1; k < 3; k++) C.forEach(function(s){ tone(S, semi(s + 12), t0 + k * sl, sl * 0.6, 0.1, 'triangle'); }); }
+              else if (p.ac === 2){ thump(S, t0, 140, 70, 0.3, 0.8); hiss(S, t0 + sl, 0.05, 0.4, 'highpass', 3000, 0.7); hiss(S, t0 + 2 * sl, 0.05, 0.4, 'highpass', 3000, 0.7); }
+              else if (p.ac === 3){ for (var j = 0; j < 3; j++) ping(S, semi(C[j] + 12), t0 + j * sl, 0.5, 0.25); }
             }
           }
           return r;
         },
         draw: function(c, W, H, p, r, tau){
           var gx = 70, gw = W - gx - 16, X = function(a){ return gx + gw * (a + 0.5) / 9; }, show = r ? tau * 9 : -1;
+          var q0 = r || calc(p), ML = (q0 && q0.mel) ? q0.mel : MEL;
+          var sLo = Math.min.apply(null, ML.map(function(m){ return m.s; })), sHi = Math.max.apply(null, ML.map(function(m){ return m.s; }));
+          var YofS = function(s){ return 122 - (s - sLo) * 80 / Math.max(1, sHi - sLo); };
           for (var b = 0; b <= 3; b++) seg(c, gx + gw * b / 3, 30, gx + gw * b / 3, 330, '#D5DCE5', 1, [4, 4]);
           txt(c, '가락', 8, 100, {bold:true, color:PAL[0]}); txt(c, '화음', 8, 200, {bold:true, color:PAL[3]}); txt(c, '리듬', 8, 280, {bold:true, color:PAL[6]});
           var on = p.m === 0;
-          MEL.forEach(function(m, i){ var y = 130 - (m.s + 2) * 8, lit = m.a <= show;
+          ML.forEach(function(m, i){ var y = YofS(m.s), lit = m.a <= show;
             disc(c, X(m.a), y, 8, !on ? '#E1E7EE' : lit ? PAL[0] : '#9CC0EA'); });
           if (!on) txt(c, '가락 꺼짐', gx + gw / 2, 70, {align:'center', color:'#8C99A8', bold:true});
           for (var k = 0; k < 3; k++){ var cx = gx + gw * (k + 0.5) / 3;
@@ -533,26 +556,44 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
               else if (p.ac === 3){ disc(c, x, 300 - j * 14, 6, lit2 ? PAL[1] : '#BFE3D4'); } } }
           if (p.ac === 0) txt(c, '반주 없음', gx + gw / 2, 280, {align:'center', color:'#8C99A8', bold:true});
           if (r){ var px = gx + gw * Math.min(1, tau); seg(c, px, 26, px, 334, '#26313D', 2); }
-          txtF(c, r ? AC[p.ac].s + ' · 가락 ' + (on ? '9음 그대로' : '꺼짐') + ' · ' + r.changed : '예상: 반주를 바꾸면 가락도 바뀔까?', 12, H - 14, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 24);
+          txtF(c, r ? AC[p.ac].s + ' · 가락 ' + (on ? (r.mv === 0 ? '9음 그대로' : r.M.s) : '꺼짐') + ' · ' + r.changed : '예상: 반주를 바꾸면 가락도 바뀔까?', 12, H - 14, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 24);
         },
         stats: function(p, r){
           return [['반주', r.A.n], ['가락 계이름', r.names.join(' ')], ['가락 진동수 (Hz)', r.sig, PAL[0]],
             ['화음 층', r.A.harm, PAL[3]], ['리듬·악기 층', r.A.rh + (r.A.inst !== '—' ? ' · ' + r.A.inst : ''), PAL[6]],
-            ['바뀐 층', r.changed, PAL[4]], (p.m === 0 ? ['가락이 바뀌었나', '아니요 — 9음의 계이름·길이·높이 모두 같음', PAL[1]] : ['가락', '꺼짐 — 지금은 반주만 들려요', PAL[4]])];
+            ['바뀐 층', r.changed, PAL[4]], ['가락 고치기', r.M.n, r.mv === 0 ? PAL[0] : (r.M.same ? PAL[1] : PAL[4])],
+            (p.m === 0 ? ['가락이 바뀌었나', r.M.why, r.M.same ? PAL[1] : PAL[4]] : ['가락', '꺼짐 — 지금은 반주만 들려요', PAL[4]]),
+            (p.m === 0 ? ['다른 노래가 되었나', r.M.same ? '아니요 — 같은 노래로 들려요' : '예 — 가락이 달라졌어요', r.M.same ? PAL[1] : PAL[4]] : ['다른 노래가 되었나', '가락을 켜고 확인해 보세요', PAL[7]])];
         },
-        columns: ['반주', '가락', '가락 진동수', '바뀐 층'],
-        record: function(p, r){ return {ac:p.ac, m:p.m, sig:r.sig, changed:r.changed}; },
-        row: function(d){ return [AC[d.ac].s, MO[d.m], d.sig, d.changed]; },
+        columns: ['반주', '가락 고치기', '가락', '가락 진동수', '같은 노래?'],
+        record: function(p, r){ return {ac:p.ac, m:p.m, mv:r.mv, sig:r.sig, changed:r.changed, same:r.M.same}; },
+        row: function(d){ return [AC[d.ac].s, MV[d.mv || 0].s, MO[d.m], d.sig, d.same ? '같은 노래' : '다른 노래']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('반주별 가락 비교', '<div id="m8a"></div><p class="ask">반주가 바뀔 때 가락의 진동수 목록은 바뀌었나요? 그렇다면 느낌을 바꾼 것은 어느 층이었나요?</p>') +
-            card('무엇이 바뀌고 무엇이 그대로인가', '<div id="m8b"></div><p class="ask">과제: 민요 "아리랑"이나 내가 만든 가락 하나를 골라 반주를 두 가지(손뼉 리듬, 장구 장단)로 바꿔 불러 녹음하고, 무엇이 바뀌고 무엇이 그대로인지 표로 정리해 오세요.</p>') + '</div>';
-          var g = groupBy(rec, function(d){ return d.ac; }), rows = [], sigs = {};
+            card('무엇이 바뀌고 무엇이 그대로인가', '<div id="m8b"></div><p class="ask">과제: 민요 "아리랑"이나 내가 만든 가락 하나를 골라 반주를 두 가지(손뼉 리듬, 장구 장단)로 바꿔 불러 녹음하고, 무엇이 바뀌고 무엇이 그대로인지 표로 정리해 오세요.</p>') +
+            card('어떻게 고치면 다른 노래가 될까', '<div id="m8c"></div><p id="m8j" class="ask"></p>') + '</div>';
+          /* 반주만 바꾼 기록으로 '가락은 그대로'를 확인한다 */
+          var plain = rec.filter(function(d){ return (d.mv || 0) === 0; });
+          var g = groupBy(plain, function(d){ return d.ac; }), rows = [], sigs = {};
           Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; sigs[d.sig] = 1; rows.push([AC[d.ac].s, d.sig]); });
-          $('m8a').innerHTML = tableHTML(['반주', '가락 진동수 (Hz)'], rows) + '<p class="msg">' + (Object.keys(sigs).length === 1 ? '모든 반주에서 가락 진동수가 똑같아요.' : '가락 진동수가 다른 기록이 있어요.') + '</p>';
+          $('m8a').innerHTML = tableHTML(['반주', '가락 진동수 (Hz)'], rows) + '<p class="msg">' +
+            (rows.length === 0 ? '가락을 \'그대로\' 둔 기록이 아직 없어요.' :
+             (Object.keys(sigs).length === 1 ? '반주를 바꿔도 가락 진동수는 똑같아요.' : '가락 진동수가 다른 기록이 있어요.')) + '</p>';
           var rows2 = [];
           Object.keys(g).sort().forEach(function(k){ var A0 = AC[+k]; rows2.push([A0.s, '그대로', A0.harm, A0.rh]); });
           $('m8b').innerHTML = tableHTML(['반주', '가락', '화음', '리듬·악기'], rows2);
+          /* 가락을 고친 기록은 판정이 갈린다 */
+          var g2 = groupBy(rec, function(d){ return (d.mv || 0); });
+          var rows3 = Object.keys(g2).sort().map(function(k){ var d = g2[k][0], M = MV[d.mv || 0];
+            return [M.n, d.sig, M.same ? '같은 노래' : '다른 노래']; });
+          $('m8c').innerHTML = tableHTML(['가락 고치기', '가락 진동수 (Hz)', '판정'], rows3);
+          var tried = Object.keys(g2).filter(function(k){ return +k > 0; }).length;
+          var diff = Object.keys(g2).filter(function(k){ return !MV[+k].same; }).length;
+          $('m8j').innerHTML = (tried === 0)
+            ? '아직 가락은 \'그대로\'만 들었어요. <b>가락 고치기</b>를 \'한 옥타브 올리기\'와 \'넷째 음만 바꾸기\'로 각각 바꿔 들어 보세요. 둘 다 진동수가 달라지는데, 같은 노래로 들리는 쪽은 어느 것일까요?'
+            : ((diff ? '고친 ' + tried + '가지 가운데 ' + diff + '가지는 \'다른 노래\'가 되었어요. ' : '고친 ' + tried + '가지 모두 같은 노래로 들렸어요. ')
+               + '진동수가 달라진 것만으로는 다른 노래가 되지 않아요. 한 옥타브 올리거나 빠르기를 바꾸면 <b>음 사이의 관계</b>가 그대로라서 같은 노래지만, 한 음을 다른 음으로 바꾸거나 순서를 뒤집으면 그 관계가 깨져 <b>다른 노래</b>가 됩니다. 반주는 아무리 바꿔도 가락을 건드리지 않으니 노래는 그대로예요.');
         }
       };
     })();
@@ -561,7 +602,8 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

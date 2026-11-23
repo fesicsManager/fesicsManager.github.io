@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -289,9 +290,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,9 +440,13 @@ var LAB = (function(){
         shortHint: '3 m부터 30 m까지 다섯 거리를 모두 재 보세요.',
         params: [
           {key:'d', type:'seg', label:'친구까지 거리', cols:5, value:4, options:D.map(function(d){ return d + ' m'; })},
-          {key:'m', type:'seg', label:'그림에 그리는 방법', cols:2, value:0, options:DM}
+          {key:'m', type:'seg', label:'그림에 그리는 방법', cols:2, value:0, options:DM},
+          {key:'g', type:'range', label:'내 짐작 — 연필에 몇 cm로 보일까 (0 = 아직 안 적음)', min:0, max:25, step:0.5, value:0, fmt:function(v){ return v ? f(v, 1) + ' cm' : '아직 안 적음'; }}
         ],
-        compute: function(p){ var d = D[p.d], v = cm(d); return {d:d, cm:v, ratio:d / 3}; },
+        compute: function(p){ var d = D[p.d], v = cm(d), g = p.g || 0;
+          /* 먼저 짐작을 적게 하고, 잰 값과 얼마나 가까운지 채점한다 */
+          var err = g ? Math.abs(g - v) : null, near = g ? (err <= Math.max(0.5, v * 0.15)) : null;
+          return {d:d, cm:v, ratio:d / 3, g:g, err:err, near:near}; },
         draw: function(c, W, H, p, r, tau){
           var hz = H * 0.3, k = r ? Math.min(tau / 0.7, 1) : 0, d = D[p.d];
           c.fillStyle = '#DCEBF7'; c.fillRect(0, 0, W, hz); c.fillStyle = '#E4EDD8'; c.fillRect(0, hz, W, H - hz);
@@ -459,21 +465,33 @@ var LAB = (function(){
           if (r && p.m === 1) txt(c, '둘이 나란히 서 있는 것 같아요', 12, 52, {color:PAL[4]});
         },
         stats: function(p, r){
-          return [['거리', r.d + ' m'], ['연필에 보이는 키', '약 ' + f(r.cm, 1) + ' cm', PAL[4]],
+          return [['거리', r.d + ' m'],
+            ['내 짐작', r.g ? f(r.g, 1) + ' cm' : '아직 적지 않았어요 — 재기 전에 슬라이더로 짐작을 적어 보세요.', r.g ? PAL[3] : null],
+            ['연필에 보이는 키', '약 ' + f(r.cm, 1) + ' cm', PAL[4]],
+            ['채점', r.g == null || !r.g ? '—' : (r.near ? '맞혔어요! 차이 ' + f(r.err, 1) + ' cm' : '빗나갔어요. 차이 ' + f(r.err, 1) + ' cm'),
+              !r.g ? null : (r.near ? PAL[1] : PAL[4])],
             ['3 m 친구(약 ' + f(cm(3), 0) + ' cm)와 비교', r.d === 3 ? '같은 거리' : '거리 ' + f(r.ratio, r.ratio % 1 ? 1 : 0) + '배 → 크기 약 ' + f(r.ratio, r.ratio % 1 ? 1 : 0) + '분의 1', PAL[0]],
             ['그림', DM[p.m] + (r.d === 3 ? (p.m === 0 ? ' — 바로 앞에 있는 것 같아요' : ' — 3 m에서는 보이는 크기와 같아요') : (p.m === 0 ? ' — 멀리 있는 것 같아요' : ' — 거리가 안 느껴져요')), r.d === 3 || p.m === 0 ? PAL[1] : PAL[7]]];
         },
-        columns: ['거리', '연필 길이', '3 m 대비'],
-        record: function(p, r){ return {d:r.d, cm:r.cm}; },
-        row: function(d){ return [d.d + ' m', '약 ' + f(d.cm, 1) + ' cm', d.d === 3 ? '1' : '1/' + f(d.d / 3, d.d % 3 ? 1 : 0)]; },
+        columns: ['거리', '내 짐작', '연필 길이', '차이', '3 m 대비'],
+        record: function(p, r){ return {d:r.d, cm:r.cm, g:r.g, err:r.err, near:r.near}; },
+        row: function(d){ return [d.d + ' m', d.g ? f(d.g, 1) + ' cm' : '—', '약 ' + f(d.cm, 1) + ' cm',
+          d.g ? f(d.err, 1) + ' cm' + (d.near ? ' ○' : ' ✕') : '—', d.d === 3 ? '1' : '1/' + f(d.d / 3, d.d % 3 ? 1 : 0)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('거리별 연필 길이', '<div id="sd1"></div><p class="ask">3 m에서 약 23 cm, 30 m에서 약 2 cm였나요? 거리가 10배가 되면 보이는 키는 몇 분의 1인가요?</p>') +
+            card('내 짐작은 맞았나 (내가 적은 값으로 채점)', '<div id="sd3"></div><p class="ask">가까운 거리와 먼 거리 가운데 어느 쪽 짐작이 더 많이 빗나갔나요? 거리가 두 배가 되면 보이는 키는 반이 된다는 것을 짐작에 썼나요?</p>') +
             card('거리를 나타내는 방법', '<div id="sd2"></div><p class="ask">과제: 복도 끝에 서 있는 친구를 세 거리(가까이·중간·멀리)에서 팔을 뻗어 연필로 재고, 그 길이대로 세 사람을 한 그림에 그려 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.d; }), items = [];
           D.forEach(function(d, i){ if (g[d]) items.push({label:d + ' m', v:cm(d), color:PAL[i % 8], text:'약 ' + f(cm(d), 1) + ' cm'}); });
           $('sd1').innerHTML = hbars(items, 24) + (items.length < 5 ? '<p class="msg">아직 재지 않은 거리가 있어요.</p>' : '');
           $('sd2').innerHTML = tableHTML(['방법', '어떻게'], [['작게', '멀수록 작게 그리기'], ['겹치기', '앞의 것이 뒤를 가리기'], ['높이', '멀수록 화면 위쪽에'], ['흐리게', '먼 산은 흐리고 푸르스름하게']]);
+          var mine = rec.filter(function(x){ return x.g; });
+          var rows3 = mine.map(function(x){ return [x.d + ' m', f(x.g, 1) + ' cm', '약 ' + f(x.cm, 1) + ' cm', f(x.err, 1) + ' cm', x.near ? '맞힘' : '빗나감']; });
+          var hits = mine.filter(function(x){ return x.near; }).length;
+          $('sd3').innerHTML = (rows3.length ? tableHTML(['거리', '내 짐작', '실제', '차이', '채점'], rows3)
+              : '<p class="msg">슬라이더로 "내 짐작"을 먼저 적고 재 보세요. 그 채점은 내가 적은 값으로 계산합니다.</p>')
+            + (mine.length ? '<p class="msg">' + mine.length + '번 가운데 <b>' + hits + '번</b> 맞혔어요 (' + f(hits / mine.length * 100, 0) + '%).</p>' : '');
         }
       };
     })();
@@ -482,7 +500,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

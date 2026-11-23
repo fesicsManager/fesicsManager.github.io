@@ -25,6 +25,7 @@
 <!-- labgen:midSciP2 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>바닷물은 깊어도 온도가 같나 | 중학교 과학 ②</title>
+<script src="/fesicsExternal/fxbig.js"></script>
 <style>
 :root{
   --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
@@ -61,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -301,9 +303,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -315,8 +318,8 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -413,13 +416,17 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var tkR = -1e9;
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke();
+    var tkS = f(v, decOf(xr[2])), tkW = c.measureText(tkS).width / 2;
+    if (X(v) - tkW > tkR + 4){ c.fillText(tkS, X(v), y + h + 6); tkR = X(v) + tkW; } }
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
   if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
   if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
-  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; var xlCx = x + w / 2, xlCv = c.canvas.width / (c.getTransform().a || 1);
+  c.fillText(xLabel, xlCx, y + h + 30, Math.max(60, 2 * Math.min(xlCx, xlCv - xlCx) - 8));
   c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
   c.textBaseline = 'alphabetic';
   return {X:X, Y:Y};
@@ -443,39 +450,63 @@ var LAB = (function(){
       var PG = ['① 바닷물이 섞이므로 깊이와 관계없이 수온이 모두 같다', '② 바람이 섞는 표층은 수온이 고르고, 그 아래로 빠르게 낮아지다가 깊은 곳은 차갑고 일정하다', '③ 바람이 불면 표층이 깊은 곳보다 차가워진다', '④ 깊이 내려갈수록 수온이 계속 높아진다'];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function f1(x){ return x.toFixed(1); }
-      function at(w, d){ var a = TP[w]; for (var i = 0; i < DP.length - 1; i++){ if (d <= DP[i + 1]){ var u = (d - DP[i]) / (DP[i + 1] - DP[i]); return a[i] + (a[i + 1] - a[i]) * u; } } return a[a.length - 1]; }
-      function mixed(w){ var a = TP[w], m = 0; for (var i = 1; i < DP.length; i++){ if (Math.abs(a[i] - a[0]) <= 0.5) m = DP[i]; else break; } return m; }
+      var LT = [5, 10, 20, 30], LTN = ['5분', '10분', '20분', '30분'];
+      function sOf(lt){ return (1 - Math.exp(-lt / 10)) / (1 - Math.exp(-1)); }   /* 가열 세기 — 10분을 1로 둔 교육용 모형값 */
+      function mixedA(a){ var m = 0; for (var i = 1; i < DP.length; i++){ if (Math.abs(a[i] - a[0]) <= 0.5) m = DP[i]; else break; } return m; }
+      function mdOf(w, lt){ return Math.max(0, Math.min(40, Math.round(mixedA(TP[w]) * (2 - sOf(lt))))); }
+      /* 혼합층 두께 = 바람이 섞는 힘과 전등이 데우는 힘의 겨룸 */
+      function prof(w, lt){
+        if (lt === 10) return TP[w].slice();
+        var s = sOf(lt), a = TP[w].map(function(t){ return Math.round((17 + (t - 17) * s) * 10) / 10; }), m = mdOf(w, lt), out = a.slice();
+        for (var i = 0; i < DP.length; i++) if (DP[i] <= m) out[i] = a[0];
+        return out;
+      }
+      function at(w, d, lt){ var a = prof(w, lt); for (var i = 0; i < DP.length - 1; i++){ if (d <= DP[i + 1]){ var u = (d - DP[i]) / (DP[i + 1] - DP[i]); return a[i] + (a[i + 1] - a[i]) * u; } } return a[a.length - 1]; }
+      function mixed(w){ return mixedA(TP[w]); }
       function col(t){ var u = Math.max(0, Math.min(1, (t - 17) / 13)); var r0 = Math.round(60 + 190 * u), g0 = Math.round(120 + 40 * (1 - Math.abs(u - 0.5) * 2) - 20 * u), b0 = Math.round(200 - 150 * u); return 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')'; }
-      function solve(w, di){ var m = mixed(w); return {w:w, di:di, d:DP[di], t:TP[w][di], t0:TP[w][0], m:m, ms:m ? '0~' + m + ' cm' : '거의 없음', dT:TP[w][0] - TP[w][6]}; }
+      function solve(w, di, lt){
+        lt = lt === undefined ? 10 : lt;
+        var a = prof(w, lt), m = mixedA(a);
+        return {w:w, di:di, lt:lt, a:a, d:DP[di], t:a[di], t0:a[0], m:m, ms:m ? '0~' + m + ' cm' : '거의 없음', dT:a[0] - a[6]};
+      }
       return {
         sceneHeight: function(w){ return w < 560 ? 640 : 400; },
         minRec: 3,
         idle: '바람 세기, 온도를 읽을 깊이, 예측을 고른 뒤 <b>깊이별 수온 재기</b>를 누르세요.',
         shortHint: '바람 없음, 약한 바람, 센 바람을 차례로 재고 깊이-수온 그래프를 견주어 보세요.',
         params: [
-          {key:'w', type:'seg', label:'선풍기 바람 세기 (전등은 똑같이 10분)', cols:3, value:0, options:WN},
+          {key:'w', type:'seg', label:'선풍기 바람 세기', cols:3, value:0, options:WN},
+          {key:'lt', type:'seg', label:'전등을 켜 둔 시간', cols:4, value:1, options:LTN,
+            note:'바람은 위를 섞어 혼합층을 두껍게 하고, 전등은 위만 데워 혼합층을 얇게 해요. 두 힘의 겨룸으로 혼합층 두께가 정해져요. ※ 가열 세기는 교육용 모형값이에요.'},
           {key:'d', type:'seg', label:'온도를 읽을 깊이', cols:4, value:2, options:DP.map(function(d){ return d + ' cm'; })},
           {key:'g', type:'seg', label:'예측: 햇빛이 비치는 바다에 바람이 세게 불 때 깊이에 따른 수온 분포는?', cols:1, value:0, options:PG,
             note:'뭉치는 "섞이면 다 같아지지! ①"이라고 했어요.'}
         ],
-        compute: function(p){ var S = solve(p.w, p.d); S.ok = p.g === 1; return S; },
+        compute: function(p){
+          var S = solve(p.w, p.d, LT[p.lt]), base = solve(p.w, p.d, 10);
+          S.ok = p.g === 1; S.m10 = base.m;
+          S.vd = S.m > base.m ? '전등을 짧게 켜니 혼합층이 더 두꺼워졌어요 (바람이 이김)'
+            : S.m < base.m ? '전등을 오래 켜니 혼합층이 더 얇아졌어요 (가열이 이김)'
+            : (S.m === 0 ? '바람이 없어 섞이는 층이 거의 없어요' : '혼합층 두께는 10분일 때와 같아요');
+          return S;
+        },
         draw: function(c, W, H, p, r, tau){
-          var nar = W < 560, S = solve(p.w, p.d), e = r ? Math.min(1, tau * 1.2) : 0, fs = nar ? 12 : 13;
+          var nar = W < 560, S = solve(p.w, p.d, LT[p.lt]), e = r ? Math.min(1, tau * 1.2) : 0, fs = nar ? 12 : 13;
           var tx = 30, tw = nar ? W - 60 : W * 0.42, ty = 74, th = nar ? 190 : 230;
           // 전등·선풍기
           c.fillStyle = '#5C6B7A'; c.fillRect(tx + tw * 0.55, 14, 40, 10); glow(c, tx + tw * 0.55 + 20, 30, 40, 'rgba(255,190,80,.9)', r ? 0.8 : 0.3);
-          T(c, '전등(햇빛)', tx + tw * 0.55 + 46, 24, 11, '#8A6A00', 'left', true);
+          T(c, '전등(햇빛)', Math.min(tx + tw * 0.55 + 46, W - 54), 24, 11, '#8A6A00', 'left', true);
           c.fillStyle = '#7A8796'; c.beginPath(); c.arc(tx + 12, 48, 12, 0, Math.PI * 2); c.fill(); T(c, '선풍기', tx - 6, 20, 11, '#1E2833', 'left', true);
           var na = p.w === 0 ? 0 : p.w === 1 ? 2 : 4;
           for (var k = 0; k < na; k++){ var ax = tx + 30 + ((k * 22 + (r ? tau * 120 : 0)) % (tw * 0.45)); arrow(c, ax, 52 + (k % 2) * 8, ax + 18, 52 + (k % 2) * 8, '#3A8FB7', 1.6); }
           // 수조
           var rows = 40;
-          for (var i = 0; i < rows; i++){ var d = 40 * (i + 0.5) / rows, t = 17 + (at(p.w, d) - 17) * e; c.fillStyle = col(t); c.fillRect(tx, ty + th * i / rows, tw, th / rows + 0.6); }
+          for (var i = 0; i < rows; i++){ var d = 40 * (i + 0.5) / rows, t = 17 + (at(p.w, d, LT[p.lt]) - 17) * e; c.fillStyle = col(t); c.fillRect(tx, ty + th * i / rows, tw, th / rows + 0.6); }
           c.strokeStyle = '#5C6B7A'; c.lineWidth = 2; c.strokeRect(tx, ty, tw, th);
           for (var j = 0; j < DP.length; j++){
             var yy = ty + th * DP[j] / 40; seg(c, tx - 6, yy, tx, yy, '#5C6B7A', 1);
             T(c, String(DP[j]), tx - 8, yy + 4, 10, '#5C6B7A', 'right');
-            if (r && tau >= 0.85) T(c, f1(TP[p.w][j]), tx + tw - 4, yy + (j === 0 ? 12 : j === DP.length - 1 ? -3 : 4), 11, j === p.d ? '#FFFFFF' : 'rgba(255,255,255,.85)', 'right', j === p.d);
+            if (r && tau >= 0.85) T(c, f1(S.a[j]), tx + tw - 4, yy + (j === 0 ? 12 : j === DP.length - 1 ? -3 : 4), 11, j === p.d ? '#FFFFFF' : 'rgba(255,255,255,.85)', 'right', j === p.d);
           }
           var sy = ty + th * S.d / 40; seg(c, tx, sy, tx + tw - 40, sy, '#FFFFFF', 2, [5, 3]);
           T(c, 'cm', tx - 8, ty + th + 16, 10, '#5C6B7A', 'right');
@@ -492,36 +523,39 @@ var LAB = (function(){
             if (tau >= 0.9 && S.m > 0){ c.fillStyle = 'rgba(58,143,183,.15)'; c.fillRect(gx, gy, gw, Y(S.m) - gy); T(c, '혼합층', gx + gw - 4, Y(S.m) - 4, 10, '#2B5FA3', 'right', true); }
             if (tau >= 0.9){ c.fillStyle = 'rgba(92,107,122,.12)'; c.fillRect(gx, Y(30), gw, gy + gh - Y(30)); T(c, '심해층', gx + gw - 4, Y(30) + 14, 10, '#5C6B7A', 'right', true); }
             c.strokeStyle = PAL[4]; c.lineWidth = 2.5; c.beginPath();
-            for (var q = 0; q < DP.length; q++){ var tq = 17 + (TP[p.w][q] - 17) * e; if (q) c.lineTo(X(tq), Y(DP[q])); else c.moveTo(X(tq), Y(DP[q])); }
+            for (var q = 0; q < DP.length; q++){ var tq = 17 + (S.a[q] - 17) * e; if (q) c.lineTo(X(tq), Y(DP[q])); else c.moveTo(X(tq), Y(DP[q])); }
             c.stroke();
-            for (q = 0; q < DP.length; q++){ c.fillStyle = q === p.d ? PAL[0] : PAL[4]; c.beginPath(); c.arc(X(17 + (TP[p.w][q] - 17) * e), Y(DP[q]), q === p.d ? 5 : 3, 0, Math.PI * 2); c.fill(); }
+            for (q = 0; q < DP.length; q++){ c.fillStyle = q === p.d ? PAL[0] : PAL[4]; c.beginPath(); c.arc(X(17 + (S.a[q] - 17) * e), Y(DP[q]), q === p.d ? 5 : 3, 0, Math.PI * 2); c.fill(); }
           }
           var y0 = nar ? gy + gh + 56 : ty + th + 34, lx = 20;
           if (r && tau >= 0.9){
-            T(c, WN[p.w] + ' · ' + S.d + ' cm 수온 ' + f1(S.t) + '℃ · 혼합층 ' + S.ms, lx, y0, nar ? 13 : 15, PAL[0], 'left', true);
+            T(c, WN[p.w] + ' · 전등 ' + LTN[p.lt] + ' · ' + S.d + ' cm ' + f1(S.t) + '℃', lx, y0, nar ? 13 : 15, PAL[0], 'left', true);
             T(c, '30 cm부터는 어느 경우든 처음 온도 17.0℃ 그대로예요', lx, y0 + 22, fs, '#5C6B7A');
             T(c, r.ok ? '○ 예측이 맞았어요 — 섞이는 것은 위쪽뿐' : '✕ 예측과 달라요 — 정답 ②', lx, y0 + 44, nar ? 12 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
-          return [['바람', WN[r.w]], [r.d + ' cm 수온', f1(r.t) + '℃', PAL[0]], ['표면(0 cm) 수온', f1(r.t0) + '℃'], ['혼합층(수온 고른 층)', r.ms, PAL[0]],
-            ['30 cm 아래', '17.0℃ (처음 그대로)'], ['내 예측', PG[p.g].slice(0, 16) + '…' + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
+          return [['바람', WN[r.w]], ['전등 켠 시간', r.lt + '분'], [r.d + ' cm 수온', f1(r.t) + '℃', PAL[0]], ['표면(0 cm) 수온', f1(r.t0) + '℃'],
+            ['혼합층(수온 고른 층)', r.ms, PAL[0]], ['10분일 때 혼합층', r.m10 ? '0~' + r.m10 + ' cm' : '거의 없음'],
+            ['30 cm 아래', '17.0℃ (처음 그대로)'], ['내 예측', PG[p.g].slice(0, 16) + '…' + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.m >= r.m10 ? PAL[0] : PAL[4]]];
         },
-        columns: ['바람', '읽은 깊이', '그 깊이 수온', '표면 수온', '혼합층'],
-        record: function(p, r){ return {w:p.w, d:p.d}; },
-        row: function(d){ var S = solve(d.w, d.d); return [WN[d.w], S.d + ' cm', f1(S.t) + '℃', f1(S.t0) + '℃', S.ms]; },
+        columns: ['바람', '전등', '읽은 깊이', '그 깊이 수온', '표면 수온', '혼합층'],
+        record: function(p, r){ return {w:p.w, d:p.d, lt:p.lt}; },
+        row: function(d){ var S = solve(d.w, d.d, LT[d.lt]); return [WN[d.w], LTN[d.lt], S.d + ' cm', f1(S.t) + '℃', f1(S.t0) + '℃', S.ms]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('깊이-수온 (x: 깊이, y: 수온)', '<canvas class="chart" id="tw1"></canvas><div id="tw2"></div><p class="ask">바람이 셀수록 위쪽에 온도가 고른 층은 어떻게 변했나요? 30 cm보다 깊은 곳은 바람 세기에 따라 달라졌나요?</p>') +
             card('바람 세기별 깊이별 수온', '<div id="tw3"></div><p class="ask">과제: 결과를 깊이-수온 그래프로 그려 혼합층, 수온 약층, 심해층에 해당하는 부분을 표시해 보세요. 염분이 32 psu인 바다와 36 psu인 바다에서 1 kg 속 염화 나트륨의 양을 어림해 보세요(염류의 약 78%).</p>') + '</div>';
           var ws = {};
-          rec.forEach(function(d){ ws[d.w] = 1; });
-          var wl = Object.keys(ws).map(Number).sort();
-          drawScatter($('tw1'), {series:wl.map(function(w){ return {color:PAL[[4, 6, 0][w]], pts:DP.map(function(d, i){ return {x:d, y:TP[w][i]}; })}; }), xLabel:'깊이 (cm)', yLabel:'수온 (℃)', tightY:true});
-          $('tw2').innerHTML = legend(wl.map(function(w){ return {color:PAL[[4, 6, 0][w]], label:WN[w]}; }));
-          $('tw3').innerHTML = tableHTML(['깊이'].concat(wl.map(function(w){ return WN[w]; })), DP.map(function(d, i){ return [d + ' cm'].concat(wl.map(function(w){ return f1(TP[w][i]) + '℃'; })); })) +
-            tableHTML(['바람', '혼합층', '표면-바닥 차'], wl.map(function(w){ var S = solve(w, 0); return [WN[w], S.ms, f1(S.dT) + '℃']; })) +
-            '<p class="msg">' + (wl.length >= 2 ? '바람이 셀수록 온도가 고른 혼합층이 두꺼워졌고, 그 아래는 수온이 뚝뚝 떨어졌어요. 30 cm부터는 어느 경우든 17.0℃ 그대로였어요.' : '바람 세기를 두 가지 이상 바꾸어 재 보세요.') + '</p>';
+          rec.forEach(function(d){ ws[d.w + '|' + d.lt] = {w:d.w, lt:d.lt}; });
+          var wl = Object.keys(ws).map(function(k){ return ws[k]; }).sort(function(a, b){ return a.w - b.w || a.lt - b.lt; });
+          function nameOf(q){ return WN[q.w] + ' · 전등 ' + LTN[q.lt]; }
+          drawScatter($('tw1'), {series:wl.map(function(q, i){ var a = prof(q.w, LT[q.lt]); return {color:PAL[i % 8], pts:DP.map(function(d, j){ return {x:d, y:a[j]}; })}; }), xLabel:'깊이 (cm)', yLabel:'수온 (℃)', tightY:true});
+          $('tw2').innerHTML = legend(wl.map(function(q, i){ return {color:PAL[i % 8], label:nameOf(q)}; }));
+          $('tw3').innerHTML = tableHTML(['깊이'].concat(wl.map(nameOf)), DP.map(function(d, i){ return [d + ' cm'].concat(wl.map(function(q){ return f1(prof(q.w, LT[q.lt])[i]) + '℃'; })); })) +
+            tableHTML(['조건', '혼합층', '표면-바닥 차'], wl.map(function(q){ var S = solve(q.w, 0, LT[q.lt]); return [nameOf(q), S.ms, f1(S.dT) + '℃']; })) +
+            '<p class="msg">' + (wl.length >= 2 ? '바람이 셀수록 혼합층이 두꺼워지고, 전등을 오래 켤수록 위만 데워져 혼합층이 얇아져요. 30 cm부터는 어느 경우든 17.0℃ 그대로였어요.' : '바람 세기나 전등 시간을 두 가지 이상 바꾸어 재 보세요.') + '</p>';
         }
       };
     })();
@@ -530,7 +564,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

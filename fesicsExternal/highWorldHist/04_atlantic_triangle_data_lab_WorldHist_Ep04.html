@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -476,6 +478,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         {n:'아메리카 → 유럽', a:'am', b:'eu', load:'설탕·면화·담배·커피', gain:'유럽 항구·상인·은행·보험, 일부는 공장 자본으로'}
       ];
       var PT = {eu:[.62, .2, '유럽'], af:[.66, .7, '아프리카'], am:[.16, .52, '아메리카']};
+      /* 출발 해안별 비중 (전체 대비 대략적인 추정 비율, 교육용 모형값) */
+      var RG = [{n:'아프리카 전체', s:100}, {n:'서중앙아프리카', s:45}, {n:'베냉만', s:16}, {n:'비아프라만', s:14}, {n:'황금 해안', s:10}];
       function Q(k, W, H){ return {x:30 + PT[k][0] * (W - 60), y:20 + PT[k][1] * (H - 150)}; }
       return {
         sceneHeight: 440,
@@ -483,9 +487,17 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         shortHint: '네 세기 모두의 중간 항로(아프리카 → 아메리카)를 기록하고, 다른 두 변도 확인해 보세요.',
         params: [
           {key:'c', type:'seg', label:'세기', cols:4, value:2, options:CT.map(function(x){ return x.n; })},
-          {key:'l', type:'seg', label:'삼각형의 변', cols:3, value:1, options:LG.map(function(x){ return x.n; })}
+          {key:'l', type:'seg', label:'삼각형의 변', cols:3, value:1, options:LG.map(function(x){ return x.n; })},
+          {key:'g', type:'seg', label:'출발한 해안', cols:3, value:0, options:RG.map(function(x){ return x.n + ' ' + x.s + '%'; })},
+          {key:'m', type:'range', label:'중간 항로 사망률', min:5, max:25, step:1, value:14, fmt:function(v){ return f(v, 0) + '%'; },
+            note:'연구마다 10~20% 사이로 추정이 갈립니다. 값을 바꿔 도착 인원과 바다에서 숨진 사람 수가 얼마나 달라지는지 보세요. (해안별 비중·사망률은 교육용 모형값)'}
         ],
-        compute: function(p){ var ct = CT[p.c], yrs = p.c === 3 ? 66 : 100; return {ct:ct, lg:LG[p.l], per:ct.e / yrs, arr:ct.e * 0.856, cum:CT.slice(0, p.c + 1).reduce(function(s, x){ return s + x.e; }, 0)}; },
+        compute: function(p){
+          var ct = CT[p.c], yrs = p.c === 3 ? 66 : 100, rg = RG[p.g], sh = rg.s / 100;
+          var emb = ct.e * sh, arr = emb * (1 - p.m / 100);
+          var cum = CT.slice(0, p.c + 1).reduce(function(s, x){ return s + x.e; }, 0) * sh;
+          return {ct:ct, lg:LG[p.l], rg:rg, per:emb / yrs, emb:emb, arr:arr, died:emb - arr, cum:cum, cumArr:cum * (1 - p.m / 100)};
+        },
         draw: function(c, W, H, p, r, tau){
           var sz = fz(W), k = r ? ease(tau / 0.8) : 0;
           ['eu', 'af', 'am'].forEach(function(a, i){ var b = ['af', 'am', 'eu'][i], A = Q(a, W, H), B = Q(b, W, H), on = LG[p.l].a === a;
@@ -496,15 +508,20 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           seg(c, sx, sy - 4, sx, sy - 24, '#5C3A1E', 2); c.fillStyle = '#F4EEDF'; c.beginPath(); c.moveTo(sx + 1, sy - 24); c.lineTo(sx + 12, sy - 10); c.lineTo(sx + 1, sy - 10); c.closePath(); c.fill();
           if (r && tau > 0.3) wrapT(c, '실은 것: ' + lg.load, 14, H - 138, W - 28, sz + 2, {size:sz - 2, bold:true, max:1, color:p.l === 1 ? PAL[4] : '#1E2833'});
           var bx = 14, by = H - 108, bw = W - 28, bh = 80, cw = bw / 4;
-          CT.forEach(function(ct, i){ var h = ct.e / 700 * bh * (r && i === p.c ? k : 1); c.fillStyle = i === p.c ? PAL[4] : '#C9A58A'; c.fillRect(bx + i * cw + cw * 0.2, by + bh - h, cw * 0.6, h);
-            tx(c, ct.n, bx + i * cw + cw / 2, by + bh + 16, {align:'center', size:12}); tx(c, '약 ' + ct.e + '만', bx + i * cw + cw / 2, by + bh - h - 4, {align:'center', size:W < 520 ? 10 : 12, bold:i === p.c}); });
+          var shv = RG[p.g].s / 100;
+          CT.forEach(function(ct, i){ var v2 = ct.e * shv, h = v2 / 700 * bh * (r && i === p.c ? k : 1); c.fillStyle = i === p.c ? PAL[4] : '#C9A58A'; c.fillRect(bx + i * cw + cw * 0.2, by + bh - h, cw * 0.6, h);
+            tx(c, ct.n, bx + i * cw + cw / 2, by + bh + 16, {align:'center', size:12}); tx(c, '약 ' + f(v2, 0) + '만', bx + i * cw + cw / 2, by + bh - h - 4, {align:'center', size:W < 520 ? 10 : 12, bold:i === p.c}); });
+          if (r && tau > 0.6) tx(c, RG[p.g].n + ' · 사망률 ' + f(p.m, 0) + '% → 도착 약 ' + f(r.arr, 0) + '만 명', bx, by - 6, {size:sz - 3, bold:true, color:PAL[4]});
         },
         stats: function(p, r){ return [['세기 · 항로', r.ct.n + ' (' + r.ct.y + ') · ' + r.lg.n], ['실은 것', r.lg.load, p.l === 1 ? PAL[4] : PAL[0]],
-          ['이 세기에 배에 실린 사람', '약 ' + r.ct.e + '만 명 (한 해 평균 약 ' + f(r.per, 1) + '만 명)', PAL[4]], ['도착 추정 (평균 사망률 약 14% 적용)', '약 ' + f(r.arr, 0) + '만 명'],
-          ['1501년부터 누적', '약 ' + r.cum + '만 명'], ['이익·결과', r.lg.gain]]; },
-        columns: ['세기', '항로', '실린 사람 (만 명)', '누적 (만 명)'],
-        record: function(p, r){ return {c:p.c, l:p.l, e:r.ct.e, cum:r.cum}; },
-        row: function(d){ return [CT[d.c].n, LG[d.l].n.split(' (')[0], d.e, d.cum]; },
+          ['출발한 해안 (교육용 모형 비중)', r.rg.n + ' — 전체의 약 ' + r.rg.s + '%'],
+          ['이 세기에 배에 실린 사람', '약 ' + f(r.emb, 0) + '만 명 (한 해 평균 약 ' + f(r.per, 1) + '만 명)', PAL[4]],
+          ['도착 추정 (사망률 ' + f(p.m, 0) + '% 적용)', '약 ' + f(r.arr, 0) + '만 명'],
+          ['바다에서 숨진 사람 추정', '약 ' + f(r.died, 1) + '만 명', PAL[4]],
+          ['1501년부터 누적 (이 해안)', '약 ' + f(r.cum, 0) + '만 명 실림 · 약 ' + f(r.cumArr, 0) + '만 명 도착'], ['이익·결과', r.lg.gain]]; },
+        columns: ['세기', '해안', '사망률', '실린 사람', '도착', '숨짐'],
+        record: function(p, r){ return {c:p.c, l:p.l, g:p.g, m:p.m, e:r.emb, arr:r.arr, died:r.died, cum:r.cum}; },
+        row: function(d){ return [CT[d.c].n, RG[d.g].n, f(d.m, 0) + '%', f(d.e, 0) + '만', f(d.arr, 0) + '만', f(d.died, 1) + '만']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('세기별로 배에 실린 사람 (확인한 세기)', '<div id="at1"></div><p class="ask">가장 많은 사람이 실린 세기는 언제이고, 그때 유럽에서는 무슨 일(산업 혁명의 시작 등)이 일어나고 있었나요? "옛날 잠깐 있었던 일"이라는 말을 이 기록으로 반박해 보세요.</p>') +
@@ -512,7 +529,12 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           var seen = {}; rec.forEach(function(d){ seen[d.c] = 1; });
           var items = CT.map(function(ct, i){ return {label:ct.n + (seen[i] ? '' : ' (미확인)'), v:seen[i] ? ct.e : 0, color:PAL[4], text:seen[i] ? '약 ' + ct.e + '만 명' : '—'}; });
           var tot = Object.keys(seen).reduce(function(s, i){ return s + CT[i].e; }, 0);
-          $('at1').innerHTML = hbars(items, 700) + '<p class="msg">확인한 세기 합계 약 ' + tot + '만 명 (전체 추정 약 1,250만 명)</p>';
+          var sumD = 0; rec.forEach(function(d){ sumD += d.died || 0; });
+          var mrows = rec.map(function(d){ return [CT[d.c].n, RG[d.g].n, f(d.m, 0) + '%', f(d.e, 0) + '만', f(d.arr, 0) + '만', f(d.died, 1) + '만']; });
+          $('at1').innerHTML = hbars(items, 700) + '<p class="msg">확인한 세기 합계 약 ' + tot + '만 명 (전체 추정 약 1,250만 명)</p>' +
+            '<p class="msg">해안과 사망률을 바꿔 본 셈 (교육용 모형값)</p>' +
+            tableHTML(['세기', '해안', '사망률', '실림', '도착', '숨짐'], mrows) +
+            '<p class="msg">기록한 항해에서 바다에서 숨진 사람 합계 약 ' + f(sumD, 1) + '만 명</p>';
           var sl = {}; rec.forEach(function(d){ sl[d.l] = 1; });
           $('at2').innerHTML = tableHTML(['변', '실은 것', '이익·결과'], LG.map(function(lg, i){ return [(sl[i] ? '' : '(미확인) ') + lg.n, lg.load, lg.gain]; }));
         }
@@ -524,7 +546,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

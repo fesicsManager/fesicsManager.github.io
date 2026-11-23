@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -470,15 +472,23 @@ var LAB = (function(){
 
 var C2 = 8.98755e16, LSUN = 3.846e26, MSUN = 1.989e30, YR = 3.156e7;
 var MASS = [0.5, 1, 2, 10];
+var LIFEQ = ['더 길다', '더 짧다', '거의 같다'];
 return {
   sceneHeight: 460,
   minRec: 4,
-  idle: '별의 질량과 태울 수 있는 수소 비율을 정하고 <b>1초 동안 계산하기</b>를 누르세요.',
+  get idle(){
+    var M = (typeof p.m === 'number') ? MASS[p.m] : null;
+    return '별의 질량과 태울 수 있는 수소 비율을 정하고 <b>1초 동안 계산하기</b>를 누르세요.<br><br>' +
+      '🔎 <b>먼저 고르기</b> — ' + (M !== null ? '지금 고른 <b>' + f(M, 1) + ' M☉</b> 별' : '이 별') + '의 <b>수명</b>은 태양보다 더 길까요, 더 짧을까요?<br>' +
+      '조작 칸 맨 아래에서 먼저 고른 뒤 계산하세요. 연료(질량)가 많으면 오래 살 것 같지만 밝기도 함께 커져요. 수명 = 연료 ÷ 쓰는 속도로 계산해 채점해 드려요.';
+  },
   shortHint: '자유 탐구 탭에서 별의 질량을 바꿔 가며 기록하세요.',
   params: [
     {key:'m', type:'seg', label:'별의 질량', cols:4, value:1, options:MASS.map(function(v){ return f(v, 1) + ' M☉'; })},
     {key:'p', type:'range', label:'태울 수 있는 수소의 비율', min:5, max:15, step:1, value:10, fmt:function(v){ return v + ' %'; },
-      note:'태양 질량 M☉ = 1.989 × 10³⁰ kg, 태양 밝기 L☉ = 3.846 × 10²⁶ W입니다.'}
+      note:'태양 질량 M☉ = 1.989 × 10³⁰ kg, 태양 밝기 L☉ = 3.846 × 10²⁶ W입니다.'},
+    {key:'q', type:'seg', label:'예상 — 이 별의 수명은 태양보다?', cols:3, value:0, options:LIFEQ,
+      note:'태양 수명보다 10 % 넘게 길면 「더 길다」, 10 % 넘게 짧으면 「더 짧다」, 그 안이면 「거의 같다」로 채점합니다. 질량 1 M☉에서는 수소 비율만 바꿔도 답이 갈려요.'}
   ],
   compute: function(p){
     var M = MASS[p.m], frac = p.p / 100;
@@ -487,8 +497,11 @@ return {
     var dh = dm / 0.007;                   // kg/s 수소 소모
     var E = 0.007 * frac * M * MSUN * C2;
     var life = E / L;                      // s
+    var lifeRel = Math.pow(M, -2.5) * (frac / 0.10);
+    var ans = lifeRel > 1.1 ? 0 : (lifeRel < 0.9 ? 1 : 2);
     return {M:M, frac:frac, L:L, Lrel:Math.pow(M, 3.5), dm:dm, dh:dh, E:E,
-      lifeYr:life / YR, lifeRel:Math.pow(M, -2.5) * (frac / 0.10),
+      lifeYr:life / YR, lifeRel:lifeRel,
+      q:p.q, ans:ans, qOk:(p.q === ans),
       dmT:dm / 1000, dhT:dh / 1000, checkE:dm * C2};
   },
   draw: function(c, W, H, p, r, tau){
@@ -537,19 +550,25 @@ return {
       ['태울 수 있는 수소', f(r.frac * 100, 0) + ' %'],
       ['쓸 수 있는 에너지', r.E.toExponential(3) + ' J'],
       ['수명', (r.lifeYr / 1e9).toFixed(2) + ' 십억 년', PAL[1]],
-      ['태양 대비 수명', f(r.lifeRel, 3) + '배']];
+      ['태양 대비 수명', f(r.lifeRel, 3) + '배'],
+      ['내 예상', LIFEQ[r.q], PAL[3]],
+      ['실제', LIFEQ[r.ans] + ' (태양의 ' + f(r.lifeRel, 3) + '배)', PAL[3]],
+      ['채점', r.qOk ? '맞음 ✔' : '아쉬움 ✘', r.qOk ? PAL[1] : PAL[4]]];
   },
-  columns: ['질량 (M☉)', '수소 비율 (%)', '밝기 (W)', '태양 대비 밝기', '질량 결손 (kg/s)', '수소 소모 (kg/s)', '수명 (십억 년)'],
+  columns: ['질량 (M☉)', '수소 비율 (%)', '밝기 (W)', '태양 대비 밝기', '질량 결손 (kg/s)', '수소 소모 (kg/s)', '수명 (십억 년)', '내 예상', '실제', '채점'],
   record: function(p, r){
-    return {M:r.M, frac:r.frac, L:r.L, Lrel:r.Lrel, dm:r.dm, dh:r.dh, life:r.lifeYr / 1e9, lifeRel:r.lifeRel};
+    return {M:r.M, frac:r.frac, L:r.L, Lrel:r.Lrel, dm:r.dm, dh:r.dh, life:r.lifeYr / 1e9, lifeRel:r.lifeRel,
+      q:r.q, ans:r.ans, qOk:r.qOk};
   },
   row: function(d){ return [f(d.M, 1), f(d.frac * 100, 0), d.L.toExponential(2), f(d.Lrel, 2), d.dm.toExponential(2),
-    d.dh.toExponential(2), (d.life).toFixed(2)]; },
+    d.dh.toExponential(2), (d.life).toFixed(2),
+    d.q == null ? '—' : LIFEQ[d.q], d.ans == null ? '—' : LIFEQ[d.ans], d.q == null ? '—' : (d.qOk ? '맞음' : '아쉬움')]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('질량과 밝기', '<canvas class="chart" id="ch1" role="img" aria-label="질량 로그값과 밝기 로그값 산점도"></canvas><ul class="readout" id="ro1"></ul><p class="ask">가로·세로 모두 10의 거듭제곱으로 그렸습니다. 기울기 3.5는 무엇을 뜻할까요?</p>') +
       card('질량과 수명', '<canvas class="chart" id="ch2" role="img" aria-label="질량 로그값과 수명 로그값 산점도"></canvas><ul class="readout" id="ro2"></ul><p class="ask">연료가 10배 많은 별이 왜 더 빨리 죽을까요? 밝기와 연결해 설명해 보세요.</p>') +
-      card('E = mc² 검산', '<div id="ro3"></div><p class="ask">1초에 사라지는 질량이 이렇게 적은데 에너지가 어마어마한 까닭은 무엇일까요?</p>') + '</div>';
+      card('E = mc² 검산', '<div id="ro3"></div><p class="ask">1초에 사라지는 질량이 이렇게 적은데 에너지가 어마어마한 까닭은 무엇일까요?</p>') +
+      card('먼저 고르기 — 채점', '<div id="ro4"></div><p class="ask">연료가 20배 많은 10 M☉ 별이 태양보다 훨씬 짧게 사는 까닭을 한 문장으로 적어 보세요. 수소 비율을 최대로 올려도 뒤집히지 않는지 확인해 보세요.</p>') + '</div>';
     var pts1 = rec.map(function(d){ return {x:Math.log10(d.M), y:Math.log10(d.Lrel)}; });
     drawScatter($('ch1'), {xLabel:'log₁₀(질량 ÷ M☉)', yLabel:'log₁₀(밝기 ÷ L☉)', tightX:true, tightY:true, series:[{color:PAL[6], pts:pts1}]});
     var r1 = [];
@@ -577,6 +596,21 @@ return {
     rows.sort(function(a, b){ return parseFloat(a[0]) - parseFloat(b[0]); });
     $('ro3').innerHTML = tableHTML(['질량', '밝기(1초당 에너지)', '1초당 사라진 질량 m', 'm × c²', '1초당 수소 소모'], rows, 'wrap') +
       '<p class="note">세 번째 칸에 c² = 9 × 10¹⁶을 곱하면 두 번째 칸과 같아요. c²가 워낙 커서 <b>1 g만 사라져도 9 × 10¹³ J</b>이 나와요. 4인 가구가 한 달에 300 kWh(약 1.08 × 10⁹ J)를 쓴다고 하면 <b>약 8만 가구의 한 달치</b>예요.</p>';
+    var qr = rec.filter(function(d){ return d.q != null; });
+    if (!qr.length){
+      $('ro4').innerHTML = '<p class="note">조작 칸에서 수명 예상을 고르고 계산하면 여기에 채점표가 쌓여요.</p>';
+    } else {
+      var hit = qr.filter(function(d){ return d.qOk; }).length;
+      var kinds = distinct(qr.map(function(d){ return d.ans; }));
+      var heavy = qr.filter(function(d){ return d.M > 1; }), lightR = qr.filter(function(d){ return d.M < 1; });
+      $('ro4').innerHTML = tableHTML(['질량 (M☉)', '수소 비율 (%)', '내 예상', '실제', '태양 대비 수명', '채점'],
+        qr.map(function(d){ return [f(d.M, 1), f(d.frac * 100, 0), LIFEQ[d.q], LIFEQ[d.ans], f(d.lifeRel, 3) + '배', d.qOk ? '맞음 ✔' : '아쉬움 ✘']; }), 'wrap') +
+        '<p class="note"><b>' + hit + ' / ' + qr.length + '</b> 번 맞혔어요. 정답이 ' + kinds + '가지로 나왔어요' +
+        (kinds < 2 ? ' — 질량이나 수소 비율을 바꾸면 다른 답도 나와요.' : '.') + '</p>' +
+        '<p class="note">' +
+        (heavy.length ? '무거운 별(' + heavy.map(function(d){ return f(d.M, 1) + ' M☉'; }).join(', ') + ')은 모두 태양보다 <b>짧게</b> 살았어요. 연료는 많지만 밝기가 질량의 3.5제곱으로 커져서, 쓰는 속도가 연료보다 훨씬 빠르게 늘기 때문이에요(수명 ∝ M ÷ M³·⁵ = M<sup>−2.5</sup>).' : '태양보다 무거운 별도 골라 보세요. 연료가 많은 쪽이 오래 사는지 확인할 수 있어요.') +
+        (lightR.length ? ' 가벼운 별(' + lightR.map(function(d){ return f(d.M, 1) + ' M☉'; }).join(', ') + ')은 거꾸로 태양보다 <b>훨씬 오래</b> 살아요.' : '') + '</p>';
+    }
   }
 };
 })();
@@ -585,7 +619,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

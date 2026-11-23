@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -433,6 +435,12 @@ function hbars(items, max){
 var LAB = (function(){
       var NS = [12, 18, 24], RS = [0.03, 0.04], AS = [50000, 100000];
       function cm(v){ return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+      /* 납입 방식에 따라 돈이 머무는 기간이 달라진다 */
+      var WAY = ['매달 초에 넣기', '매달 말에 넣기', '처음에 목돈 한 번'];
+      function heldOf(n, way){ var a = [], k;
+        if (way === 2){ for (k = 1; k <= n; k++) a.push(n); return a; }   /* 같은 원금을 처음에 한 번 — 모두 n개월 머묾 */
+        for (k = 1; k <= n; k++) a.push(way === 0 ? n - k + 1 : n - k);
+        return a; }
       return {
         sceneHeight: 420,
         idle: '기간·이율·월 납입액을 고른 뒤 <b>이자 계산하기</b>를 누르세요.',
@@ -440,21 +448,31 @@ var LAB = (function(){
         params: [
           {key:'n', type:'seg', label:'납입 기간 (매달 초 납입)', cols:3, value:0, options:['12개월', '18개월', '24개월']},
           {key:'r', type:'seg', label:'연이율 (단리, 가상)', cols:2, value:1, options:['연 3%', '연 4%']},
-          {key:'a', type:'seg', label:'월 납입액', cols:2, value:1, options:['5만 원', '10만 원']}
+          {key:'a', type:'seg', label:'월 납입액', cols:2, value:1, options:['5만 원', '10만 원']},
+          {key:'way', type:'seg', label:'넣는 방식', cols:3, value:0, options:WAY}
         ],
         compute: function(p){
-          var n = NS[p.n], r = RS[p.r], a = AS[p.a], S = n * (n + 1) / 2, I = a * r * S / 12, P = a * n;
-          var each = []; for (var k = 1; k <= n; k++) each.push(a * r * (n - k + 1) / 12);
-          return {n:n, r:r, a:a, S:S, I:I, P:P, naive:P * r, lump:P * r * n / 12, pct:I / P * 100, avg:S / n, each:each};
+          var n = NS[p.n], r = RS[p.r], a = AS[p.a], P = a * n;
+          var held = heldOf(n, p.way), S = held.reduce(function(x, y){ return x + y; }, 0), I = a * r * S / 12;
+          var each = held.map(function(m){ return a * r * m / 12; });
+          var Sa = heldOf(n, 0).reduce(function(x, y){ return x + y; }, 0);
+          var Sb = heldOf(n, 1).reduce(function(x, y){ return x + y; }, 0);
+          var Sc = n * n;
+          var trio = [a * r * Sa / 12, a * r * Sb / 12, a * r * Sc / 12];
+          var why = p.way === 0 ? '매달 초에 넣으면 첫 돈이 ' + n + '개월 머물러요 (평균 ' + f(Sa / n, 1) + '개월)'
+            : p.way === 1 ? '매달 말에 넣으면 첫 돈이 ' + (n - 1) + '개월만 머물러요 — 한 달씩 줄어 이자가 ' + cm(trio[0] - trio[1]) + '원 적어요'
+            : '처음에 ' + cm(P) + '원을 한 번에 맡기면 모두 ' + n + '개월 머물러요 — 매달 나눠 넣기보다 이자가 ' + cm(trio[2] - trio[0]) + '원 많아요';
+          return {n:n, r:r, a:a, S:S, I:I, P:P, way:p.way, naive:P * r, lump:a * r * Sc / 12, pct:I / P * 100, avg:S / n, each:each, held:held, trio:trio, why:why};
         },
         draw: function(c, W, H, p, r, tau){
           var n = NS[p.n], bx = W >= 620 ? 70 : 54, bw = W - bx - 20;
           var P = plotBox(c, bx, 24, bw, H - 140, [0, n, n === 18 ? 3 : n / 4], [0, 24, 6], '납입 회차', '머문 개월');
           var bwid = bw / n * 0.7, shown = r ? Math.min(n, Math.floor(tau * n * 1.2)) : 0;
+          var hld = heldOf(n, p.way);
           for (var k = 1; k <= n; k++){
-            var m = n - k + 1, x0 = P.X(k - 0.5) - bwid / 2, on = k <= shown;
+            var m = hld[k - 1], x0 = P.X(k - 0.5) - bwid / 2, on = k <= shown;
             c.fillStyle = on ? PAL[1] : '#DDE3EA'; c.fillRect(x0, P.Y(m), bwid, P.Y(0) - P.Y(m));
-            if (on && r && (k === 1 || k === n || (W >= 620 && n === 12 && (k === 2 || k === 6 || k === 11)))) txt(c, cm(r.each[k - 1]), W < 620 && k === 1 ? x0 : x0 + bwid / 2, P.Y(m) - 6, {align:W < 620 && k === 1 ? 'left' : 'center', bold:true, color:PAL[1]});
+            if (on && r && p.way !== 2 && (k === 1 || k === n || (W >= 620 && n === 12 && (k === 2 || k === 6 || k === 11)))) txt(c, cm(r.each[k - 1]), W < 620 && k === 1 ? x0 : x0 + bwid / 2, P.Y(m) - 6, {align:W < 620 && k === 1 ? 'left' : 'center', bold:true, color:PAL[1]});
           }
           if (r){ var avg = r.avg; seg(c, P.X(0), P.Y(avg), P.X(n), P.Y(avg), PAL[6], 2, [7, 5]); txt(c, '평균 ' + f(avg, 1) + '개월', P.X(n) - 4, P.Y(avg) - 8, {align:'right', bold:true, color:PAL[6]});
             seg(c, P.X(0), P.Y(12), P.X(n), P.Y(12), PAL[4], 1.5, [3, 4]); }
@@ -463,16 +481,20 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['조건', '매달 ' + cm(r.a) + '원 × ' + r.n + '회 · 연 ' + f(r.r * 100, 0) + '% 단리 (세전)'],
-            ['머문 개월 수의 합', '1 + 2 + ⋯ + ' + r.n + ' = ' + r.n + ' × ' + (r.n + 1) + ' ÷ 2 = ' + r.S],
-            ['회차별 이자', '1회차 ' + cm(r.each[0]) + '원 → 마지막 ' + cm(r.each[r.n - 1]) + '원 (한 달에 약 ' + cm(r.each[r.n - 1]) + '원씩 감소)'],
+            ['머문 개월 수의 합', r.way === 2 ? r.n + ' × ' + r.n + ' = ' + r.S : (r.way === 0 ? '1 + 2 + ⋯ + ' + r.n : '0 + 1 + ⋯ + ' + (r.n - 1)) + ' = ' + r.S],
+            ['평균 머문 기간', f(r.avg, 1) + '개월 (전체 기간 ' + r.n + '개월의 ' + f(r.avg / r.n * 100, 0) + '%)', PAL[6]],
+            ['넣는 방식', WAY[r.way]],
+            ['머문 기간이 왜 달라지나', r.why, PAL[6]],
+            ['세 방식 비교 (이자)', WAY.map(function(w, i){ return w + ' ' + cm(r.trio[i]) + '원'; }).join(' · '), PAL[3]],
+            ['회차별 이자', '1회차 ' + cm(r.each[0]) + '원 → 마지막 ' + cm(r.each[r.n - 1]) + '원'],
             ['만기 이자 (세전)', cm(r.a * r.r) + ' × ' + r.S + ' ÷ 12 = ' + cm(r.I) + '원', PAL[1]],
             ['원금 대비', cm(r.I) + ' ÷ ' + cm(r.P) + ' ≈ ' + f(r.pct, 2) + '%', PAL[0]],
             ['원금 × 연이율 어림 (뭉치)', cm(r.naive) + '원 — ' + (Math.round(r.naive - r.I) === 0 ? '실제와 같음' : '실제보다 ' + cm(Math.abs(r.naive - r.I)) + '원 ' + (r.naive > r.I ? '많음' : '적음')), PAL[4]],
             ['같은 원금을 처음에 한 번에 맡기면', cm(r.lump) + '원', PAL[3]]];
         },
-        columns: ['기간', '연이율', '월 납입', '이자(원)', '원금 대비'],
-        record: function(p, r){ return {n:r.n, r:r.r, a:r.a, I:r.I, pct:r.pct, naive:r.naive}; },
-        row: function(d){ return [d.n + '개월', f(d.r * 100, 0) + '%', cm(d.a), cm(d.I), f(d.pct, 2) + '%']; },
+        columns: ['기간', '연이율', '월 납입', '방식', '평균 머문 기간', '이자(원)', '원금 대비'],
+        record: function(p, r){ return {n:r.n, r:r.r, a:r.a, way:r.way, avg:r.avg, I:r.I, pct:r.pct, naive:r.naive}; },
+        row: function(d){ return [d.n + '개월', f(d.r * 100, 0) + '%', cm(d.a), WAY[d.way || 0], f(d.avg, 1) + '개월', cm(d.I), f(d.pct, 2) + '%']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기록별 이자: 실제 계산 vs 원금 × 연이율', '<div id="is1"></div><p class="ask">기간이 길어질수록 원금 대비 이자율은 연이율에 가까워졌나요? 왜 그런지 &lsquo;평균 머문 기간&rsquo;으로 설명해 보세요.</p>') +
@@ -493,7 +515,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

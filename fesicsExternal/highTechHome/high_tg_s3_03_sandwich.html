@@ -113,7 +113,8 @@ tbody tr:nth-child(even){background:#fafcff}
 <div class="ctrl"><label for="cm">통근 <span class="val" id="vC">8</span>시간</label><input type="range" id="cm" min="0" max="20" step="1" value="8"></div>
 <div class="ctrl"><label for="kd">자녀 돌봄 <span class="val" id="vK">12</span>시간</label><input type="range" id="kd" min="0" max="50" step="1" value="12"></div>
 <div class="ctrl"><label for="pr">부모 돌봄 <span class="val" id="vP">6</span>시간</label><input type="range" id="pr" min="0" max="50" step="1" value="6"></div>
-<div class="ctrl"><label for="hk">가사 <span class="val" id="vH">14</span>시간</label><input type="range" id="hk" min="0" max="40" step="1" value="14"></div></div>
+<div class="ctrl"><label for="hk">가사 <span class="val" id="vH">14</span>시간</label><input type="range" id="hk" min="0" max="40" step="1" value="14"></div>
+<div class="ctrl"><label for="tc">다음 주에 꼭 필요한 돌봄 시간 <span class="val" id="vT">18</span>시간</label><input type="range" id="tc" min="0" max="40" step="1" value="18"></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">한 주 돌려보기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -153,13 +154,22 @@ for(var q=0;q<ids.length;q++){
   el[ids[q]]=document.getElementById(ids[q]);
   (function(i){el[ids[i]].oninput=function(){document.getElementById(vids[i]).textContent=el[ids[i]].value;draw(1);};})(q);
 }
+var tc=document.getElementById('tc');
+tc.oninput=function(){document.getElementById('vT').textContent=tc.value;draw(1);};
 function vals(){var a=[];for(var i=0;i<ids.length;i++)a.push(Number(el[ids[i]].value));return a;}
 function calc(){
   var v=vals(),used=0;
   for(var i=0;i<v.length;i++)used+=v[i];
-  var care=v[3]+v[4];
-  return {v:v,used:used,free:168-used,care:care,careShare:care/168,
-          awake:168-v[0],careOfAwake:(168-v[0])>0?care/(168-v[0]):0};
+  var care=v[3]+v[4],free=168-used;
+  /* 이번 주에 깎은 잠과 늘어난 통근, 넘겨 쓴 시간이 다음 주 돌봄의 질로 되돌아온다 — 교육용 모형값 */
+  var debt=Math.max(0,49-v[0]), over=Math.max(0,-free), cmx=Math.max(0,v[2]-8);
+  var fatigue=debt*1.2+cmx*0.6+over*0.8;
+  var quality=Math.max(0,Math.min(100,100-fatigue*3));
+  var need=Number(tc.value), eff=care*(0.6+0.4*quality/100);
+  return {v:v,used:used,free:free,care:care,careShare:care/168,
+          awake:168-v[0],careOfAwake:(168-v[0])>0?care/(168-v[0]):0,
+          debt:debt,cmx:cmx,over:over,fatigue:fatigue,quality:quality,need:need,eff:eff,
+          ok:eff>=need,lack:Math.max(0,need-eff)};
 }
 function draw(prog){
   var r=calc();
@@ -193,24 +203,29 @@ function draw(prog){
     c.fillStyle=COL[j];c.fillRect(x,y-9,11,11);
     c.fillStyle='#1d2433';c.fillText(labels[j]+' '+r.v[j],x+16,y+1);
   }
-  c.textAlign='center';c.fillStyle='#1d2433';c.font='bold 14px sans-serif';
+  c.textAlign='center';c.font='bold 13px sans-serif';
+  c.fillStyle=r.ok?'#3f8a63':'#b3384a';
+  c.fillText('다음 주 돌봄 질 '+r.quality.toFixed(0)+'% → 실효 돌봄 '+r.eff.toFixed(1)+'시간 / 필요 '+r.need+'시간',cvv.width/2,cvv.height-34);
+  c.fillStyle='#1d2433';c.font='bold 14px sans-serif';
   c.fillText('돌봄 '+r.care+'시간 · 깨어 있는 시간의 '+(r.careOfAwake*100).toFixed(0)+'%',cvv.width/2,cvv.height-14);
 }
 return {
-  columns:['수면','노동','통근','자녀','부모','가사','남는 시간'],
+  columns:['수면','노동','통근','자녀','부모','가사','남는 시간','다음 주 질','실효 돌봄','필요'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='항목을 조절하고 <b>한 주 돌려보기</b>를 눌러 남는 시간을 확인해 보세요.';},
   run:function(done){
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/26,1));
       if(t>=26){clearInterval(iv);var r=calc();
-        out.innerHTML=r.free<0?('<b>168시간을 '+(-r.free).toFixed(0)+'시간 넘었습니다.</b> 어디선가 이미 빼 쓰고 있다는 뜻입니다.')
-          :('남는 시간 <b>'+r.free.toFixed(0)+'시간</b> · 돌봄이 깨어 있는 시간의 '+(r.careOfAwake*100).toFixed(0)+'%');
+        out.innerHTML=(r.free<0?('<b>168시간을 '+(-r.free).toFixed(0)+'시간 넘었습니다.</b> 어디선가 이미 빼 쓰고 있다는 뜻입니다.')
+          :('남는 시간 <b>'+r.free.toFixed(0)+'시간</b> · 돌봄이 깨어 있는 시간의 '+(r.careOfAwake*100).toFixed(0)+'%'))
+          +'<br>다음 주 돌봄 질 <b>'+r.quality.toFixed(0)+'%</b> (잠 부족 '+r.debt+'시간 · 통근 추가 '+r.cmx+'시간 · 넘겨 쓴 '+r.over.toFixed(0)+'시간) → 실효 돌봄 <b>'+r.eff.toFixed(1)+'시간</b>'
+          +(r.ok?' — 필요한 '+r.need+'시간을 감당합니다':' — 필요한 '+r.need+'시간보다 <b>'+r.lack.toFixed(1)+'시간 모자랍니다</b>');
         done();}},30);
   },
   record:function(){
     var r=calc();
-    return {cells:[r.v[0],r.v[1],r.v[2],r.v[3],r.v[4],r.v[5],r.free.toFixed(0)],
-            raw:{v:r.v,free:r.free,care:r.care,share:r.careOfAwake}};
+    return {cells:[r.v[0],r.v[1],r.v[2],r.v[3],r.v[4],r.v[5],r.free.toFixed(0),r.quality.toFixed(0)+'%',r.eff.toFixed(1),r.need+(r.ok?' ○':' ✕')],
+            raw:{v:r.v,free:r.free,care:r.care,share:r.careOfAwake,quality:r.quality,eff:r.eff,need:r.need,ok:r.ok,debt:r.debt}};
   },
   verify:function(rs){
     var over=0,mx=0;
@@ -222,7 +237,11 @@ return {
          '<div class="barwrap"><div class="bar" style="width:'+(mx?r.care/mx*100:0)+'%;background:'+(r.free<0?'#e05c6e':'#2f6df0')+'"></div></div>';
     }
     h+='<p style="font-size:1.03rem;line-height:1.85">168시간을 넘긴 기록 <b>'+over+'</b> / 전체 '+rs.length+'건</p></div>';
+    var bad=0,dsum=0;
+    for(var q=0;q<rs.length;q++){ if(!rs[q].raw.ok)bad++; dsum+=rs[q].raw.debt; }
     h+='<div><h3>읽어 내기</h3>'+
+       '<p style="font-size:1.03rem;line-height:1.85">다음 주에 필요한 돌봄을 <b>감당하지 못한 기록이 '+bad+' / '+rs.length+'건</b>입니다(깎은 잠 합계 '+dsum+'시간). '+
+       '잠을 깎아 만든 시간은 다음 주 돌봄의 <b>질</b>에서 되돌아옵니다 — 시간 총량은 맞아도 돌봄이 모자라집니다.</p>'+
        '<p style="font-size:1.03rem;line-height:1.85">남는 시간이 0에 가까워질 때 가장 먼저 줄어드는 항목은 보통 <b>수면과 자기 시간</b>입니다. '+
        '이 표에서 그 두 칸을 줄여 168을 맞춰 보면, 중년기의 부담이 어디로 전가되는지 보입니다.</p>'+
        '<ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+

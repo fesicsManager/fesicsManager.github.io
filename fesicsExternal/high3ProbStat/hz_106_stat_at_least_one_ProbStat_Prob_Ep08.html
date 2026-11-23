@@ -157,13 +157,17 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="적어도 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="n">주사위를 n번 던지기 <b><span id="n_v">4</span></b></label><input type="range" id="n" min="1" max="8" step="1" value="4"></div><div class="row"><button class="btn go" id="goBtn">🎯 두 방향으로 계산하기</button></div>
+      <div class="ctl"><label for="n">주사위를 n번 던지기 <b><span id="n_v">4</span></b></label><input type="range" id="n" min="1" max="8" step="1" value="4"></div>
+      <div class="ctl"><label>무엇을 구할까</label>
+      <label><input type="radio" name="m" value="1" checked> 6이 적어도 1번</label>
+      <label><input type="radio" name="m" value="2"> 6이 적어도 2번</label>
+      <label><input type="radio" name="m" value="3"> 6이 적어도 3번</label></div><div class="row"><button class="btn go" id="goBtn">🎯 두 방향으로 계산하기</button></div>
       <div class="readout" id="readout"></div>
       <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n번 시행</th><th>정면 계산 항 수</th><th>정면 결과</th><th>1 − P(없음)</th><th>같나</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n번 시행</th><th>적어도 m번</th><th>정면 계산 항 수</th><th>반대편 항 수</th><th>정면 결과</th><th>1 − P(m보다 적음)</th><th>어느 쪽이 짧나</th><th>같나</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -242,26 +246,29 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function st(){var n=v('n');
-var direct=0,terms=[];
-for(var k=1;k<=n;k++){var t=nCr(n,k)*Math.pow(1/6,k)*Math.pow(5/6,n-k);
-terms.push({k:k,v:t});direct+=t;}
-var none=Math.pow(5/6,n);
+function bin(n,k){return nCr(n,k)*Math.pow(1/6,k)*Math.pow(5/6,n-k);}
+function st(){var n=v('n'),m=Math.min(+(rv('m')||1),n);
+var direct=0,terms=[],low=[],none=0,k;
+for(k=m;k<=n;k++){var t=bin(n,k);terms.push({k:k,v:t});direct+=t;}
+for(k=0;k<m;k++){var t2=bin(n,k);low.push({k:k,v:t2});none+=t2;}
 var comp=1-none;
-return{n:n,direct:direct,none:none,comp:comp,terms:terms,
+var shortSide=(terms.length<=low.length)?'정면':'반대편';
+return{n:n,m:m,direct:direct,none:none,comp:comp,terms:terms,low:low,
+nDirect:terms.length,nComp:low.length,shortSide:shortSide,
 same:(Math.abs(direct-comp)<1e-12)};}
 function draw(){clr();var o=st();
-label('주사위를 '+o.n+'번 던져 6이 적어도 한 번 나올 확률',W/2,30,'#e9eefb',16);
+label('주사위를 '+o.n+'번 던져 6이 적어도 '+o.m+'번 나올 확률',W/2,30,'#e9eefb',16);
 panel(24,56,W-48,168);
-label('방법 ①  정면으로 세기 — 항이 '+o.n+'개',44,82,'#ffb86b',14,'left');
-var y=110,shown=Math.round(gr*o.n);
+label('방법 ①  정면으로 세기 — 항이 '+o.nDirect+'개',44,82,'#ffb86b',14,'left');
+var TL=o.terms.length;
+var y=110,shown=Math.round(gr*TL);
 /* 항이 5개보다 많으면 처음 3개 · 가운데 "⋮ 몇 개 더" · 마지막 항으로 줄여서 보여 줌 */
 var items=[];
-if(o.terms.length<=5){for(var i=0;i<o.terms.length;i++)items.push({t:o.terms[i],need:i+1});}
+if(TL<=5){for(var i=0;i<TL;i++)items.push({t:o.terms[i],need:i+1});}
 else{for(var i=0;i<3;i++)items.push({t:o.terms[i],need:i+1});
-var gs=0;for(var i=3;i<o.n-1;i++)gs+=o.terms[i].v;
-items.push({gap:true,from:4,to:o.n-1,cnt:o.n-4,sum:gs,need:o.n-1});
-items.push({t:o.terms[o.n-1],need:o.n});}
+var gs=0;for(var i=3;i<TL-1;i++)gs+=o.terms[i].v;
+items.push({gap:true,from:o.terms[3].k,to:o.terms[TL-2].k,cnt:TL-4,sum:gs,need:TL-1});
+items.push({t:o.terms[TL-1],need:TL});}
 for(var i=0;i<items.length;i++){
 if(items[i].need>shown||y>206)break;
 var it=items[i];
@@ -270,17 +277,19 @@ else{var t=it.t;
 label('6이 정확히 '+t.k+'번 : C('+o.n+','+t.k+')(1/6)'+sup(t.k)+'(5/6)'+sup(o.n-t.k)+' = '+nf(t.v,6),
 62,y,'#c8d5ef',12,'left');}
 y+=22;}
-if(shown>=o.n)label('합 = '+nf(o.direct,7),W/2,Math.min(y+8,214),'#ffb86b',16);
+if(shown>=TL)label('합 = '+nf(o.direct,7),W/2,Math.min(y+8,214),'#ffb86b',16);
 panel(24,236,W-48,110);
-label('방법 ②  반대편에서 — 항이 1개',44,262,'#5ee0c8',14,'left');
-label('한 번도 안 나옴 = (5/6)'+sup(o.n)+' = '+nf(o.none,7),W/2,296,'#c8d5ef',15);
+label('방법 ②  반대편에서 — 항이 '+o.nComp+'개',44,262,'#5ee0c8',14,'left');
+label(o.m===1?('한 번도 안 나옴 = (5/6)'+sup(o.n)+' = '+nf(o.none,7))
+:('6이 '+(o.m-1)+'번 이하 = '+o.low.map(function(q){return nf(q.v,4);}).join(' + ')+' = '+nf(o.none,6)),
+W/2,296,'#c8d5ef',o.m===1?15:13);
 label('1 − '+nf(o.none,6)+' = '+nf(o.comp,7),W/2,330,'#5ee0c8',18);
 panel(24,356,W-48,64);
-label(o.same?'두 방법의 답이 같습니다 — 반대편은 언제나 한 줄':'차이 '+nf(o.direct-o.comp,8),
-W/2,382,o.same?'#5ee0c8':'#ff7a8a',16);
-label('정면 '+o.n+'개 항  vs  반대편 1개 항',W/2,408,'#9db0d4',13);
-ro(kv('정면 계산',nf(o.direct,7))+' &nbsp;'+kv('1 − P(없음)',nf(o.comp,7))+'<br>'+
-kv('정면 항 수',o.n)+' &nbsp;'+kv('반대 항 수',1));
+label(o.same?(o.m===1?'두 방법의 답이 같습니다 — 반대편은 한 줄':'두 방법의 답이 같습니다 — 반대편도 '+o.nComp+'줄'):'차이 '+nf(o.direct-o.comp,8),
+W/2,382,o.same?'#5ee0c8':'#ff7a8a',15);
+label('정면 '+o.nDirect+'개 항  vs  반대편 '+o.nComp+'개 항  →  '+o.shortSide+'이 더 짧음',W/2,408,'#9db0d4',13);
+ro(kv('적어도',o.m+'번')+'<br>'+kv('정면 계산',nf(o.direct,7))+' &nbsp;'+kv('1 − P(적음)',nf(o.comp,7))+'<br>'+
+kv('정면 항 수',o.nDirect)+' &nbsp;'+kv('반대 항 수',o.nComp)+' &nbsp;'+kv('짧은 쪽',o.shortSide));
 whyBox(o);}
 function jo(n,a,b){var s=String(n),d=+s.charAt(s.length-1);return s+([0,1,3,6,7,8].indexOf(d)>=0?a:b);}   /* 숫자 뒤 은/는 */
 /* 두 방법이 왜 늘 같은지 지금 숫자로 풀어 주는 상자 */
@@ -290,19 +299,21 @@ h='✅ <b>이번에도 같네요. 왜 그럴까요?</b><br>'
 +'· 주사위를 '+o.n+'번 던지면 6은 <b>0번, 1번, …, '+o.n+'번</b> 중 딱 하나로 나와요. 이 확률을 모두 더하면 <b>1</b>이에요.<br>'
 +'· 0번(한 번도 안 나옴) = (5/6)'+sup(o.n)+' ≈ <b>'+nf(o.none,4)+'</b>, 1번~'+o.n+'번을 더한 값 ≈ <b>'+nf(o.direct,4)+'</b> → 둘을 더하면 1이에요.<br>'
 +'· 그래서 “1번 이상” = 1 − “0번” = 1 − '+nf(o.none,4)+' ≈ '+nf(o.comp,4)+'. 정면으로 '+o.n+'개 항을 더한 값과 <b>똑같아요</b>.<br>'
-+'이 실험은 n을 어떻게 바꿔도 <b>늘 ✅</b>예요. 달라지는 건 정면 계산의 <b>항 개수</b>('+o.n+'개)뿐이고, 반대편은 언제나 1개예요.';}
++'이 실험은 n을 어떻게 바꿔도 <b>늘 ✅</b>예요. 달라지는 건 <b>항 개수</b>예요 — 정면 '+o.nDirect+'개, 반대편 '+o.nComp+'개.<br>'
++(o.m===1?'· “적어도 1번”은 반대편이 “0번” 한 가지라 한 줄로 끝나요.'
+:'· “적어도 '+o.m+'번”은 반대편이 “0번 ~ '+(o.m-1)+'번”으로 '+o.nComp+'가지라 <b>한 줄로 끝나지 않아요</b>. 이번엔 '+o.shortSide+'이 더 짧으니, 여사건이 늘 이기는 것은 아니에요.');}
 else{el.className='why diff';
 h='🤔 <b>왜 같지 않을까요?</b><br>· 차이 '+jo(nf(o.direct-o.comp,10),'은','는')+' 컴퓨터가 소수를 반올림하며 생긴 아주 작은 오차예요. 수학적으로는 두 값이 같아요.';}
 el.innerHTML=h;}
 function record(){var o=st();
 var reason='<small>0번 '+nf(o.none,3)+' + 나머지 = 1</small>';
-return{cells:[o.n,o.n+'개',nf(o.direct,6),nf(o.comp,6),(o.same?'✅ 같음':'❌ 다름')+reason],
-n:o.n,direct:o.direct,comp:o.comp,same:o.same,none:o.none};}
+return{cells:[o.n,o.m+'번',o.nDirect+'개',o.nComp+'개',nf(o.direct,6),nf(o.comp,6),o.shortSide,(o.same?'✅ 같음':'❌ 다름')+reason],
+n:o.n,m:o.m,direct:o.direct,comp:o.comp,same:o.same,none:o.none,nDirect:o.nDirect,nComp:o.nComp,shortSide:o.shortSide};}
 function analyze(){var allsame=rows.every(function(r){return r.same;});
 var mx=Math.max.apply(null,rows.map(function(r){return r.n;}));
 var last=rows[rows.length-1];
-var t='<table><thead><tr><th>n</th><th>정면 항 수</th><th>정면 결과</th><th>1 − P(없음)</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>'+r.n+'</td><td class="no">'+r.n+'</td><td>'+nf(r.direct,6)+'</td>'+
+var t='<table><thead><tr><th>n</th><th>적어도</th><th>정면 항 수</th><th>반대편 항 수</th><th>정면 결과</th><th>1 − P(적음)</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+r.n+'</td><td>'+(r.m||1)+'번</td><td class="no">'+(r.nDirect||r.n)+'</td><td>'+(r.nComp||1)+'</td><td>'+nf(r.direct,6)+'</td>'+
 '<td class="'+(r.same?'ok':'no')+'">'+nf(r.comp,6)+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
@@ -312,7 +323,10 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 '<div class="card"><h4>2. n 이 커질수록</h4>'+
 '<p class="big">n = '+mx+' 일 때 확률 '+nf(last?last.direct:0,5)+'</p>'+
 '<p class="note">시행을 늘릴수록 “적어도 한 번”의 확률이 1 에 가까워집니다. (5/6)ⁿ 이 빠르게 작아지기 때문입니다.</p>'+
-'<p class="note">“적어도”, “하나 이상”, “모두는 아니다” 같은 말이 보이면 <b>여사건</b>을 먼저 떠올리세요. 반대편이 한 가지로 딱 떨어지면 계산이 한 줄로 끝납니다.</p></div></div>';}
+'<p class="note">“적어도”, “하나 이상”, “모두는 아니다” 같은 말이 보이면 <b>여사건</b>을 먼저 떠올리세요. 반대편이 한 가지로 딱 떨어지면 계산이 한 줄로 끝납니다.</p>'+
+(function(){var w=rows.filter(function(r){return (r.m||1)>1;});if(!w.length)return '<p class="note">“적어도 2번·3번”도 기록해 보세요 — 반대편이 한 줄로 끝나지 않는 경우와 견줄 수 있습니다.</p>';
+var sh=w.filter(function(r){return r.shortSide==='정면';}).length;
+return '<p class="note">“적어도 m번”(m ≥ 2)으로 한 기록 '+w.length+'건 가운데 <b>정면이 더 짧았던 경우가 '+sh+'건</b>입니다. 여사건은 <b>반대편이 적을 때만</b> 이깁니다 — 항 수를 먼저 세어 보고 방향을 고르세요.</p>';})()+'</div></div>';}
 
 
 draw();sync();

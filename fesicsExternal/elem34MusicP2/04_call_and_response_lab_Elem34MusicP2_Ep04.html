@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -479,20 +481,27 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
       var WY = [{n:'메기고 받기 (한 사람 → 여럿)', s:'메기고 받기'}, {n:'뭉치처럼 한 사람이 다 부르기', s:'혼자 다 부르기'}];
       var LN = [{n:'3줄', k:3}, {n:'5줄', k:5}];
       var REF = '강강술래';
+      var GT = ['안 찍음', '3명까지', '4~5명', '6명 이상'];
       function calc(p){
-        var k = LN[p.n].k, lines = [];
+        var k = LN[p.n].k, lines = [], kn = Math.max(0, Math.min(6, Math.round(p.kn == null ? 6 : p.kn)));
         for (var i = 0; i < k; i++) lines.push({call:LD[p.d].ly[i], resp:REF});
-        var together = p.w === 0 ? 7 : 1;
-        return {lines:lines, k:k, callKinds:k, respKinds:1, together:together, newbie:p.w === 0 ? k : 0};
+        var together = p.w === 0 ? 1 + kn : 1;
+        var band = together <= 3 ? 1 : (together <= 5 ? 2 : 3), gt = p.gt || 0;
+        return {lines:lines, k:k, callKinds:k, respKinds:1, knows:kn, together:together, newbie:p.w === 0 ? k : 0,
+          many:(together >= 4), band:band, guess:gt, gtext:GT[gt], ok:(gt > 0 ? (gt === band) : null)};
       }
       return {
         sceneHeight: 430,
         idle: '메기는 사람·부르는 방법·줄 수를 고른 뒤 <b>노래하기</b>를 누르세요.',
-        shortHint: '메기고 받기로 메기는 사람을 바꿔 세 번 불러 보고, 혼자 다 부르기와도 비교해 보세요.',
+        shortHint: '메기고 받기로 메기는 사람을 바꿔 세 번 불러 보고, 혼자 다 부르기와도 비교해 보세요. 받는 소리를 아는 사람을 2명으로 줄여서도 불러 보세요.',
         params: [
           {key:'d', type:'seg', label:'메기는 사람', cols:3, value:0, options:LD.map(function(x){ return x.n; })},
           {key:'w', type:'seg', label:'부르는 방법', cols:2, value:0, options:WY.map(function(x){ return x.n; })},
-          {key:'n', type:'seg', label:'부를 줄 수', cols:2, value:1, options:LN.map(function(x){ return x.n; })}
+          {key:'n', type:'seg', label:'부를 줄 수', cols:2, value:1, options:LN.map(function(x){ return x.n; }),
+            note:'아래 「받는 소리를 아는 사람」을 움직이면 함께 부르는 사람 수가 달라져요. ※ 받는 소리("강강술래")를 아는 사람만 함께 부를 수 있다고 본 교육용 모형이에요.'},
+          {key:'kn', type:'range', label:'받는 소리를 아는 사람 (6명 가운데)', min:0, max:6, step:1, value:6, fmt:function(v){ return v + '명'; }},
+          {key:'gt', type:'seg', label:'먼저 찍기: 몇 명이 함께 부를까? (메기는 사람까지)', cols:4, value:0, options:GT,
+            note:'찍고 나서 노래하면 맞았는지 알려 줘요.'}
         ],
         compute: function(p){
           var r = calc(p), S = session(2, 0.16);
@@ -506,10 +515,11 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
         draw: function(c, W, H, p, r, tau){
           var q = r || calc(p), cx = W / 2, cy = 82, R = 56, sing = r ? (tau * q.k * 2) : -1;
           for (var i = 0; i < 7; i++){ var a = -Math.PI / 2 + i * Math.PI * 2 / 7 + (r ? tau * 1.2 : 0), x = cx + R * Math.cos(a), y = cy + R * 0.7 * Math.sin(a);
-            var lead = i === 0, phase = Math.floor(sing) % 2, on = r && (p.w === 1 ? lead : (lead ? phase === 0 : phase === 1));
-            disc(c, x, y, on ? 12 : 9, lead ? PAL[4] : (p.w === 1 ? '#C3CDD9' : PAL[0]));
+            var lead = i === 0, phase = Math.floor(sing) % 2, knowsIt = i <= q.knows;
+            var on = r && (p.w === 1 ? lead : (lead ? phase === 0 : (phase === 1 && knowsIt)));
+            disc(c, x, y, on ? 12 : 9, lead ? PAL[4] : (p.w === 1 || !knowsIt ? '#C3CDD9' : PAL[0]));
             if (on) glow(c, x, y, 26, lead ? 'rgba(200,70,61,.5)' : 'rgba(43,95,163,.45)', 0.8); }
-          txtF(c, p.w === 0 ? '메기는 1명 + 받는 6명' : '혼자 부르고 6명은 듣기만', cx, cy + 66, {align:'center', color:'#4A5868'}, W - 24);
+          txtF(c, p.w === 0 ? '메기는 1명 + 받는 ' + q.knows + '명 (모르는 ' + (6 - q.knows) + '명은 듣기만)' : '혼자 부르고 6명은 듣기만', cx, cy + 66, {align:'center', color:'#4A5868'}, W - 24);
           var ty = 178, rh = Math.min(42, (H - ty - 50) / q.k), mid = Math.max(W * 0.62, W - 150);
           c.fillStyle = '#EEF2F7'; c.fillRect(10, ty - 26, W - 20, 30);
           txt(c, '메기는 소리', 20, ty - 4, {bold:true, color:PAL[4]}); txtF(c, '받는 소리', mid + 6, ty - 4, {bold:true, color:PAL[0]}, W - mid - 16);
@@ -521,24 +531,37 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
           txtF(c, r ? '메기는 칸 노랫말 ' + q.callKinds + '가지 · 받는 칸 ' + q.respKinds + '가지 · 함께 부른 사람 ' + q.together + '명' : '예상: 줄마다 되풀이되는 칸은 어느 쪽일까?', 12, H - 14, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 24);
         },
         stats: function(p, r){
-          return [['메기는 사람', LD[p.d].n], ['부르는 방법', WY[p.w].n, p.w ? PAL[4] : PAL[1]],
+          var a2 = [['메기는 사람', LD[p.d].n], ['부르는 방법', WY[p.w].n, p.w ? PAL[4] : PAL[1]],
             ['메기는 소리 노랫말', r.callKinds + '가지 — 줄마다 바뀜', PAL[4]], ['받는 소리 노랫말', r.respKinds + '가지 — "강강술래"만 되풀이', PAL[0]],
+            ['받는 소리를 아는 사람', r.knows + '명 (6명 가운데)', PAL[6]],
             ['함께 부른 사람', r.together + '명 (모둠 7명 중)', r.together > 1 ? PAL[1] : PAL[4]],
+            ['여럿이 부르기', r.many ? '잘 돼요 — ' + r.together + '명이 소리를 냈어요' : '아직 안 돼요 — ' + r.together + '명뿐이에요', r.many ? PAL[1] : PAL[4]],
             ['처음 온 친구가 함께 부를 수 있는 줄', p.w === 0 ? r.k + '줄 모두 (받는 소리만 알면 돼요)' : '없음 — 노랫말을 다 알아야 해요']];
+          if (r.guess > 0) a2.push(['내가 찍은 것 채점', r.gtext + ' → ' + (r.ok ? '맞았어요!' : '아니에요') + ' (정답 ' + r.together + '명)', r.ok ? PAL[1] : PAL[3]]);
+          return a2;
         },
-        columns: ['메기는 사람', '방법', '줄 수', '첫 줄 메기는 소리', '받는 소리', '함께 부름'],
-        record: function(p, r){ return {d:p.d, w:p.w, k:r.k, first:r.lines[0].call, together:r.together}; },
-        row: function(d){ return [LD[d.d].s, WY[d.w].s, d.k + '줄', d.first, d.w === 0 ? '강강술래' : '(혼자)', d.together + '명']; },
+        columns: ['메기는 사람', '방법', '줄 수', '아는 사람', '첫 줄 메기는 소리', '받는 소리', '함께 부름', '찍은 것'],
+        record: function(p, r){ return {d:p.d, w:p.w, k:r.k, first:r.lines[0].call, together:r.together, knows:r.knows, many:r.many, guess:r.guess, ok:r.ok}; },
+        row: function(d){ return [LD[d.d].s, WY[d.w].s, d.k + '줄', d.knows + '명', d.first, d.w === 0 ? '강강술래' : '(혼자)', d.together + '명',
+          d.guess > 0 ? (GT[d.guess] + (d.ok ? ' ○' : ' ×')) : '안 찍음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('메기는 사람을 바꾸면 무엇이 바뀌나', '<div id="m4a"></div><p class="ask">메기는 사람을 바꿨을 때 메기는 소리와 받는 소리 중 어느 칸이 바뀌었나요? 받는 소리가 늘 같으면 어떤 점이 좋을까요?</p>') +
-            card('방법별 함께 부른 사람 수', '<div id="m4b"></div><p class="ask">과제: 가족과 역할을 나눠 한 사람은 메기고, 나머지는 "강강술래"로 받으며 다섯 줄을 불러 보세요. 메기는 사람을 바꿔 한 번 더 부르고, 무엇이 바뀌었는지 적어 오세요.</p>') + '</div>';
+            card('방법별 함께 부른 사람 수', '<div id="m4b"></div><p class="ask">과제: 가족과 역할을 나눠 한 사람은 메기고, 나머지는 "강강술래"로 받으며 다섯 줄을 불러 보세요. 메기는 사람을 바꿔 한 번 더 부르고, 무엇이 바뀌었는지 적어 오세요.</p>') +
+            card('아는 사람 수와 함께 부른 사람 · 찍기 점수', '<div id="m4c"></div><p class="ask">받는 소리를 아는 사람을 줄이면 함께 부른 사람은 어떻게 되었나요? 받는 소리가 쉽고 늘 같으면 왜 좋은지 적어 보세요.</p>') + '</div>';
           var g = groupBy(rec.filter(function(d){ return d.w === 0; }), function(d){ return d.d; }), rows = [];
           Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; rows.push([LD[d.d].s, LD[d.d].ly[0] + ' / ' + LD[d.d].ly[1] + ' …', '강강술래 (늘 같음)']); });
           $('m4a').innerHTML = rows.length ? tableHTML(['메기는 사람', '메기는 소리 (바뀜)', '받는 소리'], rows) + (rows.length < 2 ? '<p class="msg">메기는 사람을 바꿔 한 번 더 해 보세요.</p>' : '') : '<p class="msg">메기고 받기로도 불러 보세요.</p>';
           var w = groupBy(rec, function(d){ return d.w; }), items = [];
           Object.keys(w).sort().forEach(function(k){ var a = w[k]; items.push({label:WY[k].s, v:a[0].together, color:+k ? PAL[4] : PAL[1], text:a[0].together + '명 (' + a.length + '회)'}); });
           $('m4b').innerHTML = hbars(items, 7);
+          var kg = groupBy(rec.filter(function(d){ return d.w === 0; }), function(d){ return d.knows; });
+          var krows = Object.keys(kg).sort(function(a, b){ return a - b; }).map(function(k){ var d = kg[k][0];
+            return [d.knows + '명', d.together + '명', d.many ? '여럿이 잘 돼요' : '아직 안 돼요']; });
+          var tried = rec.filter(function(d){ return d.guess > 0; }), hit = tried.filter(function(d){ return d.ok; }).length;
+          $('m4c').innerHTML = (krows.length ? tableHTML(['받는 소리를 아는 사람', '함께 부름', '판정'], krows) : '<p class="msg">메기고 받기로도 불러 보세요.</p>') +
+            tableHTML(['찍기', '수'], [['찍어 본 횟수', tried.length + '번'],
+              ['맞힌 횟수', hit + '번' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')]]);
         }
       };
     })();
@@ -547,7 +570,8 @@ function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

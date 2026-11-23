@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,10 +443,18 @@ var LAB = (function(){
         if (x <= 7) return {imp:'청소년에서 성인', use:'일반 만화, 사실적인 그림'};
         if (x < 8) return {imp:'성인과 늘씬한 그림의 중간', use:'(표의 6~7과 8 이상 사이)'};
         return {imp:'늘씬하고 위엄 있다', use:'패션 일러스트, 영웅 캐릭터'}; }
-      function calc(p){ var b = band(p.x), near = REAL.filter(function(g){ return p.x >= g.a - 0.01 && p.x <= g.b + 0.01; }).map(function(g){ return g.n; });
-        return {b:b, near:near, real:near.length ? near.join('·') + ' 범위' : (p.x > 7.5 ? '실제 사람 대부분보다 길게 늘인 비율' : p.x < 3.8 ? '실제 사람보다 머리가 매우 큰 비율' : '나이별 대략값 사이')}; }
-      function figure(c, cx, foot, head, ratio, col){
-        var T = head * ratio, top = foot - T, rest = T - head, legF = Math.min(0.58, 0.4 + 0.025 * (ratio - 2)), torso = rest * (1 - legF), leg = rest * legF;
+      function baseLeg(x){ return Math.min(0.58, 0.4 + 0.025 * (x - 2)); }
+      function legOf(x, lg){ return Math.max(0.25, Math.min(0.70, baseLeg(x) + lg)); }
+      function calc(p){
+        var lf = legOf(p.x, p.lg), dl = lf - baseLeg(p.x), eff = p.x + dl * 12;   /* 다리 비중 1%p 가 겉보기 0.12등신쯤 — 교육용 모형값 */
+        var b = band(eff), b0 = band(p.x);
+        var near = REAL.filter(function(g){ return p.x >= g.a - 0.01 && p.x <= g.b + 0.01; }).map(function(g){ return g.n; });
+        return {b:b, b0:b0, lf:lf, dl:dl, eff:eff, same:(b.imp === b0.imp), near:near,
+          real:near.length ? near.join('·') + ' 범위' : (p.x > 7.5 ? '실제 사람 대부분보다 길게 늘인 비율' : p.x < 3.8 ? '실제 사람보다 머리가 매우 큰 비율' : '나이별 대략값 사이')}; }
+      function figure(c, cx, foot, head, ratio, col, legF){
+        var T = head * ratio, top = foot - T, rest = T - head;
+        if (legF == null) legF = Math.min(0.58, 0.4 + 0.025 * (ratio - 2));
+        var torso = rest * (1 - legF), leg = rest * legF;
         var bw = Math.max(head * 0.9, rest * 0.22);
         c.fillStyle = col; c.beginPath(); c.arc(cx, top + head / 2, head / 2, 0, Math.PI * 2); c.fill();
         c.fillRect(cx - bw / 2, top + head * 1.02, bw, torso); c.fillRect(cx - bw / 2 + 2, top + head + torso, bw * 0.42, leg); c.fillRect(cx + bw * 0.08 - 2, top + head + torso, bw * 0.42, leg);
@@ -452,25 +462,28 @@ var LAB = (function(){
         c.fillStyle = '#FFFFFF'; c.beginPath(); c.arc(cx - head * 0.16, top + head * 0.48, head * 0.06, 0, Math.PI * 2); c.arc(cx + head * 0.16, top + head * 0.48, head * 0.06, 0, Math.PI * 2); c.fill(); }
       return {
         sceneHeight: function(w){ return w < 520 ? 474 : 430; },
-        idle: '비율과 고정 방식을 고른 뒤 <b>이 비율로 그리기</b>를 누르세요.',
-        shortHint: '3·4.5·6.5·8등신을 머리 고정으로 기록한 뒤, 같은 비율을 키 고정으로도 그려 보세요. 얼굴은 그대로인데 나이가 달라 보이나요?',
+        idle: '비율·고정 방식·<b>다리 비중</b>을 고른 뒤 <b>이 비율로 그리기</b>를 누르세요.',
+        shortHint: '<b>같은 등신</b>에서 다리 비중만 바꿔 여러 번 기록해 보세요. 등신 수가 같은데도 인상이 달라지는 자리를 찾는 것이 핵심입니다.',
         params: [
           {key:'x', type:'range', label:'키 ÷ 머리 길이 (등신)', min:2, max:9, step:0.5, value:8, fmt:function(v){ return f(v, 1) + '등신'; }},
-          {key:'g', type:'seg', label:'고정 방식', cols:2, value:0, options:FX.map(function(x){ return x.n; })}
+          {key:'g', type:'seg', label:'고정 방식', cols:2, value:0, options:FX.map(function(x){ return x.n; })},
+          {key:'lg', type:'range', label:'다리가 차지하는 비중 더하기', min:-0.10, max:0.10, step:0.02, value:0,
+            fmt:function(v){ return v === 0 ? '기본 그대로' : sgn(v * 100, 0) + '%p'; },
+            note:'등신 수는 그대로 두고 다리만 길게·짧게 합니다. 다리 비중 1%p 가 겉보기로 약 0.12등신에 해당한다고 본 교육용 모형값입니다.'}
         ],
         compute: function(p){ return calc(p); },
         draw: function(c, W, H, p, r, tau){
           var nar = W < 520, q = r || calc(p), foot = H - (nar ? 134 : 90), maxT = foot - 30, head = p.g === 0 ? maxT / 9 : maxT / p.x, k = r ? Math.min(1, tau * 1.4) : 1;
           var ratio = r ? 1 + (p.x - 1) * k : p.x, cx = W > 640 ? W * 0.32 : W * 0.38;
-          figure(c, cx, foot, p.g === 0 ? head : maxT / ratio, ratio, PAL[0]);
+          figure(c, cx, foot, p.g === 0 ? head : maxT / ratio, ratio, PAL[0], legOf(p.x, p.lg));
           var hh = p.g === 0 ? head : maxT / ratio, rx = cx + Math.max(70, hh * 1.4);
           for (var i = 0; i < Math.ceil(ratio); i++){ var y1 = foot - (i + 1) * hh, y0 = foot - i * hh; c.fillStyle = i % 2 ? '#E1E7EE' : '#C9D6E8'; c.fillRect(rx, Math.max(y1, foot - ratio * hh), 14, y0 - Math.max(y1, foot - ratio * hh)); if (hh > 16) txt(c, String(i + 1), rx + 22, y0 - hh / 2 + 6, {color:'#4A5868'}); }
           seg(c, 20, foot, W - 20, foot, '#8C99A8', 2);
           var by = foot + 26, bw = W - 40, sx = function(v){ return 20 + (v - 2) / 7 * bw; };
           REAL.forEach(function(g, i){ c.fillStyle = PAL[[1, 3, 5, 6][i]]; c.globalAlpha = 0.55; c.fillRect(sx(g.a), by, Math.max(4, sx(g.b) - sx(g.a)), 16); c.globalAlpha = 1; if (W > 520) txt(c, g.n, sx(g.a), by + 34, {color:'#4A5868'}); });
           seg(c, sx(p.x), by - 6, sx(p.x), by + 22, PAL[4], 3);
-          if (W > 640){ txt(c, f(p.x, 1) + '등신', W * 0.62, 80, {bold:true, color:PAL[0]}); txt(c, r ? q.b.imp : '읽히는 인상?', W * 0.62, 112, {bold:true}); txt(c, r ? q.b.use : '', W * 0.62, 140, {color:'#4A5868'}); }
-          var bt = r ? f(p.x, 1) + '등신 · ' + q.b.imp + ' · ' + q.real : '예상: 머리 크기만 바꾸면 나이가 달라 보일까요?', bo = {bold:true, color:r ? '#1E2833' : '#4A5868'};
+          if (W > 640){ txt(c, f(p.x, 1) + '등신 · 겉보기 ' + f(q.eff, 1), W * 0.62, 80, {bold:true, color:PAL[0]}); txt(c, r ? q.b.imp : '읽히는 인상?', W * 0.62, 112, {bold:true}); txt(c, r ? q.b.use : '', W * 0.62, 140, {color:'#4A5868'}); }
+          var bt = r ? f(p.x, 1) + '등신 · 겉보기 ' + f(q.eff, 1) + '등신 · ' + q.b.imp : '다리 길이가 인상을 바꿀까?', bo = {bold:true, color:r ? '#1E2833' : '#4A5868'};
           if (nar){ txt(c, '', 20, H - 14, bo); var bws = bt.split(' '), bl = [bws[0]];
             for (var j = 1; j < bws.length; j++){ var bt2 = bl[bl.length - 1] + ' ' + bws[j]; if (c.measureText(bt2).width <= W - 30) bl[bl.length - 1] = bt2; else bl.push(bws[j]); }
             bl.forEach(function(l, j){ txt(c, l, 20, H - 14 - (bl.length - 1 - j) * 22, bo); }); }
@@ -478,20 +491,36 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['비율', f(p.x, 1) + '등신 (키 = 머리 길이 × ' + f(p.x, 1) + ')', PAL[0]], ['고정 방식', FX[p.g].n],
-            ['읽히는 나이·인상 (웹툰 표)', r.b.imp, PAL[3]], ['흔히 쓰이는 곳', r.b.use], ['실제 사람과 비교 (대략)', r.real, PAL[6]],
+            ['다리가 차지하는 비중', f(r.lf * 100, 0) + '% (기본보다 ' + (r.dl === 0 ? '그대로' : sgn(r.dl * 100, 0) + '%p') + ')', PAL[5]],
+            ['겉보기 등신', f(r.eff, 1) + '등신 — 등신 수는 ' + f(p.x, 1) + '인데 다리 비중 때문에 이렇게 읽힙니다', PAL[6]],
+            ['읽히는 나이·인상', r.b.imp, PAL[3]], ['흔히 쓰이는 곳', r.b.use],
+            ['등신 수만으로 정해지나', r.same ? '이번에는 등신 수만 봤을 때(' + r.b0.imp + ')와 같은 인상이에요.'
+              : '달라졌어요 — 등신 수만 보면 “' + r.b0.imp + '”인데, 다리 비중 때문에 “' + r.b.imp + '”으로 읽힙니다.', r.same ? null : PAL[4]],
+            ['실제 사람과 비교 (대략)', r.real, PAL[6]],
             ['기억할 것', '8등신은 측정값이 아니라 표현의 약속 — 비례는 정답이 아니라 선택지']];
         },
-        columns: ['등신', '고정', '인상', '쓰이는 곳', '실제 사람'],
-        record: function(p, r){ return {x:p.x, g:p.g, imp:r.b.imp, use:r.b.use, real:r.real}; },
-        row: function(d){ return [f(d.x, 1), FX[d.g].s, d.imp, d.use, d.real]; },
+        columns: ['등신', '고정', '다리 비중', '겉보기 등신', '인상', '등신만 보면', '쓰이는 곳'],
+        record: function(p, r){ return {x:p.x, g:p.g, lg:p.lg, lf:r.lf, eff:r.eff, imp:r.b.imp, imp0:r.b0.imp, same:r.same, use:r.b.use, real:r.real}; },
+        row: function(d){ return [f(d.x, 1), FX[d.g].s, f(d.lf * 100, 0) + '%', f(d.eff, 1), d.imp,
+          d.same ? '같음' : d.imp0, d.use]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('비율별 인상', '<div id="a8a"></div><p class="ask">"8등신이 아니면 틀린 그림"이라는 말은 실제 사람 범위 띠와 비교하면 어디서 틀렸나요? 얼굴은 그대로인데 무엇이 나이를 바꿨나요?</p>') +
+            card('같은 등신인데 인상이 갈린 자리', '<div id="a8c"></div><p class="ask">등신 수가 같은데도 인상이 달라진 기록이 있나요? 그렇다면 “등신 수가 인상을 정한다”는 말은 어디까지 맞는 말일까요?</p>') +
             card('정리', '<div id="a8b"></div><p class="ask">과제: 자신의 전신 사진이나 공개된 인체 자료에서 머리 길이로 키를 나눠 재고, 같은 캐릭터를 3등신·6등신·8등신으로 그려 인상 차이를 적어 보세요. 다른 사람의 사진을 쓸 때는 반드시 본인의 허락을 받으세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.x; }), items = [];
           Object.keys(g).sort(function(a, b){ return a - b; }).forEach(function(x){ var d = g[x][0]; items.push({label:f(+x, 1) + '등신', v:+x, color:+x > 7.5 ? PAL[4] : +x < 4 ? PAL[6] : PAL[1], text:d.imp}); });
           $('a8a').innerHTML = hbars(items, 9);
           $('a8b').innerHTML = tableHTML(['대상', '키 ÷ 머리 (대략)'], [['갓난아기', '약 4'], ['7살 무렵', '약 5~6'], ['청소년', '약 6~7'], ['성인', '약 7~7.5'], ['패션 일러스트', '8~9 이상'], ['귀여운 캐릭터', '2~3']]);
+          var gx2 = groupBy(rec, function(d){ return f(d.x, 1); }), srows = [], split = 0;
+          Object.keys(gx2).sort(function(a, b){ return a - b; }).forEach(function(x){
+            var g2 = gx2[x], imps = g2.map(function(d){ return d.imp; }).filter(function(v, i, a){ return a.indexOf(v) === i; });
+            if (imps.length > 1) split++;
+            srows.push([x + '등신', g2.length, g2.map(function(d){ return f(d.lf * 100, 0) + '%'; }).join(', '), imps.join(' / '), imps.length > 1 ? '✅ 갈렸다' : '아직 하나']);
+          });
+          $('a8c').innerHTML = tableHTML(['등신 수', '기록 수', '다리 비중', '읽힌 인상', '갈렸나'], srows) +
+            '<p>' + (split ? '등신 수가 같은데도 인상이 갈린 자리가 <b>' + split + '군데</b> 있습니다. 등신 수는 인상을 정하는 <b>한 가지 요소일 뿐</b>이라는 뜻이에요.'
+                           : '같은 등신 수에서 다리 비중만 바꿔 두 번 이상 기록하면, 인상이 갈리는지 확인할 수 있어요.') + '</p>';
         }
       };
     })();
@@ -500,7 +529,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

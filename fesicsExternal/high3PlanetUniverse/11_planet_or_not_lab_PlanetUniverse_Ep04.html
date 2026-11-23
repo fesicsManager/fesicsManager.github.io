@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -445,17 +447,27 @@ var LAB = (function(){
       ];
       var CAT = ['행성', '왜소 행성', '태양계 소천체'];
       function cat(o){ return o.clear && o.round ? 0 : o.round ? 1 : 2; }
+      /* ③ 궤도 정리 조건은 '정리 정도 µ = 내 질량 ÷ 궤도 주변에 남은 물질의 질량' 으로 따진다.
+         국제천문연맹이 쓰는 기준은 µ 가 100 보다 크면 '정리했다'로 본다(Soter 2006). */
+      var ZONE = ['지금 그대로', '주변 물질이 10배 많다면', '주변 물질이 100분의 1이라면'];
+      var ZF = [1, 0.1, 100];
+      function muOf(o){ return o.mu == null ? 0.001 : o.mu; }
       return {
         sceneHeight: 420,
         idle: '천체와 예측을 고른 뒤 <b>세 조건 검사</b>를 누르세요.',
         shortHint: '케레스와 베스타는 같은 소행성대에 있지만 분류가 다릅니다. 둘을 연달아 검사해 보세요.',
         params: [
           {key:'o', type:'seg', label:'천체', cols:4, value:4, options:OB.map(function(x){ return x.n; })},
-          {key:'c', type:'seg', label:'나의 예측', cols:3, value:0, options:CAT}
+          {key:'c', type:'seg', label:'나의 예측', cols:3, value:0, options:CAT},
+          {key:'z', type:'seg', label:'궤도 주변에 남은 물질 (가정)', cols:3, value:0, options:ZONE,
+            note:'µ = 내 질량 ÷ 궤도 주변 물질의 질량. 주변을 치우면 µ 가 커져 ③ 조건을 넘길 수 있습니다. 명왕성과 케레스에 100분의 1을 넣어 보세요.'}
         ],
         compute: function(p){
-          var o = OB[p.o], k = cat(o);
-          return {o:o, k:k, ok:k === p.c, moonRatio:o.D / 3474};
+          var o = OB[p.o], base = cat(o);
+          var mu0 = muOf(o), mu = mu0 * ZF[p.z], clearNow = mu >= 100;
+          var k = (clearNow && o.round) ? 0 : (o.round ? 1 : 2);
+          return {o:o, k:k, base:base, ok:k === p.c, moonRatio:o.D / 3474,
+            mu0:mu0, mu:mu, clearNow:clearNow, z:p.z, flipped:(k !== base)};
         },
         draw: function(c, W, H, p, r, tau){
           var o = OB[p.o], cx = W * 0.3, cy = H * 0.46, S = Math.min(W * 0.26, H * 0.36), aP = S, sc = aP / o.a, b = aP * Math.sqrt(1 - o.e * o.e), foc = aP * o.e;
@@ -473,7 +485,7 @@ var LAB = (function(){
           if (o.round) c.arc(mx + oR + 6, my, oR, 0, Math.PI * 2); else c.ellipse(mx + oR + 6, my, oR, oR * 0.7, 0.5, 0, Math.PI * 2);
           c.fill(); txt(c, o.n, mx + oR + 6, lY, {align:'center', color:'#fff', bold:true});
           if (r){
-            var k = Math.floor(tau * 3.2), lines = [['① 태양 공전', true], ['② 둥근 모양', o.round], ['③ 궤도 정리', o.clear]];
+            var k = Math.floor(tau * 3.2), lines = [['① 태양 공전', true], ['② 둥근 모양', o.round], ['③ 궤도 정리', r.clearNow]];
             lines.forEach(function(l, i){ if (i >= k) return; txt(c, (l[1] ? '✔ ' : '✘ ') + l[0], W * 0.6, H * 0.64 + i * 26, {bold:true, color:l[1] ? '#7CF0B0' : '#FF8A7A'}); });
             if (tau >= 1) txt(c, '→ ' + CAT[r.k] + (r.ok ? ' (예측 적중)' : ' (예측 빗나감)'), 16, H - 16, {bold:true, color:r.ok ? '#7CF0B0' : '#FFD66B'});
           }
@@ -482,21 +494,39 @@ var LAB = (function(){
         stats: function(p, r){
           return [['천체', r.o.n + ' · ' + r.o.zone], ['나의 예측 / 정답', CAT[p.c] + ' / ' + CAT[r.k], r.ok ? PAL[1] : PAL[4]],
             ['지름', f(r.o.D, 0) + ' km (달의 ' + f(r.moonRatio, 2) + '배)'], ['② 둥근가', r.o.round ? '예 — 자체 중력으로 평형' : '아니요 — 불규칙한 모양', r.o.round ? PAL[1] : PAL[4]],
-            ['③ 궤도 정리 µ (대략)', r.o.mu == null ? '매우 작음 (주변 천체와 섞여 있음)' : (r.o.mu >= 100 ? f(r.o.mu, 0) : f(r.o.mu, 2)) + (r.o.clear ? ' — 지배적' : ' — 정리 못 함'), r.o.clear ? PAL[1] : PAL[4]],
+            ['관측된 µ (지금 그대로)', r.o.mu == null ? '매우 작음 (주변 천체와 섞여 있음 · 0.001 로 봄)' : (r.mu0 >= 100 ? f(r.mu0, 0) : f(r.mu0, 3))],
+            ['내 가정 — 주변 물질', ZONE[r.z]],
+            ['③ 궤도 정리 µ = 내 질량 ÷ 주변 물질', (r.mu >= 100 ? f(r.mu, 0) : f(r.mu, 3)) + ' → 기준 100 ' + (r.clearNow ? '넘음 (정리함)' : '못 넘음 (정리 못 함)'), r.clearNow ? PAL[1] : PAL[4]],
+            ['가정에 따른 분류 변화', r.flipped ? CAT[r.base] + ' → ' + CAT[r.k] + ' 로 뒤집혔습니다' : '그대로 ' + CAT[r.k], r.flipped ? PAL[6] : PAL[7]],
             ['궤도 이심률', f(r.o.e, 3) + (r.o.e > 0.5 ? ' — 길쭉한 혜성형 궤도' : '')]];
         },
-        columns: ['천체', '나의 예측', '정답', '둥근가', '궤도 정리', '적중'],
-        record: function(p, r){ return {o:p.o, c:p.c, k:r.k, ok:r.ok}; },
-        row: function(d){ var o = OB[d.o]; return [o.n, CAT[d.c], CAT[d.k], o.round ? '예' : '아니요', o.clear ? '예' : '아니요', d.ok ? '○' : '×']; },
+        columns: ['천체', '나의 예측', '판정', '둥근가', 'µ', '궤도 정리', '가정', '적중'],
+        record: function(p, r){ return {o:p.o, c:p.c, k:r.k, base:r.base, ok:r.ok, mu:r.mu, cn:r.clearNow, z:r.z, fl:r.flipped}; },
+        row: function(d){ var o = OB[d.o]; return [o.n, CAT[d.c], CAT[d.k], o.round ? '예' : '아니요',
+          d.mu == null ? '−' : (d.mu >= 100 ? f(d.mu, 0) : f(d.mu, 3)),
+          (d.cn == null ? o.clear : d.cn) ? '예' : '아니요', d.z == null ? '−' : ZONE[d.z], d.ok ? '○' : '×']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('천체별 분류표', '<div id="ov1"></div><p class="ask">왜소 행성과 행성을 가른 조건은 세 가지 중 무엇이었나요?</p>') +
-            card('궤도 정리 정도 µ (log₁₀)', '<div id="ov2"></div><p class="ask">과제: 명왕성이 2006년에 왜소 행성으로 분류된 까닭을 세 조건으로 설명하고, 혜성과 소행성의 차이를 구성 물질·궤도·모습으로 비교하세요.</p>') + '</div>';
+            card('궤도 정리 정도 µ (log₁₀)', '<div id="ov2"></div><p class="ask">과제: 명왕성이 2006년에 왜소 행성으로 분류된 까닭을 세 조건으로 설명하고, 혜성과 소행성의 차이를 구성 물질·궤도·모습으로 비교하세요.</p>') +
+            card('가정을 바꾸면 분류가 뒤집히는 천체', '<div id="ov3"></div><p class="ask">주변을 치웠다고 가정하면 명왕성도 행성이 됩니다. 그렇다면 "행성"은 천체 자신의 성질인가요, <b>이웃과의 관계</b>인가요?</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.o; }), rows = [];
           OB.forEach(function(o, i){ var a = g[i]; if (!a) return; var ok = a.filter(function(d){ return d.ok; }).length; rows.push([o.n, CAT[cat(o)], ok + '/' + a.length]); });
           $('ov1').innerHTML = tableHTML(['천체', '분류', '나의 적중'], rows) + (Object.keys(g).length < OB.length ? '<p class="msg">아직 검사하지 않은 천체가 있어요.</p>' : '');
           var items = OB.filter(function(o, i){ return g[i] && o.mu != null; }).map(function(o){ var v = Math.log(o.mu) / Math.LN10; return {label:o.n, v:v + 2, color:o.clear ? PAL[1] : PAL[4], text:'10^' + f(v, 1)}; });
           $('ov2').innerHTML = items.length ? hbars(items, 9) + '<p class="msg">막대 = log₁₀µ + 2. 행성(초록)과 왜소 행성(빨강) 사이에 큰 간격이 있습니다.</p>' : '<p class="msg">µ 값이 있는 천체(수성·지구·케레스·명왕성·에리스)를 검사해 보세요.</p>';
+          (function(){
+            var fl = rec.filter(function(d){ return d.fl; });
+            var zs = {};
+            rec.forEach(function(d){ if (d.z != null) zs[d.o + '|' + d.z] = d; });
+            var rows2 = Object.keys(zs).map(function(k){ var d = zs[k];
+              return [OB[d.o].n, ZONE[d.z], d.mu >= 100 ? f(d.mu, 0) : f(d.mu, 3), CAT[d.k], d.fl ? '뒤집힘' : '그대로']; });
+            $('ov3').innerHTML = rows2.length
+              ? tableHTML(['천체', '가정', 'µ', '판정', '결과'], rows2, 'wrap') +
+                (fl.length ? '<p class="msg">가정을 바꿔 분류가 뒤집힌 기록이 <b>' + fl.length + '개</b> 있습니다. ③ 조건은 천체의 크기가 아니라 <b>이웃을 얼마나 치웠는가</b>를 묻는 조건입니다.</p>'
+                           : '<p class="msg">아직 뒤집힌 기록이 없습니다. 명왕성이나 케레스에 <b>주변 물질이 100분의 1이라면</b>을 넣어 보세요.</p>')
+              : '<p class="msg">가정을 바꿔 가며 검사하면 여기에서 짝지어 보여 줍니다.</p>';
+          })();
         }
       };
     })();
@@ -505,7 +535,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

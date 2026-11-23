@@ -154,7 +154,7 @@ tbody tr:nth-child(even){background:#fafcfb;}
   <header class="page-head">
     <span class="deep-badge">심화 2화</span>
     <h1>판의 이동 속도와 누적 거리</h1>
-    <p>판은 1년에 겨우 몇 cm 움직입니다. 손톱 자라는 속도와 비슷하죠. 그런데 그 느린 움직임이 수백만 년 쌓이면 어떻게 될까요? <b>이동 거리 = 속도 × 시간</b>을 직접 계산해 보세요.</p>
+    <p>판은 1년에 겨우 몇 cm 움직입니다. 손톱 자라는 속도와 비슷하죠. 그런데 그 느린 움직임이 수백만 년 쌓이면 어떻게 될까요? <b>이동 거리 = 속도 × 시간</b>과 <b>실제 높이 = 융기 − 침식</b>을 직접 계산해 보세요.</p>
   </header>
 
   <div class="tabs">
@@ -217,9 +217,13 @@ tbody tr:nth-child(even){background:#fafcfb;}
             <div class="control-label">3. 흐른 시간</div>
             <div class="slider-row"><span>경과</span><span class="slider-val" id="timeVal">100만 년</span></div>
             <input type="range" id="timeSlider" min="0" max="8" step="1" value="4" aria-label="흐른 시간">
+            <div class="control-label">4. 침식 속도 (깎여 나감 · 히말라야 융기에만) — 교육용 모형</div>
+            <div class="slider-row"><span>1년에</span><span class="slider-val" id="eroVal">0 cm</span></div>
+            <input type="range" id="eroSlider" min="0" max="0.9" step="0.05" value="0" aria-label="침식 속도">
             <div class="readout">
               <div><span class="mono" id="calcLine">2.5 cm/년 × 1,000,000년</span></div>
               <div>= <span class="big" id="distVal">25 km</span></div>
+              <div id="eroNote" style="margin-top:6px;font-size:.95em;color:#4a5868"></div>
             </div>
             <button class="action" id="runBtn">이만큼 움직여 보기 ▶</button>
           </div>
@@ -472,7 +476,7 @@ const SITES=[
 ];
 const TIMES=[1e3,1e4,1e5,5e5,1e6,5e6,1e7,2e7,1e8];
 const TIME_LABEL=['1천 년','1만 년','10만 년','50만 년','100만 년','500만 년','1000만 년','2000만 년','1억 년'];
-let sIdx=0, speed=2.5, tIdx=4, records=[], anim=0, busy=false;
+let sIdx=0, speed=2.5, tIdx=4, ero=0, records=[], anim=0, busy=false;
 
 function site(){ return SITES[sIdx]; }
 function years(){ return TIMES[tIdx]; }
@@ -484,8 +488,28 @@ function distText(){
   if(km<1000) return km.toFixed(1)+' km';
   return Math.round(km).toLocaleString()+' km';
 }
-/* 히말라야: 속도×시간은 침식을 뺀 '쌓인 융기량'. 실제 높이는 침식으로 약 8.8 km(에베레스트)를 넘지 못함 */
+/* 히말라야: 속도×시간은 침식을 빼기 전의 '쌓인 융기량'. 실제 높이는 침식으로 약 8.8 km(에베레스트)를 넘지 못함 */
 function overHim(){ return site().k==='himalaya' && distKm()>8.8; }
+/* 침식 속도를 넣으면 '올라온 양 − 깎인 양'이 실제 높이가 된다 (교육용 모형).
+   순 상승 속도 = 융기 속도 − 침식 속도. 음수면 높아지지 못하고 오히려 낮아진다. */
+function isHim(){ return site().k==='himalaya'; }
+function netCmPerYr(){ return isHim()? (speed-ero) : speed; }
+function netKm(){ return netCmPerYr()*years()/100000; }
+function kmText(km){
+  const a=Math.abs(km);
+  if(a<1) return (km*1000).toFixed(1)+' m';
+  if(a<1000) return km.toFixed(1)+' km';
+  return Math.round(km).toLocaleString()+' km';
+}
+function eroJudge(){
+  if(!isHim()) return '';
+  if(ero===0) return '침식을 0으로 두면 올라온 양이 그대로 쌓여요. 침식을 넣어 실제 높이와 맞춰 보세요.';
+  const n=netKm();
+  if(netCmPerYr()<=0) return '침식이 융기보다 빨라요 — 높아지지 못하고 오히려 낮아져요 (실제 높이 '+kmText(n)+').';
+  if(n>8.8) return '실제 높이 '+kmText(n)+' — 에베레스트(약 8.8 km)보다 높아요. 침식을 더 넣어야 실제와 맞아요.';
+  if(n>=2) return '실제 높이 '+kmText(n)+' — 에베레스트(약 8.8 km) 안쪽이라 실제와 맞는 범위예요.';
+  return '실제 높이 '+kmText(n)+' — 거의 자라지 못했어요. 침식을 조금 줄여 보세요.';
+}
 const siteRow=document.getElementById('siteRow');
 SITES.forEach((s,i)=>{
   const b=document.createElement('button');
@@ -501,11 +525,18 @@ SITES.forEach((s,i)=>{
 });
 document.getElementById('speedSlider').addEventListener('input',e=>{ if(busy)return; speed=parseFloat(e.target.value); update(); });
 document.getElementById('timeSlider').addEventListener('input',e=>{ if(busy)return; tIdx=parseInt(e.target.value); update(); });
+document.getElementById('eroSlider').addEventListener('input',e=>{ if(busy)return; ero=parseFloat(e.target.value); update(); });
 function update(){
   document.getElementById('speedVal').textContent=speed.toFixed(1)+' cm';
   document.getElementById('timeVal').textContent=TIME_LABEL[tIdx];
-  document.getElementById('calcLine').textContent=speed.toFixed(1)+' cm/년 × '+years().toLocaleString()+'년';
-  document.getElementById('distVal').textContent=distText()+(overHim()?' (침식 빼기 전 계산값)':'');
+  document.getElementById('eroVal').textContent=ero.toFixed(2)+' cm';
+  document.getElementById('calcLine').textContent=(isHim()&&ero>0)
+    ? '('+speed.toFixed(1)+' − '+ero.toFixed(2)+') cm/년 × '+years().toLocaleString()+'년'
+    : speed.toFixed(1)+' cm/년 × '+years().toLocaleString()+'년';
+  document.getElementById('distVal').textContent=(isHim()&&ero>0)
+    ? kmText(netKm())
+    : distText()+(overHim()?' (침식 빼기 전 계산값)':'');
+  document.getElementById('eroNote').textContent=eroJudge();
 }
 update();
 
@@ -515,7 +546,7 @@ document.getElementById('runBtn').addEventListener('click',()=>{
   busy=true; document.getElementById('runBtn').disabled=true;
   focusCanvas(document.getElementById('plateCanvas'));
   animate(1500, p=>{ anim=p; }, ()=>{
-    records.push({site:site().n, k:site().k, speed:speed, years:years(), km:distKm(), color:site().color});
+    records.push({site:site().n, k:site().k, speed:speed, years:years(), km:distKm(), ero:(isHim()?ero:0), net:netKm(), color:site().color});
     renderTable(); busy=false; document.getElementById('runBtn').disabled=false;
     maybeNudge(records.length);
   });
@@ -528,7 +559,10 @@ function renderTable(){
   records.forEach((r,i)=>{
     const tr=document.createElement('tr');
     const km=r.km<1? (r.km*1000).toFixed(1)+' m' : (r.km<1000? r.km.toFixed(1)+' km' : Math.round(r.km).toLocaleString()+' km');
-    tr.innerHTML='<td>'+(i+1)+'</td><td>'+r.site+'</td><td>'+r.speed.toFixed(1)+'</td><td>'+r.years.toLocaleString()+'</td><td>'+km+(r.k==='himalaya'&&r.km>8.8?' (침식 전)':'')+'</td>';
+    const cell = (r.ero>0)
+      ? kmText(r.net)+' <span style="color:#8c99a8">(융기 '+km+' − 침식 '+r.ero.toFixed(2)+' cm/년)</span>'
+      : km+(r.k==='himalaya'&&r.km>8.8?' (침식 전)':'');
+    tr.innerHTML='<td>'+(i+1)+'</td><td>'+r.site+'</td><td>'+r.speed.toFixed(1)+'</td><td>'+r.years.toLocaleString()+'</td><td>'+cell+'</td>';
     body.appendChild(tr);
   });
 }

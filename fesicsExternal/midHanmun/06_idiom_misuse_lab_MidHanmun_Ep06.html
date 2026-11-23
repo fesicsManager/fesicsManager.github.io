@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -482,9 +484,12 @@ var LAB = (function anonymous(
         shortHint: '다섯 성어를 모두 판정해 보세요.',
         params: [
           {key:'i', type:'seg', label:'사자성어', cols:5, value:0, options:ID.map(function(x){ return x.ko; })},
-          {key:'c', type:'seg', label:'제대로 쓴 문장은?', cols:2, value:0, options:['문장 ①', '문장 ②']}
+          {key:'c', type:'seg', label:'제대로 쓴 문장은?', cols:2, value:0, options:['문장 ①', '문장 ②']},
+          {key:'basis', type:'seg', label:'무엇까지 보고 고르나', cols:2, value:1, options:['글자 넷의 뜻만', '출전 이야기까지'],
+            note:'성어 가운데 둘은 글자 뜻이 곧 뜻이지만, 나머지는 고사(이야기)를 알아야 가려집니다. 근거를 좁히면 판정 문구가 달라집니다.'}
         ],
-        compute: function(p){ var d = ID[p.i]; return {d:d, ok:p.c === d.a}; },
+        compute: function(p){ var d = ID[p.i], go = d.src.indexOf('특정 고사 없이') === 0;
+          return {d:d, ok:p.c === d.a, basis:p.basis, glyphOnly:go, blind:p.basis === 0 && !go}; },
         draw: function(c, W, H, p, r, tau){
           var d = ID[p.i], S = Math.min(56, (W - 40) / 5.2);
           for (var j = 0; j < 4; j++){
@@ -493,33 +498,61 @@ var LAB = (function anonymous(
             T(c, d.h[j], x, 14 + S * 0.78, {size:S * 0.72, align:'center'});
             if (k > 0){ c.globalAlpha = k; T(c, d.g.split(' · ')[j], x, 14 + S + 22, {size:13, align:'center', color:PAL[3], max:S * 1.15}); c.globalAlpha = 1; }
           }
+          /* 문장 줄 수를 먼저 세어 상자 높이를 잡는다 (좁은 화면에서 글이 상자 밖으로 나가 겹침) */
+          var cntW = function(s){ c.font = '15px ' + FONT; var ws = String(s).split(' '), line = '', n = 1;
+            ws.forEach(function(w){ var t = line ? line + ' ' + w : w; if (c.measureText(t).width > W - 60 && line){ n++; line = w; } else line = t; }); return n; };
           var y = 14 + S + 44;
           for (var i = 0; i < 2; i++){
             var on = r && i === p.c, good = r && tau > 0.6 && i === d.a;
-            rbox(c, 16, y, W - 32, 88, good ? '#E2F4EC' : on ? '#EAF1FA' : '#F7F9FC', on ? PAL[0] : '#D4DCE5', on ? 3 : 1);
+            var bh = Math.max(88, 30 + cntW(d.s[i]) * 22 + 18);
+            rbox(c, 16, y, W - 32, bh, good ? '#E2F4EC' : on ? '#EAF1FA' : '#F7F9FC', on ? PAL[0] : '#D4DCE5', on ? 3 : 1);
             T(c, '문장 ' + '①②'[i], 28, y + 24, {size:14, bold:true, color:'#4A5868'});
             wrap(c, d.s[i], 28, y + 48, W - 60, 22, {size:15});
             if (r && tau > 0.6 && i !== d.a) T(c, '오용', W - 30, y + 24, {size:14, bold:true, align:'right', color:PAL[4]});
-            y += 96;
+            y += bh + 8;
           }
           if (r && tau > 0.8) T(c, (r.ok ? '○ ' : '✕ ') + '실제 의미: ' + d.mean, W / 2, H - 16, {bold:true, align:'center', color:r.ok ? PAL[1] : PAL[4], max:W - 24, size:16});
         },
         stats: function(p, r){
-          return [['성어', r.d.ko + ' ' + r.d.h, PAL[0]], ['판정', r.ok ? '맞음' : '다름 — 문장 ' + ['①이', '②가'][r.d.a] + ' 바른 쓰임', r.ok ? PAL[1] : PAL[4]],
+          return [['성어', r.d.ko + ' ' + r.d.h, PAL[0]],
+            ['판정', (r.ok ? '맞음' : '다름 — 문장 ' + ['①이', '②가'][r.d.a] + ' 바른 쓰임') + (r.blind ? ' · 글자 뜻만으로는 가릴 수 없는 성어예요(찍은 셈)' : ''), r.ok ? PAL[1] : PAL[4]],
+            ['고른 근거', ['글자 넷의 뜻만', '출전 이야기까지'][r.basis]],
+            ['글자 뜻만으로 가려지나', r.glyphOnly ? '가려져요 — 글자 뜻이 곧 뜻인 성어' : '가려지지 않아요 — 고사를 알아야 뜻이 잡혀요', r.glyphOnly ? PAL[1] : PAL[6]],
             ['글자 뜻', r.d.g], ['실제 의미', r.d.mean, PAL[3]], ['흔한 오해', r.d.mis, PAL[6]], ['출전', r.d.src]];
         },
-        columns: ['성어', '고른 문장', '판정'],
-        record: function(p, r){ return {i:p.i, c:p.c, ok:r.ok}; },
-        row: function(d){ return [ID[d.i].ko, '①②'[d.c], d.ok ? '○' : '✕']; },
+        columns: ['성어', '고른 문장', '판정', '근거', '글자 뜻만으로'],
+        record: function(p, r){ return {i:p.i, c:p.c, ok:r.ok, basis:r.basis, glyphOnly:r.glyphOnly}; },
+        row: function(d){ return [ID[d.i].ko, '①②'[d.c], d.ok ? '○' : '✕', d.basis ? '출전까지' : '글자 뜻만', d.glyphOnly ? '가려짐' : '안 가려짐']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('성어별 판정', '<div id="mh6a"></div><p class="ask">틀린 성어가 있었다면, 글자 네 개 가운데 어느 글자를 봤으면 오용을 피할 수 있었을까요?</p>') +
-            card('오용이 잦은 성어 정리', '<div id="mh6b"></div><p class="ask">과제: 성어 다섯 개를 골라 글자 분해·출전·현대의 사용 예를 정리하고, 잘못 쓰인 사례를 하나 찾아 바로잡아 보세요.</p>') + '</div>';
+            card('글자 뜻만으로 가려지는 성어는 몇 개인가', '<div id="mh6c"></div><p class="ask">글자 뜻만으로 가려지지 않는 성어는 무엇을 더 알아야 했나요? 사자성어가 "그냥 외우는 관용구"가 아니라고 말할 근거를 이 비율로 설명해 보세요.</p>') +
+            card('오용이 잦은 성어 정리 — 내가 판정한 것만', '<div id="mh6b"></div><p class="ask">과제: 성어 다섯 개를 골라 글자 분해·출전·현대의 사용 예를 정리하고, 잘못 쓰인 사례를 하나 찾아 바로잡아 보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.i; }), items = [];
           ID.forEach(function(x, i){ var g = by[i]; if (!g) return; var ok = g.filter(function(d){ return d.ok; }).length / g.length * 100;
             items.push({label:x.ko, v:ok, color:ok >= 50 ? PAL[1] : PAL[4], text:f(ok, 0) + '% (' + g.length + '회)'}); });
           $('mh6a').innerHTML = hbars(items, 100);
-          $('mh6b').innerHTML = tableHTML(['성어', '글자 뜻', '실제 의미', '흔한 오해'], ID.map(function(x){ return [x.ko + '<br>' + x.h, x.g, x.mean, x.mis]; }));
+          var go = ID.filter(function(x){ return x.src.indexOf('특정 고사 없이') === 0; });
+          var bg = rec.filter(function(d){ return !d.basis; }), bs = rec.filter(function(d){ return d.basis; }), it2 = [];
+          [['글자 뜻만 보고', bg, PAL[6]], ['출전까지 보고', bs, PAL[0]]].forEach(function(a){
+            if (!a[1].length){ it2.push({label:a[0] + ' (아직 없음)', v:0, color:'#CBD3DD', text:'—'}); return; }
+            var ok = a[1].filter(function(d){ return d.ok; }).length / a[1].length * 100;
+            it2.push({label:a[0] + ' (' + a[1].length + '회)', v:ok, color:a[2], text:f(ok, 0) + '%'});
+          });
+          var gb = bg.filter(function(d){ return d.glyphOnly; }), gn = bg.filter(function(d){ return !d.glyphOnly; });
+          $('mh6c').innerHTML = tableHTML(['나눔', '성어', '수'], [
+            ['글자 뜻이 곧 뜻', go.map(function(x){ return x.ko; }).join(', '), go.length + ' / ' + ID.length + ' (' + f(go.length / ID.length * 100, 0) + '%)'],
+            ['고사를 알아야 뜻이 잡힘', ID.filter(function(x){ return x.src.indexOf('특정 고사 없이') !== 0; }).map(function(x){ return x.ko; }).join(', '), (ID.length - go.length) + ' / ' + ID.length + ' (' + f((ID.length - go.length) / ID.length * 100, 0) + '%)']
+          ]) + hbars(it2, 100) +
+            '<p class="msg">글자 뜻만 보고 고른 기록 가운데, 글자 뜻으로 가려지는 성어는 ' +
+            (gb.length ? f(gb.filter(function(d){ return d.ok; }).length / gb.length * 100, 0) + '% (' + gb.length + '회)' : '아직 없음') +
+            ', 고사를 알아야 하는 성어는 ' +
+            (gn.length ? f(gn.filter(function(d){ return d.ok; }).length / gn.length * 100, 0) + '% (' + gn.length + '회)' : '아직 없음') +
+            ' 맞혔어요. 뒤쪽이 50% 근처라면 사실상 찍은 것입니다.</p>';
+          var seen = {}; rec.forEach(function(d){ seen[d.i] = 1; });
+          $('mh6b').innerHTML = tableHTML(['성어', '글자 뜻', '실제 의미', '흔한 오해'], ID.map(function(x, i){
+            return seen[i] ? [x.ko + '<br>' + x.h, x.g, x.mean, x.mis] : [x.ko + '<br>' + x.h, '아직 판정 안 함', '—', '—'];
+          })) + '<p class="msg">판정해 본 성어만 뜻을 펼쳐 줍니다. 나머지는 먼저 자유 탐구에서 가려 보세요.</p>';
         }
       };
     
@@ -529,7 +562,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

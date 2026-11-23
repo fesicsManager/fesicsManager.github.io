@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,6 +439,14 @@ var LAB = (function(){
       var TW = ['높은 산 고장', '넓은 들 고장', '바닷가 고장'];
       var JB = [{n:'고기잡이·양식', c:'#3A8FB7'}, {n:'벼농사', c:'#D98E04'}, {n:'서늘한 밭·목장', c:'#2E9E78'}, {n:'가게', c:'#7657B3'}, {n:'학교', c:'#5C6B7A'}];
       var CNT = [[0, 1, 4, 3, 2], [0, 4, 1, 3, 2], [4, 1, 0, 3, 2]];
+      var WE = ['서늘하고 비가 적음', '지금 고장 그대로', '따뜻하고 비가 많음'];
+      var WD = [[0, -2, 2], [0, 0, 0], [1, 2, -2]];      /* 날씨가 고기잡이·벼농사·밭목장에 주는 영향 — 교육용 모형값 */
+      function cntOf(t, w){
+        var base = CNT[t], out = [];
+        for (var j = 0; j < 5; j++){ var v = base[j] + (j < 3 ? WD[w][j] : 0); out.push(Math.max(0, Math.min(5, v))); }
+        return out;
+      }
+      function topOf(cnt){ var t = 0; for (var j = 1; j < 3; j++) if (cnt[j] > cnt[t]) t = j; return t; }
       var TOP = [2, 1, 0];
       var GU = ['넓은 논에서 벼농사', '서늘한 밭 채소·목장', '고기잡이와 김·미역 기르기', '어느 고장이나 똑같다'], GJ = [1, 2, 0, -1];
       return {
@@ -446,11 +456,15 @@ var LAB = (function(){
         params: [
           {key:'t', type:'seg', label:'살펴볼 고장 (가상)', cols:3, value:2, options:TW},
           {key:'g', type:'seg', label:'나의 짐작 — 이 고장에서 다른 두 고장보다 특히 많은 일', cols:2, value:3, options:GU,
-            note:'뭉치는 "어느 고장이든 사는 모습은 똑같다"고 했어요.'}
+            note:'뭉치는 "어느 고장이든 사는 모습은 똑같다"고 했어요.'},
+          {key:'w', type:'seg', label:'날씨를 내가 정하기', cols:3, value:1, options:WE,
+            note:'땅 모습은 그대로 두고 날씨만 바꿔 보세요. 같은 들 고장도 서늘해지면 벼농사 대신 밭·목장이 많아져요. ※ 카드 수는 교육용 모형값이에요.'}
         ],
         compute: function(p){
-          var cnt = CNT[p.t], top = TOP[p.t];
-          return {cnt:cnt, top:top, ok:GJ[p.g] === top, same:cnt[3] + cnt[4]};
+          var cnt = cntOf(p.t, p.w), top = topOf(cnt), base = topOf(cntOf(p.t, 1));
+          var vd = p.w === 1 ? '이 고장의 땅 모습에 맞는 일이 가장 많아요'
+            : top === base ? '날씨를 바꿔도 가장 많은 일은 그대로예요' : '날씨를 바꾸니 가장 많은 일이 ' + JB[top].n + '으로 바뀌었어요';
+          return {cnt:cnt, top:top, base:base, w:p.w, ok:GJ[p.g] === top, same:cnt[3] + cnt[4], tot:cnt.reduce(function(s, v){ return s + v; }, 0), vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
           var pw = (W - 40) / 3, py = 14, ph = 86;
@@ -466,7 +480,7 @@ var LAB = (function(){
           var gy = py + ph + 40, gh = H - gy - (W < 500 ? 52 : 34), bw = (W - 40) / 5, cell = Math.min(gh / 5, 34);
           seg(c, 16, gy + gh, W - 16, gy + gh, '#9AA5B1', 1.5);
           for (var j = 0; j < 5; j++){
-            var bx = 20 + j * bw, n = CNT[p.t][j], shown = r ? Math.min(n, Math.floor(tau * 12 - j * 0.6)) : 0;
+            var bx = 20 + j * bw, n = cntOf(p.t, p.w)[j], shown = r ? Math.min(n, Math.floor(tau * 12 - j * 0.6)) : 0;
             for (var s = 0; s < shown; s++){ c.fillStyle = JB[j].c; c.fillRect(bx + 4, gy + gh - (s + 1) * cell + 2, bw - 8, cell - 4); }
             if (r && tau >= 1) txt(c, n + '장', bx + bw / 2, gy + gh - n * cell - 6, {align:'center', bold:j === r.top, color:j === r.top ? PAL[4] : '#26313D'});
             var lab = W < 500 ? JB[j].n.split('·')[0].replace('서늘한 밭', '밭') : JB[j].n;
@@ -475,21 +489,24 @@ var LAB = (function(){
           if (!r) txt(c, '카드를 아직 나누지 않았어요', W / 2, gy + gh / 2, {align:'center', color:'#4A5868'});
         },
         stats: function(p, r){
-          return [['고장', TW[p.t]], ['카드 수', JB.map(function(x, i){ return x.n + ' ' + r.cnt[i]; }).join(' · ')],
-            ['이 고장에만 특히 많은 일', JB[r.top].n + ' (' + r.cnt[r.top] + '장)', JB[r.top].c],
-            ['어느 고장에나 있는 일', '가게·학교 ' + r.same + '장 (10장 중 절반)', PAL[3]],
-            ['나의 짐작', GU[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]]];
+          return [['고장', TW[p.t]], ['날씨', WE[r.w]], ['카드 수', JB.map(function(x, i){ return x.n + ' ' + r.cnt[i]; }).join(' · ')],
+            ['이 고장에서 특히 많은 일', JB[r.top].n + ' (' + r.cnt[r.top] + '장)', JB[r.top].c],
+            ['어느 고장에나 있는 일', '가게·학교 ' + r.same + '장 (' + r.tot + '장 중)', PAL[3]],
+            ['나의 짐작', GU[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.top === r.base ? PAL[1] : PAL[4]]];
         },
-        columns: ['고장', '가장 많은 일', '가게·학교', '나의 짐작', '맞음'],
-        record: function(p, r){ return {t:p.t, top:r.top, same:r.same, g:p.g, ok:r.ok}; },
-        row: function(d){ return [TW[d.t], JB[d.top].n, d.same + '장', GU[d.g], d.ok ? '○' : '✕']; },
+        columns: ['고장', '날씨', '가장 많은 일', '가게·학교', '나의 짐작', '맞음'],
+        record: function(p, r){ return {t:p.t, w:r.w, top:r.top, same:r.same, g:p.g, ok:r.ok}; },
+        row: function(d){ return [TW[d.t], WE[d.w].split(' ')[0], JB[d.top].n, d.same + '장', GU[d.g], d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('세 고장 일 카드 비교', '<div id="tw1"></div><p class="ask">세 고장 모두에 똑같이 있는 일은 무엇이고, 한 고장에만 많은 일은 무엇인가요? 그 일은 어떤 자연환경을 이용하나요?</p>') +
             card('"어느 고장이나 똑같다"를 고른 횟수', '<div id="tw2"></div><p class="ask">과제: 우리 고장의 자연환경(산·들·강·바다, 날씨)을 한 줄로 적고, 그 자연을 이용한 일이나 시설을 두 가지 찾아보세요. 다른 고장 하나와 비교 표를 만들어 보세요.</p>') + '</div>';
-          var seen = {}, rows = [];
-          rec.forEach(function(d){ if (seen[d.t]) return; seen[d.t] = 1; rows.push([TW[d.t]].concat(CNT[d.t].map(function(v){ return v + '장'; }))); });
-          $('tw1').innerHTML = tableHTML(['고장'].concat(JB.map(function(x){ return x.n; })), rows) + (rows.length < 3 ? '<p class="msg">세 고장을 모두 나눠 보세요.</p>' : '');
+          var seen = {}, rows = [], ts = {};
+          rec.forEach(function(d){ var key = d.t + '|' + d.w; if (seen[key]) return; seen[key] = 1; ts[d.t] = 1;
+            rows.push([TW[d.t], WE[d.w].split(' ')[0]].concat(cntOf(d.t, d.w).map(function(v){ return v + '장'; }))); });
+          $('tw1').innerHTML = tableHTML(['고장', '날씨'].concat(JB.map(function(x){ return x.n; })), rows) + (Object.keys(ts).length < 3 ? '<p class="msg">세 고장을 모두 나눠 보세요.</p>' : '')
+            + '<p class="msg">땅 모습이 같아도 날씨를 바꾸면 많아지는 일이 달라져요. 가게·학교는 어느 고장에나 있어요.</p>';
           var sameN = rec.filter(function(d){ return d.g === 3; }).length, okN = rec.filter(function(d){ return d.ok; }).length;
           $('tw2').innerHTML = hbars([{label:'"똑같다"', v:sameN, color:PAL[4], text:sameN + '번'}, {label:'특히 많은 일을 맞힘', v:okN, color:PAL[1], text:okN + '번'}], rec.length);
         }
@@ -500,7 +517,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

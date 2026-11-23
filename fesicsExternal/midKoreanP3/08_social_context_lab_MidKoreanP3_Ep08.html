@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -312,8 +314,8 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -410,13 +412,17 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var tkR = -1e9;
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke();
+    var tkS = f(v, decOf(xr[2])), tkW = c.measureText(tkS).width / 2;
+    if (X(v) - tkW > tkR + 4){ c.fillText(tkS, X(v), y + h + 6); tkR = X(v) + tkW; } }
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
   if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
   if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
-  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; var xlCx = x + w / 2, xlCv = c.canvas.width / (c.getTransform().a || 1);
+  c.fillText(xLabel, xlCx, y + h + 30, Math.max(60, 2 * Math.min(xlCx, xlCv - xlCx) - 8));
   c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
   c.textBaseline = 'alphabetic';
   return {X:X, Y:Y};
@@ -436,7 +442,7 @@ function hbars(items, max){
 var LAB = (function anonymous(
 ) {
 
-  function tx(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y); }
+  function tx(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833'; c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y); }
   function lines(c, s, mw, o){
     o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT;
     var out = [], ws = String(s).split(' '), line = '';
@@ -469,39 +475,52 @@ var LAB = (function anonymous(
   function mark(c, x, y, r, s, col, a){ c.globalAlpha = a == null ? 1 : a; c.strokeStyle = col; c.lineWidth = 4; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke(); tx(c, s, x, y + 2, {bold:true, color:col, size:Math.round(r * 0.95), align:'center', base:'middle'}); c.globalAlpha = 1; }
 
 return (function(){
-      var CND = ['배경 정보 없이', '신분 제도 설명 함께'];
-      var Q = [
-        {n:'장면을 ‘이상하다’고 함', sh:'‘이상하다’', v:[7, 1], col:PAL[6]},
-        {n:'길동의 마음 = ‘억울함·서러움’', sh:'‘억울함·서러움’', v:[3, 9], col:PAL[4]},
-        {n:'‘지금도 비슷한 일이 있다’', sh:'‘지금도 비슷한 일’', v:[1, 6], col:PAL[3]}
+      /* 배경 설명을 세 갈래로 쪼갰다. 0번(배경 없이)·1번(신분 제도)은 예전과 똑같은 값이고,
+         2·3번은 새로 넣은 교육용 모형값이다. */
+      var CND = ['배경 정보 없이', '신분 제도 설명', '상속(재산 물림) 설명', '과거 제도(벼슬 시험) 설명'];
+      var CNDS = ['없이', '신분', '상속', '과거'];
+      var BGT = [
+        '배경 정보 없음',
+        '양반 아버지 · 신분 낮은 어머니 → 서자 길동은 아버지라 부르기도 벼슬길도 크게 막힘',
+        '재산은 적장자에게 몰려 물려 주고, 서자는 몫에서 거의 빠짐',
+        '벼슬은 과거로 뽑지만 서자는 응시 자격 자체가 제한됨'
       ];
+      var Q = [
+        {n:'장면을 ‘이상하다’고 함', sh:'‘이상하다’', v:[7, 1, 3, 2], col:PAL[6]},
+        {n:'길동의 마음 = ‘억울함·서러움’', sh:'‘억울함·서러움’', v:[3, 9, 7, 6], col:PAL[4]},
+        {n:'‘지금도 비슷한 일이 있다’', sh:'‘지금도 비슷한 일’', v:[1, 6, 8, 9], col:PAL[3]}
+      ];
+      var NOW = ['', '부모 직업·출신으로 무시당하는 일', '유산 다툼, 집안 형편에 따라 갈리는 출발선', '시험 한 번으로 갈리는 자리, 준비할 여건의 차이'];
       var PRE = ['늘어난다', '비슷하다', '줄어든다'];
       return {
         sceneHeight: 450,
         idle: '읽기 조건과 나의 예측을 고른 뒤 <b>이 조건으로 읽히기</b>를 누르세요.',
-        shortHint: '두 조건으로 한 번씩 읽혀 보세요. 배경 정보가 세 반응을 각각 어느 쪽으로 움직였나요?',
+        shortHint: '네 조건으로 한 번씩 읽혀 보세요. 어느 배경 설명이 ‘지금도 비슷한 일’을 가장 많이 끌어냈나요?',
         params: [
-          {key:'c', type:'seg', label:'읽기 조건', cols:2, value:0, options:CND},
+          {key:'c', type:'seg', label:'읽기 조건 — 어떤 배경을 알려 줄까', cols:2, value:0, options:CND,
+            note:'※ 조건별 응답 수는 실제 조사가 아니라 교육용 모형값이에요.'},
           {key:'g', type:'seg', label:'나의 예측 — 배경을 알려 주면 ‘이상하다’는 사람이', cols:3, value:1, options:PRE}
         ],
         compute: function(p){
-          var bg = p.c === 1;
-          return {bg:bg, vals:Q.map(function(q){ return q.v[p.c]; }), right:p.g === 2};
+          var bg = p.c > 0, vals = Q.map(function(q){ return q.v[p.c]; });
+          var best = 0; for (var j = 1; j < CND.length; j++){ if (Q[2].v[j] > Q[2].v[best]) best = j; }
+          return {bg:bg, c:p.c, vals:vals, right:p.g === 2, top:p.c === best && p.c > 0, best:best};
         },
         draw: function(c, W, H, p, r, tau){
-          var bg = r ? r.bg : p.c === 1;
-          rbox(c, 20, 14, W - 40, 62, '#F3EEE4', '#D8C9A8');
+          var bg = p.c > 0;
+          var scTx = '길동이 ‘아버지를 아버지라 부르지 못하고…’라며 우는 장면';
+          var scBh = Math.max(62, 30 + lines(c, scTx, W - 64, {size:15}).length * 20);
+          rbox(c, 20, 14, W - 40, scBh, '#F3EEE4', '#D8C9A8');
           tx(c, '『홍길동전』 한 장면', 32, 38, {bold:true, size:16, color:'#7A5A2A'});
-          wrapT(c, '길동이 ‘아버지를 아버지라 부르지 못하고…’라며 우는 장면', 32, 62, W - 64, 20, {size:15});
-          var y = 92;
+          wrapT(c, scTx, 32, 62, W - 64, 20, {size:15});
+          var y = 14 + scBh + 16;
           if (bg){
             var a = r ? ph(tau, 0, 0.35) : 1; c.globalAlpha = a;
-            rbox(c, 20, y, W - 40, 96, '#EEF3FA', '#C9D3DE');
-            var cx = W / 2;
-            chip(c, 32, y + 10, '양반 아버지', PAL[0], '#fff', {size:14}); chip(c, Math.max(150, W - 172), y + 10, '신분 낮은 어머니', '#8C99A8', '#fff', {size:14});
-            seg(c, 80, y + 42, cx, y + 58, '#8C99A8', 2); seg(c, Math.max(190, W - 110), y + 42, cx, y + 58, '#8C99A8', 2);
-            wrapT(c, '서자 길동 — 아버지라 부르기·벼슬길 모두 크게 제한', 32, y + 80, W - 64, 20, {bold:true, size:15, color:PAL[4]});
-            c.globalAlpha = 1; y += 110;
+            var bl = lines(c, BGT[p.c], W - 64, {bold:true, size:15}), bh2 = 36 + bl.length * 20;
+            rbox(c, 20, y, W - 40, bh2, '#EEF3FA', '#C9D3DE');
+            tx(c, CND[p.c], 32, y + 24, {bold:true, size:15, color:PAL[0]});
+            bl.forEach(function(l2, i2){ tx(c, l2, 32, y + 46 + i2 * 20, {bold:true, size:15, color:PAL[4]}); });
+            c.globalAlpha = 1; y += bh2 + 14;
           } else { rbox(c, 20, y, W - 40, 40, '#F4F6F9', '#DDE3EA'); tx(c, '배경 정보 없음', 32, y + 26, {size:15, color:'#8C99A8'}); y += 54; }
           if (!r){ var pl = lines(c, '나의 예측: 배경을 알면 ‘이상하다’가 ' + PRE[p.g], W - 40, {size:16});   /* 좁은 화면: 줄바꿈해 위로 쌓기 */
       pl.forEach(function(l2, i){ tx(c, l2, 20, H - 18 - (pl.length - 1 - i) * 22, {size:16, color:'#4A5868'}); }); return; }
@@ -514,24 +533,28 @@ return (function(){
         },
         stats: function(p, r){
           var out = [['읽기 조건', CND[p.c]]];
-          Q.forEach(function(q, i){ out.push([q.n, r.vals[i] + '명 / 10명 (다른 조건 ' + q.v[1 - p.c] + '명)', q.col]); });
-          if (r.bg) out.push(['‘지금도 비슷한 일’의 예', '부모 직업·출신으로 무시당하는 일, 차별받는 이름']);
+          Q.forEach(function(q, i){ out.push([q.n, r.vals[i] + '명 / 10명  (' + CNDS.map(function(nm, j){ return nm + ' ' + q.v[j]; }).join(' · ') + ')', q.col]); });
+          if (r.bg) out.push(['‘지금도 비슷한 일’의 예', NOW[p.c]]);
+          if (r.bg) out.push(['이 설명의 힘', r.top ? '네 조건 가운데 ‘지금도 비슷한 일’을 가장 많이 끌어냈어요' : '‘' + CND[r.best] + '’ 쪽이 ' + (Q[2].v[r.best] - r.vals[2]) + '명 더 끌어냈어요 — 그 조건으로도 읽혀 보세요', r.top ? PAL[1] : PAL[3]]);
           out.push(['나의 예측', '배경을 알면 ‘이상하다’가 ' + PRE[p.g] + (r.right ? ' — 맞았어요 (7명 → 1명)' : ' — 빗나갔어요 (7명 → 1명)'), r.right ? PAL[1] : PAL[6]]);
           return out;
         },
         columns: ['조건', '이상하다', '억울함·서러움', '지금도 비슷', '예측'],
         record: function(p, r){ return {c:p.c, right:r.right}; },
-        row: function(d){ return [d.c ? '배경 함께' : '배경 없이', Q[0].v[d.c] + '명', Q[1].v[d.c] + '명', Q[2].v[d.c] + '명', d.right ? '맞음' : '빗나감']; },
+        row: function(d){ return [CNDS[d.c], Q[0].v[d.c] + '명', Q[1].v[d.c] + '명', Q[2].v[d.c] + '명', d.right ? '맞음' : '빗나감']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('배경 정보 없이 vs 함께 (연구원 각 10명)', '<div id="mq8a"></div><p class="ask">배경을 알고 읽은 사람은 길동의 마음을 더 잘 읽었을 뿐 아니라 지금의 일과도 연결했어요. 두 걸음(그때의 사회 알기 → 지금과 견주기)으로 이 결과를 설명해 보세요.</p>') +
-            card('나의 예측 적중', '<div id="mq8b"></div><p class="ask">과제: 교과서에 실린 옛 작품 한 편을 골라, 작품이 쓰인 때의 사회 모습 한 가지를 찾아 적으세요. 그리고 그것이 오늘날 어떤 모습으로 남아 있는지, 혹은 사라졌는지 한 문단으로 써 보세요.</p>') + '</div>';
+            card('배경 설명을 쪼개어 — 조건별 응답 (각 10명)', '<div id="mq8a"></div><p class="ask">세 배경 설명 가운데 ‘지금도 비슷한 일’을 가장 많이 끌어낸 것은 무엇이었나요? 그 설명이 오늘날의 어떤 일과 닿아 있는지 적어 보세요.</p>') +
+            card('조건별 ‘지금도 비슷한 일’과 나의 예측', '<div id="mq8b"></div><p class="ask">과제: 교과서에 실린 옛 작품 한 편을 골라, 작품이 쓰인 때의 사회 모습 한 가지를 찾아 적으세요. 그리고 그것이 오늘날 어떤 모습으로 남아 있는지, 혹은 사라졌는지 한 문단으로 써 보세요.</p>') + '</div>';
           var items = [];
-          Q.forEach(function(q){ [0, 1].forEach(function(cd){ var tried = rec.some(function(d){ return d.c === cd; });
-            items.push({label:q.n + ' · ' + (cd ? '배경 함께' : '배경 없이'), v:q.v[cd], color:tried ? q.col : '#CBD3DD', text:q.v[cd] + '명' + (tried ? '' : ' (아직)')}); }); });
+          Q.forEach(function(q){ CND.forEach(function(nm, cd){ var tried = rec.some(function(d){ return d.c === cd; });
+            items.push({label:q.sh + ' · ' + CNDS[cd], v:q.v[cd], color:tried ? q.col : '#CBD3DD', text:q.v[cd] + '명' + (tried ? '' : ' (아직)')}); }); });
           $('mq8a').innerHTML = hbars(items, 10);
           var hit = rec.filter(function(d){ return d.right; }).length;
-          $('mq8b').innerHTML = hbars([{label:'예측이 맞은 기록', v:hit / rec.length * 100, color:PAL[3], text:hit + ' / ' + rec.length + '회'}], 100);
+          var rows = CND.map(function(nm, cd){ var mine = rec.filter(function(d){ return d.c === cd; });
+            return [nm, Q[2].v[cd] + '명', cd ? '+' + (Q[2].v[cd] - Q[2].v[0]) + '명' : '기준', mine.length + '회']; });
+          $('mq8b').innerHTML = tableHTML(['읽기 조건', '‘지금도 비슷한 일’', '배경 없이와 차이', '내가 재 본 횟수'], rows) +
+            hbars([{label:'예측이 맞은 기록', v:hit / rec.length * 100, color:PAL[3], text:hit + ' / ' + rec.length + '회'}], 100);
         }
       };
     })();
@@ -541,7 +564,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

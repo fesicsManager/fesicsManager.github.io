@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -213,8 +214,8 @@ tbody tr:hover{background:#F5F8FB}
 <body>
 <div class="container">
   <header>
-    <h1>용액의 농도</h1>
-    <p>화학에서 몰 농도를 다뤘습니다. 이번에는 같은 용액을 퍼센트 농도, 몰 농도, 몰랄 농도로 함께 나타내며 세 가지가 어떻게 다른지 알아봅니다.</p>
+    <h1>절인 배추의 비밀 — 용액의 농도와 삼투</h1>
+    <p>화학에서 몰 농도를 다뤘습니다. 이번에는 같은 용액을 퍼센트 농도, 몰 농도, 몰랄 농도로 함께 나타내며 세 가지가 어떻게 다른지 알아봅니다.<br>그리고 그 용액에 <b>배추를 담급니다.</b> 배추 세포를 둘러싼 막은 물만 지나가는 반투막이라, 바깥이 더 진하면 물이 배추에서 빠져나옵니다. 농도를 어떻게 적느냐가 아니라 <b>물에 녹아 돌아다니는 입자가 몇 개냐</b>가 삼투를 정한다는 것이 이 화의 핵심이에요 — 그래서 소금(NaCl)이 설탕보다 훨씬 잘 절입니다.</p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -447,6 +449,16 @@ var SOL = [
 ];
 // sol: 20 ℃ 용해도 (g / 물 100 g), a: 20 ℃ 용액 밀도 근사 ρ ≈ 0.998 + a × (퍼센트 농도) g/mL (실측 표에 맞춤)
 var MASS = [5, 10, 20, 40], WATER = [100, 200, 500];
+// 7화 '절인 배추의 비밀' — 삼투 모형 (교육용 모형값)
+var TIME = [0, 30, 60, 120];      // 절이는 시간 (분)
+var CIN = 0.30;                   // 배추 세포액의 입자 농도 (osmol/kg, 식물 세포액 대표값)
+var TAU = 45;                     // 물이 빠지는 속도의 시간 상수 (분)
+var WFRAC = 0.93;                 // 배추 100 g 중 물의 양 (g)
+var LCAP = 0.55;                  // 세포벽·원형질 분리 때문에 물이 끝없이 빠지지는 않음 (모형 한계값)
+/* 같은 퍼센트 농도라도 몰 농도는 용질에 따라 갈린다 — 먼저 찍고 계산으로 채점한다 */
+function shortName(X){ return X.name.split(' ')[0]; }
+function McAt(X, pct){ var dn = 0.998 + X.a * pct; return pct * dn * 10 / X.M; }
+var GP = ['지금 고른 용질', '견줄 용질', '두 쪽이 같다'];
 return {
   sceneHeight: function(w){ return w < 520 ? 640 : 440; },
   idle: '용질과 양을 정한 뒤 <b>녹이기</b>를 누르세요. 퍼센트 농도, 몰 농도, 몰랄 농도를 함께 계산합니다.',
@@ -454,15 +466,27 @@ return {
   params: [
     {key:'s', type:'seg', label:'용질', cols:2, value:2, options:SOL.map(function(x){ return x.name; })},
     {key:'m', type:'seg', label:'용질의 질량', cols:4, value:1, options:MASS.map(function(v){ return v + ' g'; })},
+    {key:'t', type:'seg', label:'배추를 절이는 시간', cols:4, value:2, options:['담그지 않음', '30분', '1시간', '2시간']},
+    {key:'g', type:'seg', label:'견줄 용질 (같은 퍼센트 농도로 맞춰 견줌)', cols:2, value:0, options:SOL.map(function(x){ return shortName(x); })},
+    {key:'gp', type:'seg', label:'나의 예측 — 같은 퍼센트 농도일 때 몰 농도가 큰 쪽', cols:3, value:0, options:GP},
     {key:'w', type:'seg', label:'물의 질량', cols:3, value:0, options:WATER.map(function(v){ return v + ' g'; }),
-      note:'퍼센트 농도 = 용질 질량 ÷ 용액 질량 × 100, 몰 농도 = 용질 몰수 ÷ 용액 부피(L), 몰랄 농도 = 용질 몰수 ÷ 용매 질량(kg)입니다. 용액의 밀도는 20 ℃ 실측 표에 맞춘 값이고, 용해도(20 ℃)보다 많이 넣으면 남는 만큼은 녹지 않고 가라앉습니다.'}
+      note:'삼투 부분은 교육용 모형입니다 — 배추 세포액을 0.30 osmol/kg, 배추 100 g 중 물을 93 g으로 보고, 물이 빠지는 양을 시간 상수 45분의 지수 모형으로 계산합니다. 세포벽과 원형질 분리 때문에 물이 끝없이 빠지지는 않으므로 최대 55 %로 제한했습니다. 삼투압은 반트호프 식 π = i·m·R·T(20 ℃)로 구한 값입니다. 퍼센트 농도 = 용질 질량 ÷ 용액 질량 × 100, 몰 농도 = 용질 몰수 ÷ 용액 부피(L), 몰랄 농도 = 용질 몰수 ÷ 용매 질량(kg)입니다. 용액의 밀도는 20 ℃ 실측 표에 맞춘 값이고, 용해도(20 ℃)보다 많이 넣으면 남는 만큼은 녹지 않고 가라앉습니다.'}
   ],
   compute: function(p){
     var S = SOL[p.s], m0 = MASS[p.m], w = WATER[p.w];
     var m = Math.min(m0, S.sol * w / 100), left = m0 - m;   // 녹은 양만 농도에 넣음
     var n = m / S.M, msol = m + w, pct = m / msol * 100, dn = 0.998 + S.a * pct, Vml = msol / dn;
     var Mc = n / (Vml / 1000), mol = n / (w / 1000);
-    return {S:S, m:m0, md:m, left:left, w:w, dn:dn, n:n, msol:msol, V:Vml, pct:pct, Mc:Mc, mol:mol, ip:n * S.i / (w / 1000)};
+    var ip = n * S.i / (w / 1000);
+    var pi = ip * 0.08314 * 293.15;                                  // 삼투압 (bar), 반트호프 식
+    var t = TIME[p.t];
+    var Lmax = ip > CIN ? Math.min(LCAP, 1 - CIN / ip) : 0;          // 평형에서 빠지는 물의 비율
+    var L = Lmax * (1 - Math.exp(-t / TAU));
+    var cs = SOL[p.g], m1 = McAt(S, pct), m2 = McAt(cs, pct);
+    var win = Math.abs(m1 - m2) < 1e-6 ? 2 : (m1 > m2 ? 0 : 1);
+    return {S:S, m:m0, md:m, left:left, w:w, dn:dn, n:n, msol:msol, V:Vml, pct:pct, Mc:Mc, mol:mol, ip:ip,
+      pi:pi, t:t, L:L, Lmax:Lmax, lost:WFRAC * 100 * L,
+      cs:cs, m1:m1, m2:m2, win:win, gok:p.gp === win, guess:GP[p.gp]};
   },
   draw: function(c, W, H, p, r, tau){
     var S = SOL[p.s], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -485,6 +509,13 @@ return {
       c.fillStyle = S.i > 1 ? (i % 2 ? '#C8463D' : '#2B5FA3') : '#7657B3';
       c.beginPath(); c.arc(px, Math.min(py, by + bh - 6), 3.5, 0, Math.PI * 2); c.fill();
     }
+    // 배추 한 조각 — 물이 빠지면 쪼그라든다
+    if (r && r.t > 0){
+      var shr = 1 - r.L * k * 0.6, cwd = 44 * shr, chh = 56 * shr;
+      c.fillStyle = '#9CC776'; c.strokeStyle = '#4E7A33'; c.lineWidth = 2;
+      c.fillRect(bx + bw - 58, by + bh - 10 - chh, cwd, chh);
+      c.strokeRect(bx + bw - 58, by + bh - 10 - chh, cwd, chh);
+    }
     txt(c, S.name, bx, by - 14, {bold:true});
     txt(c, MASS[p.m] + ' g + 물 ' + WATER[p.w] + ' g', bx, by + bh + 26, {color:'#4A5868'});
     if (S.i > 1) txt(c, '물에서 이온 ' + S.i + '개로 나뉨', bx, by + bh + 52, {color:'#C8463D'});
@@ -495,6 +526,9 @@ return {
     txt(c, '용질 몰수 ' + f(r.n, 4) + ' mol', ix, 88 + dy, {});
     var rows = [['퍼센트 농도', f(r.pct * k, 2) + ' %', '#2E9E78'], ['몰 농도 (M)', f(r.Mc * k, 4) + ' mol/L', '#2B5FA3'], ['몰랄 농도 (m)', f(r.mol * k, 4) + ' mol/kg', '#C8463D']];
     rows.forEach(function(q, i){ var y = 126 + i * 46 + dy; c.fillStyle = q[2]; c.fillRect(ix, y - 14, 5, 32); txt(c, q[0], ix + 14, y - 2, {color:'#4A5868'}); txt(c, q[1], ix + 14, y + 22, {bold:true}); });
+    var oy = nar ? 512 : 270;
+    txt(c, '삼투압 ' + f(r.pi, 0) + ' bar', ix, oy, {color:'#7657B3', bold:true});
+    txt(c, '물 빠짐 ' + f(r.L * 100 * k, 0) + ' %', ix, oy + 22, {color:'#7657B3', bold:true});
     var s1 = '포화: ' + f(r.md, 1) + ' g 만 녹고 ' + f(r.left, 1) + ' g 은 가라앉음', s2 = '입자 몰랄 농도 (이온까지 세면) ' + f(r.ip, 4) + ' mol/kg';
     if (nar){
       if (r.left > 0){ txt(c, '포화: ' + f(r.md, 1) + ' g 만 녹고', 12, H - 84, {color:'#C8463D', bold:true}); txt(c, f(r.left, 1) + ' g 은 가라앉음', 12, H - 62, {color:'#C8463D', bold:true}); }
@@ -509,16 +543,29 @@ return {
       ['용액 질량 · 부피', f(r.msol, 1) + ' g · ' + f(r.V, 1) + ' mL (밀도 ' + f(r.dn, 3) + ' g/mL)'],
       ['녹은 양', r.left > 0 ? f(r.md, 1) + ' g (포화, ' + f(r.left, 1) + ' g 은 녹지 않음)' : r.m + ' g 모두 녹음'],
       ['퍼센트 농도', f(r.pct, 2) + ' %', PAL[1]], ['몰 농도 M', f(r.Mc, 4) + ' mol/L', PAL[0]],
-      ['몰랄 농도 m', f(r.mol, 4) + ' mol/kg', PAL[4]], ['입자 몰랄 농도 (완전 해리 가정)', f(r.ip, 4) + ' mol/kg (i = ' + r.S.i + ')']];
+      ['몰랄 농도 m', f(r.mol, 4) + ' mol/kg', PAL[4]], ['입자 몰랄 농도 (완전 해리 가정)', f(r.ip, 4) + ' mol/kg (i = ' + r.S.i + ')'],
+      ['삼투압 π = i·m·R·T (20 ℃)', f(r.pi, 1) + ' bar', PAL[3]],
+      ['배추 세포액 (모형값)', f(CIN, 2) + ' osmol/kg'],
+      ['절이는 시간', r.t + '분'],
+      ['배추에서 빠진 물', f(r.L * 100, 1) + ' % (배추 100 g 중 ' + f(r.lost, 1) + ' g)', PAL[3]],
+      ['절인 뒤 배추 무게', f(100 - r.lost, 1) + ' g (처음 100 g)'],
+      ['끝까지 담가 두면', f(r.Lmax * 100, 1) + ' % 까지 빠짐 (모형 한계 55 %)'],
+      ['같은 퍼센트 농도 ' + f(r.pct, 2) + ' % 로 맞추면', shortName(r.S) + ' ' + f(r.m1, 4) + ' mol/L · ' + shortName(r.cs) + ' ' + f(r.m2, 4) + ' mol/L', PAL[0]],
+      ['나의 예측', r.guess + ' — ' + (r.gok ? '맞았어요' : '아니에요, ' + (r.win === 2 ? '두 쪽이 같아요' : GP[r.win] + '(' + shortName(r.win === 0 ? r.S : r.cs) + ')이 커요')), r.gok ? PAL[1] : PAL[6]],
+      ['왜 갈리나', r.S.M === r.cs.M ? '몰질량이 같아서 몰 농도도 같아요' : '퍼센트 농도가 같아도 몰질량이 작은 쪽이 같은 무게에 든 알갱이 수가 많아 몰 농도가 큽니다 (' + shortName(r.S) + ' ' + f(r.S.M, 1) + ' · ' + shortName(r.cs) + ' ' + f(r.cs.M, 1) + ' g/mol)']];
   },
-  columns: ['용질', '질량 (g)', '물 (g)', '밀도 (g/mL)', 'n (mol)', '퍼센트 (%)', 'M (mol/L)', 'm (mol/kg)', '입자 m'],
-  record: function(p, r){ return {s:p.s, name:r.S.name, m:r.m, w:r.w, dn:r.dn, n:r.n, pct:r.pct, Mc:r.Mc, mol:r.mol, ip:r.ip, i:r.S.i}; },
-  row: function(d){ return [d.name, d.m, d.w, f(d.dn, 2), f(d.n, 4), f(d.pct, 2), f(d.Mc, 4), f(d.mol, 4), f(d.ip, 4)]; },
+  columns: ['용질', '질량 (g)', '물 (g)', '밀도 (g/mL)', 'n (mol)', '퍼센트 (%)', 'M (mol/L)', 'm (mol/kg)', '입자 m', 'π (bar)', '절임 (분)', '물 빠짐 (%)', '견줄 용질', '내 예측'],
+  record: function(p, r){ return {s:p.s, name:r.S.name, m:r.m, w:r.w, dn:r.dn, n:r.n, pct:r.pct, Mc:r.Mc, mol:r.mol, ip:r.ip, i:r.S.i,
+    pi:r.pi, t:r.t, L:r.L, lost:r.lost, g:p.g, cs:shortName(r.cs), m1:r.m1, m2:r.m2, gok:r.gok, guess:r.guess}; },
+  row: function(d){ return [d.name, d.m, d.w, f(d.dn, 2), f(d.n, 4), f(d.pct, 2), f(d.Mc, 4), f(d.mol, 4), f(d.ip, 4),
+    f(d.pi, 1), d.t, f(d.L * 100, 1), d.cs || '—', d.guess ? d.guess + (d.gok ? ' ○' : ' ×') : '—']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('몰 농도와 몰랄 농도 비교', '<canvas class="chart" id="ch1" role="img" aria-label="용액의 농도 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">두 값이 왜 조금 다른가요? 묽은 수용액에서는 비슷하지만 진한 용액에서는 차이가 커지는 까닭을 분모(용액 부피 vs 용매 질량)로 설명해 보세요.</p>') +
       card('용질의 질량과 농도', '<canvas class="chart" id="ch2" role="img" aria-label="용액의 농도 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">같은 질량을 녹여도 용질에 따라 몰 농도가 다릅니다. 무엇 때문일까요?</p>') +
-      card('온도가 바뀌면 어느 농도가 달라질까', '<p>몰 농도는 용액의 부피로 나눈 값이고, 몰랄 농도는 용매의 질량으로 나눈 값입니다.</p><p class="ask">온도가 올라가 용액이 팽창하면 두 농도 중 어느 쪽이 달라질까요? 정밀한 실험에서 몰랄 농도를 쓰는 까닭을 설명해 보세요.</p>') + '</div>';
+      card('온도가 바뀌면 어느 농도가 달라질까', '<p>몰 농도는 용액의 부피로 나눈 값이고, 몰랄 농도는 용매의 질량으로 나눈 값입니다.</p><p class="ask">온도가 올라가 용액이 팽창하면 두 농도 중 어느 쪽이 달라질까요? 정밀한 실험에서 몰랄 농도를 쓰는 까닭을 설명해 보세요.</p>') +
+      card('절인 배추의 비밀 — 삼투', '<div id="ro4"></div><p class="ask">같은 질량을 녹였는데도 소금물에서 배추가 더 많이 절여집니다. 퍼센트 농도가 아니라 <b>입자 몰랄 농도</b>로 견주어야 하는 까닭을 설명해 보세요. 설탕으로 김치를 절이지 않는 까닭은 무엇일까요?</p>') +
+      card('같은 퍼센트 농도, 다른 몰 농도 — 먼저 찍어 보기', '<div id="ro5"></div><p class="ask">퍼센트 농도가 같은데도 몰 농도가 갈리는 까닭을 ‘몰질량’으로 설명해 보세요. 삼투압을 정하는 것은 또 어느 값인가요?</p>') + '</div>';
     drawScatter($('ch1'), {xLabel:'몰 농도 (mol/L)', yLabel:'몰랄 농도 (mol/kg)', square:true, lines:[{k:1, color:'#8C99A8', dash:true}],
       series:[0, 1, 2, 3].map(function(i){ return {color:PAL[i], pts:rec.filter(function(d){ return d.s === i; }).map(function(d){ return {x:d.Mc, y:d.mol}; })}; }).filter(function(s){ return s.pts.length; })});
     $('ro1').innerHTML = '<li>기록 ' + rec.length + '개: 몰랄 ÷ 몰 농도 평균 <b>' + f(mean(rec.map(function(d){ return d.mol / d.Mc; })), 4) + '</b></li>' +
@@ -529,6 +576,19 @@ return {
     var seen = {}, rows = [];
     rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; rows.push([dot(PAL[d.s]) + d.name, f(d.m / d.n, 2), d.i]); });
     $('ro2').innerHTML = tableHTML(['용질', '몰질량 (g/mol)', '물에서 나뉘는 입자 수'], rows);
+    var soak = rec.filter(function(d){ return d.t > 0; });
+    $('ro4').innerHTML = soak.length ? tableHTML(['용질', '퍼센트 (%)', '입자 농도 (osmol/kg)', 'π (bar)', '시간 (분)', '빠진 물 (%)'],
+      soak.slice(-8).map(function(d){ return [dot(PAL[d.s]) + d.name, f(d.pct, 1), f(d.ip, 3), f(d.pi, 0), d.t, '<b>' + f(d.L * 100, 1) + '</b>']; })) +
+      '<p class="msg">물이 빠지는 정도를 정하는 것은 퍼센트 농도가 아니라 <b>물에 녹아 돌아다니는 입자의 수</b>(입자 몰랄 농도)입니다. ' +
+      'NaCl은 Na⁺와 Cl⁻ 둘로, CaCl₂는 셋으로 나뉘지만 설탕은 한 알 그대로라, 같은 퍼센트라도 소금물의 삼투압이 훨씬 큽니다. ' +
+      '게다가 설탕은 몰질량이 커서 같은 질량에 든 알갱이 수부터 적습니다.</p>'
+      : '<p class="msg">절이는 시간을 0분이 아닌 값으로 두고, 소금과 설탕을 같은 퍼센트 농도로 맞춰 견줘 보세요.</p>';
+    var pct0 = rec[rec.length - 1].pct;
+    var r5 = SOL.map(function(X){ return [shortName(X), f(X.M, 2), X.i, f(McAt(X, pct0), 4), f(McAt(X, pct0) * X.i, 4)]; });
+    var gh = rec.filter(function(d){ return d.guess; });
+    $('ro5').innerHTML = tableHTML(['용질', '몰질량 (g/mol)', '나뉘는 입자 수', 'M (mol/L)', '입자 농도 (mol/L)'], r5) +
+      '<p class="msg">퍼센트 농도를 ' + f(pct0, 2) + ' % 로 똑같이 맞췄을 때의 값입니다. 몰질량이 작은 쪽이 몰 농도가 큽니다.' +
+      (gh.length ? ' 내 예측이 맞은 기록: ' + gh.filter(function(d){ return d.gok; }).length + ' / ' + gh.length + '회' : '') + '</p>';
   }
 };
 })();
@@ -537,7 +597,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

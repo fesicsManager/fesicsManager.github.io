@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,14 +479,34 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
       ];
       var DOC = ['바깥으로 보낸 외교 문서', '나라 안의 비석·묘지명·용어', '무역·문화 교류 기록'];
       var YH = ['고려 독자 연호', '송', '거란(요)', '금'];
-      function model(p){ var e = PER[p.per]; return {e:e, ok:p.my === e.yh, show:[e.era, e.inn, e.ex][p.doc]}; }
+      /* 시기를 가리고 자료만 주는 문제 — 연호 이름을 바로 적지 않고 정세로만 알려 준다 */
+      var CASE = [2, 4, 0, 3, 1];
+      var CSN = ['자료 ①', '자료 ②', '자료 ③', '자료 ④', '자료 ⑤'];
+      var CLUE = [
+        '비석에 “천수 ○년”이라 새겨져 있다. 북쪽에 큰 유목 왕조가 없고, 중국은 여러 왕조로 갈라져 있다.',
+        '개경을 “황도”라 부르고, 비석에는 “광덕 ○년”이라 적혀 있다. 중국 남쪽에서 새 왕조가 막 일어섰다.',
+        '바깥으로 보낸 국서에 남쪽에서 새로 일어난 왕조의 연호를 적었다. 북쪽 유목 세력이 빠르게 커지고 있다.',
+        '나라 안 묘지명에는 “폐하 · 조(詔) · 태자”가 보인다. 그런데 994년 무렵부터 바깥 국서의 연호는 북쪽 유목 왕조의 것으로 바뀌었다.',
+        '1126년, 북쪽에서 새로 일어난 왕조가 사대를 요구해 받아들였다. 그 뒤 국서의 연호가 그 왕조의 것이 되었다.'
+      ];
+      function model(p){
+        var hide = (p.mode === 1);
+        var idx = hide ? CASE[p.cs || 0] : p.per;
+        var e = PER[idx];
+        return {e:e, idx:idx, hide:hide, csn:CSN[p.cs || 0], clue:CLUE[idx],
+          ok:p.my === e.yh, show:hide ? CLUE[idx] : [e.era, e.inn, e.ex][p.doc]};
+      }
       return {
         sceneHeight: 440,
-        idle: '시기, 자료 종류, 나의 예상을 고른 뒤 <b>자료 읽기</b>를 누르세요.',
+        idle: '시기·자료 종류·나의 예상을 고른 뒤 <b>자료 읽기</b>를 누르세요. “시기를 가리고 자료만 보기”를 고르면 정세만 읽고 연호를 추론합니다.',
         shortHint: '11세기를 골라 세 가지 자료를 모두 읽어 보세요. 바깥 문서와 나라 안의 말이 같은 나라를 가리키나요?',
         params: [
           {key:'per', type:'seg', label:'시기', cols:3, value:3, options:PER.map(function(x){ return x.n; })},
           {key:'doc', type:'seg', label:'자료 종류', cols:3, value:0, options:DOC},
+          {key:'mode', type:'seg', label:'어떻게 읽을까', cols:2, value:0,
+            options:['시기를 보고 읽기', '시기를 가리고 자료만 보기'],
+            note:'“가리고 보기”에서는 시기를 알려 주지 않습니다. 자료의 정세만 읽고 어느 나라 연호인지 찾아 보세요. 틀리면 자료를 다시 읽고 예상을 바꿔 다시 눌러 보세요.'},
+          {key:'cs', type:'seg', label:'가리고 볼 자료', cols:5, value:0, options:CSN},
           {key:'my', type:'seg', label:'나의 예상: 이 시기 연호', cols:4, value:1, options:YH}
         ],
         compute: function(p){ return model(p); },
@@ -509,23 +531,36 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           }
           tx(c, '개략도', x0 + mw - 6, y0 + 16, {align:'right', size:11, color:'#7A8794'});
           var ty = y0 + mh + 26;
-          tx(c, m.e.n + ' · ' + DOC[p.doc], 12, ty, {bold:true, size:sz});
-          wrapT(c, r ? m.show : '자료를 아직 읽지 않았어요', 12, ty + 26, W - 24, 20, {size:sz - 1, color:r ? '#1E2833' : '#8C99A8', max:2});
-          if (r && tau > 0.7) tx(c, '나의 예상 ' + YH[p.my] + ' → 실제 ' + YH[m.e.yh] + (m.ok ? ' ✓' : ' ✕'), 12, H - 14, {bold:true, size:sz - 1, color:m.ok ? PAL[1] : PAL[4]});
+          tx(c, m.hide ? (m.csn + ' · 시기를 가렸습니다') : (m.e.n + ' · ' + DOC[p.doc]), 12, ty, {bold:true, size:sz});
+          wrapT(c, r ? m.show : (m.hide ? '자료 읽기를 누르면 정세만 알려 줍니다' : '자료를 아직 읽지 않았어요'), 12, ty + 26, W - 24, 20, {size:sz - 1, color:r ? '#1E2833' : '#8C99A8', max:3});
+          if (r && tau > 0.7) tx(c, m.hide
+            ? ('나의 예상 ' + YH[p.my] + (m.ok ? ' ✓ 맞혔습니다 — ' + m.e.n : ' ✕ 자료를 다시 읽고 바꿔 보세요'))
+            : ('나의 예상 ' + YH[p.my] + ' → 실제 ' + YH[m.e.yh] + (m.ok ? ' ✓' : ' ✕')), 12, H - 14, {bold:true, size:sz - 1, color:m.ok ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
+          if (r.hide) return [['문제', r.csn + ' — 시기를 가렸습니다'], ['자료', r.clue, PAL[0]],
+            ['나의 예상', YH[p.my], PAL[3]],
+            ['채점', r.ok ? '맞혔습니다 — ' + r.e.n + ', 연호는 ' + YH[r.e.yh] + ' 쪽입니다' : '아직 아닙니다 — 자료의 정세(북쪽에 어느 왕조가 있나, 남쪽에 새 왕조가 일어났나, 몇 년에 무엇이 바뀌었나)를 다시 읽고 예상을 바꿔 보세요', r.ok ? PAL[1] : PAL[4]],
+            ['읽는 길', '연호는 “그때 가장 센 나라”를 따라 바뀝니다. 자료에서 북쪽·남쪽 정세를 찾으면 연호를 추론할 수 있습니다.', PAL[6]]];
           return [['시기', r.e.n], ['바깥 형식 (연호)', r.e.era, PAL[2]], ['나라 안의 말', r.e.inn, PAL[3]], ['실제 교류', r.e.ex, PAL[1]],
             ['가장 센 나라', r.e.strong], ['나의 예상', YH[p.my] + (r.ok ? ' — 맞음' : ' — 실제는 ' + YH[r.e.yh]), r.ok ? PAL[1] : PAL[4]],
             ['읽는 법', r.e.yh >= 2 ? '섬기는 형식은 안전을 위해, 교류는 실제 이익을 위해 — 형식과 실제가 다름' : '이 시기에는 독자 연호도 썼음', PAL[0]]];
         },
-        columns: ['시기', '자료', '나의 예상', '실제 연호'],
-        record: function(p, r){ return {per:p.per, doc:p.doc, my:p.my, ok:r.ok}; },
-        row: function(d){ return [PER[d.per].s, ['외교 문서', '안의 비석·용어', '교류 기록'][d.doc], YH[d.my] + (d.ok ? ' ✓' : ' ✕'), YH[PER[d.per].yh]]; },
+        columns: ['시기', '읽는 법', '나의 예상', '실제 연호'],
+        record: function(p, r){ return {per:r.idx, doc:p.doc, my:p.my, ok:r.ok, hide:r.hide, csn:r.csn}; },
+        row: function(d){ return [d.hide ? d.csn : PER[d.per].s, d.hide ? '가리고 추론' : ['외교 문서', '안의 비석·용어', '교류 기록'][d.doc],
+          YH[d.my] + (d.ok ? ' ✓' : ' ✕'), YH[PER[d.per].yh]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('시기별 형식과 실제', '<div id="gy1"></div><p class="ask">과제: 고려 시대 금석문이나 묘지명 10점의 연호를 찾아 연대순으로 놓고, 연호가 바뀐 시점을 동아시아 정세 변화(거란 침입 · 송과 외교 재개 · 금 건국)와 한 표에 겹쳐 보세요.</p>') +
+            card('시기를 가리고 추론해 보기', '<div id="gy3"></div><p class="ask">자료의 정세만 보고 연호를 맞혔나요? 무엇을 보고 알아냈는지(북쪽 왕조 · 남쪽 새 왕조 · 연도) 적어 보세요.</p>') +
             card('내가 읽은 자료 종류', '<div id="gy2"></div><p class="ask">외왕내제를 보여 주는 용어 3가지를 찾아, 원래 황제국에서 쓰던 뜻과 비교해 보세요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.per] = seen[d.per] || {}; seen[d.per][d.doc] = 1; });
+          var hid = rec.filter(function(d){ return d.hide; });
+          $('gy3').innerHTML = hid.length
+            ? tableHTML(['문제', '나의 예상', '실제 연호', '맞음'], hid.map(function(d){ return [d.csn, YH[d.my], YH[PER[d.per].yh], d.ok ? '○' : '✕']; })) +
+              '<p class="msg">맞힌 횟수 ' + hid.filter(function(d){ return d.ok; }).length + ' / ' + hid.length + '회. 연호는 그때 가장 센 나라를 따라 바뀌었으니, 자료에서 <b>정세</b>를 찾으면 연호를 거꾸로 알아낼 수 있어요.</p>'
+            : '<p class="msg">“시기를 가리고 자료만 보기”를 골라 추론해 보세요.</p>';
           $('gy1').innerHTML = tableHTML(['시기', '연호(형식)', '나라 안', '실제 교류', '읽은 자료'], PER.map(function(e, i){ var s = seen[i] || {};
             return [e.s, YH[e.yh], e.inn, e.ex.split(',')[0], Object.keys(s).length + '/3']; }));
           var cnt = [0, 0, 0]; rec.forEach(function(d){ cnt[d.doc]++; });
@@ -541,7 +576,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

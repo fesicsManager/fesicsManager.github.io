@@ -111,7 +111,8 @@ tbody tr:nth-child(even){background:#fafcff}
         <div id="controls"><div class="ctrl"><label for="y">0~14세 <span class="val" id="vY">12</span>%</label><input type="range" id="y" min="3" max="40" step="1" value="12"></div>
 <div class="ctrl"><label for="o">65세 이상 <span class="val" id="vO">18</span>%</label><input type="range" id="o" min="3" max="45" step="1" value="18"></div>
 <div class="ctrl"><label for="rt">은퇴 나이 조정 <span class="val" id="vR">65</span>세</label><input type="range" id="rt" min="65" max="75" step="1" value="65"></div>
-<div class="ctrl"><label for="mid">65~74세가 전체에서 차지하는 비율 <span class="val" id="vM">8</span>%</label><input type="range" id="mid" min="2" max="20" step="1" value="8"></div></div>
+<div class="ctrl"><label for="mid">65~74세가 전체에서 차지하는 비율 <span class="val" id="vM">8</span>%</label><input type="range" id="mid" min="2" max="20" step="1" value="8"></div>
+<div class="ctrl"><label for="tg">목표 총부양비 <span class="val" id="vT">70</span></label><input type="range" id="tg" min="40" max="110" step="5" value="70"></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">인구 구조 그리기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -143,18 +144,28 @@ var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 var rows=[];
 var LAB=(function(){
 var out,c,cvv;
-var y=document.getElementById('y'),o=document.getElementById('o'),rt=document.getElementById('rt'),mid=document.getElementById('mid');
+var y=document.getElementById('y'),o=document.getElementById('o'),rt=document.getElementById('rt'),mid=document.getElementById('mid'),tg=document.getElementById('tg');
 function u(id,el){el.oninput=function(){document.getElementById(id).textContent=el.value;draw(1);};}
-u('vY',y);u('vO',o);u('vR',rt);u('vM',mid);
+u('vY',y);u('vO',o);u('vR',rt);u('vM',mid);u('vT',tg);
 function calc(){
   var Y=Number(y.value),O=Number(o.value),R=Number(rt.value),M=Math.min(Number(mid.value),O);
   var W=Math.max(100-Y-O,1);
   var shift=(R>65)?M*Math.min((R-65)/10,1):0;
   var W2=W+shift, O2=O-shift;
+  /* 목표 총부양비에 닿는 두 가지 길을 찾아 본다 — 은퇴 나이 조정 / 유소년 비율 변화 */
+  var T=Number(tg.value), needR=null, needY=null, rr, sh, w2, o2, yy, w3;
+  for(rr=65;rr<=75;rr++){
+    sh=(rr>65)?M*Math.min((rr-65)/10,1):0; w2=W+sh; o2=O-sh;
+    if((Y+o2)/w2*100<=T){needR=rr;break;}
+  }
+  for(yy=3;yy<=40;yy++){
+    w3=Math.max(100-yy-O,1);
+    if((yy+O)/w3*100<=T){needY=yy;break;}
+  }
   return {Y:Y,O:O,W:W,W2:W2,O2:O2,shift:shift,
           dy:Y/W*100, dov:O/W*100, dt:(Y+O)/W*100,
           dy2:Y/W2*100, dov2:O2/W2*100, dt2:(Y+O2)/W2*100,
-          perWorker:(Y+O)/W};
+          perWorker:(Y+O)/W, T:T, needR:needR, needY:needY, reach:(Y+O)/W*100<=T};
 }
 function draw(prog){
   var r=calc();
@@ -198,19 +209,21 @@ function draw(prog){
   c.fillText('생산연령 100명당 '+r.dt.toFixed(1)+'명 (1명당 약 '+r.perWorker.toFixed(2)+'명, 연령 구조 기준)',cvv.width/2,cvv.height-14);
 }
 return {
-  columns:['유소년(%)','노년(%)','생산(%)','유소년부양비','노년부양비','총부양비'],
+  columns:['유소년(%)','노년(%)','생산(%)','유소년부양비','노년부양비','총부양비','목표','은퇴 나이로'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='연령 비율을 정하고 <b>인구 구조 그리기</b>를 눌러 부양비를 계산해 보세요.';},
   run:function(done){
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/24,1));
       if(t>=24){clearInterval(iv);var r=calc();
-        out.innerHTML='총부양비 <b>'+r.dt.toFixed(1)+'</b> (유소년 '+r.dy.toFixed(1)+' + 노년 '+r.dov.toFixed(1)+') — 생산연령인구 100명당 유소년·고령 인구 수. 1명당으로 환산하면 약 '+r.perWorker.toFixed(2)+'명';
+        out.innerHTML='총부양비 <b>'+r.dt.toFixed(1)+'</b> (유소년 '+r.dy.toFixed(1)+' + 노년 '+r.dov.toFixed(1)+') — 생산연령인구 100명당 유소년·고령 인구 수. 1명당으로 환산하면 약 '+r.perWorker.toFixed(2)+'명'
+          +'<br>목표 '+r.T+' 까지: 은퇴 나이로는 '+(r.needR!==null?'<b>'+r.needR+'세</b>면 닿습니다':'<b>75세로도 닿지 않습니다</b>')
+          +' · 유소년 비율로는 '+(r.needY!==null?'<b>'+r.needY+'%</b>'+(r.needY<r.Y?' (출생이 더 줄어드는 방향)':' (출생이 늘어나는 방향)'):'<b>어떤 값으로도 닿지 않습니다</b>');
         done();}},30);
   },
   record:function(){
     var r=calc();
-    return {cells:[r.Y,r.O,r.W.toFixed(0),r.dy.toFixed(1),r.dov.toFixed(1),r.dt.toFixed(1)],
-            raw:{Y:r.Y,O:r.O,W:r.W,dy:r.dy,dov:r.dov,dt:r.dt,dt2:r.dt2,rt:Number(rt.value)}};
+    return {cells:[r.Y,r.O,r.W.toFixed(0),r.dy.toFixed(1),r.dov.toFixed(1),r.dt.toFixed(1),r.T,r.needR!==null?r.needR+'세':'불가'],
+            raw:{Y:r.Y,O:r.O,W:r.W,dy:r.dy,dov:r.dov,dt:r.dt,dt2:r.dt2,rt:Number(rt.value),T:r.T,needR:r.needR,needY:r.needY}};
   },
   verify:function(rs){
     var mx=0,young=null,old=null;
@@ -233,7 +246,12 @@ return {
       h+='<p style="font-size:1.03rem;line-height:1.85">노년 비율이 '+young.O+'%에서 '+old.O+'%로 갈 때 총부양비는 '+
          '<b>'+young.dt.toFixed(1)+' → '+old.dt.toFixed(1)+'</b>이 되었습니다. 분모(생산연령)가 함께 줄기 때문에 비율보다 빠르게 오릅니다.</p>';
     }
+    var okR=0,noR=0,upY=0;
+    for(var q=0;q<rs.length;q++){ if(rs[q].raw.needR!==null)okR++; else noR++; if(rs[q].raw.needY!==null&&rs[q].raw.needY<rs[q].raw.Y)upY++; }
+    h+='<p style="font-size:1.03rem;line-height:1.85">목표 부양비에 <b>은퇴 나이 조정만으로</b> 닿은 기록 '+okR+'건, 닿지 못한 기록 '+noR+'건입니다. '+
+       '유소년 비율 쪽으로 목표에 닿으려면 대개 출생이 <b>더 줄어드는</b> 방향이어야 했습니다('+upY+'건) — 출생 회복은 당장의 부양비를 낮추지 못하고, 20년 뒤 생산연령이 늘어난 다음에야 내려갑니다.</p>';
     h+='<ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
+       '<li>같은 목표 부양비를 은퇴 나이 조정과 출생 회복 가운데 무엇으로 맞출 수 있었나요? 각 방법의 대가는 무엇인가요?</li>'+
        '<li>유소년 10%·노년 10%일 때와 유소년 5%·노년 15%일 때, 합은 같은데 부양비가 왜 같을까요? 무엇이 달라지나요?</li>'+
        '<li>은퇴 나이를 올리면 부양비가 내려갑니다. 그러면 무엇이 함께 필요해지나요?</li>'+
        '<li>수명이 길어지면 근로 기간 → 재교육 → 가족 형성 시기가 어떻게 연쇄하나요?</li>'+

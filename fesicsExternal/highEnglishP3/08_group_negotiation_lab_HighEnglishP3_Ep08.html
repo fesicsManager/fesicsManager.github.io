@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>회의는 내 의견이 이겨야 끝나나</h1>
-    <p>같은 과제(20분 안에 학급 행사 하나 정하기, 모둠당 4명)를 두 모둠에 주고, 한 모둠에만 <b>조율 표현 카드</b>를 나눠 줍니다. 모둠을 고르고, 조율 표현 다섯 가지 가운데 하나가 B의 대답에 들어 있는지 찾아보세요. 20분 뒤 결론과 &lsquo;존중받았다&rsquo;는 응답을 견주어 봅니다.<br><span style="font-size:.9em;color:#a86825">※ 토의 결과는 제로 랩 가상 실험입니다.</span></p>
+    <p>같은 과제(20분 안에 학급 행사 하나 정하기, 모둠당 4명)를 두 모둠에 주고, 한 모둠에만 <b>조율 표현 카드</b>를 나눠 줍니다. 모둠을 골라 보고, <b>인정·이유·대안 카드를 직접 조합해 B의 대답을 짜 보세요.</b> 넣은 카드 수와 대안이 있는지에 따라 20분 뒤 결론과 &lsquo;존중받았다&rsquo;는 인원이 달라집니다.<br><span style="font-size:.9em;color:#a86825">※ 결론과 인원은 넣은 카드로 셈한 교육용 모형값입니다(대안이 있고 카드가 2개 이상 → 냄, 대안만 → 반쯤 냄, 대안 없음 → 못 냄).</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -242,7 +243,7 @@ tbody tr:hover{background:#F5F8FB}
 <li>끝날 때 So we agree that … 으로 결정과 각자 할 일을 확인한다</li>
 </ul>
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
-· 두 모둠의 결과는 제로 랩의 가상 실험입니다. 모둠이 두 개뿐이라 일반화에는 더 많은 관찰이 필요합니다.<br>
+· 결론과 인원은 넣은 카드 수로 셈한 교육용 모형값입니다. 실제 회의는 카드 수로 딱 떨어지지 않지만, 대안을 내지 않으면 길이 열리지 않는다는 점은 같습니다.<br>
 · 조율이 무조건 반반 섞기는 아닙니다. 근거가 약한 안은 근거를 들어 뺍니다. 사람이 아니라 안을 두고 따지는 것이 핵심이에요.</div>
 </div>
 </section>
@@ -300,9 +301,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -498,30 +500,59 @@ var LAB = (function anonymous(
         {n:'대안 내기', ph:'How about …? / What if we …?', from:17, to:28},
         {n:'정리하기', ph:'So we agree that …', from:-1, to:-1}
       ];
+      /* 학생이 B의 대답을 직접 조립하는 조율 표현 카드 */
+      var C1 = ['', 'I see your point, but a dance is not the only option.', 'That\'s a good idea, and I want it to work for everyone.'];
+      var C2 = ['', 'I\'m worried that a dance is hard to learn in a week.', 'The reason is that we have only one week to practice.'];
+      var C3 = ['', 'How about a quiz show with a short dance at the end?', 'What if we try both and then vote?'];
+      function buildB(p){
+        var parts = [], tag = [];
+        if (p.c1 > 0){ parts.push(C1[p.c1]); tag.push(1); }
+        if (p.c2 > 0){ parts.push(C2[p.c2]); tag.push(2); }
+        if (p.c3 > 0){ parts.push(C3[p.c3]); tag.push(3); }
+        if (!parts.length) return null;
+        var span = {}, off = 0;
+        parts.forEach(function(t, i){ var w = t.split(' ').length; span[tag[i]] = [off, off + w - 1]; off += w; });
+        return {s:parts.join(' '), span:span, n:parts.length, hasAlt:p.c3 > 0};
+      }
       return {
         sceneHeight:function(w){ return w < 400 ? 560 : w < 500 ? 520 : 450; },
         idle:'모둠과 찾을 조율 표현을 고른 뒤 <b>20분 토의하기</b>를 누르세요.',
-        shortHint:'두 모둠을 모두 토의시키고, (나) 모둠에서 조율 표현 다섯 가지를 하나씩 찾아보세요.',
+        shortHint:'카드를 넣고 빼며 B의 대답을 여러 가지로 조립해 보세요. 대안 카드를 뺀 경우도 꼭 해 보세요.',
         params:[
           {key:'g', type:'seg', label:'모둠', cols:2, value:0, options:G.map(function(x){ return x.n; })},
+          {key:'c1', type:'seg', label:'① 인정 카드', cols:3, value:0, options:['안 넣기', 'I see your point, but …', 'That\'s a good idea, and …']},
+          {key:'c2', type:'seg', label:'② 이유 카드', cols:3, value:0, options:['안 넣기', 'I\'m worried that …', 'The reason is …']},
+          {key:'c3', type:'seg', label:'③ 대안 카드', cols:3, value:0, options:['안 넣기', 'How about …?', 'What if we …?'],
+            note:'※ 카드를 하나라도 넣으면 B의 대답을 내가 조립한 문장으로 바꿉니다. 셋 다 「안 넣기」면 위에서 고른 모둠의 대답을 그대로 씁니다. 결론·인원은 넣은 카드로 셈한 교육용 모형값입니다.'},
           {key:'e', type:'seg', label:'B의 대답에서 찾을 조율 표현', cols:3, value:1, options:EX.map(function(x){ return x.n; })}
         ],
-        compute:function(p){ var g = G[p.g], ex = EX[p.e], used = p.g === 1 && ex.from >= 0; return {g:g, ex:ex, used:used}; },
+        compute:function(p){
+          var g = G[p.g], ex = EX[p.e], bb = buildB(p), s, span, n, hasAlt;
+          if (bb){ s = bb.s; span = bb.span; n = bb.n; hasAlt = bb.hasAlt; }
+          else {
+            s = g.b; n = p.g === 1 ? 3 : 0; hasAlt = p.g === 1;
+            span = p.g === 1 ? {1:[EX[1].from, EX[1].to], 2:[EX[2].from, EX[2].to], 3:[EX[3].from, EX[3].to]} : {};
+          }
+          var rng = span[p.e] || null;
+          var concl = hasAlt ? (n >= 2 ? '냄' : '반쯤 냄') : '못 냄';
+          return {g:g, ex:ex, used:!!rng, s:s, rng:rng, n:n, hasAlt:hasAlt, concl:concl, ideas:1 + n, resp:1 + n, built:!!bb};
+        },
         draw:function(c, W, H, p, r, tau){
           var g = G[p.g], ex = EX[p.e], k = r ? ease(tau / 0.8) : 0, sz = W < 500 ? 13 : 15;
           T(c, 'A:', 18, 28, {size:sz, bold:true, color:PAL[6]});
           toks(c, A, 44, 28, W - 62, sz + 6, sz, null);
           T(c, 'B:', 18, 62, {size:sz, bold:true, color:PAL[0]});
-          var n = toks(c, g.b, 44, 62, W - 62, sz + 6, sz, function(w, i){ return r && p.g === 1 && ex.from >= 0 && i >= ex.from && i <= ex.to ? '#FFD8A8' : null; });
+          var n = toks(c, r ? r.s : g.b, 44, 62, W - 62, sz + 6, sz, function(w, i){ return r && r.rng && i >= r.rng[0] && i <= r.rng[1] ? '#FFD8A8' : null; });
           var y = 62 + n * (sz + 6) + 26;
           var TW = function(s, yy, o){ c.font = (o.bold ? '700 ' : '') + '12px ' + FONT; if (c.measureText(s).width <= W - 36){ T(c, s, 18, yy, o); return 0; } return wrap(c, s, 18, yy, W - 36, 18, o) - 1; };
           var ey = TW('🃏 ' + ex.n + ': ' + ex.ph, y, {size:14, bold:true, color:'#A86825', max:W - 36}) * 18;
-          if (r) ey += TW(p.g === 0 ? '(가) 모둠은 조율 표현 카드를 받지 않았어요.' : (ex.from >= 0 ? 'B의 대답에 들어 있어요' + (p.e === 2 ? ' (표현은 달라도 이유를 말함)' : '') : 'B의 대답에는 없어요 — 회의 중에 쓸 수 있어요'), y + 24 + ey, {size:14, color:r.used ? PAL[1] : '#4A5868', bold:r.used, max:W - 36}) * 18;
+          if (r) ey += TW(r.built ? (r.used ? '내가 넣은 카드에 들어 있어요' : '내가 넣은 카드에는 없어요 — 회의 중에 쓸 수 있어요')
+            : (p.g === 0 ? '(가) 모둠은 조율 표현 카드를 받지 않았어요.' : (r.used ? 'B의 대답에 들어 있어요' + (p.e === 2 ? ' (표현은 달라도 이유를 말함)' : '') : 'B의 대답에는 없어요 — 회의 중에 쓸 수 있어요')), y + 24 + ey, {size:14, color:r.used ? PAL[1] : '#4A5868', bold:r.used, max:W - 36}) * 18;
           var py = y + 100 + ey, pw = (W - 36) / 4;
           for (var i = 0; i < 4; i++){
-            var x = 18 + pw * i + pw / 2, has = r && k >= 1 && i < g.ideas;
+            var x = 18 + pw * i + pw / 2, has = r && k >= 1 && i < r.ideas;
             person(c, x, py, has ? PAL[1] : '#9AA8B8', 1.1);
-            if (r && k >= 1) T(c, i < g.resp ? '😊' : '😐', x, py - 40, {size:18, align:'center'});
+            if (r && k >= 1) T(c, i < r.resp ? '😊' : '😐', x, py - 40, {size:18, align:'center'});
             if (has) T(c, '💡', x + 16, py - 22, {size:14, align:'center'});
           }
           if (r){
@@ -529,24 +560,34 @@ var LAB = (function anonymous(
             T(c, Math.round(20 * k) + '분 / 20분', W - 18, py + 58, {size:13, align:'right', color:'#4A5868'});
           }
           if (r && k >= 1){
-            T(c, '20분 안에 결론: ' + g.concl, 18, py + 84, {size:16, bold:true, color:g.concl === '냄' ? PAL[1] : PAL[4]});
-            TW('최종 안에 아이디어가 들어간 사람 ' + g.ideas + '명 · 존중받았다 ' + g.resp + '명 (4명 중)', py + 110, {size:14, bold:true, color:PAL[3], max:W - 36});
+            T(c, '20분 안에 결론: ' + r.concl + ' (인정·이유·대안 ' + r.n + '개' + (r.hasAlt ? '' : ', 대안 없음') + ')', 18, py + 84, {size:16, bold:true, color:r.concl === '냄' ? PAL[1] : (r.concl === '반쯤 냄' ? PAL[3] : PAL[4]), max:W - 36});
+            TW('최종 안에 아이디어가 들어간 사람 ' + r.ideas + '명 · 존중받았다 ' + r.resp + '명 (4명 중)', py + 110, {size:14, bold:true, color:PAL[3], max:W - 36});
           }
         },
         stats:function(p, r){
-          return [['모둠', r.g.n], ['B의 대답', r.g.b], ['찾은 조율 표현', r.ex.n + ' — ' + (r.used ? '들어 있음' : '없음'), r.used ? PAL[1] : '#4A5868'],
-            ['20분 안에 결론 (가상)', r.g.concl, r.g.concl === '냄' ? PAL[1] : PAL[4]], ['최종 안에 아이디어가 들어간 사람', '4명 중 ' + r.g.ideas + '명', PAL[3]],
-            ['"내 의견이 존중받았다"', '4명 중 ' + r.g.resp + '명', PAL[3]]];
+          return [['B의 대답', (r.built ? '내가 조립: ' : r.g.n + ': ') + r.s],
+            ['넣은 카드', '인정 ' + (p.c1 > 0 || (!r.built && p.g === 1) ? '○' : '×') + ' · 이유 ' + (p.c2 > 0 || (!r.built && p.g === 1) ? '○' : '×') + ' · 대안 ' + (r.hasAlt ? '○' : '×') + ' → ' + r.n + '개', PAL[3]],
+            ['찾은 조율 표현', r.ex.n + ' — ' + (r.used ? '들어 있음' : '없음'), r.used ? PAL[1] : '#4A5868'],
+            ['20분 안에 결론 (넣은 카드로 셈한 모형값)', r.concl + (r.hasAlt ? '' : ' — 대안이 없어 길이 안 열려요'), r.concl === '냄' ? PAL[1] : (r.concl === '반쯤 냄' ? PAL[3] : PAL[4])],
+            ['최종 안에 아이디어가 들어간 사람', '4명 중 ' + r.ideas + '명', PAL[3]],
+            ['"내 의견이 존중받았다"', '4명 중 ' + r.resp + '명', PAL[3]]];
         },
-        columns:['모둠', '조율 표현', 'B의 대답에', '결론'],
-        record:function(p, r){ return {g:p.g, e:p.e, used:r.used}; },
-        row:function(d){ return [d.g ? '(나)' : '(가)', EX[d.e].n, d.used ? '있음' : '없음', G[d.g].concl]; },
+        columns:['B의 대답', '넣은 카드', '대안', '조율 표현', '대답에', '결론'],
+        record:function(p, r){ return {g:p.g, e:p.e, used:r.used, n:r.n, alt:r.hasAlt, concl:r.concl, built:r.built}; },
+        row:function(d){ return [d.built ? '내가 조립' : (d.g ? '(나)' : '(가)'), d.n + '개', d.alt ? '○' : '×', EX[d.e].n, d.used ? '있음' : '없음',
+          '<b style="color:' + (d.concl === '냄' ? PAL[1] : (d.concl === '반쯤 냄' ? PAL[3] : PAL[4])) + '">' + d.concl + '</b>']; },
         verify:function(rec, box){
+          var noAlt = rec.filter(function(d){ return !d.alt; }), yes = rec.filter(function(d){ return d.concl === '냄'; });
+          var noAltYes = noAlt.filter(function(d){ return d.concl === '냄'; }).length;
           box.innerHTML = '<div class="vgrid">' +
-            card('모둠 토의 비교 (제로 랩의 가상 실험)', '<div id="h3h1"></div><p class="ask">(나) 모둠은 결론도 냈고 네 명 모두 자기 생각이 들어갔다고 느꼈습니다. B의 대답에 든 세 가지(인정·이유·대안)가 각각 어떤 일을 했나요?</p>') +
-            card('(나)의 대답에서 찾은 조율 표현', '<div id="h3h2"></div><p class="ask">과제: 모둠별로 학급 문제 하나를 정해 10분 동안 영어로 토의해 보세요. 표의 다섯 가지 조율 표현을 한 번씩 쓰고, 마지막에 So we agree that … 문장으로 결론을 기록하세요.</p>') + '</div>';
-          $('h3h1').innerHTML = tableHTML(['', '(가) 반대만 하기', '(나) 조율 표현 쓰기'], [['20분 안에 결론', '못 냄', '냄'], ['최종 안에 아이디어가 들어간 사람', '1명', '4명'], ['&lsquo;내 의견이 존중받았다&rsquo;고 답한 사람', '1명', '4명']]);
-          $('h3h2').innerHTML = tableHTML(['조율 표현', 'B (나)의 대답에', '나'], EX.map(function(x, i){ return [x.n, x.from >= 0 ? '있음' : '없음', rec.some(function(d){ return d.g === 1 && d.e === i; }) ? '찾아봄' : '·']; }));
+            card('내가 조립한 대답과 결론', '<div id="h3h1"></div><p class="ask">결론을 낸 ' + yes.length + '번 가운데 대안 카드가 없던 것은 <b>' + noAltYes + '번</b>입니다. 인정과 이유만 넣으면 결론이 어디까지 갔나요? 세 가지(인정·이유·대안)가 각각 어떤 일을 했나요?</p>') +
+            card('조율 표현 다섯 가지', '<div id="h3h2"></div><p class="ask">과제: 모둠별로 학급 문제 하나를 정해 10분 동안 영어로 토의해 보세요. 표의 다섯 가지 조율 표현을 한 번씩 쓰고, 마지막에 So we agree that … 문장으로 결론을 기록하세요.</p>') + '</div>';
+          $('h3h1').innerHTML = tableHTML(['대답', '카드 수', '대안', '아이디어 반영', '결론'], rec.map(function(d){
+            return [d.built ? '내가 조립' : (d.g ? '(나)' : '(가)'), d.n + '개', d.alt ? '○' : '×', (1 + d.n) + '명 / 4명', d.concl];
+          })) + '<p class="note">결론과 인원은 넣은 카드 수로 셈한 교육용 모형값입니다(대안이 있고 카드가 2개 이상 → 냄, 대안만 → 반쯤 냄, 대안 없음 → 못 냄).</p>';
+          $('h3h2').innerHTML = tableHTML(['조율 표현', '내가 찾아본 횟수'], EX.map(function(x, i){
+            return [x.n + ' <small>' + x.ph + '</small>', rec.filter(function(d){ return d.e === i; }).length + '번'];
+          }));
         }
       };
     
@@ -556,7 +597,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

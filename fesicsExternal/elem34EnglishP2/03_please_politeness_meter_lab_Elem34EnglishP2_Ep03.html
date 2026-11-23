@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -429,12 +431,17 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
+      /* scv = [친구에게, 선생님에게, 처음 보는 어른에게] — 가운데 값이 예전과 같은 점수다.
+         점수는 실제 조사가 아니라 교육용 모형값. */
       var RQ = [
-        {k:'(가)', s:'Open the window.', sc:2},
-        {k:'(나)', s:'Open the window, please.', sc:3.5},
-        {k:'(다)', s:'Can you open the window, please?', sc:4.5},
-        {k:'(라) 크게', s:'OPEN THE WINDOW!', sc:null}
+        {k:'(가)', s:'Open the window.', sc:2, scv:[3.5, 2, 1.5]},
+        {k:'(나)', s:'Open the window, please.', sc:3.5, scv:[4, 3.5, 3]},
+        {k:'(다)', s:'Can you open the window, please?', sc:4.5, scv:[4.2, 4.5, 4.8]},
+        {k:'(라) 크게', s:'OPEN THE WINDOW!', sc:null, scv:[null, null, null]}
       ];
+      var HR = ['친구에게', '선생님에게', '처음 보는 어른에게'];
+      function scOf(q, h){ return q.scv ? q.scv[h] : q.sc; }
+      function bestFor(h){ var k = 0; for (var i = 1; i < RQ.length; i++){ if (scOf(RQ[i], h) != null && scOf(RQ[i], h) > scOf(RQ[k], h)) k = i; } return k; }
       var REPLY = ['대답 없이 끝내기', 'Sure. → Thank you.'];
       function say(t, loud){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = loud ? 1.1 : 0.85; u.pitch = loud ? 0.8 : 1; u.volume = 0.2; SS.speak(u); return true; } catch(e){ return false; } }
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
@@ -444,13 +451,16 @@ var LAB = (function(){
         shortHint: '(가)·(나)·(다)를 모두 해 보세요. please 하나로 점수가 얼마나 달라지나요?',
         params: [
           {key:'q', type:'seg', label:'부탁하는 말', cols:2, value:0, options:RQ.map(function(x){ return x.k + ' ' + x.s; })},
+          {key:'h', type:'seg', label:'누구에게 부탁할까', cols:3, value:1, options:HR,
+            note:'※ 점수는 실제 조사가 아니라 교육용 모형값이에요. 같은 말도 듣는 사람이 바뀌면 점수가 달라집니다.'},
           {key:'a', type:'seg', label:'부탁을 들어준 뒤', cols:2, value:1, options:REPLY},
           {key:'s', type:'seg', label:'소리', cols:2, value:0, options:['🔊 소리 켜기', '🔇 소리 끄기']}
         ],
         compute: function(p){
           var q = RQ[p.q], pl = /please/i.test(q.s), ask = /^Can you/.test(q.s);
           var played = p.s === 0 ? say(q.s, p.q === 3) : false;
-          return {q:q, pl:pl, ask:ask, played:played};
+          var sc = scOf(q, p.h), bi = bestFor(p.h);
+          return {q:q, pl:pl, ask:ask, played:played, h:p.h, sc:sc, bi:bi, top:p.q === bi};
         },
         draw: function(c, W, H, p, r, tau){
           var q = RQ[p.q], sz = W < 500 ? 15 : 20;
@@ -464,29 +474,40 @@ var LAB = (function(){
           T(c, '무례함', cx - R, cy + 26, 13, '#4A5868', 'center'); T(c, '아주 공손함', cx + R, cy + 26, 13, '#4A5868', 'center');
           if (!r) return;
           var k = Math.min(1, tau / 0.7);
-          if (q.sc != null){
-            var v = 1 + (q.sc - 1) * k, ang = Math.PI + (v - 0.5) * Math.PI / 5;
+          var qsc = r.sc;
+          if (qsc != null){
+            var v = 1 + (qsc - 1) * k, ang = Math.PI + (v - 0.5) * Math.PI / 5;
             c.strokeStyle = '#26313D'; c.lineWidth = 4; c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(ang) * (R - 10), cy + Math.sin(ang) * (R - 10)); c.stroke();
             c.fillStyle = '#26313D'; c.beginPath(); c.arc(cx, cy, 8, 0, Math.PI * 2); c.fill();
-            if (tau > 0.75) T(c, '약 ' + q.sc + '점', cx, cy + 56, 22, PAL[0], 'center', true);
+            if (tau > 0.75) T(c, '약 ' + qsc + '점 (' + HR[r.h] + ')', cx, cy + 56, W < 500 ? 16 : 20, PAL[0], 'center', true);
           } else if (tau > 0.4) T(c, '웹툰에서 점수를 매기지 않았어요', cx, cy + 56, W < 500 ? 14 : 17, '#8C99A8', 'center', true);
           if (tau > 0.85 && p.a === 1) T(c, 'Sure. → Thank you.', 20, 86, W < 500 ? 14 : 17, PAL[1], 'left', true);
         },
         stats: function(p, r){
-          var out = [['부탁하는 말', r.q.s], ['please', r.pl ? '있음' : '없음', r.pl ? PAL[1] : PAL[4]], ['묻는 말(Can you ~?)', r.ask ? '있음' : '없음', r.ask ? PAL[1] : '#8C99A8'],
-            ['공손함 점수(원어민 선생님 10명, 가상 평균)', r.q.sc != null ? '약 ' + r.q.sc + '점 / 5점' : '웹툰에서 매기지 않았어요 — 크게 소리치면 놀라거나 무례하게 들릴 수 있어요', r.q.sc != null ? (r.q.sc >= 4 ? PAL[1] : r.q.sc >= 3 ? PAL[6] : PAL[4]) : '#8C99A8']];
+          var out = [['부탁하는 말', r.q.s], ['듣는 사람', HR[r.h]], ['please', r.pl ? '있음' : '없음', r.pl ? PAL[1] : PAL[4]], ['묻는 말(Can you ~?)', r.ask ? '있음' : '없음', r.ask ? PAL[1] : '#8C99A8'],
+            ['공손함 점수(교육용 모형값)', r.sc != null ? '약 ' + r.sc + '점 / 5점 (' + HR[r.h] + ')' : '웹툰에서 매기지 않았어요 — 크게 소리치면 놀라거나 무례하게 들릴 수 있어요', r.sc != null ? (r.sc >= 4 ? PAL[1] : r.sc >= 3 ? PAL[6] : PAL[4]) : '#8C99A8']];
+          if (r.sc != null) out.push(['듣는 사람이 바뀌면', HR.map(function(nm, i){ return nm + ' ' + scOf(r.q, i) + '점'; }).join(' · '), PAL[0]]);
+          out.push(['이 사람에게 가장 공손한 말', RQ[r.bi].k + ' ' + RQ[r.bi].s + (r.top ? ' — 지금 고른 말이에요' : ''), r.top ? PAL[1] : PAL[6]]);
+          if (r.sc != null) out.push(['읽기', r.h === 0 ? '친구 사이에서는 짧은 말도 거칠게 들리지 않아요. 그래도 please 를 넣으면 더 부드러워요.' : r.h === 2 ? '처음 보는 어른에게는 묻는 말(Can you ~?)에 please 까지 넣는 쪽이 가장 공손해요.' : '선생님께는 please 하나만 넣어도 점수가 크게 올라요.']);
           out.push(['부탁 뒤', p.a === 1 ? 'Sure. → Thank you. (부탁 한 줄, 감사 한 줄)' : '감사 인사 없이 끝났어요', p.a === 1 ? PAL[1] : PAL[6]]);
           out.push(['소리', p.s === 1 ? '끔' : r.played ? '영어 음성으로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']);
           return out;
         },
-        columns: ['부탁하는 말', 'please', '공손함(가상)'],
-        record: function(p, r){ return {q:p.q}; },
-        row: function(d){ var q = RQ[d.q]; return [q.s, /please/i.test(q.s) ? '있음' : '없음', q.sc != null ? '약 ' + q.sc + '점' : '—']; },
+        columns: ['부탁하는 말', '듣는 사람', 'please', '공손함(모형값)'],
+        record: function(p, r){ return {q:p.q, h:p.h}; },
+        row: function(d){ var q = RQ[d.q], h = d.h || 0, sc = scOf(q, h); return [q.s, HR[h], /please/i.test(q.s) ? '있음' : '없음', sc != null ? '약 ' + sc + '점' : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('공손함 점수(원어민 선생님 10명, 가상 평균)', '<div id="pp1"></div><p class="ask">세 문장은 뜻이 모두 같아요. 그런데 점수가 다른 까닭은 무엇일까요? please가 하는 일을 한 문장으로 써 보세요.</p>') +
+            card('공손함 점수 — 선생님에게 (교육용 모형값)', '<div id="pp1"></div><p class="ask">세 문장은 뜻이 모두 같아요. 그런데 점수가 다른 까닭은 무엇일까요? please가 하는 일을 한 문장으로 써 보세요.</p>') +
+            card('듣는 사람이 바뀌면', '<div id="pp3"></div><p class="ask">(가) 는 친구에게는 3.5점인데 처음 보는 어른에게는 1.5점이에요. 왜 그럴까요? 사람에 따라 가장 공손한 말이 달라지나요?</p>') +
             card('내가 해 본 부탁', '<div id="pp2"></div><p class="ask">과제: 집에서 영어로 부탁 세 가지를 해 보세요. ‘Pass me the salt, please.’처럼 please를 넣고, 들어주면 ‘Thank you.’까지 말하기!</p>') + '</div>';
           $('pp1').innerHTML = hbars(RQ.filter(function(q){ return q.sc != null; }).map(function(q){ return {label:q.s, v:q.sc, color:q.sc >= 4 ? PAL[1] : q.sc >= 3 ? PAL[6] : PAL[4], text:'약 ' + q.sc + '점'}; }), 5);
+          var rows3 = RQ.filter(function(q){ return q.sc != null; }).map(function(q){
+            return [q.k + ' ' + q.s].concat(HR.map(function(nm, i){ return scOf(q, i) + '점'; })); });
+          rows3.push(['가장 공손한 말'].concat(HR.map(function(nm, i){ return RQ[bestFor(i)].k; })));
+          var tried = {}; rec.forEach(function(d){ tried[d.h || 0] = 1; });
+          $('pp3').innerHTML = tableHTML(['부탁하는 말'].concat(HR), rows3) +
+            '<p class="msg">내가 해 본 상대: ' + HR.filter(function(nm, i){ return tried[i]; }).join(', ') + (Object.keys(tried).length < 3 ? ' — 다른 상대에게도 해 보세요.' : '') + '</p>';
           $('pp2').innerHTML = tableHTML(['부탁', '해 봄'], RQ.map(function(q, i){ var n = rec.filter(function(d){ return d.q === i; }).length; return [q.s, n ? n + '번' : '<span style="color:#8C99A8">아직</span>']; }));
         }
       };
@@ -496,7 +517,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

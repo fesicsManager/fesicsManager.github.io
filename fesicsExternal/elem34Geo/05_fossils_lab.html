@@ -252,7 +252,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
       <div class="explore-grid">
         <div class="canvas-panel">
           <canvas id="fossilCanvas" width="400" height="330" role="img" aria-label="돌 속에 갇힌 생물 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
-          <div class="note" id="n5">화석을 고르고 발굴해보세요.</div>
+          <div class="note" id="n5">화석과 묻히는 속도·장소를 고르고 발굴해보세요.</div>
           <div class="control-block">
             <div class="control-label">발굴할 화석을 고르세요</div>
             <div class="btn-row" id="row5">
@@ -261,16 +261,20 @@ tbody tr:nth-child(even){background:#f7faf9;}
               <button class="btn-choice" data-i="2">고사리</button>
               <button class="btn-choice" data-i="3">공룡 발자국</button>
             </div>
+            <div class="control-label">얼마나 빨리 묻혔을까요?</div>
+            <div class="btn-row" id="spRow"><button class="btn-choice active" data-v="0">금세 묻힘 (하루 만에)</button><button class="btn-choice" data-v="1">천천히 묻힘 (몇 해 걸려)</button></div>
+            <div class="control-label">어디에 묻혔을까요?</div>
+            <div class="btn-row" id="plRow"><button class="btn-choice active" data-v="0">고운 진흙·갯벌</button><button class="btn-choice" data-v="1">모래</button><button class="btn-choice" data-v="2">자갈이 구르는 거친 땅</button></div>
             <button class="btn-main" id="go5">🖌 붓으로 발굴하기 ▶</button>
-            <div class="result-box" id="r5">화석을 고르고 발굴 버튼을 눌러보세요.</div>
+            <div class="result-box" id="r5">화석과 묻히는 조건을 고르고 발굴 버튼을 눌러보세요.</div>
           </div>
         </div>
         <div class="data-panel">
           <div class="table-title">발굴 기록 (<span class="mono" id="c5">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>화석</th><th>살던 곳</th><th>알 수 있는 것</th></tr></thead>
-              <tbody id="t5"><tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>화석</th><th>묻힌 속도·장소</th><th>남았나</th><th>살던 곳</th></tr></thead>
+              <tbody id="t5"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box warm" style="margin-top:14px;">
@@ -674,6 +678,12 @@ const FOSSILS=[
  {name:'공룡 발자국', where:'육지 물가', info:'여기는 <b>육지</b>였고 공룡이 걸어다녔다 (발자국은 옮겨질 수 없는 확실한 증거)',
   note:'발자국도 화석이 됩니다. 무른 진흙에 찍힌 자국이 그대로 굳은 거예요. 발자국 크기와 간격으로 <b>공룡의 크기와 걸음</b>까지 알 수 있습니다.'}
 ];
+/* 화석이 남으려면 '빨리' 그리고 '고운 흙에' 묻혀야 한다 — 남는 정도는 교육용 모형값 */
+const SPN=['금세 묻힘','천천히 묻힘'], SPV=[1.0, 0.35];
+const PLN=['고운 진흙·갯벌','모래','자갈이 구르는 거친 땅'], PLV=[1.0, 0.6, 0.2];
+let spIdx=0, plIdx=0;
+function keepScore(){ return SPV[spIdx]*PLV[plIdx]; }
+function keepText(){ const k=keepScore(); return k>=0.6 ? '또렷하게 남음' : k>=0.25 ? '일부만 남음' : '거의 남지 않음'; }
 let idx=0, records=[];
 const canvas=document.getElementById('fossilCanvas'), ctx=canvas.getContext('2d');
 const W=400,H=330;
@@ -807,22 +817,39 @@ document.querySelectorAll('#row5 .btn-choice').forEach(b=>{
     NOTE('n5','화석을 고르고 발굴해보세요.');
   });
 });
+function bindCond(rowId, set){
+  document.querySelectorAll('#'+rowId+' .btn-choice').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('#'+rowId+' .btn-choice').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active'); set(parseInt(b.dataset.v)); shown=0;
+      const r=document.getElementById('r5'); r.className='result-box'; r.innerHTML='화석과 묻히는 조건을 고르고 발굴 버튼을 눌러보세요.';
+      NOTE('n5','화석과 묻히는 속도·장소를 고르고 발굴해보세요.');
+    });
+  });
+}
+bindCond('spRow', v=>{ spIdx=v; });
+bindCond('plRow', v=>{ plIdx=v; });
 document.getElementById('go5').addEventListener('click',()=>{
   const btn=document.getElementById('go5'); running=true;
   NOTE('n5','붓으로 흙을 조심조심 털어내는 중입니다.');
   runAnim(btn, canvas, 2800, (p)=>{ shown=p; scene(p); }, ()=>{
     running=false;
-    const f=FOSSILS[idx];
-    if(!records.some(r=>r.name===f.name)){ records.push({name:f.name, where:f.where, info:f.info}); renderTable(); }
-    const r=document.getElementById('r5'); r.className='result-box ok';
-    r.innerHTML=f.name+' 발굴! 살던 곳: <span class="big-val">'+f.where+'</span>';
-    NOTE('n5', f.note); afterRecord();
+    const f=FOSSILS[idx], cond=SPN[spIdx]+' · '+PLN[plIdx], k=keepScore(), kt=keepText();
+    if(!records.some(r=>r.name===f.name && r.cond===cond)){
+      records.push({name:f.name, where:f.where, info:f.info, cond:cond, keep:kt, k:k, good:k>=0.6});
+      renderTable();
+    }
+    const r=document.getElementById('r5'); r.className='result-box '+(k>=0.6?'ok':'');
+    r.innerHTML=f.name+' 발굴! <span class="big-val">'+kt+'</span><br>'+cond+
+      ' <span style="font-size:.85em;color:#a86825">(남는 정도는 교육용 모형값)</span>'+
+      (k>=0.25 ? '<br>살던 곳: '+f.where : '<br>너무 망가져서 무슨 생물인지 알아보기 어려워요.');
+    NOTE('n5', (k>=0.6 ? f.note : spIdx===1 ? '천천히 묻히면 <b>썩거나 다른 동물이 먹어</b> 화석으로 남기 어렵습니다.' : '자갈이 구르는 거친 곳에서는 <b>부딪혀 부서져</b> 화석이 잘 남지 않습니다.')); afterRecord();
   });
 });
 function renderTable(){
   document.getElementById('c5').textContent=records.length;
   const tb=document.getElementById('t5');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td class="kr">'+r.name+'</td><td class="kr">'+r.where+
     '</td><td class="kr" style="font-size:.88rem;">'+r.info.replace(/<\/?b>/g,'')+'</td></tr>').join('');
 }
@@ -833,10 +860,16 @@ function renderVerify(){
   document.getElementById('lockedMsg').style.display=ok?'none':'block';
   document.getElementById('verifyContent').style.display=ok?'block':'none';
   if(!ok) return;
-  document.getElementById('list5').innerHTML=records.map(r=>
-    '<div class="analysis-card" style="margin-bottom:10px;"><h3>'+esc(r.name)+' → '+esc(r.where)+'</h3>'+
-    '<div class="insight-box">'+r.info+'</div></div>').join('');
+  const byN={}; records.forEach(r=>{ (byN[r.name]=byN[r.name]||[]).push(r); });
+  document.getElementById('list5').innerHTML=Object.keys(byN).map(nm=>{
+    const a=byN[nm], r0=a[0];
+    return '<div class="analysis-card" style="margin-bottom:10px;"><h3>'+esc(nm)+' → '+esc(r0.where)+'</h3>'+
+    '<div class="insight-box">'+r0.info+'</div>'+
+    '<div class="insight-box warm">묻히는 조건에 따라 남은 정도 (교육용 모형값)<br>'+
+    a.map(r=>esc(r.cond)+' → '+esc(r.keep)).join('<br>')+'</div></div>';
+  }).join('');
   document.getElementById('ins5').innerHTML='<div class="insight-box">'+
+    '화석이 남으려면 <b>빨리</b>, 그리고 <b>고운 흙에</b> 묻혀야 합니다. 천천히 묻히면 썩거나 먹히고, 자갈이 구르는 거친 곳에서는 부서져요. 그래서 살던 생물 가운데 아주 일부만 화석이 됩니다.<br>'+
     '화석은 <b>그때 그곳이 어떤 환경이었는지</b>를 알려주는 단서입니다. 바다 생물이 나오면 바다였을 가능성이 크고, 고사리가 나오면 따뜻하고 축축한 육지였을 가능성이 커요.<br>다만 화석 하나만으로 단정하지는 않아요. 잎이나 껍데기는 물에 떠내려가 다른 곳에 묻히기도 하므로, 과학자들은 <b>여러 화석과 지층의 알갱이·색깔 같은 증거를 함께</b> 살펴 결론을 내립니다.</div>';
 }
 document.querySelectorAll('[data-q="rel"]').forEach(b=>{

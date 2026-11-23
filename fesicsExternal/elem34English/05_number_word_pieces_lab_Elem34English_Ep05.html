@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -432,65 +434,103 @@ function hbars(items, max){
 var LAB = (function(){
       var ONES = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
       var TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
-      var PRED = ['① 99개', '② 50개쯤', '③ 30개가 안 된다', '④ 10개'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
+      var PRED = ['① 99개', '② 50개쯤', '③ 30개가 안 된다', '④ 20개가 안 된다'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
+      var DROPN = ['0개 (다 있음)', '1개', '2개', '3개', '4개', '5개', '6개', '7개', '8개 (다 뺌)'];
       function say(t, rate){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = rate || 0.9; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
-      function word(n){ if (n < 20) return ONES[n]; var t = Math.floor(n / 10), o = n % 10; return TENS[t] + (o ? '-' + ONES[o] : ''); }
       function isNew(n){ return n < 20 || n % 10 === 0; }
-      function need(n){ var c = 0; for (var i = 1; i <= n; i++) if (isNew(i)) c++; return c; }
+      /* 십의 자리 단어를 큰 쪽부터 빼 본다. 빼면 그 줄의 수는 아예 말할 수 없다 */
+      function topTen(drop){ return 9 - drop; }
+      function okNum(n, drop){ return n < 20 || Math.floor(n / 10) <= topTen(drop); }
+      function word(n, drop){
+        if (drop !== undefined && !okNum(n, drop)) return null;
+        if (n < 20) return ONES[n];
+        var t = Math.floor(n / 10), o = n % 10; return TENS[t] + (o ? '-' + ONES[o] : '');
+      }
+      function need(n, drop){ var c = 0; for (var i = 1; i <= n; i++) if (isNew(i) && okNum(i, drop || 0)) c++; return c; }
+      function totalWords(drop){ return 19 + (8 - drop); }     /* 1~19 열아홉 개 + 남은 십의 자리 */
+      function sayCount(drop){ return 19 + 10 * (8 - drop); }   /* 말할 수 있는 수의 개수 */
+      function maxSay(drop){ return drop >= 8 ? 19 : topTen(drop) * 10 + 9; }
+      /* 예측 채점은 지금 가진 단어 수로 다시 계산한다 */
+      function answerIdx(w){ return w >= 90 ? 0 : (w >= 40 ? 1 : (w >= 20 ? 2 : 3)); }
       return {
         sceneHeight: function(w){ return w < 560 ? 470 : 430; },
-        idle: '숫자와 나의 예측을 고른 뒤 <b>숫자 만들기</b>를 누르세요.',
-        shortHint: '19, 20, 21, 99처럼 경계에 있는 숫자와 13·30 같은 헷갈리는 짝을 골라 보세요.',
+        idle: '숫자와 나의 예측을 고른 뒤 <b>숫자 만들기</b>를 누르세요. 십의 자리 단어를 빼면 말할 수 있는 범위가 줄어듭니다.',
+        shortHint: '십의 자리 단어를 0개·3개·8개 뺀 채로 해 보며, 단어 하나를 더 외울 때 말할 수 있는 수가 몇 개 늘어나는지 세어 보세요.',
         params: [
           {key:'n', type:'range', label:'숫자', min:1, max:99, step:1, value:21, fmt:function(v){ return String(v); }},
-          {key:'g', type:'seg', label:'예측: 1~99를 말하려면 꼭 알아야 하는 단어는?', cols:2, value:0, options:PRED},
+          {key:'d', type:'seg', label:'십의 자리 단어를 큰 쪽부터 몇 개 뺄까', cols:3, value:0, options:DROPN,
+            note:'ninety, eighty… 를 차례로 빼 봅니다. 뺀 줄의 수는 아예 말할 수 없게 돼요 — 외울 단어를 줄이면 말할 수 있는 범위도 줄어듭니다.'},
+          {key:'g', type:'seg', label:'예측: 지금 가진 단어로 1~99를 말하려면 꼭 알아야 하는 단어는?', cols:2, value:0, options:PRED},
           {key:'s', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
-          var n = Math.round(p.n), w = word(n), t = Math.floor(n / 10), o = n % 10;
-          var parts = isNew(n) ? [w] : [TENS[t], ONES[o]];
-          var tip = n >= 13 && n <= 19 ? ONES[n] + ' — 뒤 칸 teen을 길고 세게' : n >= 20 && o === 0 ? w + ' — 앞 칸을 세게, ty는 짧게' : '';
-          var played = p.s === 0 ? say(w, 0.8) : false;
-          return {n:n, w:w, parts:parts, isNew:isNew(n), k:need(n), all:need(99), hit:p.g === 2, tip:tip, played:played};
+          var n = Math.round(p.n), drop = p.d || 0, ok = okNum(n, drop), w = word(n, drop), t = Math.floor(n / 10), o = n % 10;
+          var parts = ok ? (isNew(n) ? [w] : [TENS[t], ONES[o]]) : [];
+          var tw = totalWords(drop), ai = answerIdx(tw);
+          var tip = !ok ? '' : (n >= 13 && n <= 19 ? ONES[n] + ' — 뒤 칸 teen을 길고 세게' : n >= 20 && o === 0 ? w + ' — 앞 칸을 세게, ty는 짧게' : '');
+          var played = (p.s === 0 && ok) ? say(w, 0.8) : false;
+          return {n:n, drop:drop, ok:ok, w:ok ? w : '?', parts:parts, isNew:isNew(n), k:need(n, drop),
+            all:tw, says:sayCount(drop), mx:maxSay(drop), ai:ai, hit:p.g === ai, tip:tip, played:played};
         },
         draw: function(c, W, H, p, r, tau){
-          var n = Math.round(p.n), cs = Math.min(34, (W - 40) / 10), x0 = (W - cs * 10) / 2, y0 = 16, upto = r ? Math.round(n * Math.min(tau / 0.7, 1)) : 0;
+          var n = Math.round(p.n), drop = p.d || 0;
+          var cs = Math.min(34, (W - 40) / 10), x0 = (W - cs * 10) / 2, y0 = 16, upto = r ? Math.round(n * Math.min(tau / 0.7, 1)) : 0;
           for (var i = 1; i <= 99; i++){
-            var cx = x0 + ((i - 1) % 10) * cs, cy = y0 + Math.floor((i - 1) / 10) * cs, nw = isNew(i);
-            c.fillStyle = i <= upto ? (nw ? PAL[0] : '#C5CFDA') : (nw ? '#DCE6F4' : '#F2F5F9'); c.fillRect(cx + 1, cy + 1, cs - 2, cs - 2);
+            var cx = x0 + ((i - 1) % 10) * cs, cy = y0 + Math.floor((i - 1) / 10) * cs, nw = isNew(i), av = okNum(i, drop);
+            c.fillStyle = !av ? '#E4E7EA' : (i <= upto ? (nw ? PAL[0] : '#C5CFDA') : (nw ? '#DCE6F4' : '#F2F5F9'));
+            c.fillRect(cx + 1, cy + 1, cs - 2, cs - 2);
+            if (!av){ seg(c, cx + 3, cy + cs - 3, cx + cs - 3, cy + 3, '#B9C0C7', 1); }
             if (i === n){ c.strokeStyle = PAL[6]; c.lineWidth = 3; c.strokeRect(cx + 1, cy + 1, cs - 2, cs - 2); }
           }
-          var ty = y0 + 10 * cs + 30;
-          txt(c, n + ' = ' + word(n), 20, ty, {bold:true, color:PAL[6]});
+          var ty = y0 + 10 * cs + 30, nowW = word(n, drop);
+          txt(c, n + ' = ' + (nowW === null ? '?' : nowW), 20, ty, {bold:true, color:nowW === null ? PAL[4] : PAL[6]});
           if (r){
             var k2 = Math.max(0, Math.min((tau - 0.7) / 0.3, 1)); c.globalAlpha = k2;
-            txt(c, r.isNew ? '새로 익히는 단어' : r.parts[0] + ' + ' + r.parts[1] + ' (붙여 만들기)', 20, ty + 30, {color:r.isNew ? PAL[0] : '#4A5868'});
+            txt(c, !r.ok ? '뺀 단어 때문에 말할 수 없어요' : (r.isNew ? '새로 익히는 단어' : r.parts[0] + ' + ' + r.parts[1] + ' (붙여 만들기)'),
+              20, ty + 30, {color:!r.ok ? PAL[4] : (r.isNew ? PAL[0] : '#4A5868')});
             txt(c, '1~' + n + '에 필요한 새 단어: ' + r.k + '개', 20, ty + 60, {bold:true, color:PAL[0]});
             c.globalAlpha = 1;
           }
-          c.fillStyle = PAL[0]; c.fillRect(20, H - 30, 14, 14); txt(c, '새 단어', 40, H - 18, {color:'#4A5868'});
-          c.fillStyle = '#C5CFDA'; c.fillRect(120, H - 30, 14, 14); txt(c, '붙여 만듦', 140, H - 18, {color:'#4A5868'});
+          c.fillStyle = PAL[0]; c.fillRect(20, H - 30, 14, 14); txt(c, '새 단어 ' + totalWords(drop) + '개', 40, H - 18, {color:'#4A5868'});
+          c.fillStyle = '#C5CFDA'; c.fillRect(150, H - 30, 14, 14); txt(c, '붙여 만듦', 170, H - 18, {color:'#4A5868'});
         },
         stats: function(p, r){
-          var out = [['숫자', r.n + ' → ' + r.w, PAL[6]], ['만드는 법', r.isNew ? '새로 익히는 단어' : r.parts.join(' + ') + ' = ' + r.w],
-            ['1~' + r.n + ([2, 4, 5, 9].indexOf(r.n % 10) >= 0 ? '를' : '을') + ' 말하는 데 필요한 새 단어', r.k + '개', PAL[0]], ['1~99 전체', r.all + '개 (1~19는 19개 + 십의 자리 8개)', PAL[0]],
-            ['나의 예측', PRED[p.g] + (r.hit ? ' — 맞았어요' : ' — 실제는 27개예요'), r.hit ? PAL[1] : PAL[6]]];
+          var out = [['숫자', r.n + ' → ' + r.w + (r.ok ? '' : ' (지금 가진 단어로는 말할 수 없어요)'), r.ok ? PAL[6] : PAL[4]],
+            ['만드는 법', !r.ok ? '십의 자리 단어를 빼 버려서 이 수는 만들 수 없어요' : (r.isNew ? '새로 익히는 단어' : r.parts.join(' + ') + ' = ' + r.w)],
+            ['빼 본 십의 자리 단어', DROPN[r.drop] + (r.drop ? ' — ' + TENS.slice(topTen(r.drop) + 1).join(', ') + ' 를 뺐어요' : ''), PAL[3]],
+            ['1~' + r.n + ([2, 4, 5, 9].indexOf(r.n % 10) >= 0 ? '를' : '을') + ' 말하는 데 필요한 새 단어', r.k + '개', PAL[0]],
+            ['지금 외운 단어 수', r.all + '개 (1~19는 19개 + 남은 십의 자리 ' + (8 - r.drop) + '개)', PAL[0]],
+            ['그 단어로 말할 수 있는 범위', '1~' + r.mx + ' 가운데 ' + r.says + '개', PAL[6]],
+            ['단어 하나를 더 외우면', r.drop ? '십의 자리 단어 1개를 되찾을 때마다 말할 수 있는 수가 <b>10개</b> 늘어나요' : '이미 8개를 다 외운 상태예요 — 빼 보면 몇 개씩 줄어드는지 확인해 보세요', PAL[3]],
+            ['나의 예측', PRED[p.g] + (r.hit ? ' — 맞았어요' : ' — 실제는 ' + r.all + '개예요'), r.hit ? PAL[1] : PAL[6]]];
           if (r.tip) out.push(['소리 구별', r.tip, PAL[3]]);
           out.push(['소리', p.s === 1 ? '끔' : r.played ? '영어 음성으로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']);
           return out;
         },
-        columns: ['숫자', '영어', '만드는 법', '1~n 새 단어'],
-        record: function(p, r){ return {n:r.n, w:r.w, isNew:r.isNew, parts:r.parts.join(' + '), k:r.k}; },
-        row: function(d){ return [d.n, d.w, d.isNew ? '새 단어' : d.parts, d.k + '개']; },
+        columns: ['숫자', '영어', '뺀 단어', '만드는 법', '외운 단어', '말할 수 있는 수'],
+        record: function(p, r){ return {n:r.n, w:r.w, ok:r.ok, drop:r.drop, isNew:r.isNew, parts:r.parts.join(' + '), k:r.k, all:r.all, says:r.says, mx:r.mx}; },
+        row: function(d){ return [d.n, d.w, d.drop + '개', d.ok ? (d.isNew ? '새 단어' : d.parts) : '말할 수 없음', d.all + '개', d.says + '개 (1~' + d.mx + ')']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('숫자 99개 vs 꼭 알아야 하는 단어', '<div id="nm1"></div><p class="ask">99개를 다 외워야 했나요? 21부터는 어떻게 만들었나요?</p>') +
             card('내가 만든 숫자', '<div id="nm2"></div><p class="ask">과제: 가족 나이, 우리 집 동·호수, 버스 번호를 영어 숫자로 써 보고, 친구에게 불러 줘서 받아 적게 해 보세요.</p>') + '</div>';
           var mx = 0; rec.forEach(function(d){ if (d.n > mx) mx = d.n; });
           var km = 0; rec.forEach(function(d){ if (d.n === mx) km = d.k; });
-          $('nm1').innerHTML = hbars([{label:'1~99 숫자', v:99, color:'#AEB9C6', text:'99개'}, {label:'꼭 알아야 하는 단어', v:27, color:PAL[0], text:'27개'}, {label:'내가 확인한 1~' + mx, v:km, color:PAL[6], text:km + '개'}], 99);
-          var rows = rec.slice(-12).map(function(d){ return [d.n, d.w, d.isNew ? '새 단어' : d.parts]; });
-          $('nm2').innerHTML = tableHTML(['숫자', '영어', '만드는 법'], rows) + '<p class="note">최근 12개까지 보여요.</p>';
+          /* 뺀 단어 수마다 '외운 단어 ↔ 말할 수 있는 수' 를 맞바꿔 보여 준다 */
+          var byD = {}; rec.forEach(function(d){ byD[d.drop] = d; });
+          var ks = Object.keys(byD).sort(function(a, b){ return a - b; });
+          var trade = ks.map(function(k){ var d = byD[k]; return [d.drop + '개 뺌', d.all + '개', d.says + '개', '1~' + d.mx]; });
+          $('nm1').innerHTML = hbars([{label:'1~99 숫자', v:99, color:'#AEB9C6', text:'99개'},
+              {label:'다 외웠을 때 꼭 알아야 하는 단어', v:27, color:PAL[0], text:'27개'},
+              {label:'내가 확인한 1~' + mx, v:km, color:PAL[6], text:km + '개'}], 99)
+            + tableHTML(['뺀 십의 자리 단어', '외운 단어', '말할 수 있는 수', '범위'], trade)
+            + (ks.length > 1
+               ? '<p class="note"><b>맞바꿈이 보입니다.</b> 십의 자리 단어 1개를 더 외울 때마다 말할 수 있는 수가 <b>10개</b> 늘어났어요. '
+                 + '그래서 27개만 외워도 99까지 말할 수 있고, 19개만 외우면 19까지밖에 못 말합니다. '
+                 + '"꼭 외울 단어는 27개"는 <b>99까지 말하려고 할 때</b>의 답이에요.</p>'
+               : '<p class="note">십의 자리 단어를 <b>3개·8개</b> 뺀 채로도 기록해 보세요. 외울 단어와 말할 수 있는 범위가 어떻게 맞바뀌는지 여기에 모아 줍니다.</p>');
+          var rows = rec.slice(-12).map(function(d){ return [d.n, d.w, d.drop + '개', d.ok ? (d.isNew ? '새 단어' : d.parts) : '말할 수 없음']; });
+          $('nm2').innerHTML = tableHTML(['숫자', '영어', '뺀 단어', '만드는 법'], rows) + '<p class="note">최근 12개까지 보여요.</p>';
         }
       };
     })();
@@ -499,7 +539,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

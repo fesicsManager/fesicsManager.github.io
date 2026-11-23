@@ -250,6 +250,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>바람 세기(임의단위) <b id="xVal">5</b></label>
         <input type="range" id="xSlider" min="0" max="10" step="0.5" value="5" aria-label="바람 세기(임의단위)">
       </div>
+      <div class="control-row">
+        <label for="zSel">습도와 기공 상태</label>
+        <select id="zSel" aria-label="습도와 기공 상태" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">건조하고 기공이 열려 있음 (기본)</option><option value="1">공기가 습함</option><option value="2">센 바람에 기공이 닫힘</option></select>
+      </div>
       <div class="readout"><span>증산량</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -259,7 +263,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>바람 세기(임의단위)</th><th>증산량(mL/시간)</th></tr></thead>
+          <thead><tr><th>#</th><th>바람 세기(임의단위)</th><th>습도·기공</th><th>증산량(mL/시간)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -276,7 +280,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>바람 세기(임의단위)</th><th>증산량(mL/시간)</th><th>바람세기당 증산량(증산량÷바람세기)</th></tr></thead>
+        <thead><tr><th>#</th><th>바람 세기(임의단위)</th><th>습도·기공</th><th>증산량(mL/시간)</th><th>바람세기당 증산량(증산량÷바람세기)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -402,7 +406,14 @@ let _t0=performance.now(), _dt=16;
 
 /* 바람을 유선(흐르는 선)과 돌풍으로 그린다.
    증산량 = 2 + 0.8 × 바람 세기 (mL/시간) */
-function transpOf(x){ return 2+0.8*x; }   /* 교육용 직선 모형(온도·습도·빛 일정 가정). 실제는 강풍에서 기공이 닫혀 감소할 수 있음 */
+/* 습도와 기공 상태를 둘째 조작으로 연다. '건조하고 기공 열림'은 예전 식과 같다.
+   ※ 아래 숫자는 교육용 모형값. */
+var ZOPT=[{n:'건조하고 기공 열림', s:'건조·열림'},{n:'공기가 습함', s:'습함'},{n:'센 바람에 기공이 닫힘', s:'기공 닫힘'}];
+function transpOf(x){
+  if(curZ===1) return (2+0.8*x)*0.45;                 /* 습하면 안팎의 농도 차가 작아 증산이 적다 */
+  if(curZ===2) return x<=6 ? 2+0.8*x : Math.max(1.5, 6.8-(x-6)*0.9);   /* 센 바람에서 기공을 닫아 오히려 줄어든다 */
+  return 2+0.8*x;
+}   /* 교육용 직선 모형(온도·습도·빛 일정 가정). 실제는 강풍에서 기공이 닫혀 감소할 수 있음 */
 let vapor=[], gust=0;
 const LEAFX=232, LEAFY=150;
 
@@ -508,22 +519,37 @@ function drawDevice(){
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>습도와 기공을 바꿔 보면 (내 기록으로 계산)</b> 습한 경우와 기공이 닫히는 경우로도 몇 개 더 기록하면, 바람이 늘 증산을 늘리는지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>습도와 기공을 바꿔 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'기공이 닫히는 경우를 켜면 바람이 센 구간에서 증산이 오히려 <b>줄었습니다</b>. "바람이 세면 늘어난다"는 말은 기공이 열려 있고 공기가 건조할 때만 맞아요.';
+}
 let curX=5;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   if(window.fxSound&&fxSound.wind&&curX>0) fxSound.wind(Math.min(1, curX/10), 1.5);   /* 잴 때 바람 소리: 바람이 셀수록 크게 */
   const y=Math.max(0, transpOf(curX)+(Math.random()*1-0.5));
   yVal.textContent=y.toFixed(2)+' mL/시간';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -534,7 +560,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -623,7 +649,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -655,7 +681,7 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
   const ok = sel === CFG.correctOpt;
   const result = document.getElementById('verifyResult');
   result.className = 'show';
-  result.innerHTML = (ok ? '정답입니다! 👏' : '다시 생각해 보세요.') + '<br><br>' + CFG.finalExplain;
+  result.innerHTML = (ok ? '정답입니다! 👏' : '다시 생각해 보세요.') + '<br><br>' + CFG.finalExplain + zNote();
 });
 
 

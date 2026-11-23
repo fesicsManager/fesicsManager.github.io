@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -427,23 +429,29 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var D = [2, 3, 4, 5, 6, 8], PR = ['접선은 1개', '접선은 2개'], r0 = 3;
+      var D = [2, 3, 4, 5, 6, 8], PR = ['접선은 1개', '접선은 2개'];
+      /* 반지름도 열어, 접선 수가 OP 와 반지름의 크기 비교로 정해지는 것을 스스로 찾게 한다 */
+      var RR = [2, 3, 5];
       return {
         sceneHeight: 440,
-        idle: '점 P의 위치와 예상을 고른 뒤 <b>접선 작도하기</b>를 누르세요.',
-        shortHint: 'OP = 5 에서 작도를 따라가 보고, OP = 3, 2 에서도 해 보세요.',
+        idle: '점 P의 위치와 반지름, 예상을 고른 뒤 <b>접선 작도하기</b>를 누르세요.',
+        shortHint: '반지름 3에서 OP = 5, 3, 2 를 해 보세요. 그다음 OP = 5 를 그대로 두고 반지름만 5로 바꾸면 접선이 몇 개가 되나요?',
         params: [
-          {key:'d', type:'seg', label:'OP (원의 반지름 3)', cols:6, value:3, options:D.map(function(v){ return String(v); })},
+          {key:'d', type:'seg', label:'OP (중심에서 점 P까지)', cols:6, value:3, options:D.map(function(v){ return String(v); })},
+          {key:'rr', type:'seg', label:'원의 반지름', cols:3, value:1, options:RR.map(function(v){ return String(v); })},
           {key:'pr', type:'seg', label:'나의 예상 (원 밖의 점일 때)', cols:2, value:0, options:PR}
         ],
         compute: function(p){
-          var d = D[p.d], n = d > r0 ? 2 : d === r0 ? 1 : 0, L = n === 2 ? Math.sqrt(d * d - r0 * r0) : 0, ph = n === 2 ? Math.acos(r0 / d) : 0;
+          var d = D[p.d], r0 = RR[p.rr];
+          var n = d > r0 ? 2 : d === r0 ? 1 : 0, L = n === 2 ? Math.sqrt(d * d - r0 * r0) : 0, ph = n === 2 ? Math.acos(r0 / d) : 0;
           var T = n === 2 ? [[r0 * Math.cos(ph), r0 * Math.sin(ph)], [r0 * Math.cos(ph), -r0 * Math.sin(ph)]] : n === 1 ? [[r0, 0]] : [];
           var dot = T.length === 2 ? T[0][0] * (d - T[0][0]) + T[0][1] * (0 - T[0][1]) : 0;
-          return {d:d, n:n, L:L, T:T, dot:dot, pos:d > r0 ? '원 밖' : d === r0 ? '원 위' : '원 안', right:d > r0 ? p.pr === 1 : null};
+          return {d:d, r0:r0, n:n, L:L, T:T, dot:dot, pos:d > r0 ? '원 밖' : d === r0 ? '원 위' : '원 안',
+            cmp:'OP ' + d + (d > r0 ? ' > ' : d === r0 ? ' = ' : ' < ') + '반지름 ' + r0 + ' → 접선 ' + n + '개',
+            right:d > r0 ? p.pr === 1 : null};
         },
         draw: function(c, W, H, p, r, tau){
-          var d = D[p.d], sc = Math.min((W - 60) / (d + r0 + 1.5), (H - 50) / (2 * r0 + 1)), Ox = 30 + (r0 + 0.5) * sc, Oy = H / 2;
+          var d = D[p.d], r0 = RR[p.rr], sc = Math.min((W - 60) / (d + r0 + 1.5), (H - 50) / (2 * r0 + 1)), Ox = 30 + (r0 + 0.5) * sc, Oy = H / 2;
           var X = function(x){ return Ox + x * sc; }, Y = function(y){ return Oy - y * sc; };
           c.strokeStyle = '#1E2833'; c.lineWidth = 2.5; c.beginPath(); c.arc(Ox, Oy, r0 * sc, 0, Math.PI * 2); c.stroke();
           c.fillStyle = '#1E2833'; c.beginPath(); c.arc(Ox, Oy, 4, 0, Math.PI * 2); c.fill(); txt(c, 'O', Ox - 22, Oy + 6, {bold:true});
@@ -465,20 +473,22 @@ var LAB = (function(){
           txt(c, '접선 ' + r.n + '개' + (r.n === 2 ? ' · PT = ' + f(r.L, 3) : ''), 20, 28, {bold:true, color:PAL[3]});
         },
         stats: function(p, r){
-          return [['점 P의 위치', r.pos + ' (OP = ' + r.d + ', 반지름 3)'], ['접선의 개수', r.n + '개', PAL[3]],
-            ['접선의 길이', r.n === 2 ? 'PT₁ = PT₂ = √(' + r.d + '² − 3²) = ' + f(r.L, 3) : '—'],
+          return [['점 P의 위치', r.pos + ' (OP = ' + r.d + ', 반지름 ' + r.r0 + ')'], ['접선의 개수', r.n + '개', PAL[3]],
+            ['무엇이 개수를 정했나', r.cmp, PAL[6]],
+            ['접선의 길이', r.n === 2 ? 'PT₁ = PT₂ = √(' + r.d + '² − ' + r.r0 + '²) = ' + f(r.L, 3) : '—'],
             ['OT ⊥ PT 확인', r.n === 2 ? '내적 OT·TP = ' + f(Math.abs(r.dot) < 1e-9 ? 0 : r.dot, 6) + ' → 90°' : '—'],
             ['나의 예상', r.right === null ? '원 밖의 점이 아니라 판정 안 함' : PR[p.pr] + (r.right ? ' — 맞음' : ' — 틀림'), r.right === false ? PAL[4] : PAL[1]]];
         },
-        columns: ['OP', '위치', '접선 수', '접선 길이'],
-        record: function(p, r){ return {d:r.d, pos:r.pos, n:r.n, L:r.L, pr:p.pr}; },
-        row: function(d){ return [d.d, d.pos, d.n + '개', d.n === 2 ? f(d.L, 3) : '—']; },
+        columns: ['OP', '반지름', '위치', '접선 수', '접선 길이'],
+        record: function(p, r){ return {d:r.d, r0:r.r0, pos:r.pos, n:r.n, L:r.L, pr:p.pr}; },
+        row: function(d){ return [d.d, String(d.r0 == null ? 3 : d.r0), d.pos, d.n + '개', d.n === 2 ? f(d.L, 3) : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('P의 위치별 접선 수', '<div id="tt1"></div><p class="ask">원 밖의 점에서 접선이 1개만 그려진 경우가 있었나요?</p>') +
+            card('OP·반지름별 접선 수', '<div id="tt1"></div><p class="ask">같은 OP에서 반지름만 바꾼 줄을 찾아보세요. 접선 수를 정하는 것은 OP 하나인가요, 둘의 크기 비교인가요?</p>') +
             card('OP와 접선의 길이', '<canvas class="chart" id="tt2"></canvas><p class="ask">과제: 반지름 5인 원의 중심에서 13만큼 떨어진 점에서 그은 두 접선의 길이를 구해 보세요.</p>') + '</div>';
-          var by = groupBy(rec, function(d){ return d.pos; });
-          $('tt1').innerHTML = tableHTML(['위치', '기록', '접선 수'], ['원 안', '원 위', '원 밖'].filter(function(k){ return by[k]; }).map(function(k){ return [k, by[k].length + '회', by[k][0].n + '개']; }));
+          var by = groupBy(rec, function(d){ return (d.r0 == null ? 3 : d.r0) + '|' + d.d; });
+          $('tt1').innerHTML = tableHTML(['OP', '반지름', '위치', '접선 수'], Object.keys(by).sort().map(function(k){ var d = by[k][0];
+            return [String(d.d), String(d.r0 == null ? 3 : d.r0), d.pos, d.n + '개']; }));
           drawScatter($('tt2'), {series:[{color:PAL[3], pts:rec.filter(function(d){ return d.n === 2; }).map(function(d){ return {x:d.d, y:d.L}; })}], xLabel:'OP', yLabel:'접선 길이'});
         }
       };
@@ -488,7 +498,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

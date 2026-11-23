@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -450,6 +452,9 @@ var SUB = [
   {name:'염화 나트륨 NaCl', M:58.44, bp:1465, mp:801, hv:171, vp:null, mu:null, kind:'이온 결합', note:'분자가 아니라 이온 결정'}
 ];
 var TEMPS = [-50, 0, 25, 60, 100];
+/* 이름을 가리고 끓는점·기화열만 보고 어떤 힘이 작용하는 물질인지 맞혀 보는 길을 열었다 */
+var KG = ['분산력만', '분산력 + 약한 쌍극자', '수소 결합', '이온 결합'];
+function kIdx(S){ return /이온/.test(S.kind) ? 3 : /수소/.test(S.kind) ? 2 : /쌍극자/.test(S.kind) ? 1 : 0; }
 /* 녹는점·끓는점 바로 그 온도(±0.5 ℃)에서는 두 상이 함께 있음(상공존). 1기압 기준 */
 function state(S, T){
   if (Math.abs(T - S.mp) < 0.5) return '고체+액체 (녹는점, 두 상 공존)';
@@ -475,12 +480,16 @@ return {
   shortHint: '자유 탐구 탭에서 물질을 여러 개 관찰해 기록하세요.',
   params: [
     {key:'s', type:'seg', label:'물질', cols:3, value:3, options:SUB.map(function(x){ return x.name; })},
-    {key:'t', type:'seg', label:'온도', cols:5, value:2, options:TEMPS.map(function(v){ return v + ' ℃'; }),
-      note:'끓는점, 녹는점, 기화열, 증기압은 실측값입니다. 다른 온도의 증기압은 25 ℃ 증기압과 끓는점(101.3 kPa)을 잇는 클라우지우스-클라페이롱 식으로 계산했습니다.'}
+    {key:'t', type:'seg', label:'온도', cols:5, value:2, options:TEMPS.map(function(v){ return v + ' ℃'; })},
+    {key:'m', type:'seg', label:'물질 이름', cols:2, value:0, options:['보여 주기', '가리고 맞히기']},
+    {key:'gk', type:'seg', label:'가렸을 때 — 어떤 힘이 작용할까', cols:2, value:0, options:KG,
+      note:'끓는점, 녹는점, 기화열, 증기압은 실측값입니다. 다른 온도의 증기압은 25 ℃ 증기압과 끓는점(101.3 kPa)을 잇는 클라우지우스-클라페이롱 식으로 계산했습니다. ‘가리고 맞히기’를 고르면 이름과 힘의 종류를 숨기고, 끓는점·기화열만 보고 짐작하게 합니다.'}
   ],
   compute: function(p){
     var S = SUB[p.s], T = TEMPS[p.t], st = state(S, T), vp = vpAt(S, T);
-    return {S:S, T:T, st:st, vp:vp && vp < 0.1 ? Math.round(vp * 1e4) / 1e4 : vp && vp < 500 ? Math.round(vp * 100) / 100 : vp ? Math.round(vp) : null};
+    var ki = kIdx(S), hid = p.m === 1;
+    return {S:S, T:T, st:st, ki:ki, hid:hid, ok:p.gk === ki, guess:KG[p.gk],
+      vp:vp && vp < 0.1 ? Math.round(vp * 1e4) / 1e4 : vp && vp < 500 ? Math.round(vp * 100) / 100 : vp ? Math.round(vp) : null};
   },
   draw: function(c, W, H, p, r, tau){
     var S = SUB[p.s], T = TEMPS[p.t], stFull = r ? r.st : state(S, T), st = baseState(stFull), k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -504,8 +513,9 @@ return {
       c.fillStyle = st === '고체' ? '#5B8FD6' : st === '액체' ? '#3A8FB7' : 'rgba(120,170,210,.8)';
       c.beginPath(); c.arc(px, py, 6, 0, Math.PI * 2); c.fill();
     }
+    var hid = p.m === 1;
     txt(c, T + ' ℃ 에서 ' + st, bx, by - 12, {bold:true});
-    txt(c, S.name, bx, by + bh + 26, {bold:true});
+    txt(c, hid ? '물질 ? (이름 가림)' : S.name, bx, by + bh + 26, {bold:true});
     // 좁은 화면에서는 띄어쓰기에서 줄을 나눈다
     var nar = W < 520;
     var wl = function(s, x, y, o){
@@ -515,7 +525,7 @@ return {
       ws.forEach(function(w){ var t = l ? l + ' ' + w : w; if (l && x + c.measureText(t).width > W - 10){ txt(c, l, x, y, o); y += 22; l = w; } else l = t; });
       txt(c, l, x, y, o); return y + 30;
     };
-    var yk = wl(S.kind + ' (' + S.note + ')', bx, by + bh + 52, {color:'#4A5868'});
+    var yk = wl(hid ? '끓는점과 기화열만 보고 짐작해 보세요' : S.kind + ' (' + S.note + ')', bx, by + bh + 52, {color:'#4A5868'});
     // 온도 축에 녹는점·끓는점
     var ax = Math.max(bx + bw + 40, W * 0.5), aw = W - ax - 20;
     if (aw > 120){
@@ -537,20 +547,28 @@ return {
   },
   stats: function(p, r){
     var S = r.S;
+    if (r.hid){
+      return [['물질', '? (이름 가림)'], ['녹는점 · 끓는점', f(S.mp, 1) + ' ℃ · ' + f(S.bp, 1) + ' ℃'], ['기화열', f(S.hv, 1) + ' kJ/mol', PAL[4]],
+        ['나의 짐작', r.guess + ' — ' + (r.ok ? '맞았어요' : '아니에요'), r.ok ? PAL[1] : PAL[6]],
+        ['정답', S.kind + ' (' + S.name + ')', PAL[0]],
+        ['이 온도에서의 상태', r.T + ' ℃ → ' + r.st],
+        ['읽기', '끓는점이 높고 기화열이 큰 쪽일수록 분자 사이 힘이 셉니다. 다만 몰질량이 큰 무극성 물질(헥세인)도 분산력만으로 끓는점이 꽤 높아져 헷갈릴 수 있어요.']];
+    }
     return [['물질', S.name + ' (몰질량 ' + f(S.M, 2) + ' g/mol)'], ['분자 사이 힘', S.kind], ['녹는점 · 끓는점', f(S.mp, 1) + ' ℃ · ' + f(S.bp, 1) + ' ℃'],
       ['이 온도에서의 상태', r.T + ' ℃ → ' + r.st, PAL[0]], ['기화열', f(S.hv, 1) + ' kJ/mol', PAL[4]],
       [r.T > S.bp ? '포화 증기압 (끓는점 위 외삽)' : '이 온도의 증기압', r.vp != null ? (r.vp < 500 ? f(r.vp, r.vp < 0.1 ? 4 : 2) : Math.round(r.vp).toLocaleString()) + ' kPa' : '−']];
   },
-  columns: ['물질', '몰질량 (g/mol)', '분자 사이 힘', '녹는점 (℃)', '끓는점 (℃)', '기화열 (kJ/mol)', '온도 (℃)', '상태', '증기압 (kPa)'],
-  record: function(p, r){ return {s:p.s, name:r.S.name, M:r.S.M, kind:r.S.kind, mp:r.S.mp, bp:r.S.bp, hv:r.S.hv, T:r.T, st:r.st, vp:r.vp}; },
-  row: function(d){ return [d.name, f(d.M, 2), d.kind, f(d.mp, 1), f(d.bp, 1), f(d.hv, 1), d.T, d.st, d.vp != null ? (d.vp < 500 ? f(d.vp, d.vp < 0.1 ? 4 : 2) : Math.round(d.vp).toLocaleString()) : '−']; },
+  columns: ['물질', '몰질량 (g/mol)', '분자 사이 힘', '나의 짐작', '녹는점 (℃)', '끓는점 (℃)', '기화열 (kJ/mol)', '온도 (℃)', '상태', '증기압 (kPa)'],
+  record: function(p, r){ return {s:p.s, name:r.S.name, M:r.S.M, kind:r.S.kind, mp:r.S.mp, bp:r.S.bp, hv:r.S.hv, T:r.T, st:r.st, vp:r.vp, hid:r.hid, guess:r.hid ? r.guess : null, ok:r.ok}; },
+  row: function(d){ return [d.name, f(d.M, 2), d.kind, d.hid ? d.guess + (d.ok ? ' ○' : ' ×') : '—', f(d.mp, 1), f(d.bp, 1), f(d.hv, 1), d.T, d.st, d.vp != null ? (d.vp < 500 ? f(d.vp, d.vp < 0.1 ? 4 : 2) : Math.round(d.vp).toLocaleString()) : '−']; },
   verify: function(rec, box){
     var seen = {}, list = [];
     rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; list.push(d); });
     box.innerHTML = '<div class="vgrid">' +
       card('몰질량과 끓는점', '<canvas class="chart" id="ch1" role="img" aria-label="분자 사이 힘과 상태 변화 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">몰질량이 클수록 끓는점이 높아지는 경향이 있지만, 물은 크게 벗어납니다. 그 까닭을 수소 결합으로 설명해 보세요.</p>') +
       card('분자 사이 힘과 기화열', '<div id="ro2"></div><p class="ask">기화열은 액체를 기체로 만들 때 분자 사이 힘을 끊는 데 드는 에너지입니다. 힘의 종류에 따라 기화열이 어떻게 다른가요?</p>') +
-      card('온도에 따른 상태', '<div id="ro3"></div><p class="ask">같은 25 ℃에서 어떤 물질은 기체, 어떤 물질은 액체, 어떤 물질은 고체입니다. 무엇이 이 차이를 만들까요?</p>') + '</div>';
+      card('온도에 따른 상태', '<div id="ro3"></div><p class="ask">같은 25 ℃에서 어떤 물질은 기체, 어떤 물질은 액체, 어떤 물질은 고체입니다. 무엇이 이 차이를 만들까요?</p>') +
+      card('이름을 가리고 맞히기', '<div id="ro4"></div><p class="ask">끓는점만 보고 힘의 종류를 맞히기 어려웠던 물질은 무엇이었나요? 몰질량도 함께 보아야 하는 까닭을 적어 보세요.</p>') + '</div>';
     drawScatter($('ch1'), {xLabel:'몰질량 (g/mol)', yLabel:'끓는점 (℃)', tightX:true,
       series:[{color:PAL[0], pts:list.filter(function(d){ return d.bp < 500; }).map(function(d){ return {x:d.M, y:d.bp}; })},
               {color:PAL[4], hollow:true, pts:list.filter(function(d){ return d.bp >= 500; }).map(function(d){ return {x:d.M, y:500}; })}]});
@@ -561,6 +579,12 @@ return {
     $('ro3').innerHTML = tableHTML(['온도 (℃)', '고체', '액체', '기체'], Object.keys(byT).map(Number).sort(function(a, b){ return a - b; }).map(function(t){
       var g = byT[t], sel = function(s){ var o = {}; g.filter(function(d){ return d.st.indexOf(s) >= 0; }).forEach(function(d){ o[d.name.split(' ')[0] + (d.st.indexOf('공존') >= 0 ? '*' : '')] = 1; }); return Object.keys(o).join(', ') || '·'; };
       return [t, sel('고체'), sel('액체'), sel('기체')]; }), 'wrap') + '<p class="msg">* 표시는 녹는점·끓는점에 있어 두 상이 함께 있는 경우입니다.</p>';
+    var hd = rec.filter(function(d){ return d.hid; });
+    $('ro4').innerHTML = hd.length
+      ? tableHTML(['끓는점 (℃)', '기화열 (kJ/mol)', '나의 짐작', '실제 힘', '맞음'],
+          hd.map(function(d){ return [f(d.bp, 1), f(d.hv, 1), d.guess, d.kind, d.ok ? '○' : '×']; })) +
+        '<p class="msg">맞힌 기록: ' + hd.filter(function(d){ return d.ok; }).length + ' / ' + hd.length + '회</p>'
+      : '<p class="msg">‘가리고 맞히기’로도 관찰해 보세요. 이름을 숨기고 끓는점·기화열만 보고 어떤 힘이 작용하는지 짐작하게 합니다.</p>';
   }
 };
 })();
@@ -569,7 +593,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

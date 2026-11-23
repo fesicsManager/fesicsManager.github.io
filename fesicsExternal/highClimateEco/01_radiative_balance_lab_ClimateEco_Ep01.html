@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,17 +440,41 @@ var LAB = (function(){
 
 var SUN = [1361, 1347, 1375], SN = ['1361 (현재)', '1347 (−1 %)', '1375 (+1 %)'], SIG = 5.67e-8;
 function calc(S, a, e){ var Te = Math.pow((1 - a) * S / (4 * SIG), 0.25), Ts = Te * Math.pow(2 / (2 - e), 0.25); return {S:S, a:a, e:e, abs:(1 - a) * S / 4, Te:Te, Ts:Ts, dT:Ts - Te, TsC:Ts - 273.15, TeC:Te - 273.15}; }
+var MODE = ['자유 계산', '과제: 지표를 +0.5 ℃ 올리기'];
+var B0 = {S:1361, a:0.30, e:0.77}, GOAL = 0.5;
+var BASE = calc(B0.S, B0.a, B0.e);
+/* 같은 +0.5 ℃를 세 변수 각각 혼자 바꿔서 내려면 얼마가 되어야 하는지 — 식에서 바로 나온다.
+   Ts ∝ ((1−α)S)^(1/4) · (2/(2−ε))^(1/4) 이므로 네제곱으로 되돌리면 된다. */
+function needs(){
+  var T = BASE.Ts + GOAL, q = Math.pow(T / BASE.Ts, 4);
+  return {T:T, S:B0.S * q, a:1 - (1 - B0.a) * q, e:2 - 2 * Math.pow(BASE.Te / T, 4)};
+}
 return {
   sceneHeight: 430,
-  idle: '태양 상수·알베도·온실 효과 세기를 정한 뒤 <b>평형 온도 구하기</b>를 누르세요.',
-  shortHint: '자유 탐구 탭에서 한 변수만 바꿔 가며 4번 이상 기록하세요 (예: ε를 0.7, 0.75, 0.8, 0.85).',
+  idle: '모드와 태양 상수·알베도·온실 효과 세기를 정한 뒤 <b>평형 온도 구하기</b>를 누르세요.',
+  shortHint: '한 변수만 바꿔 가며 4번 이상 기록하세요. 과제 모드로 바꾸면 +0.5 ℃ 맞히기 판정이 나옵니다.',
   params: [
+    {key:'q', type:'seg', label:'모드', cols:2, value:0, options:MODE,
+      note:'과제 모드에서는 S·α·ε 가운데 무엇을 얼마나 바꿔야 지표 온도가 기준보다 꼭 +0.5 ℃ 올라가는지 맞혀야 합니다. 기준은 S = 1361, α = 0.30, ε = 0.77이에요.'},
     {key:'s', type:'seg', label:'태양 상수 S (W/m²)', cols:3, value:0, options:SN},
     {key:'a', type:'range', label:'알베도 α (반사율)', min:0.1, max:0.6, step:0.01, value:0.3, fmt:function(v){ return f(v, 2); }},
     {key:'e', type:'range', label:'대기의 적외선 흡수율 ε (온실 효과 세기)', min:0, max:0.98, step:0.01, value:0.77, fmt:function(v){ return f(v, 2); },
       note:'현재 지구: S = 1361, α = 0.30, ε ≈ 0.78 → 지표 288 K (15 ℃). 기본값 0.77은 그보다 조금 낮은 287.5 K(14.3 ℃)예요. ε가 커지면 나가는 적외선이 더 많이 되돌아옵니다.'}
   ],
-  compute: function(p){ return calc(SUN[p.s], p.a, p.e); },
+  compute: function(p){
+    var C = calc(SUN[p.s], p.a, p.e);
+    C.q = p.q;
+    C.dG = C.Ts - BASE.Ts;                                   /* 기준 상태에서 올라간 온도 */
+    C.ok = Math.abs(C.dG - GOAL) <= 0.05;
+    C.need = needs();
+    var ch = [];
+    if (p.s !== 0) ch.push('S');
+    if (Math.abs(p.a - B0.a) > 1e-9) ch.push('α');
+    if (Math.abs(p.e - B0.e) > 1e-9) ch.push('ε');
+    C.chg = ch;
+    C.verdict = C.ok ? '성공' : Math.abs(C.dG) < 1e-3 ? '아직 그대로' : C.dG < GOAL ? '조금 더' : '너무 많이';
+    return C;
+  },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(SUN[p.s], p.a, p.e), gy = H - 90, ay = 150;
     c.fillStyle = '#DDF0E6'; c.fillRect(0, gy, W, 40); txt(c, '지표', 12, gy + 26, {color:'#2E9E78', bold:true});
@@ -462,6 +488,11 @@ return {
       arrow(c, x2, gy - 4, x2, ay + 34, '#C8463D', 3); txt(c, '지표 적외선', x2 - 8, gy - 40, {color:'#C8463D', size:zs, align:'right'});
       arrow(c, x2 + 30, ay + 34, x2 + 30, gy - 4, '#C8463D', 1 + 3 * C.e); txt(c, '되돌림', x2 + 38, (ay + gy) / 2, {color:'#C8463D', size:zs}); txt(c, f(C.e / 2 * 100, 0) + ' %', x2 + 38, (ay + gy) / 2 + 17, {color:'#C8463D', size:zs});
       arrow(c, x2 - 30, ay - 4, x2 - 30, 30, '#C8463D', 3); txt(c, '우주로', x2 - 24, 60, {color:'#C8463D', size:zs}); txt(c, f(C.abs, 0) + ' W/m²', x2 - 24, 77, {color:'#C8463D', size:zs});
+      if (p.q === 1 && r){
+        txt(c, '목표 +0.5 ℃', 12, H - 40, {bold:true, size:zs, color:'#4A5868'});
+        txt(c, '지금 ' + sgn(C.dG * k, 2) + ' ℃ ' + C.verdict, 12, H - 18, {bold:true, size:zs, color:C.ok ? '#2E9E78' : '#C8463D'});
+        return;
+      }
       txt(c, '대기 없을 때 ' + f(C.TeC, 0) + ' ℃ → 지표 ' + f(C.TeC + C.dT * k, 1) + ' ℃', 12, H - 40, {bold:true, size:zs, color:C.TsC > 20 ? '#C8463D' : C.TsC < 10 ? '#2B5FA3' : '#1E2833'});
       txt(c, '온실 효과로 +' + f(C.dT * k, 1) + ' ℃', 12, H - 18, {color:'#4A5868', size:zs});
       return;
@@ -471,16 +502,28 @@ return {
     arrow(c, x2, gy - 4, x2, ay + 34, '#C8463D', 3); txt(c, '지표 적외선', x2 + 8, gy - 40, {color:'#C8463D'});
     arrow(c, x2 + 30, ay + 34, x2 + 30, gy - 4, '#C8463D', 1 + 3 * C.e); txt(c, '되돌림 ' + f(C.e / 2 * 100, 0) + ' %', x2 + 40, (ay + gy) / 2, {color:'#C8463D'});
     arrow(c, x2 - 30, ay - 4, x2 - 30, 30, '#C8463D', 3); txt(c, '우주로 ' + f(C.abs, 0) + ' W/m²', x2 - 26, 60, {color:'#C8463D'});
-    var tx = 30, ty = H - 40; txt(c, '대기 없을 때 ' + f(C.TeC, 0) + ' ℃ → 지표 ' + f(C.TeC + C.dT * k, 1) + ' ℃', tx, ty, {bold:true, color:C.TsC > 20 ? '#C8463D' : C.TsC < 10 ? '#2B5FA3' : '#1E2833'});
+    var tx = 30, ty = H - 40;
+    if (p.q === 1 && r){
+      txt(c, '목표: 기준 ' + f(BASE.Ts - 273.15, 1) + ' ℃ 에서 +0.5 ℃ → ' + f(BASE.Ts - 273.15 + GOAL, 1) + ' ℃', tx, ty, {bold:true, color:'#4A5868'});
+      txt(c, '지금 ' + sgn(C.dG * k, 2) + ' ℃ — ' + C.verdict, tx, ty + 24, {bold:true, color:C.ok ? '#2E9E78' : '#C8463D'});
+      return;
+    }
+    txt(c, '대기 없을 때 ' + f(C.TeC, 0) + ' ℃ → 지표 ' + f(C.TeC + C.dT * k, 1) + ' ℃', tx, ty, {bold:true, color:C.TsC > 20 ? '#C8463D' : C.TsC < 10 ? '#2B5FA3' : '#1E2833'});
     txt(c, '온실 효과로 +' + f(C.dT * k, 1) + ' ℃', tx, ty + 24, {color:'#4A5868'});
   },
   stats: function(p, r){
-    return [['S · α · ε', r.S + ' · ' + f(r.a, 2) + ' · ' + f(r.e, 2)], ['흡수되는 태양 복사', f(r.abs, 1) + ' W/m²', PAL[6]], ['대기 없을 때 평형 온도 Tₑ', f(r.Te, 1) + ' K (' + f(r.TeC, 1) + ' ℃)', PAL[0]], ['지표 온도 Tₛ', f(r.Ts, 1) + ' K (' + f(r.TsC, 1) + ' ℃)', r.TsC > 20 ? PAL[4] : PAL[1]],
-      ['온실 효과 (Tₛ − Tₑ)', '+' + f(r.dT, 1) + ' ℃', PAL[4]], ['현재 지구(15 ℃)와의 차이', sgn(r.TsC - 15, 1) + ' ℃', Math.abs(r.TsC - 15) > 2 ? PAL[4] : PAL[1]]];
+    var out = [['S · α · ε', r.S + ' · ' + f(r.a, 2) + ' · ' + f(r.e, 2)], ['흡수되는 태양 복사', f(r.abs, 1) + ' W/m²', PAL[6]], ['대기 없을 때 평형 온도 Tₑ', f(r.Te, 1) + ' K (' + f(r.TeC, 1) + ' ℃)', PAL[0]], ['지표 온도 Tₛ', f(r.Ts, 1) + ' K (' + f(r.TsC, 1) + ' ℃)', r.TsC > 20 ? PAL[4] : PAL[1]],
+      ['온실 효과 (Tₛ − Tₑ)', '+' + f(r.dT, 1) + ' ℃', PAL[4]], ['현재 지구(15 ℃)와의 차이', sgn(r.TsC - 15, 1) + ' ℃', Math.abs(r.TsC - 15) > 2 ? PAL[4] : PAL[1]],
+      ['기준(S 1361 · α 0.30 · ε 0.77)에서 오른 온도', sgn(r.dG, 2) + ' ℃ — 바꾼 값: ' + (r.chg.length ? r.chg.join(', ') : '없음'), Math.abs(r.dG) < 1e-3 ? null : r.dG > 0 ? PAL[4] : PAL[0]]];
+    if (p.q === 1) out.push(
+      ['과제 판정 (목표 +0.50 ℃)', r.verdict + ' — 지금 ' + sgn(r.dG, 2) + ' ℃' + (r.ok ? '' : ', 목표까지 ' + sgn(GOAL - r.dG, 2) + ' ℃'), r.ok ? PAL[1] : PAL[4]],
+      ['한 가지만 바꿔 목표에 닿으려면', 'S = ' + f(r.need.S, 1) + ' (지금 ' + r.S + ') / α = ' + f(r.need.a, 4) + ' (지금 ' + f(r.a, 2) + ') / ε = ' + f(r.need.e, 4) + ' (지금 ' + f(r.e, 2) + ')', PAL[6]],
+      ['어느 쪽이 더 민감한가', '태양 상수는 ' + f((r.need.S - B0.S) / B0.S * 100, 2) + ' %만 올려도, 알베도는 ' + f((B0.a - r.need.a) * 100, 2) + ' %p만 내려도, ε는 ' + f((r.need.e - B0.e) * 100, 2) + ' %p만 올려도 같은 +0.5 ℃가 됩니다. 같은 결과를 내는 길이 여러 개라는 뜻이에요.', PAL[3]]);
+    return out;
   },
-  columns: ['S', 'α', 'ε', 'Tₑ (℃)', 'Tₛ (℃)', '온실 효과 (℃)'],
-  record: function(p, r){ return {S:r.S, a:r.a, e:r.e, TeC:r.TeC, TsC:r.TsC, dT:r.dT}; },
-  row: function(d){ return [d.S, f(d.a, 2), f(d.e, 2), f(d.TeC, 1), f(d.TsC, 1), f(d.dT, 1)]; },
+  columns: ['모드', 'S', 'α', 'ε', 'Tₑ (℃)', 'Tₛ (℃)', '기준 대비', '과제'],
+  record: function(p, r){ return {q:p.q, S:r.S, a:r.a, e:r.e, TeC:r.TeC, TsC:r.TsC, dT:r.dT, dG:r.dG, ok:r.ok, chg:r.chg.join(',')}; },
+  row: function(d){ return [d.q === 1 ? '과제' : '자유', d.S, f(d.a, 2), f(d.e, 2), f(d.TeC, 1), f(d.TsC, 1), sgn(d.dG, 2), d.q === 1 ? (d.ok ? '성공' : '실패') : '—']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('흡수율 ε와 지표 온도', '<canvas class="chart" id="ch1" role="img" aria-label="흡수율에 따른 지표 온도"></canvas><ul class="readout" id="ro1"></ul><p class="ask">ε가 0.05 커지면 지표 온도는 몇 ℃ 오르나요? 태양 상수 1 % 변화와 비교하면 어느 쪽이 큰가요?</p>') +
@@ -489,7 +532,12 @@ return {
     Object.keys(byS).forEach(function(k, i){ var g = byS[k]; s1.push({color:PAL[i], pts:g.map(function(d){ return {x:d.e, y:d.TsC}; })}); var pts = g.map(function(d){ return {x:d.e, y:d.TsC}; }); r1.push('<li>' + dot(PAL[i]) + 'S = ' + k + ': 기록 ' + g.length + '개' + (distinct(g.map(function(d){ return d.e; })) >= 2 ? ', ε 0.01당 약 <b>' + f(linfit(pts).k / 100, 2) + ' ℃</b>' : '') + '</li>'); });
     drawScatter($('ch1'), {xLabel:'대기 흡수율 ε', yLabel:'지표 온도 (℃)', series:s1, tightX:true, tightY:true});
     $('ro1').innerHTML = r1.join('');
-    $('ro2').innerHTML = tableHTML(['S', 'α', 'ε', 'Tₑ', 'Tₛ', '온실 효과'], rec.map(function(d){ return [d.S, f(d.a, 2), f(d.e, 2), f(d.TeC, 1) + ' ℃', f(d.TsC, 1) + ' ℃', '+' + f(d.dT, 1) + ' ℃']; }));
+    var qr = rec.filter(function(d){ return d.q === 1; }), nd = needs();
+    /* 한 번에 넣는다 — innerHTML 을 두 번 쓰면 labkit 이 이미 집어 든 표가 떨어져 나가 오류가 난다 */
+    $('ro2').innerHTML = tableHTML(['S', 'α', 'ε', 'Tₑ', 'Tₛ', '온실 효과', '기준 대비'], rec.map(function(d){ return [d.S, f(d.a, 2), f(d.e, 2), f(d.TeC, 1) + ' ℃', f(d.TsC, 1) + ' ℃', '+' + f(d.dT, 1) + ' ℃', sgn(d.dG, 2) + ' ℃']; })) + (qr.length
+      ? tableHTML(['과제 시도', '바꾼 값', '오른 온도', '판정'], qr.slice(-8).map(function(d, i){ return [(i + 1) + '회', d.chg || '없음', sgn(d.dG, 2) + ' ℃', d.ok ? '성공' : '실패']; })) +
+        '<p class="ask">성공한 ' + qr.filter(function(d){ return d.ok; }).length + ' / ' + qr.length + '회에서 바꾼 값은 서로 달랐나요? 같은 +0.5 ℃를 S는 ' + f((nd.S - B0.S) / B0.S * 100, 2) + ' %, α는 ' + f((B0.a - nd.a) * 100, 2) + ' %p, ε는 ' + f((nd.e - B0.e) * 100, 2) + ' %p로 낼 수 있습니다 — 세 값의 ‘같은 효과 환율’을 적어 보세요.</p>'
+      : '<p class="ask">모드를 <b>과제</b>로 바꿔 +0.5 ℃ 맞히기를 해 보세요. S·α·ε 가운데 무엇을 얼마나 바꿔야 하는지 판정이 나옵니다.</p>');
   }
 };
 })();
@@ -498,7 +546,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

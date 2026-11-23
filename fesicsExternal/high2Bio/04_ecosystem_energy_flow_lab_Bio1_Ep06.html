@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -214,7 +215,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>생태계의 에너지 흐름</h1>
-    <p>중학교에서는 먹이 사슬과 먹이 그물을 배웠습니다. 이번에는 실제 하천 생태계의 조사 자료로 영양 단계마다 에너지가 얼마나 들어오고 쓰이는지 측정해, 에너지가 흐르는 방식을 찾습니다.</p>
+    <p>중학교에서는 먹이 사슬과 먹이 그물을 배웠습니다. 이번에는 실제 하천 생태계의 조사 자료로 영양 단계마다 에너지가 얼마나 들어오고 쓰이는지 측정하고, 전달 효율을 내가 정한 모형 생태계와 견주어 피라미드 모양이 무엇으로 정해지는지 찾습니다.</p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -240,7 +241,7 @@ tbody tr:hover{background:#F5F8FB}
 <p><span class="fx-formula">순생산량 = 총생산량 − 호흡량</span>, <span class="fx-formula">에너지 효율(%) = 이 단계 에너지 ÷ 앞 단계 에너지 × 100</span></p>
 
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
-· 실제 조사 자료(1년 평균)이지만 한 하천 생태계의 값이에요. 다른 생태계(숲·바다·초원)는 효율과 비율이 달라요(해양 플랑크톤 먹이 사슬은 효율이 20 % 가까이 되기도).<br>
+· 「모형 생태계」를 고르면 생산자 총생산량만 실제 값으로 두고, 내가 정한 전달 효율로 각 단계를 계산한 <b>교육용 모형값</b>이 나와요(사체·배설물로 분해자에게 가는 몫 20 %, 나머지는 호흡). 실제 자료와 견주어 보세요.<br>· 실제 조사 자료(1년 평균)이지만 한 하천 생태계의 값이에요. 다른 생태계(숲·바다·초원)는 효율과 비율이 달라요(해양 플랑크톤 먹이 사슬은 효율이 20 % 가까이 되기도).<br>
 · 생물은 한 영양 단계에만 속하지 않고(잡식) 실제로는 먹이 그물이라 단계 구분이 뚜렷하지 않아요. 외부에서 유입되는 유기물(낙엽 등)도 자료에 포함되어 있어요.</div>
 
 <h3>🌍 생활 속에서</h3>
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -448,22 +450,47 @@ var LV = [
   {name:'3차 소비자', ex:'큰 물고기', gross:21, resp:13, color:'#7657B3'},
   {name:'분해자', ex:'세균, 곰팡이', gross:5060, resp:4600, color:'#7C8794'}
 ];
+/* 모형 생태계 — 교육용 모형값.
+   들어온 에너지 G 가운데 e(전달 효율)만큼 다음 단계로, d = 20 %는 사체·배설물로 분해자에게,
+   나머지는 호흡으로 열이 되어 흩어진다고 둔다. 생산자 총생산량만 실제 자료와 같게 맞춘다. */
+function model(eff){
+  var e = eff / 100, d = 0.2, G = [], i, dec = 0;
+  G[0] = LV[0].gross;
+  for (i = 1; i <= 4; i++) G[i] = G[i - 1] * e;
+  for (i = 0; i < 4; i++) dec += G[i] * d;
+  dec += G[4];
+  var out = [];
+  for (i = 0; i < 4; i++) out.push({name:LV[i].name, ex:LV[i].ex, color:LV[i].color,
+    gross:Math.round(G[i] * 10) / 10, resp:Math.round(G[i] * (1 - e - d) * 10) / 10});
+  out.push({name:'분해자', ex:'세균, 곰팡이', color:LV[4].color,
+    gross:Math.round(dec * 10) / 10, resp:Math.round(dec * 0.9 * 10) / 10});
+  return out;
+}
+function levels(p){ return p.eco === 1 ? model(p.eff) : LV; }
 return {
   sceneHeight: function(w){ return w < 560 ? 430 : 400; },
-  idle: '측정할 영양 단계를 고른 뒤 <b>1년 동안 측정하기</b>를 누르세요. 그 단계로 들어온 에너지와 호흡으로 쓴 에너지를 잽니다.',
-  shortHint: '자유 탐구 탭에서 생산자부터 분해자까지 모든 단계를 측정해 기록하세요.',
+  idle: '자료(실제 조사 / 모형)와 측정할 영양 단계를 고른 뒤 <b>1년 동안 측정하기</b>를 누르세요. 그 단계로 들어온 에너지와 호흡으로 쓴 에너지를 잽니다.',
+  shortHint: '자유 탐구 탭에서 생산자부터 분해자까지 모든 단계를 측정해 기록하세요. 전달 효율을 바꿔 다시 측정하면 피라미드 모양이 달라집니다.',
   params: [
+    {key:'eco', type:'seg', cols:2, label:'쓸 자료', value:0,
+      options:['실제 조사 자료<small>실버스프링스</small>', '모형 생태계<small>효율을 내가 정함</small>'],
+      note:'실제 조사 자료는 Odum(1957) 미국 플로리다 실버스프링스의 값입니다. 모형 생태계는 생산자 총생산량만 같게 두고 아래 전달 효율로 각 단계를 계산한 <b>교육용 모형값</b>입니다(사체·배설물로 분해자에게 가는 몫은 20 %로 고정).'},
+    {key:'eff', type:'range', label:'전달 효율 (모형 생태계에서만)', value:10, min:5, max:25, step:1,
+      fmt:function(v){ return v + ' %'; }},
     {key:'l', type:'seg', label:'측정할 영양 단계', value:0, options:LV.map(function(x){ return x.name + '<small>' + x.ex + '</small>'; }),
-      note:'실제 조사 자료(Odum, 1957, 미국 플로리다 실버스프링스)입니다. 단위는 1년 동안 1 m²에서의 에너지(kcal)입니다. 생산자는 광합성으로 만든 총생산량입니다.'}
+      note:'단위는 1년 동안 1 m²에서의 에너지(kcal)입니다. 생산자는 광합성으로 만든 총생산량, 소비자와 분해자는 동화량입니다.'}
   ],
-  compute: function(p){ var L = LV[p.l]; return {L:L, gross:L.gross, resp:L.resp, net:L.gross - L.resp}; },
+  compute: function(p){ var A = levels(p), L = A[p.l];
+    return {L:L, A:A, gross:L.gross, resp:L.resp, net:L.gross - L.resp,
+      eco:p.eco, eff:p.eff}; },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.8, 1) : 1, lx = 118, cx = lx + (W - lx - 10) / 2, top = 40, bh = 46, gap = 18, maxw = W - lx - 14;
-    txt(c, '햇빛 에너지의 약 1.2 %만 생산자로', 12, 24, {color:'#4A5868'});
+    txt(c, p.eco === 1 ? '모형 생태계 — 전달 효율 ' + p.eff + ' % (교육용 모형값)' : '실제 조사 자료 — 햇빛 에너지의 약 1.2 %만 생산자로', 12, 24, {color:'#4A5868'});
     // 에너지 피라미드 (로그 눈금 막대)
-    var lw = function(v){ return maxw * Math.log10(v) / Math.log10(25000); };
+    var A = levels(p);
+    var lw = function(v){ return Math.max(16, maxw * Math.log10(Math.max(1.2, v)) / Math.log10(25000)); };
     [3, 2, 1, 0].forEach(function(i, row){
-      var L = LV[i], w = lw(L.gross), y = top + 20 + row * (bh + gap);
+      var L = A[i], w = lw(L.gross), y = top + 20 + row * (bh + gap);
       var on = r && p.l === i;
       c.fillStyle = L.color; c.globalAlpha = on ? 1 : 0.35; c.fillRect(cx - w / 2, y, w, bh); c.globalAlpha = 1;
       var rw = on ? w * L.resp / L.gross * k : 0;
@@ -472,7 +499,7 @@ return {
       txt(c, L.gross.toLocaleString(), cx, y + bh / 2, {align:'center', base:'middle', bold:true, color:on && rw < w / 2 - 30 ? '#fff' : '#1E2833'});
     });
     // 분해자
-    var D = LV[4], yd = top + 20 + 4 * (bh + gap) + 10, wd = lw(D.gross), onD = r && p.l === 4;
+    var D = A[4], yd = top + 20 + 4 * (bh + gap) + 10, wd = lw(D.gross), onD = r && p.l === 4;
     c.fillStyle = D.color; c.globalAlpha = onD ? 1 : 0.35; c.fillRect(cx - wd / 2, yd, wd, bh); c.globalAlpha = 1;
     var rwd = onD ? wd * D.resp / D.gross * k : 0;
     if (onD){ c.fillStyle = 'rgba(255,255,255,.55)'; c.fillRect(cx + wd / 2 - rwd, yd, rwd, bh); }
@@ -483,21 +510,32 @@ return {
     if (r){ var hx = W - 12, hy = top + 8; txt(c, '열로 흩어짐 ' + Math.round(r.resp * k).toLocaleString(), hx, hy, {align:'right', color:'#C8463D', bold:true}); }
   },
   stats: function(p, r){
-    return [['영양 단계', r.L.name + ' (' + r.L.ex + ')'], ['들어온 에너지 (총생산량·동화량)', r.gross.toLocaleString() + ' kcal/m²/년', r.L.color],
+    return [['쓴 자료', r.eco === 1 ? '모형 생태계 (효율 ' + r.eff + ' %, 교육용 모형값)' : '실제 조사 자료 (Odum, 1957)'],
+      ['영양 단계', r.L.name + ' (' + r.L.ex + ')'], ['들어온 에너지 (총생산량·동화량)', r.gross.toLocaleString() + ' kcal/m²/년', r.L.color],
       ['호흡으로 쓴 에너지', r.resp.toLocaleString() + ' kcal/m²/년', '#C8463D'], ['남은 에너지 (순생산량)', r.net.toLocaleString() + ' kcal/m²/년']];
   },
-  columns: ['영양 단계', '들어온 에너지', '호흡량', '순생산량'],
-  record: function(p, r){ return {l:p.l, gross:r.gross, resp:r.resp, net:r.net}; },
-  row: function(d){ return [dot(LV[d.l].color) + LV[d.l].name, d.gross.toLocaleString(), d.resp.toLocaleString(), d.net.toLocaleString()]; },
+  columns: ['자료', '영양 단계', '들어온 에너지', '호흡량', '순생산량'],
+  record: function(p, r){ return {l:p.l, eco:p.eco, eff:p.eff, gross:r.gross, resp:r.resp, net:r.net}; },
+  row: function(d){ return [(d.eco === 1 ? '모형 ' + d.eff + ' %' : '실제'), dot(LV[d.l].color) + LV[d.l].name,
+    d.gross.toLocaleString(), d.resp.toLocaleString(), d.net.toLocaleString()]; },
   verify: function(rec, box){
-    var got = {}; rec.forEach(function(d){ got[d.l] = d; });
+    var sets = {}; rec.forEach(function(d){ var k = (d.eco === 1 ? 'M' + d.eff : 'R'); (sets[k] = sets[k] || {})[d.l] = d; });
+    var keys = Object.keys(sets);
+    var got = sets[keys[keys.length - 1]];
     box.innerHTML = '<div class="vgrid">' +
-      card('영양 단계 사이의 에너지 효율', '<div id="ro1"></div><p class="ask">한 단계 위로 올라갈 때 에너지는 대략 몇 %만 전달되나요? 먹이 사슬이 보통 4~5단계를 넘기 어려운 까닭을 설명해 보세요.</p>') +
+      card('영양 단계 사이의 에너지 효율', '<div id="ro1"></div><div id="ro3"></div><p class="ask">한 단계 위로 올라갈 때 에너지는 대략 몇 %만 전달되나요? 전달 효율을 바꾸면 피라미드 모양이 어떻게 달라지나요? 먹이 사슬이 보통 4~5단계를 넘기 어려운 까닭을 설명해 보세요.</p>') +
       card('들어온 에너지 가운데 호흡으로 쓴 비율', '<div id="ro2"></div><p class="ask">단계마다 호흡으로 쓰는 비율이 어떻게 다른가요? 특히 2차 소비자와 분해자에서 비율이 큰 까닭을 추론해 보세요. (영양 단계가 높다고 항상 커지는 것은 아니에요.)</p>') +
       card('에너지와 물질의 차이', '<p>분해자가 분해한 유기물 속 탄소, 질소 같은 원소는 다시 생산자가 쓸 수 있습니다.</p><p class="ask">생태계에서 물질은 순환하는데, 에너지는 왜 순환하지 못하고 한 방향으로만 흐를까요?</p>') + '</div>';
     var chain = [0, 1, 2, 3], rows = [];
     for (var i = 0; i < 3; i++){ var a = got[chain[i]], b = got[chain[i + 1]]; rows.push([LV[chain[i]].name + ' → ' + LV[chain[i + 1]].name, a && b ? f(b.gross / a.gross * 100, 1) + ' %' : '두 단계를 모두 기록하세요']); }
     $('ro1').innerHTML = tableHTML(['전달', '에너지 효율 (다음 단계 ÷ 이전 단계)'], rows);
+    var crows = keys.map(function(k){
+      var s = sets[k], a = s[0], b = s[3];
+      return [(k === 'R' ? '실제 조사 자료' : '모형 효율 ' + k.slice(1) + ' %'),
+        (a && b) ? f(b.gross / a.gross * 1000, 2) + ' ‰' : '생산자와 3차 소비자를 모두 기록하세요'];
+    });
+    $('ro3').innerHTML = (keys.length > 1 ? '<p class="note">자료를 ' + keys.length + '가지 기록했습니다. 생산자 에너지 가운데 3차 소비자까지 남은 몫을 비교해 보세요 — 효율이 커지면 피라미드가 완만해집니다.</p>' : '<p class="note">전달 효율을 바꿔 다시 측정하면 여기에서 두 자료를 견줄 수 있습니다.</p>')
+      + tableHTML(['쓴 자료', '3차 소비자까지 남은 몫'], crows);
     var have = [0, 1, 2, 3, 4].filter(function(i){ return got[i]; });
     $('ro2').innerHTML = hbars(have.map(function(i){ var d = got[i]; return {label:LV[i].name, v:d.resp / d.gross * 100, color:LV[i].color, text:f(d.resp / d.gross * 100, 0) + ' %'}; }), 100);
   }
@@ -508,7 +546,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

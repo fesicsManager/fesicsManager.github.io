@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,7 +439,7 @@ var LAB = (function(){
       function once(rn, p){
         var fm = FM[p.fm], cells = [], miss = 0, quit = false, done = 0;
         for (var i = 0; i < 12; i++){
-          var wk = Math.floor(i / 3), pr = fm.b + (p.pal ? 0.12 : 0), obs = rn() < 0.3;
+          var wk = Math.floor(i / 3), pr = fm.b + (p.pal ? 0.12 : 0), obs = rn() < (p.ob == null ? 30 : p.ob) / 100;
           if (p.hard) pr *= Math.max(0.2, 0.9 - 0.2 * wk);
           if (obs && !fm.alt) pr *= 0.3;
           var ok = !quit && rn() < pr;
@@ -448,18 +450,26 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 420,
-        idle: '계획 형식·동반자·시작 강도를 고르고 <b>4주 살아 보기</b>를 누르세요.',
+        idle: '계획 형식·동반자·시작 강도·장애물 확률을 고르고 <b>4주 살아 보기</b>를 누르세요. 장애물이 드문 달에는 결과가 달라집니다.',
         shortHint: '네 가지 계획 형식을 모두 기록하고, 동반자와 시작 강도도 바꿔 보세요.',
         params: [
           {key:'fm', type:'seg', label:'계획 형식', cols:2, value:0, options:FM.map(function(x){ return x.n; })},
           {key:'pal', type:'seg', label:'동반자', cols:2, value:0, options:['혼자', '친구와 약속']},
-          {key:'hard', type:'seg', label:'시작 강도', cols:2, value:0, options:['적정 (30분, 가볍게 시작)', '과도 (매일 새벽 10 km 수준)']}
+          {key:'hard', type:'seg', label:'시작 강도', cols:2, value:0, options:['적정 (30분, 가볍게 시작)', '과도 (매일 새벽 10 km 수준)']},
+          {key:'ob', type:'range', label:'장애물이 생길 확률 (비·시험·일정)', min:0, max:60, step:10, value:30, fmt:function(v){ return v + '%'; }}
         ],
         compute: function(p){
           runN++;
-          var rn = rng(101 + p.fm * 7 + p.pal * 31 + p.hard * 97), sum = 0, q = 0;
-          for (var t = 0; t < 500; t++){ var o = once(rn, p); sum += o.rate; if (o.quit) q++; }
-          return {avg:sum / 500, quitP:q / 5, one:once(rng(9 + runN * 7919), p), fm:FM[p.fm]};
+          var ob = (p.ob == null ? 30 : p.ob);
+          var rn = rng(101 + p.fm * 7 + p.pal * 31 + p.hard * 97 + ob * 13), sum = 0, q = 0, t;
+          for (t = 0; t < 500; t++){ var o = once(rn, p); sum += o.rate; if (o.quit) q++; }
+          /* 같은 장애물 확률에서 '실행 의도'와 '+장애물 대안'의 차이를 함께 재어, 대안이 쓸모 있는 때를 가린다 */
+          function avgOf(fmIdx){ var rr = rng(555 + fmIdx * 7 + p.pal * 31 + p.hard * 97 + ob * 13), ss = 0;
+            for (var u = 0; u < 500; u++) ss += once(rr, {fm:fmIdx, pal:p.pal, hard:p.hard, ob:ob}).rate;
+            return ss / 500; }
+          var a2 = avgOf(2), a3 = avgOf(3), gap = a3 - a2;
+          return {avg:sum / 500, quitP:q / 5, one:once(rng(9 + runN * 7919), p), fm:FM[p.fm],
+            ob:ob, a2:a2, a3:a3, gap:gap, small:(Math.abs(gap) < 3)};
         },
         draw: function(c, W, H, p, r, tau){
           var x0 = 20, bw = W - 40, cw = Math.min(90, (bw - 70) / 3), ch = 52, k = r ? tau : 0;
@@ -487,14 +497,21 @@ var LAB = (function(){
           return [['계획 형식', r.fm.n], ['평균 실행률 (500번)', f(r.avg, 1) + '%', PAL[0]],
             ['중간에 포기한 비율', f(r.quitP, 1) + '%', r.quitP > 20 ? PAL[4] : PAL[1]],
             ['이번 4주 실행', f(r.one.rate / 100 * 12, 0) + ' / 12회'],
-            ['설계 점검', [r.fm.alt ? '장애물 대안 ✓' : '장애물 대안 ✕', p.pal ? '동반자 ✓' : '동반자 ✕', p.hard ? '시작 강도 과도 ✕' : '시작 강도 적정 ✓'].join(' · '), PAL[3]]];
+            ['설계 점검', [r.fm.alt ? '장애물 대안 ✓' : '장애물 대안 ✕', p.pal ? '동반자 ✓' : '동반자 ✕', p.hard ? '시작 강도 과도 ✕' : '시작 강도 적정 ✓'].join(' · '), PAL[3]],
+            ['장애물 확률', r.ob + '% (내가 정한 값)', PAL[6]],
+            ['실행 의도 vs +장애물 대안', '실행 의도 ' + f(r.a2, 1) + '% · 대안까지 ' + f(r.a3, 1) + '% → 차이 ' + sgn(r.gap, 1) + '%p', r.small ? PAL[6] : PAL[1]],
+            ['판정', r.small
+              ? '장애물이 드문 달에는 두 계획 형식의 차이가 거의 없습니다 — 대안은 장애물이 있을 때만 쓸모가 있습니다.'
+              : '장애물이 잦아서 대안을 적어 둔 계획이 ' + f(Math.abs(r.gap), 1) + '%p 앞섭니다.', r.small ? PAL[6] : PAL[1]],
+            ['※ 모형값', '실행 확률(막연 25% · 목표 45% · 실행 의도 65%)과 동반자 +12%p 는 비교를 쉽게 하려고 정한 교육용 모형값입니다.', PAL[7]]];
         },
-        columns: ['계획 형식', '동반자', '시작 강도', '평균 실행률', '포기 비율'],
-        record: function(p, r){ return {fm:p.fm, pal:p.pal, hard:p.hard, avg:r.avg, quit:r.quitP}; },
-        row: function(d){ return [FM[d.fm].s, d.pal ? '있음' : '없음', d.hard ? '과도' : '적정', f(d.avg, 0) + '%', f(d.quit, 0) + '%']; },
+        columns: ['계획 형식', '장애물 확률', '시작 강도', '평균 실행률', '대안의 이득'],
+        record: function(p, r){ return {fm:p.fm, pal:p.pal, hard:p.hard, avg:r.avg, quit:r.quitP, ob:r.ob, gap:r.gap, small:r.small}; },
+        row: function(d){ return [FM[d.fm].s, (d.ob == null ? 30 : d.ob) + '%', d.hard ? '과도' : '적정', f(d.avg, 0) + '%', sgn(d.gap == null ? 0 : d.gap, 1) + '%p']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('계획 형식별 평균 실행률 (모형)', '<div id="ii1"></div><p class="ask">아래로 갈수록 “그때 가서 결정할 것”이 줄어듭니다. 실행률이 가장 크게 뛴 단계는 어디였나요? 뭉치의 “새벽 5시 10 km” 계획에서 빠진 요소 세 가지는?</p>') +
+            card('장애물 확률에 따라 대안의 이득이 달라진다', '<div id="ii3"></div><p class="ask">장애물 확률을 0%로 두면 ‘실행 의도’와 ‘+장애물 대안’의 차이가 어떻게 되었나요? 대안을 적어 두는 일이 쓸모 있어지는 때는 언제인가요?</p>') +
             card('동반자·시작 강도의 영향', '<div id="ii2"></div><p class="ask">과제: 자신의 4주 운동 계획을 실행 의도 형식으로 쓰고 장애물 두 가지의 대안을 넣은 뒤, 매주 실행률을 기록하세요. 통증·어지럼이 느껴지면 즉시 멈추고, 기저 질환이 있으면 먼저 전문가와 상담하세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.fm; }), items = [];
           FM.forEach(function(fm, i){ if (!g[i]) return; var v = mean(g[i].map(function(d){ return d.avg; })); items.push({label:fm.s, v:v, color:PAL[0], text:f(v, 0) + '%'}); });
@@ -502,6 +519,13 @@ var LAB = (function(){
           var g2 = groupBy(rec, function(d){ return (d.pal ? '동반자 있음' : '혼자') + ' · ' + (d.hard ? '과도한 시작' : '적정 시작'); }), rows = [];
           Object.keys(g2).forEach(function(k){ rows.push([k, g2[k].length + '회', f(mean(g2[k].map(function(d){ return d.avg; })), 0) + '%', f(mean(g2[k].map(function(d){ return d.quit; })), 0) + '%']); });
           $('ii2').innerHTML = tableHTML(['조건', '기록', '평균 실행률', '평균 포기'], rows);
+          var g3 = groupBy(rec, function(d){ return (d.ob == null ? 30 : d.ob); }), rows3 = [];
+          Object.keys(g3).sort(function(a, b){ return a - b; }).forEach(function(k){ var a = g3[k];
+            rows3.push([k + '%', a.length + '회', f(mean(a.map(function(d){ return d.avg; })), 0) + '%',
+              sgn(mean(a.map(function(d){ return d.gap == null ? 0 : d.gap; })), 1) + '%p',
+              a.filter(function(d){ return d.small; }).length + ' / ' + a.length]); });
+          $('ii3').innerHTML = tableHTML(['장애물 확률', '기록', '평균 실행률', '대안의 이득', '차이가 거의 없던 기록'], rows3) +
+            '<p class="msg">장애물이 드문 달에는 대안을 적어 둔 계획과 그냥 실행 의도만 쓴 계획의 실행률이 비슷해져요. 계획 형식의 순서가 늘 정해져 있는 것이 아니라, <b>장애물이 얼마나 잦은지</b>에 따라 달라지는 거예요.</p>';
         }
       };
     })();
@@ -510,7 +534,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

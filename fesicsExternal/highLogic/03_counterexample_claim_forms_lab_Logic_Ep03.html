@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -445,6 +447,17 @@ var LAB = (function(){
       ];
       var RB = ['예외 사례 한 개 제시', '대규모 비교 자료 제시', '주장한 사람을 비난'];
       var RN = ['불성립', '조건부 성립', '성립'];
+      /* 그리지 않고 줄 수만 센다 */
+      function lineCount(c, s, mw, o){
+        c.font = (o && o.bold ? '700 ' : '') + '18px ' + FONT;
+        var ws = String(s).split(' '), line = '', n = 0;
+        for (var i = 0; i < ws.length; i++){
+          var t = line ? line + ' ' + ws[i] : ws[i];
+          if (c.measureText(t).width > mw && line){ n++; line = ws[i]; } else line = t;
+        }
+        if (line) n++;
+        return n;
+      }
       function wrap(c, s, x, y, mw, lh, o){
         c.font = (o && o.bold ? '700 ' : '') + '18px ' + FONT;
         var ws = s.split(' '), line = '', n = 0;
@@ -456,7 +469,7 @@ var LAB = (function(){
         return n;
       }
       return {
-        sceneHeight: 460,
+        sceneHeight: function (w){ return w < 560 ? 536 : 460; },
         idle: '주장과 반박 방식을 고른 뒤 <b>반박해 보기</b>를 누르세요.',
         shortHint: '같은 "예외 사례 한 개"를 네 가지 주장에 모두 적용해 보세요.',
         params: [
@@ -514,8 +527,11 @@ var LAB = (function(){
           if (r && p.b === 2 && k > 0.3) tfit(c, '"저 사람은 믿을 수 없어!"', W / 2, top + 196, {align:'center', bold:true, color:PAL[7]});
           if (r && k >= 0.8){
             var col = r.res === 2 ? PAL[1] : r.res === 1 ? PAL[6] : PAL[4];
-            tfit(c, '반박 ' + RN[r.res], 20, H - 118, {bold:true, color:col});
-            wrap(c, r.why, 20, H - 90, W - 40, 22, {color:'#1E2833'});
+            /* 이유 글의 줄 수를 먼저 재서 마지막 줄이 캔버스 안에 들어오게 올려 그린다 */
+            var wn = lineCount(c, r.why, W - 40, {color:'#1E2833'});
+            var wy = H - 20 - (wn - 1) * 22;
+            tfit(c, '반박 ' + RN[r.res], 20, wy - 28, {bold:true, color:col});
+            wrap(c, r.why, 20, wy, W - 40, 22, {color:'#1E2833'});
           }
           if (!r) tfit(c, '반박 방식을 고르고 실행하세요', 20, H - 18, {color:'#4A5868'});
         },
@@ -549,7 +565,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

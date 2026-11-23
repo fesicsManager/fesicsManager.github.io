@@ -25,6 +25,7 @@
 <!-- labgen:midSciP2 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>먼 별일수록 시차가 크게 보이나 | 중학교 과학 ②</title>
+<script src="/fesicsExternal/fxbig.js"></script>
 <style>
 :root{
   --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
@@ -61,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +301,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,7 +444,13 @@ var LAB = (function(){
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function sig2(x){ if (x >= 10) return String(Math.round(x)); return String(Math.round(x * 10) / 10); }
       function fm(x){ return String(Math.round(x * 100) / 100); }
-      function solve(k){ var p = ST[k].p, d = 1 / p, ly = d * 3.26; return {k:k, n:ST[k].n, p:p, d:d, ds:fm(d), ly:ly, lys:sig2(ly), shift:2 * p}; }
+      function solve(k){ var p = ST[k].p, d = 1 / p, ly = d * 3.26; return {k:k, n:ST[k].n, short:'별 ' + ST[k].n, p:p, d:d, ds:fm(d), ly:ly, lys:sig2(ly), shift:2 * p}; }
+      /* 거리를 내가 정하면 연주 시차가 거꾸로 계산된다 (p = 1 ÷ d) */
+      function solveP(k, dpc){
+        if (!dpc) return solve(k);
+        var d = dpc, p = Math.round(1000 / d) / 1000, ly = d * 3.26;
+        return {k:-1, n:'내가 정한 별 (' + d + ' pc)', short:'내 별', p:p, d:d, ds:fm(d), ly:ly, lys:sig2(ly), shift:2 * p};
+      }
       function star(c, x, y, r, col){ c.fillStyle = col; c.beginPath(); for (var i = 0; i < 10; i++){ var a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; c.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); } c.closePath(); c.fill(); }
       return {
         sceneHeight: function(w){ return w < 560 ? 560 : 360; },
@@ -451,11 +460,17 @@ var LAB = (function(){
         params: [
           {key:'k', type:'seg', label:'관측할 별', cols:3, value:0, options:ST.map(function(s){ return s.n + ' (' + s.p + '″)'; })},
           {key:'g', type:'seg', label:'예측: 6개월 간격으로 가까운 별 A와 먼 별 B를 관측했다. 뒤의 아주 먼 별들에 비해 옮겨 보이는 정도는?', cols:1, value:1, options:PG,
-            note:'뭉치는 "멀면 많이 움직이지! ②"라고 했어요.'}
+            note:'뭉치는 "멀면 많이 움직이지! ②"라고 했어요.'},
+          {key:'dpc', type:'range', label:'거리를 내가 정하기', min:0, max:40, step:1, value:0, fmt:function(v){ return v ? v + ' pc' : '목록의 별 쓰기'; },
+            note:'0에 두면 위에서 고른 별을 관측해요. 1 pc 이상으로 올리면 거리를 내가 정하고, 연주 시차가 p = 1 ÷ 거리로 거꾸로 계산돼요.'}
         ],
-        compute: function(p){ var S = solve(p.k); S.ok = p.g === 2; return S; },
+        compute: function(p){
+          var S = solveP(p.k, p.dpc); S.ok = p.g === 2; S.dpc = p.dpc;
+          S.vd = p.dpc ? '거리를 2배로 하면 연주 시차는 절반이 돼요 (p × 거리 = 1)' : '가까운 별일수록 크게 옮겨 보여요 (p × 거리 = 1)';
+          return S;
+        },
         draw: function(c, W, H, p, r, tau){
-          var nar = W < 560, S = solve(p.k), fs = nar ? 12 : 14;
+          var nar = W < 560, S = solveP(p.k, p.dpc), fs = nar ? 12 : 14;
           var dw = nar ? W : W * 0.55, dx = dw / 2, by = nar ? 250 : 270;
           // 배경의 아주 먼 별
           c.fillStyle = '#0F1830'; c.fillRect(0, 0, dw, 34);
@@ -471,7 +486,7 @@ var LAB = (function(){
           // 별 (가까울수록 아래쪽)
           var sy, sxp = dx;
           sy = Math.max(48, by - (46 + 9 * S.d));
-          star(c, sxp, sy, 8, '#F2B705'); T(c, '별 ' + S.n, sxp + 12, sy + 4, 12, '#1E2833', 'left', true);
+          star(c, sxp, sy, 8, '#F2B705'); T(c, S.short, sxp + 12, sy + 4, 12, '#1E2833', 'left', true);
           if (r){
             var e1 = Math.min(1, tau * 2), e2 = Math.max(0, Math.min(1, tau * 2 - 1));
             seg(c, jx, by, jx + (sxp - jx) * e1, by + (sy - by) * e1, '#C8463D', 1.8);
@@ -504,23 +519,25 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['별', r.n], ['연주 시차', r.p + '″', PAL[3]], ['거리', r.ds + ' pc', PAL[0]], ['거리(어림)', '약 ' + r.lys + '광년', PAL[0]],
-            ['연주 시차 × 거리', fm(r.p * r.d)], ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
+          return [['별', r.n], ['정한 것', r.dpc ? '거리를 내가 정함 → 연주 시차를 계산' : '연주 시차를 보고 거리를 계산'],
+            ['연주 시차', r.p + '″', PAL[3]], ['거리', r.ds + ' pc', PAL[0]], ['거리(어림)', '약 ' + r.lys + '광년', PAL[0]],
+            ['연주 시차 × 거리', fm(r.p * r.d)], ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, PAL[1]]];
         },
         columns: ['별', '연주 시차', '거리(pc)', '거리(광년, 어림)', '연주 시차 × 거리'],
-        record: function(p, r){ return {k:p.k}; },
-        row: function(d){ var S = solve(d.k); return [S.n, S.p + '″', S.ds + ' pc', '약 ' + S.lys + '광년', fm(S.p * S.d)]; },
+        record: function(p, r){ return {k:p.k, dpc:p.dpc, n:r.n, p:r.p, d:r.d, ds:r.ds, lys:r.lys}; },
+        row: function(d){ return [d.n, d.p + '″', d.ds + ' pc', '약 ' + d.lys + '광년', fm(d.p * d.d)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('연주 시차와 거리', '<canvas class="chart" id="pa1"></canvas><div id="pa2"></div><p class="ask">연주 시차가 반으로 줄면 거리는 몇 배가 되었나요? 가장 많이 옮겨 보인 별은 가장 가까운 별이었나요, 가장 먼 별이었나요?</p>') +
             card('거리 견주기 (광년)', '<div id="pa3"></div><p class="ask">과제: 팔을 뻗은 거리, 그 절반, 그 4분의 1에 연필을 두고 두 눈을 번갈아 감아 연필이 옮겨 보이는 정도를 비교해 보세요. 연주 시차가 0.25″인 별까지의 거리를 pc와 광년으로 구해 보세요.</p>') + '</div>';
           var seen = {};
-          rec.forEach(function(d){ seen[d.k] = 1; });
-          var ks = Object.keys(seen).map(Number).sort(function(a, b){ return ST[b].p - ST[a].p; });
-          drawScatter($('pa1'), {series:[{color:PAL[0], pts:ks.map(function(k){ var S = solve(k); return {x:S.p, y:S.d}; })}], xLabel:'연주 시차 (″)', yLabel:'거리 (pc)'});
-          $('pa2').innerHTML = tableHTML(['별', '연주 시차', '거리', '시차 × 거리'], ks.map(function(k){ var S = solve(k); return [S.n, S.p + '″', S.ds + ' pc', fm(S.p * S.d)]; })) +
-            '<p class="msg">' + (ks.length >= 2 ? '연주 시차와 거리를 곱하면 늘 1이에요. 연주 시차가 작을수록 별은 멀어요 — 반비례 관계예요.' : '별을 두 개 이상 관측해 보세요.') + '</p>';
-          $('pa3').innerHTML = hbars(ks.map(function(k, i){ var S = solve(k); return {label:'별 ' + S.n, v:S.ly, color:PAL[i % 8], text:'약 ' + S.lys + '광년'}; }), 70) +
+          rec.forEach(function(d){ seen[d.n] = d; });
+          var ks = Object.keys(seen).map(function(k){ return seen[k]; }).sort(function(a, b){ return b.p - a.p; });
+          drawScatter($('pa1'), {series:[{color:PAL[0], pts:ks.map(function(d){ return {x:d.p, y:d.d}; })}], xLabel:'연주 시차 (″)', yLabel:'거리 (pc)'});
+          $('pa2').innerHTML = tableHTML(['별', '연주 시차', '거리', '시차 × 거리'], ks.map(function(d){ return [d.n, d.p + '″', d.ds + ' pc', fm(d.p * d.d)]; })) +
+            '<p class="msg">' + (ks.length >= 2 ? '연주 시차와 거리를 곱하면 늘 1이에요. 거리를 내가 정해도 같은 관계가 나와요 — 반비례예요.' : '별을 두 개 이상 관측하거나 거리를 바꿔 보세요.') + '</p>';
+          $('pa3').innerHTML = hbars(ks.map(function(d, i){ return {label:d.n, v:d.d * 3.26, color:PAL[i % 8], text:'약 ' + d.lys + '광년'}; }), 70) +
             '<p class="msg">1 pc는 약 3.26광년이에요. 가장 가까운 별인 프록시마 센타우리도 약 4.2광년 떨어져 있어요.</p>';
         }
       };
@@ -530,7 +547,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

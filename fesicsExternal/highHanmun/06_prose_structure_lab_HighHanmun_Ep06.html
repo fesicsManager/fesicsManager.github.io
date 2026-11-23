@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -485,16 +487,20 @@ var LAB = (function anonymous(
         {nm:'일화 활용', f:function(s){ return ['일화: ' + s.epi, '그 장면이 뜻하는 것을 짚음', '확장: ' + s.big]; }, jp:2, pos:'끝에서 큰 주제로 확장', common:'아니요', share:'보통'},
         {nm:'대화체', f:function(s){ return [s.guest, s.reply, '손님의 반박과 나의 재반박', '결론: ' + s.twist]; }, jp:3, pos:'문답 끝에 드러남', common:'예', share:'많음'}
       ];
+      var JP = ['1번 칸', '2번 칸', '3번 칸', '4번 칸', '끝까지 미룸 (판단을 말하지 않음)'];
+      function jpCode(st){ return st.jp < 0 ? 4 : st.jp; }
       return {
         sceneHeight: function(w){ return w < 520 ? 470 : 420; },
-        idle: '소재와 구성 방식을 고른 뒤 <b>개요 만들기</b>를 누르세요.',
-        shortHint: '한 소재로 구성 방식 다섯 가지를 모두 만들어 비교해 보세요.',
+        idle: '소재와 구성 방식을 고르고 <b>판단이 나올 자리를 먼저 짚은 뒤</b> <b>개요 만들기</b>를 누르세요.',
+        shortHint: '한 소재로 구성 방식 다섯 가지를 모두 만들고, 그때마다 판단의 자리를 먼저 짚어 보세요.',
         params: [
           {key:'s', type:'seg', label:'소재', cols:3, value:0, options:SB.map(function(x){ return x.nm; })},
-          {key:'k', type:'seg', label:'구성 방식', cols:5, value:0, options:ST.map(function(x){ return x.nm; }),
-            note:'정답은 없습니다. 어느 구성에서 글쓴이의 개성이 가장 잘 드러나는지 비교해 보세요.'}
+          {key:'k', type:'seg', label:'구성 방식', cols:5, value:0, options:ST.map(function(x){ return x.nm; })},
+          {key:'jp', type:'seg', label:'먼저 짚어 보기 — 글쓴이의 판단은 몇 번째 칸에서 나올까요?', cols:2, value:2, options:JP,
+            note:'구성에 정답은 없지만, <b>판단이 어느 자리에서 나오는가</b>는 구성마다 정해져 있습니다. 먼저 짚은 뒤 개요를 펼쳐 맞는지 보세요. 칸 수는 구성에 따라 3칸 또는 4칸입니다.'}
         ],
-        compute: function(p){ var s = SB[p.s], st = ST[p.k]; return {s:s, st:st, out:st.f(s)}; },
+        compute: function(p){ var s = SB[p.s], st = ST[p.k], code = jpCode(st);
+          return {s:s, st:st, out:st.f(s), code:code, jp:p.jp, hit:(p.jp === code)}; },
         draw: function(c, W, H, p, r, tau){
           var s = SB[p.s], st = ST[p.k], out = st.f(s), n = out.length;
           T(c, '「' + s.nm + '」 · ' + st.nm, W / 2, 30, {bold:true, align:'center', max:W - 30});
@@ -507,23 +513,30 @@ var LAB = (function anonymous(
             if (i < n - 1 && on) arrow(c, W / 2, y + bh - 10, W / 2, y + bh, '#8C99A8', 2);
           }
           if (r && tau > 0.9){
-            T(c, '판단의 위치: ' + st.pos + ' · 독자의 몫: ' + st.share, W / 2, H - 22, {size:15, bold:true, align:'center', color:PAL[3], max:W - 24});
+            T(c, '판단의 위치: ' + st.pos + ' · 독자의 몫: ' + st.share, W / 2, H - 42, {size:15, bold:true, align:'center', color:PAL[3], max:W - 24});
+            T(c, '내가 짚은 자리: ' + JP[r.jp] + (r.hit ? ' ⭕' : ' ❌'), W / 2, H - 18,
+              {size:15, bold:true, align:'center', color:r.hit ? PAL[1] : PAL[4], max:W - 24});
           }
         },
         stats: function(p, r){
           return [['소재', r.s.nm], ['구성 방식', r.st.nm, PAL[0]], ['개요', r.out.map(function(x, i){ return (i + 1) + '. ' + x; }).join('<br>')],
-            ['판단의 위치', r.st.pos, PAL[4]], ['통념 활용', r.st.common], ['독자가 채울 몫', r.st.share, PAL[3]]];
+            ['판단의 위치', r.st.pos + ' (' + JP[r.code] + ')', PAL[4]],
+            ['내가 짚은 자리', JP[r.jp] + (r.hit ? ' — ⭕ 맞혔어요' : ' — ❌ 실제로는 ' + JP[r.code]), r.hit ? PAL[1] : PAL[6]],
+            ['통념 활용', r.st.common], ['독자가 채울 몫', r.st.share, PAL[3]]];
         },
-        columns: ['소재', '구성', '판단 위치', '독자 몫'],
-        record: function(p, r){ return {s:p.s, k:p.k}; },
-        row: function(d){ return [SB[d.s].nm, ST[d.k].nm, ST[d.k].pos, ST[d.k].share]; },
+        columns: ['소재', '구성', '판단 위치', '내가 짚은 자리', '맞힘', '독자 몫'],
+        record: function(p, r){ return {s:p.s, k:p.k, jp:r.jp, hit:r.hit}; },
+        row: function(d){ return [SB[d.s].nm, ST[d.k].nm, ST[d.k].pos, JP[d.jp], d.hit ? '⭕' : '❌', ST[d.k].share]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('만들어 본 구성', '<div id="hh6a"></div><p class="ask">같은 소재인데 구성만 바꿨을 때 가장 "글쓴이답게" 느껴진 구성은 무엇인가요? 판단의 위치와 연결해 까닭을 쓰세요.</p>') +
             card('구성 방식 비교표', '<div id="hh6b"></div><p class="ask">과제: 한문 산문 한 편을 읽고 갈래·구성·비유를 분석한 뒤, 같은 소재로 관습적 구성과 역설적 구성 두 가지 개요를 직접 써 보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.k; }), items = [];
           ST.forEach(function(x, i){ var g = by[i] || []; items.push({label:x.nm, v:g.length, color:PAL[i], text:g.length + '회'}); });
-          $('hh6a').innerHTML = hbars(items, Math.max(1, rec.length)) + '<p class="msg">서로 다른 소재·구성 조합 ' + distinct(rec.map(function(d){ return d.s + '-' + d.k; })) + ' / 15가지</p>';
+          var hits = rec.filter(function(d){ return d.hit; }).length;
+          var early = rec.filter(function(d){ return !d.hit && d.jp < jpCode(ST[d.k]); }).length;
+          $('hh6a').innerHTML = hbars(items, Math.max(1, rec.length)) + '<p class="msg">서로 다른 소재·구성 조합 ' + distinct(rec.map(function(d){ return d.s + '-' + d.k; })) + ' / 15가지 · 판단의 자리를 맞힌 횟수 <b>' + hits + ' / ' + rec.length + '</b>' +
+            (early ? ' · 실제보다 <b>이른 칸</b>으로 짚은 적이 ' + early + '번 있었어요 — 좋은 산문은 판단을 늦게 내놓는 쪽이 많습니다.' : '') + '</p>';
           $('hh6b').innerHTML = tableHTML(['구성', '판단의 위치', '통념 활용', '독자의 몫'], ST.map(function(x){ return [x.nm, x.pos, x.common, x.share]; }));
         }
       };
@@ -534,7 +547,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

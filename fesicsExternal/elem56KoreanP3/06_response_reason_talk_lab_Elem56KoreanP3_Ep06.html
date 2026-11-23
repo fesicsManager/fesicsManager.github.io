@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,9 +436,13 @@ var LAB = (function(){
         {n:'① 장면 + 까닭: "흥부가 다친 제비 다리를 묶어 주는 장면. 자기도 가난한데 작은 생명을 돌봐서."', s:'장면 + 까닭', say:'제비 다리 장면 — 자기도 가난한데…', add:9, scene:3, ex:'"나는 놀부가 박을 타는 장면이 더 남았어. 왜냐면…"', c:PAL[1]},
         {n:'② "재미있었다."', s:'재미있었다', say:'재미있었다.', add:1, scene:0, ex:'"응."', c:PAL[7]},
         {n:'③ 줄거리를 처음부터 끝까지 다시 말하기', s:'줄거리 다시', say:'옛날에 흥부와 놀부가 살았는데…', add:2, scene:0, ex:'"그건 다 읽었잖아."', c:PAL[6]},
-        {n:'④ "표지가 예뻤다."', s:'표지가 예뻤다', say:'표지가 예뻤다.', add:1, scene:0, ex:'"그렇네."', c:PAL[3]}
+        {n:'④ "표지가 예뻤다."', s:'표지가 예뻤다', say:'표지가 예뻤다.', add:1, scene:0, ex:'"그렇네."', c:PAL[3]},
+        {n:'⑤ 내가 만든 감상 — 장면·까닭을 넣었는지 아래에서 표시', s:'내 감상', say:'', add:1, scene:0, ex:'', c:PAL[2], custom:true}
       ];
       var RS = ['다른 장면이 나오면 "왜 그 장면이야?" 하고 묻는다', '다른 장면이 나오면 "그건 틀렸어." 한다'];
+      var YN = ['넣었다', '안 넣었다'];
+      /* [장면·까닭 조합] → [3분 동안 덧붙인 말, 자기 장면을 꺼낸 친구] (교육용 모형값) */
+      var CT = [[1, 0], [4, 2], [3, 1], [9, 3]];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       return {
         sceneHeight: 410,
@@ -444,17 +450,25 @@ var LAB = (function(){
         shortHint: '감상 방법 네 가지를 모두 해 보고, ①에서 받는 방법을 바꿔 보세요.',
         params: [
           {key:'w', type:'seg', label:'첫 사람의 감상 방법', cols:2, value:0, options:WY.map(function(x){ return x.n; })},
-          {key:'rs', type:'seg', label:'다른 친구가 다른 장면을 꺼내면', cols:2, value:0, options:RS}
+          {key:'rs', type:'seg', label:'다른 친구가 다른 장면을 꺼내면', cols:2, value:0, options:RS},
+          {key:'hs', type:'seg', label:'⑤ 내 감상에 "어느 장면"을', cols:2, value:0, options:YN},
+          {key:'hw', type:'seg', label:'⑤ 내 감상에 "왜냐하면(까닭)"을', cols:2, value:0, options:YN, note:'⑤ 를 고르면 이 두 칸으로 결과를 계산해요. 넷 가운데 어느 조합이 대화를 가장 오래 잇는지 찾아보세요.'}
         ],
         compute: function(p){
-          var w = WY[p.w], add = w.add, scene = w.scene;
-          if (p.rs === 1 && w.scene > 0){ add = 4; scene = 1; }
-          return {w:w, add:add, scene:scene, ex:p.rs === 1 && w.scene > 0 ? '"나는 놀부 장면이…" → "그건 틀렸어." → (조용)' : w.ex};
+          var w = WY[p.w], custom = !!w.custom, add = w.add, scene = w.scene;
+          var hs = (p.hs === 0), hw = (p.hw === 0);
+          if (custom){ var ci = (hs ? 1 : 0) + (hw ? 2 : 0); add = CT[ci][0]; scene = CT[ci][1]; }
+          var ex = custom ? (hs && hw ? '"나는 다른 장면이 남았어. 왜냐면…"' : (hs ? '"나도 그 장면 봤어." (까닭이 없어 더 이을 말이 없음)' : (hw ? '"어느 장면 말이야?"' : '"응."'))) : w.ex;
+          var block = (p.rs === 1 && scene > 0);
+          if (block){ add = 4; scene = 1; }
+          return {w:w, custom:custom, hs:hs, hw:hw, add:add, scene:scene, ex:block ? '"나는 놀부 장면이…" → "그건 틀렸어." → (조용)' : ex};
         },
         draw: function(c, W, H, p, r, tau){
           var w = WY[p.w], cx = W / 2, cy = H * 0.44, R = Math.min(W * 0.36, 150), narrow = W < 560;
           c.fillStyle = '#FFF8EE'; c.strokeStyle = w.c; c.lineWidth = 2; c.beginPath(); c.rect(cx - Math.min(W * 0.42, 210), cy - 26, Math.min(W * 0.84, 420), 52); c.fill(); c.stroke();
-          var s = w.say; if (s.length > (narrow ? 15 : 26)) s = s.slice(0, narrow ? 14 : 25) + '…';
+          var s = w.custom ? ((p.hs === 0 ? '그 장면은 … ' : '') + (p.hw === 0 ? '왜냐하면 …' : (p.hs === 0 ? '' : '(장면·까닭 없음)'))) : w.say;
+          if (!s) s = '(아직 쓰지 않음)';
+          if (s.length > (narrow ? 15 : 26)) s = s.slice(0, narrow ? 14 : 25) + '…';
           T(c, s, cx, cy + 6, narrow ? 13 : 15, '#1E2833', 'center', true);
           var pos = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
           var shown = r ? Math.round(r.add * Math.min(1, tau / 0.85)) : 0;
@@ -475,11 +489,11 @@ var LAB = (function(){
             ['3분 동안 덧붙인 말', '약 ' + r.add + '번', PAL[1]],
             ['자기 장면을 꺼낸 친구', r.scene + '명 / 4명', PAL[0]],
             ['나온 말의 예', r.ex],
-            ['감상 틀', r.w.scene ? '인상적인 부분 ✓ · 까닭 ✓' : '인상적인 부분 ✕ · 까닭 ✕']];
+            ['감상 틀', r.custom ? ((r.hs ? '인상적인 부분 ✓' : '인상적인 부분 ✕') + ' · ' + (r.hw ? '까닭 ✓' : '까닭 ✕')) : (r.w.scene ? '인상적인 부분 ✓ · 까닭 ✓' : '인상적인 부분 ✕ · 까닭 ✕'), r.custom ? PAL[2] : 0]];
         },
-        columns: ['감상 방법', '받는 방법', '덧붙인 말', '장면 꺼냄'],
-        record: function(p, r){ return {w:p.w, rs:p.rs, add:r.add, scene:r.scene}; },
-        row: function(d){ return [WY[d.w].s, d.rs ? '"틀렸어"' : '"왜?"', d.add + '번', d.scene + '명']; },
+        columns: ['감상 방법', '장면·까닭', '받는 방법', '덧붙인 말', '장면 꺼냄'],
+        record: function(p, r){ return {w:p.w, rs:p.rs, add:r.add, scene:r.scene, custom:r.custom, hs:r.hs, hw:r.hw}; },
+        row: function(d){ return [WY[d.w].s, d.custom ? ((d.hs ? '장면 ✓' : '장면 ✕') + ' / ' + (d.hw ? '까닭 ✓' : '까닭 ✕')) : '—', d.rs ? '"틀렸어"' : '"왜?"', d.add + '번', d.scene + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('감상 방법별 덧붙인 말 (3분, "왜?"로 받을 때)', '<div id="rs1"></div><p class="ask">"짧고 굵게"였던 ②는 대화가 이어졌나요? 친구들이 자기 장면을 꺼낸 것은 어떤 감상 뒤였나요?</p>') +
@@ -488,7 +502,11 @@ var LAB = (function(){
           WY.forEach(function(w, i){ var g = rec.filter(function(d){ return d.w === i && d.rs === 0; }); if (!g.length) return; items.push({label:w.s, v:g[0].add, color:w.c, text:'약 ' + g[0].add + '번'}); });
           $('rs1').innerHTML = items.length ? hbars(items, 10) : '<p class="msg">"왜 그 장면이야?"로 받은 기록이 아직 없어요.</p>';
           var rows = rec.slice(-8).map(function(d){ return [WY[d.w].s, d.rs ? '"그건 틀렸어."' : '"왜 그 장면이야?"', d.add + '번', d.scene + '명']; });
-          $('rs2').innerHTML = tableHTML(['감상', '받는 방법', '덧붙인 말', '장면 꺼냄'], rows);
+          $('rs2').innerHTML = tableHTML(['감상', '받는 방법', '덧붙인 말', '장면 꺼냄'], rows)
+            + (function(){ var cu = rec.filter(function(d){ return d.custom && d.rs === 0; });
+              if (!cu.length) return '<p class="msg">⑤ <b>내가 만든 감상</b>을 골라 장면·까닭 칸을 넷 가지로 바꿔 보세요. 어느 한 칸만 빠져도 대화가 얼마나 짧아지는지 보입니다.</p>';
+              var k = {}; cu.forEach(function(d){ k[(d.hs ? '장면 ✓' : '장면 ✕') + ' / ' + (d.hw ? '까닭 ✓' : '까닭 ✕')] = d.add; });
+              return '<p class="msg">내 감상으로 해 본 조합 → 3분 동안 덧붙인 말: ' + Object.keys(k).map(function(x){ return x + ' → ' + k[x] + '번'; }).join(' · ') + '. 장면만 말하면 “나도 봤어”에서 멈추고, 까닭만 말하면 “어느 장면?”을 되묻습니다. <b>둘이 함께</b>라야 대화가 이어집니다. (덧붙인 말 수는 교육용 모형값)</p>'; })();
         }
       };
     })();
@@ -497,7 +515,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -484,11 +486,17 @@ return {
   params: [
     {key:'o', type:'seg', label:'천체', cols:3, value:1, options:OBJ.map(function(x){ return x.name; })},
     {key:'m', type:'seg', label:'측정 방법', cols:2, value:0, options:METH.map(function(x){ return x.name; }),
-      note:'1 pc는 약 3.26광년입니다. 방법마다 잴 수 있는 거리 범위가 달라, 가까운 방법으로 먼 방법을 보정하며 사다리처럼 이어 씁니다.'}
+      note:'1 pc는 약 3.26광년입니다. 방법마다 잴 수 있는 거리 범위가 달라, 가까운 방법으로 먼 방법을 보정하며 사다리처럼 이어 씁니다.'},
+    {key:'g', type:'seg', label:'짐작 — 이 방법으로 잴 수 있을까', cols:2, value:0, options:['잴 수 있다', '잴 수 없다']},
+    {key:'h', type:'seg', label:'허블 상수 H₀ (km/s/Mpc)', cols:3, value:1, options:['67 (초기 우주 쪽 관측)', '70 (중간값)', '73 (가까운 거리 쪽 관측)'],
+      note:'허블-르메트르 법칙으로 거리를 구할 때 쓰는 값입니다. 관측 방법에 따라 67과 73으로 갈려 있어(허블 텐션), 어느 값을 쓰느냐에 따라 먼 천체의 거리가 달라집니다.'}
   ],
   compute: function(p){
     var O = OBJ[p.o], M = METH[p.m], R = measure(O, p.m);
-    return {O:O, M:M, R:R, mi:p.m, d:O.d};
+    var H = [67, 70, 73][p.h];
+    /* 후퇴 속도는 관측값 그대로 두고, H₀ 만 바꿔 거리를 환산한다 — 거리 = 속도 ÷ H₀ */
+    var dH = 70 * O.d / H, devH = (dH - O.d) / O.d * 100;
+    return {O:O, M:M, R:R, mi:p.m, d:O.d, H:H, dH:dH, devH:devH, g:p.g, gHit:((p.g === 0) === R.ok)};
   },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.85, 1) : 0;
@@ -497,8 +505,10 @@ return {
     c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.beginPath(); c.moveTo(ax, ay); c.lineTo(ax + aw, ay); c.stroke();
     var lo = 0, hi = 10;
     var X = function(d){ return ax + Math.max(0, Math.min(1, (Math.log10(Math.max(d, 1)) - lo) / (hi - lo))) * aw; };
+    var axNar = W < 420;   /* 좁은 화면: 눈금 숫자가 붙으므로 한 칸 띄어 쓴다(눈금 선은 모두 그림) */
     [1, 100, 1e4, 1e6, 1e8, 1e10].forEach(function(d){
       c.beginPath(); c.moveTo(X(d), ay - 5); c.lineTo(X(d), ay + 5); c.stroke();
+      if (axNar && d !== 1 && d !== 1e4 && d !== 1e8) return;
       txt(c, d >= 1e4 ? '10' + String(Math.round(Math.log10(d))).split('').map(function(ch){ return '⁰¹²³⁴⁵⁶⁷⁸⁹'[+ch]; }).join('') : String(d), X(d), ay + 22, {align:'center', color:'#8C99A8'});
     });
     txt(c, '거리 (pc, 로그 눈금)', ax + aw, ay + 44, {align:'right', color:'#4A5868'});
@@ -538,26 +548,35 @@ return {
     wtxt(c, r.M.note, 12, by + 90, {color:'#4A5868'}, mw, lh);
   },
   stats: function(p, r){
-    var a = [['천체', r.O.name + ' (' + r.O.kind + ')'], ['방법', r.M.name], ['쓸 수 있는가', r.R.ok ? '예' : '아니요', r.R.ok ? PAL[1] : PAL[4]]];
+    var a = [['천체', r.O.name + ' (' + r.O.kind + ')'], ['방법', r.M.name], ['쓸 수 있는가', r.R.ok ? '예' : '아니요', r.R.ok ? PAL[1] : PAL[4]],
+      ['나의 짐작', ['잴 수 있다', '잴 수 없다'][r.g] + (r.gHit ? ' — 맞힘' : ' — 빗나감'), r.gHit ? PAL[1] : PAL[4]]];
     if (!r.R.ok){ a.push(['까닭', r.d > r.M.max ? '이 방법의 한계보다 멂' : '이 방법을 쓰기에는 너무 가까움']); return a; }
     a.push(['거리', (r.d >= 1e6 ? (r.d / 1e6).toFixed(2) + ' Mpc' : r.d >= 1000 ? (r.d / 1000).toFixed(2) + ' kpc' : f(r.d, 2) + ' pc'), PAL[0]]);
     a.push(['광년으로', r.R.ly >= 1e6 ? (r.R.ly / 1e6).toFixed(2) + ' 백만 광년' : f(r.R.ly, 1) + ' 광년']);
     if (r.mi === 0) a.push(['연주 시차', r.R.paraStr, PAL[3]]);
     if (r.mi === 1 || r.mi === 2) a.push(['거리 지수 m − M', r.R.mStr, PAL[3]]);
-    if (r.mi === 3){ a.push(['후퇴 속도', Math.round(r.R.v).toLocaleString() + ' km/s', PAL[3]]); a.push(['적색 편이 z', r.R.z.toFixed(4)]); }
+    if (r.mi === 3){ a.push(['후퇴 속도', Math.round(r.R.v).toLocaleString() + ' km/s', PAL[3]]); a.push(['적색 편이 z', r.R.z.toFixed(4)]);
+      a.push(['H₀ = ' + r.H + ' 로 구한 거리', (r.dH >= 1e6 ? (r.dH / 1e6).toFixed(2) + ' Mpc' : r.dH >= 1000 ? (r.dH / 1000).toFixed(2) + ' kpc' : f(r.dH, 2) + ' pc'), PAL[0]]);
+      a.push(['사다리로 재어 둔 거리와의 차이', (r.devH > 0 ? '+' : '') + f(r.devH, 1) + ' %' + (Math.abs(r.devH) < 0.5 ? ' — 거의 같음' : ' — 어긋남'), Math.abs(r.devH) < 0.5 ? PAL[1] : PAL[6]]);
+    } else a.push(['H₀ 는 이 방법에 쓰이지 않음', '허블-르메트르 법칙을 고르면 H₀ 에 따라 거리가 달라집니다']);
     return a;
   },
-  columns: ['천체', '방법', '쓸 수 있나', '거리 (pc)', '광년', '측정값'],
+  columns: ['천체', '방법', '쓸 수 있나', '짐작', '맞힘', '거리 (pc)', '광년', '측정값', 'H₀', 'H₀ 로 구한 거리와의 차이'],
   record: function(p, r){ return {o:p.o, name:r.O.name, m:p.m, mn:r.M.name, ok:r.R.ok, d:r.d, ly:r.R.ly,
+    g:r.g, gHit:r.gHit, H:r.H, dH:r.dH, devH:r.devH,
     val:r.R.ok ? (r.mi === 0 ? '시차 ' + r.R.paraStr : r.mi === 3 ? 'z ' + r.R.z.toFixed(4) : 'm−M ' + r.R.mStr) : '−'}; },
-  row: function(d){ return [d.name, d.mn, d.ok ? '가능' : '불가', d.d >= 1e6 ? (d.d / 1e6).toFixed(2) + ' Mpc' : d.d.toLocaleString(),
-    d.ly >= 1e6 ? (d.ly / 1e6).toFixed(2) + ' 백만 광년' : Math.round(d.ly).toLocaleString() + ' 광년', d.val]; },
+  row: function(d){ return [d.name, d.mn, d.ok ? '가능' : '불가',
+    d.g == null ? '−' : ['잴 수 있다', '잴 수 없다'][d.g], d.g == null ? '−' : (d.gHit ? '○' : '×'),
+    d.d >= 1e6 ? (d.d / 1e6).toFixed(2) + ' Mpc' : d.d.toLocaleString(),
+    d.ly >= 1e6 ? (d.ly / 1e6).toFixed(2) + ' 백만 광년' : Math.round(d.ly).toLocaleString() + ' 광년', d.val,
+    d.H == null ? '−' : d.H, d.m === 3 ? ((d.devH > 0 ? '+' : '') + f(d.devH, 1) + ' %') : '−']; },
   minRec: 4,
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('천체별로 쓸 수 있는 방법', '<div id="ro1"></div><p class="ask">한 천체에 여러 방법을 쓸 수 있는 경우가 있습니다. 이것이 왜 중요한지, 거리 사다리라는 이름과 연결해 설명해 보세요.</p>') +
       card('거리와 연주 시차', '<canvas class="chart" id="ch1" role="img" aria-label="천체까지의 거리 재기 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">거리가 멀수록 시차가 작아집니다. 시차가 너무 작아 잴 수 없게 되는 지점이 연주 시차법의 한계입니다.</p>') +
-      card('측정 방법 정리', '<div id="ro3"></div><p class="ask">가장 먼 곳까지 잴 수 있는 방법은 무엇인가요? 그 방법이 성립하려면 앞의 방법들이 왜 필요할까요?</p>') + '</div>';
+      card('측정 방법 정리', '<div id="ro3"></div><p class="ask">가장 먼 곳까지 잴 수 있는 방법은 무엇인가요? 그 방법이 성립하려면 앞의 방법들이 왜 필요할까요?</p>') +
+      card('짐작 채점과 겹치는 구간의 어긋남', '<div id="ro4"></div><p class="ask">같은 천체에 두 방법을 썼을 때 값이 똑같았나요? H₀ 를 67과 73으로 바꾸면 거리가 몇 % 달라졌나요? 그래서 "우주의 나이"를 두고 왜 다툼이 있는지 적어 보세요.</p>') + '</div>';
     var seen = {}, rows = [];
     rec.forEach(function(d){ var key = d.o + '|' + d.m; if (seen[key]) return; seen[key] = 1; rows.push([d.name, d.mn, d.ok ? '가능' : '불가', d.val]); });
     $('ro1').innerHTML = tableHTML(['천체', '방법', '쓸 수 있나', '측정값'], rows, 'wrap');
@@ -568,6 +587,35 @@ return {
       return '<li>' + d.name + ': ' + f(d.d, 2) + ' pc → ' + d.val + '</li>'; }).join('') : '<li>연주 시차로 가까운 별을 기록하세요.</li>';
     $('ro3').innerHTML = tableHTML(['방법', '잴 수 있는 범위', '원리'], METH.map(function(M){
       return [M.name, (M.min ? M.min.toLocaleString() + ' ~ ' : '~ ') + M.max.toLocaleString() + ' pc', M.note]; }), 'wrap');
+    (function(){
+      var gr = rec.filter(function(d){ return d.g != null; });
+      var html = '';
+      if (gr.length){
+        var hit = gr.filter(function(d){ return d.gHit; }).length;
+        var miss = gr.filter(function(d){ return !d.gHit; }).map(function(d){ return [d.name, d.mn, ['잴 수 있다', '잴 수 없다'][d.g], d.ok ? '가능' : '불가']; });
+        html += '<p>쓸 수 있는지 짐작 <b>' + hit + ' / ' + gr.length + '</b> 맞혔습니다.</p>' +
+          (miss.length ? tableHTML(['천체', '방법', '나의 짐작', '실제'], miss, 'wrap') : '<p class="msg">모두 맞혔어요.</p>');
+      } else html += '<p class="msg">짐작을 찍고 재면 여기에서 채점해 줍니다.</p>';
+      /* 한 천체에 두 가지 이상 방법을 쓴 경우 — 사다리가 겹치는 자리 */
+      var by = {};
+      rec.forEach(function(d){ if (!d.ok) return; if (!by[d.o]) by[d.o] = {}; by[d.o][d.m] = d; });
+      var ov = [];
+      Object.keys(by).forEach(function(k){
+        var ms = Object.keys(by[k]);
+        if (ms.length < 2) return;
+        ov.push([by[k][ms[0]].name, ms.map(function(m){ return METH[m].name; }).join(' / '), '둘 다 같은 거리 값을 가리킵니다']);
+      });
+      html += ov.length ? tableHTML(['천체', '겹친 방법', '결과'], ov, 'wrap') +
+          '<p class="msg">겹치는 구간에서 두 방법이 같은 값을 주기 때문에 가까운 방법으로 먼 방법을 <b>보정</b>할 수 있습니다. 사다리는 이렇게 이어 붙입니다.</p>'
+        : '<p class="msg">같은 천체에 <b>두 가지 방법</b>을 써 보세요(예: 플레이아데스에 연주 시차와 세페이드). 겹치는 자리가 사다리를 잇는 곳입니다.</p>';
+      var hs = {};
+      rec.filter(function(d){ return d.m === 3 && d.ok && d.H != null; }).forEach(function(d){ hs[d.H + '|' + d.o] = d; });
+      var hl = Object.keys(hs).map(function(k){ var d = hs[k]; return [d.name, d.H, (d.dH >= 1e6 ? (d.dH / 1e6).toFixed(2) + ' Mpc' : f(d.dH, 1) + ' pc'), (d.devH > 0 ? '+' : '') + f(d.devH, 1) + ' %']; });
+      html += hl.length > 1 ? tableHTML(['천체', 'H₀', '구한 거리', '차이'], hl, 'wrap') +
+          '<p class="msg">H₀ 를 67 로 쓰면 거리가 약 4.5 % 멀게, 73 으로 쓰면 약 4 % 가깝게 나옵니다. 같은 관측값에서도 <b>쓰는 상수에 따라 결론이 달라집니다</b>.</p>'
+        : '<p class="msg">허블-르메트르 법칙으로 먼 은하단을 재면서 <b>H₀ 를 67 과 73 으로 바꿔</b> 보세요 — 같은 적색 편이에서도 거리가 달라집니다.</p>';
+      $('ro4').innerHTML = html;
+    })();
   }
 };
 })();
@@ -576,7 +624,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

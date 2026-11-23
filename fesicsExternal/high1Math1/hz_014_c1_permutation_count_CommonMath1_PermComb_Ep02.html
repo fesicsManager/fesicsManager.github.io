@@ -151,12 +151,19 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="순열 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="n">전체 n <b><span id="n_v">5</span></b></label><input type="range" id="n" min="2" max="8" step="1" value="5"></div><div class="ctl"><label for="r">뽑아 세울 r <b><span id="r_v">3</span></b></label><input type="range" id="r" min="1" max="5" step="1" value="3"></div><div class="row"><button class="btn go" id="goBtn">🪑 자리를 하나씩 채우기</button></div>
+      <div class="ctl"><label for="n">전체 n <b><span id="n_v">5</span></b></label><input type="range" id="n" min="2" max="8" step="1" value="5"></div><div class="ctl"><label for="r">뽑아 세울 r <b><span id="r_v">3</span></b></label><input type="range" id="r" min="1" max="5" step="1" value="3"></div>
+      <div class="pick">어떤 조건으로 셀까요? <label><input type="radio" name="md" value="norep" checked>한 줄로 (다시 못 씀)</label><label><input type="radio" name="md" value="rep">다시 써도 됨</label><label><input type="radio" name="md" value="circ">원탁 (돌려서 같으면 하나)</label></div>
+      <div class="pick" id="predBox">✍ <b>채우기 전에 짚어 보기</b> — 다시 써도 될 때는 못 쓸 때보다 몇 배일까요?
+        <input type="number" id="predIn" min="1" max="1000" step="0.01" placeholder="?" style="width:5.4rem;background:#0f1727;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:.3rem .4rem">배
+        <button class="btn" id="predBtn" style="flex:0 0 auto">채점</button>
+        <div id="predRes" style="margin-top:.45rem">짚은 다음 아래 단추로 채워 보세요.</div></div>
+      <div class="row"><button class="btn go" id="goBtn">🪑 자리를 하나씩 채우기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n</th><th>r</th><th>자리별 선택 수</th><th>곱</th><th>ₙPᵣ</th><th>n^r (중복 허용)</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>조건</th><th>n</th><th>r</th><th>자리별 선택 수</th><th>경우의 수</th><th>ₙPᵣ</th><th>nʳ</th><th>다시 쓸 때 배수</th><th>내가 짚은 배수</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,11 +242,26 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function st(){var n=v('n'),r=Math.min(v('r'),v('n'));
-var ch=[],p=1;for(var i=0;i<r;i++){ch.push(n-i);p*=(n-i);}
-return{n:n,r:r,ch:ch,p:p,P:nPr(n,r),pow:Math.pow(n,r)};}
+var predVal=null,predHit=null;
+function modeOf(){var e=document.querySelector('input[name="md"]:checked');return e?e.value:'norep';}
+function modeName(m){return m==='rep'?'다시 써도 됨':m==='circ'?'원탁':'한 줄로';}
+function st(){var n=v('n'),r=Math.min(v('r'),v('n')),m=modeOf(),i;
+var ch=[],p=1;
+if(m==='rep'){for(i=0;i<r;i++){ch.push(n);p*=n;}}
+else{for(i=0;i<r;i++){ch.push(n-i);p*=(n-i);}}
+var P=nPr(n,r),pow=Math.pow(n,r);
+var ans=(m==='rep')?pow:(m==='circ')?P/r:P;
+return{n:n,r:r,m:m,ch:ch,p:p,P:P,pow:pow,ans:ans,ratio:pow/P,
+same:(m==='rep')?(p===pow):(m==='circ')?(Math.abs(ans-p/r)<1e-9):(p===P)};}
+function gradePred(){var o=st(),el=$('predRes'),x=parseFloat($('predIn').value);
+if(!isFinite(x)){predVal=null;predHit=null;el.innerHTML='먼저 칸에 몇 배일지 적어 보세요.';draw();return;}
+predVal=x;predHit=(Math.abs(x-o.ratio)<=Math.max(0.05,o.ratio*0.05));
+el.innerHTML=(predHit?'✅ <b>맞혔어요.</b> ':'❌ <b>달라요.</b> ')
++'다시 써도 될 때는 '+o.n+'^'+o.r+' = '+o.pow+' 가지, 못 쓸 때는 '+o.P+' 가지라 <b>'+nf(o.ratio,2)+'배</b>예요.'
++'<br>n 과 r 을 바꾸면 이 배수가 크게 달라져요. r 을 늘려 보세요.';
+draw();}
 function draw(){clr();var o=st();
-label(o.n+'명 중 '+o.r+'명을 뽑아 한 줄로',W/2,32,'#e9eefb',19);
+label(o.n+'명 중 '+o.r+'명을 뽑아 '+(o.m==='rep'?'다시 써도 되게':o.m==='circ'?'원탁에':'한 줄로'),W/2,32,'#e9eefb',19);
 var bw=Math.min(84,(W-80)/o.r),X0=(W-bw*o.r)/2,Y0=80;
 var shown=Math.round(gr*o.r+1e-9);
 for(var i=0;i<o.r;i++){var on=i<shown;
@@ -249,20 +271,46 @@ ctx.strokeStyle=on?'#5ee0c8':'#2b3550';ctx.lineWidth=2;ctx.strokeRect(X0+i*bw+4,
 label((i+1)+'번째 자리',X0+i*bw+bw/2,Y0+22,'#9db0d4',12);
 label(on?o.ch[i]+'가지':'?',X0+i*bw+bw/2,Y0+52,on?'#5ee0c8':'#6d80a8',20);
 if(i<o.r-1)label('×',X0+(i+1)*bw,Y0+52,'#7aa2ff',18);}
-label('남은 사람이 한 명씩 줄어듭니다',W/2,Y0+96,'#9db0d4',14);
+label(o.m==='rep'?'다시 쓸 수 있으니 줄어들지 않습니다':'남은 사람이 한 명씩 줄어듭니다',W/2,Y0+96,'#9db0d4',14);
 var sh=Math.round(gr*o.r+1e-9);
 var expr=o.ch.slice(0,Math.max(1,sh)).join(' × ');
 panel(24,210,W-48,96);
 label(expr+'  =  '+(sh>=o.r?o.p:'…'),W/2,248,'#5ee0c8',19);
-label('₍'+o.n+'₎P'+o.r+' = '+o.n+'! / ('+o.n+'−'+o.r+')! = '+o.P,W/2,286,'#7aa2ff',16);
+label(o.m==='rep'?(o.n+'^'+o.r+' = '+o.pow+' 가지')
+:o.m==='circ'?('원탁이라 '+o.P+' ÷ '+o.r+' = '+nf(o.ans,2)+' 가지')
+:('₍'+o.n+'₎P'+o.r+' = '+o.n+'! / ('+o.n+'−'+o.r+')! = '+o.P),W/2,286,'#7aa2ff',16);
 panel(24,318,W-48,98);
-label('같은 사람을 다시 써도 된다면',W/2,346,'#9db0d4',14);
-label(o.n+'^'+o.r+' = '+o.pow+'   (자리마다 '+o.n+'가지로 그대로)',W/2,378,'#ffb86b',17);
-label('줄어드느냐 아니냐가 두 식을 가릅니다',W/2,406,'#9db0d4',13);
-ro(kv('자리별 곱',o.p)+' &nbsp;'+kv('ₙPᵣ',o.P)+'<br>'+kv('중복 허용 nʳ',o.pow)+' &nbsp;'+kv('차이',o.pow-o.P));}
+label(o.m==='rep'?'다시 쓸 수 없다면':'같은 사람을 다시 써도 된다면',W/2,346,'#9db0d4',14);
+label(o.m==='rep'?('₍'+o.n+'₎P'+o.r+' = '+o.P+'   (자리마다 한 명씩 줄어듦)')
+:(o.n+'^'+o.r+' = '+o.pow+'   (자리마다 '+o.n+'가지로 그대로)'),W/2,378,'#ffb86b',17);
+label(o.m==='circ'?'원탁에서는 돌려서 같은 '+o.r+'가지를 하나로 셉니다'
+:'다시 쓸 때가 '+nf(o.ratio,2)+'배 — 줄어드느냐 아니냐가 가릅니다',W/2,406,'#9db0d4',13);
+ro(kv('조건',modeName(o.m))+' &nbsp;'+kv('경우의 수',nf(o.ans,2)+' 가지')+'<br>'
++kv('ₙPᵣ',o.P)+' &nbsp;'+kv('nʳ',o.pow)+' &nbsp;'+kv('다시 쓸 때 배수',nf(o.ratio,2)+'배')
++(predVal===null?'':'<br>'+kv('내가 짚은 배수',nf(predVal,2)+'배 '+(predHit?'✅':'❌'))));
+whyBox(o);}
+function whyBox(o){var el=$('why');if(!el)return;
+if(o.m==='rep'){el.className='why diff';
+el.innerHTML='🔁 <b>다시 써도 되는 조건이에요.</b><br>'
++'· 자리마다 '+o.n+'명 전부가 후보라서 '+o.ch.join(' × ')+' = <b>'+o.pow+'가지</b>예요. 줄어들지 않아요.<br>'
++'· 못 쓸 때는 '+o.P+'가지였으니 <b>'+nf(o.ratio,2)+'배</b>로 늘어났어요. 늘어난 만큼이 “같은 사람을 또 뽑는 경우”예요.<br>'
++'· r 을 늘려 보세요. 배수가 훨씬 빠르게 커집니다.';
+return;}
+if(o.m==='circ'){el.className='why diff';
+el.innerHTML='⭕ <b>원탁이면 답이 달라져요.</b><br>'
++'· 자리별 곱은 '+o.ch.join(' × ')+' = '+o.p+'가지로 한 줄일 때와 같아요.<br>'
++'· 그런데 원탁은 <b>돌려서 겹치는 '+o.r+'가지를 하나</b>로 봐요. 그래서 '+o.p+' ÷ '+o.r+' = <b>'+nf(o.ans,2)+'가지</b>예요.<br>'
++'· 같은 n, r 인데도 조건 하나로 답이 '+o.r+'배 줄었어요. “자리마다 줄어든다”만 외우면 이 경우를 놓칩니다.';
+return;}
+el.className='why same';
+el.innerHTML='✅ <b>한 줄로 세우는 기본 조건이에요.</b><br>'
++'· 자리마다 한 명씩 줄어드니 '+o.ch.join(' × ')+' = <b>'+o.P+'가지</b>예요. 공식 ₙPᵣ 는 이 곱을 줄여 쓴 것이에요.<br>'
++'· 위에서 조건을 <b>다시 써도 됨</b>으로 바꾸면 '+o.pow+'가지('+nf(o.ratio,2)+'배), <b>원탁</b>으로 바꾸면 '+nf(o.P/o.r,2)+'가지가 돼요.<br>'
++'· 같은 n, r 이라도 조건에 따라 답이 갈립니다. 문제에서 “순서를 따지나, 다시 쓸 수 있나, 돌려도 같나”를 꼭 확인하세요.';}
 function record(){var o=st();
-return{cells:[o.n,o.r,o.ch.join('×'),'<b>'+o.p+'</b>',o.P,o.pow],
-p:o.p,P:o.P,pow:o.pow,same:(o.p===o.P),gap:o.pow-o.P};}
+return{cells:[modeName(o.m),o.n,o.r,o.ch.join('×'),'<b>'+nf(o.ans,2)+'</b>',o.P,o.pow,nf(o.ratio,2)+'배',
+(predVal===null?'—':nf(predVal,2)+'배 '+(predHit?'✅':'❌'))],
+p:o.p,P:o.P,pow:o.pow,ans:o.ans,m:o.m,ratio:o.ratio,same:o.same,gap:o.pow-o.P,hit:predHit};}
 function analyze(){var ok=rows.every(function(r){return r.same;});
 var t='<table><thead><tr><th>자리별 곱</th><th>ₙPᵣ</th><th>nʳ</th><th>차이</th></tr></thead><tbody>';
 rows.forEach(function(r){t+='<tr><td><b>'+r.p+'</b></td><td class="'+(r.same?'ok':'no')+'">'+r.P+'</td><td>'+r.pow+'</td><td class="no">'+r.gap+'</td></tr>';});
@@ -272,9 +320,20 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 (ok?'<span class="ok">모든 기록에서 두 값이 같았습니다.</span> 공식은 “자리마다 하나씩 줄어든다”를 줄여 쓴 것뿐입니다.':'')+'</p></div>'+
 '<div class="card"><h4>2. 중복을 허용하면 얼마나 커지나</h4>'+
 '<p class="note">nʳ과 ₙPᵣ의 차이가 곧 “같은 것을 다시 쓸 수 있는 경우”의 수입니다. r이 커질수록 차이가 급격히 벌어집니다.</p>'+
-'<p class="note">문제를 볼 때 두 가지만 확인하세요 — <b>순서를 따지나</b>, <b>다시 쓸 수 있나</b>. 이 둘이 공식을 정합니다.</p></div></div>';}
+'<p class="note">문제를 볼 때 두 가지만 확인하세요 — <b>순서를 따지나</b>, <b>다시 쓸 수 있나</b>. 이 둘이 공식을 정합니다.</p></div>'+
+'<div class="card"><h4>3. 조건을 바꾼 기록</h4>'+modeTab()+'</div></div>';}
+function modeTab(){var seen={},t='<table><thead><tr><th>조건</th><th>n, r</th><th>경우의 수</th><th>배수</th></tr></thead><tbody>';
+rows.forEach(function(r){seen[r.m]=1;
+t+='<tr><td>'+modeName(r.m)+'</td><td>'+r.cells[1]+', '+r.cells[2]+'</td><td><b>'+nf(r.ans,2)+'</b></td><td>'+nf(r.ratio,2)+'배</td></tr>';});
+t+='</tbody></table>';
+var h=rows.filter(function(x){return x.hit===true;}).length,m2=rows.filter(function(x){return x.hit===false;}).length;
+return t+'<p class="note">'+((Object.keys(seen).length>=2)?'같은 n, r 이라도 조건에 따라 경우의 수가 갈리는 것이 표에 그대로 보입니다.':'아직 조건을 한 가지만 기록했습니다. 다시 써도 됨·원탁으로도 바꿔 기록해 보세요.')+'</p>'+
+'<p class="note">'+((h+m2===0)?'짚어 보기 기록이 아직 없습니다.':'짚어 보기: 맞춘 기록 '+h+'개, 빗나간 기록 '+m2+'개.')+'</p>';}
 
 
+$('predBtn').addEventListener('click',gradePred);
+document.querySelectorAll('input[name="md"]').forEach(function(e){e.addEventListener('change',function(){
+predVal=null;predHit=null;var pr=$('predRes');if(pr)pr.innerHTML='조건을 바꿨어요. 다시 짚어 적고 채점해 보세요.';draw();});});
 draw();sync();
 </script>
 <script id="fxPrincipleJs">

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -487,11 +489,21 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
       var AR = [{n:'스타카토 (짧게 끊기)', s:'스타카토', k:0.45}, {n:'레가토 (이어서)', s:'레가토', k:1}];
       var REF = [{t:252, n:'연주 1 · 4분 12초'}, {t:330, n:'연주 2 · 5분 30초'}, {t:235, n:'연주 3 · 3분 55초'}];
       function mmss(s){ var m = Math.floor(s / 60), r = Math.round(s - m * 60); if (r === 60){ m++; r = 0; } return m + '분 ' + (r < 10 ? '0' : '') + r + '초'; }
+      /* ※ 교육용 모형값: 악보에 적히지 않은 해석 습관을 숫자로 단순화한 것.
+         짧게 끊는 해석은 전체를 조금 당기고(×0.97), 크게 부풀리는 셈여림 곡선은
+         절정에서 조금 넓혀 전체를 늘린다(평평 ×1.00 · 점점 크게 ×1.02 · 아치형 ×1.03)고 보았다.
+         실제 연주마다 다르며, 측정된 상수가 아니다. */
+      var KAR = [0.97, 1.00], KDY = [1.00, 1.02, 1.03];
+      var GR = ['안 찍음', '연주 1 (4분 12초)', '연주 2 (5분 30초)', '연주 3 (3분 55초)'];
       function calc(p){
         var base = 60 / p.bpm / 4 * 2, t = 0, notes = [];
         MEL.forEach(function(s, i){ var d = base * RB[p.rb].m[i]; notes.push({s:s, t:t, d:d, len:d * AR[p.ar].k, v:DY[p.dy].v[i]}); t += d; });
-        var tot = 360 * 60 / p.bpm * RB[p.rb].tot, vs = DY[p.dy].v, durs = notes.map(function(n){ return n.d; });
-        return {notes:notes, span:t, base:base, tot:tot, dr:Math.max.apply(null, vs) / Math.min.apply(null, vs), lr:Math.max.apply(null, durs) / Math.min.apply(null, durs)};
+        var tot = 360 * 60 / p.bpm * RB[p.rb].tot * KAR[p.ar] * KDY[p.dy], vs = DY[p.dy].v, durs = notes.map(function(n){ return n.d; });
+        var near = 0; for (var j = 1; j < REF.length; j++) if (Math.abs(tot - REF[j].t) < Math.abs(tot - REF[near].t)) near = j;
+        var gr = p.gr || 0, sdur = notes.reduce(function(a, n){ return a + n.len; }, 0);
+        return {notes:notes, span:t, base:base, tot:tot, near:near, gap:Math.abs(tot - REF[near].t),
+          sound:(sdur / t), guess:gr, gtext:GR[gr], ok:(gr > 0 ? (gr - 1 === near) : null),
+          dr:Math.max.apply(null, vs) / Math.min.apply(null, vs), lr:Math.max.apply(null, durs) / Math.min.apply(null, durs)};
       }
       return {
         sceneHeight: 450,
@@ -501,7 +513,10 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           {key:'bpm', type:'range', label:'빠르기', min:60, max:110, step:1, value:86, fmt:function(v){ return '♩ = ' + v; }},
           {key:'rb', type:'seg', label:'루바토 (시간 밀고 당기기)', cols:3, value:0, options:RB.map(function(x){ return x.n; })},
           {key:'dy', type:'seg', label:'셈여림 곡선', cols:3, value:0, options:DY.map(function(x){ return x.n; })},
-          {key:'ar', type:'seg', label:'이음새 (아티큘레이션)', cols:2, value:1, options:AR.map(function(x){ return x.n; })}
+          {key:'ar', type:'seg', label:'이음새 (아티큘레이션)', cols:2, value:1, options:AR.map(function(x){ return x.n; }),
+            note:'셈여림 곡선과 이음새도 전체 시간에 반영됩니다. ※ 교육용 모형: 짧게 끊는 해석은 전체를 조금 당기고(×0.97), 부풀리는 셈여림은 절정에서 조금 넓힌다(평평 ×1.00 · 점점 크게 ×1.02 · 아치형 ×1.03)고 보았습니다. 측정된 상수가 아닙니다.'},
+          {key:'gr', type:'seg', label:'먼저 찍기: 이 해석은 웹툰 세 연주 가운데 어느 것에 가장 가까울까?', cols:2, value:0, options:GR,
+            note:'찍고 나서 연주하면 가장 가까운 연주와 맞춰 채점해 기록 표에 남깁니다.'}
         ],
         compute: function(p){
           var r = calc(p), S = session(Math.min(2, r.span + 0.3), 0.18), TW = [1, 0.35, 0.15, 0.08];
@@ -529,22 +544,35 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           else txt(c, '회색 점 = 웹툰 속 세 연주 (같은 악보)', lx, H - 12, {color:'#5C6B7A'});
         },
         stats: function(p, r){
-          return [['곡 전체 연주 시간 (가상 360박)', mmss(r.tot), PAL[4]], ['빠르기', '♩=' + p.bpm + ' (한 박 ' + f(60 / p.bpm, 2) + '초)'],
-            ['루바토', RB[p.rb].n + ' · 가장 긴 음 ÷ 가장 짧은 음 = ' + f(r.lr, 2) + '배', PAL[3]], ['셈여림', DY[p.dy].n + ' · 가장 큰 음 ÷ 가장 작은 음 = ' + f(r.dr, 1) + '배', PAL[0]],
-            ['이음새', AR[p.ar].n], ['악보에 적힌 것', '8개 음의 높이와 같은 길이 — 위 네 가지는 모두 악보 밖의 해석', PAL[1]]];
+          var a4 = [['곡 전체 연주 시간 (가상 360박)', mmss(r.tot), PAL[4]], ['빠르기', '♩=' + p.bpm + ' (한 박 ' + f(60 / p.bpm, 2) + '초)'],
+            ['루바토', RB[p.rb].n + ' · 가장 긴 음 ÷ 가장 짧은 음 = ' + f(r.lr, 2) + '배', PAL[3]],
+            ['셈여림', DY[p.dy].n + ' · 가장 큰 음 ÷ 가장 작은 음 = ' + f(r.dr, 1) + '배 · 시간 ×' + f(KDY[p.dy], 2), PAL[0]],
+            ['이음새', AR[p.ar].n + ' · 소리가 울린 비율 ' + f(r.sound * 100, 0) + '% · 시간 ×' + f(KAR[p.ar], 2)],
+            ['가장 가까운 웹툰 연주', REF[r.near].n + ' (차이 ' + f(r.gap, 0) + '초)', PAL[6]],
+            ['악보에 적힌 것', '8개 음의 높이와 같은 길이 — 위 네 가지는 모두 악보 밖의 해석', PAL[1]]];
+          if (r.guess > 0) a4.push(['먼저 찍은 연주 채점', r.gtext + ' → ' + (r.ok ? '맞음' : '틀림 (가장 가까운 것은 ' + REF[r.near].n + ')'), r.ok ? PAL[1] : PAL[3]]);
+          return a4;
         },
-        columns: ['빠르기', '루바토', '셈여림', '이음새', '전체 시간'],
-        record: function(p, r){ return {bpm:p.bpm, rb:p.rb, dy:p.dy, ar:p.ar, tot:r.tot}; },
-        row: function(d){ return ['♩=' + d.bpm, RB[d.rb].s, DY[d.dy].s, AR[d.ar].s, mmss(d.tot)]; },
+        columns: ['빠르기', '루바토', '셈여림', '이음새', '전체 시간', '가장 가까운 연주', '찍은 것'],
+        record: function(p, r){ return {bpm:p.bpm, rb:p.rb, dy:p.dy, ar:p.ar, tot:r.tot, near:r.near, gap:r.gap, guess:r.guess, ok:r.ok}; },
+        row: function(d){ return ['♩=' + d.bpm, RB[d.rb].s, DY[d.dy].s, AR[d.ar].s, mmss(d.tot), REF[d.near].n.split(' · ')[0],
+          d.guess > 0 ? (GR[d.guess].split(' ')[0] + ' ' + GR[d.guess].split(' ')[1] + (d.ok ? ' ○' : ' ×')) : '안 찍음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('해석별 곡 전체 연주 시간', '<div id="m6a"></div><p class="ask">가장 짧은 해석과 가장 긴 해석은 몇 분 차이인가요? 악보에는 무엇이 적혀 있고 무엇이 없었는지 정리해 보세요.</p>') +
-            card('기록 방식과 전승', '<div id="m6b"></div><p class="ask">과제: 같은 곡의 연주 두 개를 골라 템포·셈여림·이음새를 구간별로 비교하고, 어느 해석이 왜 더 설득력 있는지 근거를 들어 써 보세요.</p>') + '</div>';
+            card('기록 방식과 전승', '<div id="m6b"></div><p class="ask">과제: 같은 곡의 연주 두 개를 골라 템포·셈여림·이음새를 구간별로 비교하고, 어느 해석이 왜 더 설득력 있는지 근거를 들어 써 보세요.</p>') +
+            card('어느 연주에 가까운지 맞히기', '<div id="m6c"></div><p class="ask">어떤 조합이 5분 30초짜리 연주에 닿았나요? 빠르기를 그대로 두고 루바토·셈여림·이음새만 바꿔도 가장 가까운 연주가 달라졌나요?</p>') + '</div>';
           var items = rec.map(function(d){ return {label:'#' + d._no + ' ♩=' + d.bpm + ' ' + RB[d.rb].s, v:d.tot, color:PAL[4], text:mmss(d.tot)}; });
           REF.forEach(function(rf){ items.push({label:'웹툰 ' + rf.n.split(' · ')[0], v:rf.t, color:PAL[7], text:rf.n.split(' · ')[1]}); });
           var ts = rec.map(function(d){ return d.tot; });
           $('m6a').innerHTML = hbars(items, 420) + '<p class="note">내 기록의 최장 − 최단 = ' + mmss(Math.max.apply(null, ts) - Math.min.apply(null, ts)) + '</p>';
           $('m6b').innerHTML = tableHTML(['전통', '기록', '특징'], [['서양 클래식', '오선보', '의도 보존에 강함'], ['판소리', '사설 위주·구전', '유파마다 다름'], ['정악', '정간보+구전', '시김새는 악보 밖'], ['재즈', '코드·선율 뼈대', '매 연주가 새 작품'], ['대중음악', '음원이 기준', '편곡·음색이 핵심']]);
+          var tried = rec.filter(function(d){ return d.guess > 0; }), hit = tried.filter(function(d){ return d.ok; }).length;
+          var nrows = REF.map(function(rf, i){ var a = rec.filter(function(d){ return d.near === i; });
+            return [rf.n, a.length + '회', a.length ? mmss(mean(a.map(function(d){ return d.tot; }))) : '—']; });
+          $('m6c').innerHTML = tableHTML(['웹툰 연주', '내 해석이 가장 가까웠던 횟수', '그때 내 평균 시간'], nrows) +
+            tableHTML(['찍기', '값'], [['찍어 본 횟수', tried.length + '회'],
+              ['맞힌 횟수', hit + '회' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')]]);
         }
       };
     })();
@@ -553,7 +581,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

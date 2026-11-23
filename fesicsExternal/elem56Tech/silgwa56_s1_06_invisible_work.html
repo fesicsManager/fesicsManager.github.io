@@ -116,7 +116,9 @@ tbody tr:nth-child(even){background:#fafcff}
 <option data-v="안보임">가족 이야기 들어주기</option>
 </select></div>
 <div class="ctrl"><label for="m">걸린 시간 <span class="val" id="vM">10</span>분</label><input type="range" id="m" min="1" max="60" step="1" value="10"></div>
-<div class="ctrl"><label for="who2">누가 했나요?</label><select id="who2"><option>나</option><option>가족 한 사람</option><option>함께</option></select></div></div>
+<div class="ctrl"><label for="who2">누가 했나요?</label><select id="who2"><option>나</option><option>가족 한 사람</option><option>함께</option></select></div>
+<div class="ctrl"><label for="gi">짐작 — 안 보이는 일이 전체 시간의 몇 %일까 <span class="val" id="vGi">50</span>%</label>
+<input type="range" id="gi" min="0" max="100" step="10" value="50"></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">시간 쌓기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -149,7 +151,10 @@ var rows=[];
 var LAB=(function(){
 var out,c,cvv,acc={'보임':0,'안보임':0};
 var task=document.getElementById('task'),m=document.getElementById('m'),who2=document.getElementById('who2');
+var gi=document.getElementById('gi');
+var accWho={'나':0,'가족 한 사람':0,'함께':0};
 m.oninput=function(){document.getElementById('vM').textContent=m.value;};
+gi.oninput=function(){document.getElementById('vGi').textContent=gi.value;};
 function kindOf(){return task.options[task.selectedIndex].getAttribute('data-v');}
 function draw(prog){
   c.clearRect(0,0,cvv.width,cvv.height);
@@ -173,19 +178,26 @@ function draw(prog){
   c.fillText('막대 = 지금까지 쌓은 시간',30,26);
 }
 return {
-  columns:['일','종류','시간(분)','누가'],
+  columns:['일','종류','시간(분)','누가','짐작 비중(%)'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='실제로 잰 시간을 넣고 <b>시간 쌓기</b>를 누르면 막대가 올라갑니다.';},
   run:function(done){
     var k=kindOf();acc[k]+=Number(m.value);
+    accWho[who2.value]=(accWho[who2.value]||0)+Number(m.value);
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/22,1));
       if(t>=22){clearInterval(iv);
-        out.innerHTML='보이는 일 <b>'+acc['보임']+'분</b> / 보이지 않는 일 <b>'+acc['안보임']+'분</b>';
+        var tt=acc['보임']+acc['안보임'];
+        var pct=tt?Math.round(acc['안보임']/tt*100):0;
+        var gv=Number(gi.value),dd=pct-gv;
+        out.innerHTML='보이는 일 <b>'+acc['보임']+'분</b> / 보이지 않는 일 <b>'+acc['안보임']+'분</b>'+
+          '<br>안 보이는 일의 비중 <b>'+pct+'%</b> · 내 짐작 '+gv+'% — '+
+          (Math.abs(dd)<=10?'<b>거의 맞혔습니다.</b>':(dd>0?'<b>짐작보다 컸습니다.</b>':'<b>짐작보다 작았습니다.</b>'))+
+          '<br>누가 했나 — 나 '+accWho['나']+'분 · 가족 한 사람 '+accWho['가족 한 사람']+'분 · 함께 '+accWho['함께']+'분';
         done();}},30);
   },
   record:function(){
-    return {cells:[task.value,kindOf()==='보임'?'보임':'안 보임',m.value,who2.value],
-            raw:{k:kindOf(),min:Number(m.value),who:who2.value}};
+    return {cells:[task.value,kindOf()==='보임'?'보임':'안 보임',m.value,who2.value,gi.value],
+            raw:{k:kindOf(),min:Number(m.value),who:who2.value,g:Number(gi.value)}};
   },
   verify:function(rs){
     var vis=0,inv=0,mine=0;
@@ -197,7 +209,29 @@ return {
     var h='<div class="vgrid"><div><h3>시간 비중</h3>'+
       '<div style="font-size:.95rem">눈에 보이는 일 · '+vis+'분</div><div class="barwrap"><div class="bar" style="width:'+(tot?vis/tot*100:0)+'%"></div></div>'+
       '<div style="font-size:.95rem">보이지 않는 일 · '+inv+'분</div><div class="barwrap"><div class="bar" style="width:'+(tot?inv/tot*100:0)+'%;background:#f0903a"></div></div>'+
-      '<p style="font-size:1.03rem;line-height:1.85">전체 <b>'+tot+'분</b> 중 내가 한 시간은 <b>'+mine+'분</b>입니다.</p></div>'+
+      '<p style="font-size:1.03rem;line-height:1.85">전체 <b>'+tot+'분</b> 중 내가 한 시간은 <b>'+mine+'분</b>입니다.</p>'+
+      (function(){
+        var byw={},hw={},gs=[];
+        for(var q=0;q<rs.length;q++){
+          var r=rs[q].raw,w=r.who||'적지 않음';
+          byw[w]=(byw[w]||0)+r.min;
+          if(r.k!=='보임')hw[w]=(hw[w]||0)+r.min;
+          if(r.g!=null)gs.push(r.g);
+        }
+        var s='<h4 style="margin:.7rem 0 .2rem">누가 했나별 시간</h4>';
+        for(var k2 in byw){
+          s+='<div style="font-size:.95rem">'+k2+' · '+byw[k2]+'분 (그중 안 보이는 일 '+(hw[k2]||0)+'분)</div>'+
+             '<div class="barwrap"><div class="bar" style="width:'+(tot?byw[k2]/tot*100:0)+'%;background:#9a7cd8"></div></div>';
+        }
+        var real=tot?Math.round(inv/tot*100):0;
+        if(gs.length){
+          var gsum=0;for(var w2=0;w2<gs.length;w2++)gsum+=gs[w2];
+          var gm=Math.round(gsum/gs.length),er=real-gm;
+          s+='<p style="font-size:1.03rem;line-height:1.8">안 보이는 일의 실제 비중 <b>'+real+'%</b> · 내 짐작의 평균 <b>'+gm+'%</b> — '+
+             (Math.abs(er)<=10?'거의 맞혔습니다.':(er>0?'실제가 짐작보다 <b>'+er+'%p 컸습니다.</b>':'실제가 짐작보다 <b>'+(-er)+'%p 작았습니다.</b>'))+'</p>';
+        }
+        return s;
+      })()+'</div>'+
       '<div><h3>읽어 내기</h3><ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
       '<li>보이지 않는 일의 비중은 예상보다 컸나요, 작았나요?</li>'+
       '<li>보이지 않는 일은 왜 고맙다는 말을 듣기 어려울까요?</li>'+

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>갈등은 이야기의 흠인가</h1>
-    <p>같은 주인공(토끼)과 같은 결말(친구들과 화해)을 두고 <b>갈등만 바꾼 세 판</b>을 연구원 20명에게 읽힙니다. ‘다음 장면이 궁금했다’고 답한 수와 토끼에 대해 새로 알게 된 성격의 개수가 어떻게 달라지는지 확인해요.<br><span style="font-size:.9em;color:#a86825">※ 응답 수는 제로 랩 실험의 가상 자료이고, 긴장 곡선은 이해를 돕는 도식입니다.</span></p>
+    <p>같은 주인공(토끼)과 같은 결말(친구들과 화해)을 두고 <b>갈등만 바꾼 세 판</b>을 연구원 20명에게 읽힙니다. ‘다음 장면이 궁금했다’고 답한 수와 토끼에 대해 새로 알게 된 성격의 개수가 어떻게 달라지는지 확인해요.<br><span style="font-size:.9em;color:#a86825">※ 응답 수는 제로 랩 실험의 가상 자료이고, 긴장 곡선은 이해를 돕는 도식입니다. <b>막는 것의 세기</b>를 3단계에서 움직이면 그 자료를 기준으로 교육용 모형값을 다시 계산해 보여 줍니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -472,17 +474,31 @@ return (function(){
         {n:'C — 내적 갈등 (밭이냐 비밀이냐)', want:'밭도, 친구의 비밀도 지키기', block:'비밀을 말해야 밭을 지킴', ch:'무엇을 지킬까?', cur:17, tr:3.4, cv:[0.15, 0.5, 0.8, 1.0, 0.3], col:PAL[3]}
       ];
       var ST = ['발단', '전개', '위기', '절정', '결말'];
+      /* 막는 것의 세기 1~5단계 — 3단계가 웹툰 조사값, 나머지는 교육용 모형값.
+         너무 세면 '이길 수 없다'고 느껴 긴장보다 체념이 되므로 4단계에서 가장 높고 5단계에서 다시 떨어진다. */
+      var BF = [0.5, 0.8, 1.0, 1.05, 0.85];
+      function curN(p){ var v = V[p.v]; return p.v === 0 ? v.cur : Math.round(v.cur * BF[p.bs - 1]); }
+      function curve(p){ var v = V[p.v]; if (p.v === 0) return v.cv;
+        var a = BF[p.bs - 1]; return v.cv.map(function(y, i){ return i === 0 ? y : Math.max(0.05, Math.min(1, y * a)); }); }
+      var BSN = ['아주 약함', '약함', '웹툰과 같음', '아주 셈', '이길 수 없을 만큼 셈'];
       return {
         sceneHeight: 450,
         idle: '판과 나의 예측(궁금했다고 답할 사람 수)을 고른 뒤 <b>이 판을 읽히기</b>를 누르세요.',
         shortHint: '세 판을 모두 읽혀 보세요. 결말은 셋 다 화해인데 반응이 왜 다를까요?',
         params: [
           {key:'v', type:'seg', label:'이야기 판 (주인공·결말은 같음)', cols:1, value:0, options:V.map(function(x){ return x.n; })},
+          {key:'bs', type:'range', label:'막는 것의 세기 (1~5단계)', min:1, max:5, step:1, value:3, fmt:function(v){ return v + '단계 · ' + BSN[v - 1]; }},
           {key:'g', type:'range', label:'나의 예측 — ‘다음이 궁금했다’ (20명 중)', min:0, max:20, step:1, value:10, fmt:function(v){ return v + '명'; }}
         ],
-        compute: function(p){ var v = V[p.v]; return {v:v, diff:p.g - v.cur}; },
+        compute: function(p){ var v = V[p.v], cn = curN(p);
+          var msg = p.v === 0 ? '막는 것이 없어 세기를 바꿔도 달라지지 않아요'
+            : p.bs <= 2 ? '막는 것이 약해 긴장이 덜 오릅니다'
+            : p.bs === 3 ? '막는 것과 주인공의 힘이 맞서 긴장이 자연스럽게 오릅니다'
+            : p.bs === 4 ? '맞설 만한 가장 센 상대 — 궁금함이 가장 높습니다'
+            : '너무 세서 이길 수 없다고 느껴요 — 긴장보다 체념이 되어 궁금함이 오히려 줄어듭니다';
+          return {v:v, cur:cn, bs:p.bs, msg:msg, diff:p.g - cn}; },
         draw: function(c, W, H, p, r, tau){
-          var v = V[p.v], bw = (W - 60) / 3;
+          var v = V[p.v], bw = (W - 60) / 3, CV = curve(p), CN = curN(p);
           [['원하는 것', v.want], ['막는 것', v.block], ['선택', v.ch]].forEach(function(b, i){
             var x = 20 + i * (bw + 10);
             rbox(c, x, 20, bw, 70, p.v === 0 ? '#F1F3F6' : '#EEF3FA', '#C9D3DE');
@@ -497,30 +513,40 @@ return (function(){
           ST.forEach(function(s, i){ tx(c, s, gx + (i + 0.5) * gw / 5, gy + gh + 20, {align:'center', size:14, color:'#4A5868'}); });
           var t = r ? ph(tau, 0, 0.55) : 1, n = 40;
           c.strokeStyle = v.col; c.lineWidth = 3; c.beginPath();
-          for (var k = 0; k <= n * t; k++){ var u = k / n * 4, i0 = Math.floor(u), fr = u - i0, y = v.cv[Math.min(i0, 4)] * (1 - fr) + v.cv[Math.min(i0 + 1, 4)] * fr, X = gx + (0.5 + u) * gw / 5, Y = gy + gh - y * (gh - 14);
+          for (var k = 0; k <= n * t; k++){ var u = k / n * 4, i0 = Math.floor(u), fr = u - i0, y = CV[Math.min(i0, 4)] * (1 - fr) + CV[Math.min(i0 + 1, 4)] * fr, X = gx + (0.5 + u) * gw / 5, Y = gy + gh - y * (gh - 14);
             if (k === 0) c.moveTo(X, Y); else c.lineTo(X, Y); }
           c.stroke();
           tx(c, '결말: 친구들과 화해', gx + gw - 4, gy + 16, {align:'right', size:14, color:PAL[1], bold:true});
           if (!r){ tx(c, '나의 예측: ' + p.g + '명', 20, H - 16, {color:'#4A5868'}); return; }
           var b = ph(tau, 0.5, 0.95), y0 = gy + gh + 50, bw2 = W - 170;
-          tx(c, '다음이 궁금했다', 20, y0 + 16, {size:16, color:'#4A5868'}); pbar(c, 150, y0, bw2, 22, v.cur / 20 * b, v.col); tx(c, Math.round(v.cur * b) + '/20', 150 + bw2 - 4, y0 + 17, {bold:true, size:16, align:'right', color:'#26313D'});
+          tx(c, '다음이 궁금했다', 20, y0 + 16, {size:16, color:'#4A5868'}); pbar(c, 150, y0, bw2, 22, CN / 20 * b, v.col); tx(c, Math.round(CN * b) + '/20', 150 + bw2 - 4, y0 + 17, {bold:true, size:16, align:'right', color:'#26313D'});
           tx(c, '성격 적은 개수', 20, y0 + 52, {size:16, color:'#4A5868'}); pbar(c, 150, y0 + 36, bw2, 22, v.tr / 4 * b, PAL[6]); tx(c, f(v.tr * b, 1) + '개', 150 + bw2 - 4, y0 + 53, {bold:true, size:16, align:'right', color:'#26313D'});
           if (tau > 0.95) tx(c, '나의 예측 ' + p.g + '명 (차이 ' + (r.diff > 0 ? '+' : '') + r.diff + ')', 20, y0 + 88, {bold:true, color:PAL[6]});
         },
         stats: function(p, r){
-          return [['판', r.v.n], ['이야기 뼈대', r.v.want + ' → ' + r.v.block + ' → ' + r.v.ch], ['다음이 궁금했다', r.v.cur + '명 / 20명', r.v.col],
+          return [['판', r.v.n], ['이야기 뼈대', r.v.want + ' → ' + r.v.block + ' → ' + r.v.ch], ['다음이 궁금했다', r.cur + '명 / 20명', r.v.col],
+            ['막는 것의 세기', r.bs + '단계 · ' + BSN[r.bs - 1] + (r.bs === 3 ? ' (웹툰 조사값)' : ' (교육용 모형값)')],
+            ['이 세기에서는', r.msg, r.bs === 5 ? PAL[4] : r.bs <= 2 ? PAL[6] : PAL[1]],
             ['토끼의 성격을 적은 개수(평균)', f(r.v.tr, 1) + '개', PAL[6]], ['나의 예측과 차이', (r.diff > 0 ? '+' : '') + r.diff + '명', PAL[3]]];
         },
-        columns: ['판', '궁금했다', '성격 개수', '나의 예측'],
-        record: function(p, r){ return {v:p.v, g:p.g}; },
-        row: function(d){ return [V[d.v].n.charAt(0), V[d.v].cur + '/20', f(V[d.v].tr, 1), d.g + '명']; },
+        columns: ['판', '막는 힘', '궁금했다', '성격 개수', '나의 예측'],
+        record: function(p, r){ return {v:p.v, g:p.g, bs:r.bs, cur:r.cur}; },
+        row: function(d){ return [V[d.v].n.charAt(0), d.bs + '단계', d.cur + '/20', f(V[d.v].tr, 1), d.g + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('판별 — 다음이 궁금했다 (웹툰) vs 나의 예측', '<div id="mk8a"></div><p class="ask">세 판 모두 결말은 화해였어요. 그런데 A만 궁금하지 않았던 까닭을 ‘원하는 것 → 막는 것 → 선택’으로 설명해 보세요.</p>') +
+            card('막는 것의 세기를 바꾸면 — 궁금함은 끝없이 오르지 않는다', '<div id="mk8c"></div><p class="ask">세기를 5단계까지 올렸을 때 궁금함이 왜 다시 줄었나요? "막는 것이 세면 셀수록 좋다"는 말을 어떻게 고쳐야 할까요?</p>') +
             card('판별 — 토끼의 성격을 적은 개수', '<div id="mk8b"></div><p class="ask">과제: 읽은 소설 한 편의 갈등을 ‘원하는 것 → 막는 것 → 선택’ 표로 정리하고, 그 갈등을 하나 빼고 줄거리를 다시 써 본 뒤 무엇이 사라졌는지 적어 보세요.</p>') + '</div>';
           var items = [];
           V.forEach(function(v, i){ items.push({label:v.n.charAt(0) + ' · 웹툰', v:v.cur, color:v.col, text:v.cur + '명'}); var a = rec.filter(function(d){ return d.v === i; }); if (a.length){ var g = mean(a.map(function(d){ return d.g; })); items.push({label:v.n.charAt(0) + ' · 내 예측', v:g, color:PAL[6], text:f(g, 1) + '명'}); } });
           $('mk8a').innerHTML = hbars(items, 20);
+          var rowsC = [1, 2, 3, 4, 5].map(function(b){
+            var mine = rec.filter(function(d){ return d.bs === b; });
+            return [b + '단계 · ' + BSN[b - 1], curN({v:0, bs:b}) + '/20', curN({v:1, bs:b}) + '/20', curN({v:2, bs:b}) + '/20',
+              mine.length ? mine.length + '회' : '아직'];
+          });
+          $('mk8c').innerHTML = tableHTML(['막는 것의 세기', 'A 갈등 없음', 'B 외적 갈등', 'C 내적 갈등', '내 기록'], rowsC) +
+            '<p class="msg">B·C는 4단계에서 가장 높고 5단계에서 다시 떨어져요. 막는 것이 너무 세면 주인공이 이길 수 없다고 느껴 긴장이 체념으로 바뀝니다. A는 막는 것이 없어 세기를 바꿔도 ' + V[0].cur + '명 그대로예요. (3단계만 웹툰 조사값, 나머지는 교육용 모형값)</p>';
           $('mk8b').innerHTML = hbars(V.map(function(v){ return {label:v.n, v:v.tr, color:v.col, text:f(v.tr, 1) + '개'}; }), 4);
         }
       };
@@ -531,7 +557,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

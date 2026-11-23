@@ -111,7 +111,9 @@ tbody tr:nth-child(even){background:#fafcff}
         <div id="controls"><div class="ctrl"><label for="p">글자 크기 <span class="val" id="vP">24</span>pt</label><input type="range" id="p" min="10" max="60" step="2" value="24"></div>
 <div class="ctrl"><label for="d">읽힌 마지막 거리 <span class="val" id="vD">4.0</span>m</label><input type="range" id="d" min="0.5" max="12" step="0.5" value="4"></div>
 <div class="ctrl"><label for="ct">배경과 글자</label><select id="ct"><option>흰 배경 · 검은 글자</option><option>색 배경 · 흰 글자</option><option>사진 위 글자</option></select></div>
-<div class="ctrl"><label for="amt">한 장에 담은 내용</label><select id="amt"><option>한 가지만</option><option>두세 가지</option><option>빽빽하게</option></select></div></div>
+<div class="ctrl"><label for="amt">한 장에 담은 내용</label><select id="amt"><option>한 가지만</option><option>두세 가지</option><option>빽빽하게</option></select></div>
+<div class="ctrl"><label for="back">교실 뒷자리까지 거리 <span class="val" id="vB">6.0</span>m</label>
+<input type="range" id="back" min="3" max="12" step="0.5" value="6"></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">점 찍기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -144,6 +146,22 @@ var rows=[];
 var LAB=(function(){
 var out,c,cvv,pts=[];
 var p=document.getElementById('p'),d=document.getElementById('d'),ct=document.getElementById('ct'),amt=document.getElementById('amt');
+var back=document.getElementById('back');
+function fitLine(){
+  if(pts.length<2)return null;
+  var n=pts.length,sx=0,sy=0,sxy=0,sxx=0;
+  for(var i=0;i<n;i++){sx+=pts[i].p;sy+=pts[i].d;sxy+=pts[i].p*pts[i].d;sxx+=pts[i].p*pts[i].p;}
+  var den=n*sxx-sx*sx;
+  if(Math.abs(den)<1e-9)return null;
+  var k=(n*sxy-sx*sy)/den;
+  return {k:k,b:(sy-k*sx)/n};
+}
+function needPt(){
+  var L=fitLine();
+  if(!L||L.k<=0)return null;
+  var v=(Number(back.value)-L.b)/L.k;
+  return (v>0&&v<400)?v:null;
+}
 p.oninput=function(){document.getElementById('vP').textContent=p.value;draw(1);};
 d.oninput=function(){document.getElementById('vD').textContent=Number(d.value).toFixed(1);draw(1);};
 var CC={'흰 배경 · 검은 글자':'#2f6df0','색 배경 · 흰 글자':'#f0903a','사진 위 글자':'#e05c6e'};
@@ -170,6 +188,11 @@ function draw(prog){
     c.beginPath();c.arc(px,py,7,0,Math.PI*2);c.fill();
     c.strokeStyle='#fff';c.lineWidth=2;c.stroke();
   }
+  var by=B-(Number(back.value)/12)*(B-T);
+  c.strokeStyle='#e05c6e';c.setLineDash([7,5]);c.lineWidth=2;
+  c.beginPath();c.moveTo(L,by);c.lineTo(R,by);c.stroke();c.setLineDash([]);
+  c.fillStyle='#e05c6e';c.font='bold 12px sans-serif';c.textAlign='left';
+  c.fillText('뒷자리 '+Number(back.value).toFixed(1)+'m',L+4,Math.min(Math.max(by+14,T+14),B-4));
   var cx=L+((Number(p.value)-10)/50)*(R-L),cy=B-(Number(d.value)/12)*(B-T);
   c.strokeStyle='#1d2433';c.setLineDash([4,4]);c.lineWidth=1.5;
   c.beginPath();c.arc(cx,cy,11,0,Math.PI*2);c.stroke();c.setLineDash([]);
@@ -177,26 +200,37 @@ function draw(prog){
   c.fillText('가로 = 글자 크기 / 세로 = 읽힌 거리',L,T-6);
 }
 return {
-  columns:['글자 크기(pt)','읽힌 거리(m)','배경','내용 양'],
-  init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
+  columns:['글자 크기(pt)','읽힌 거리(m)','배경','내용 양','뒷자리(m)'],
+  init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;
+    back.oninput=function(){document.getElementById('vB').textContent=Number(back.value).toFixed(1);draw(1);};
+    draw(1);
     out.innerHTML='실제로 재어 본 값을 넣고 <b>점 찍기</b>를 눌러 보세요. 점이 쌓이면 선이 보입니다.';},
   run:function(done){
     pts.push({p:Number(p.value),d:Number(d.value),c:ct.value});
     var t=0,iv=setInterval(function(){t++;draw(1);
       if(t>=6){clearInterval(iv);
-        out.innerHTML='점 '+pts.length+'개. 글자를 키우면 거리가 함께 늘어나는지 확인해 보세요.';
+        var msg='점 '+pts.length+'개. 글자를 키우면 거리가 함께 늘어나는지 확인해 보세요.';
+        var np=needPt(),bd=Number(back.value);
+        if(np===null){
+          msg+='<br>점이 <b>두 개 이상</b>이고 글자가 커질수록 거리가 늘어나야 뒷자리에 필요한 크기를 셈할 수 있습니다.';
+        }else{
+          msg+='<br>내 점들로 보면 <b>'+bd.toFixed(1)+'m</b> 뒷자리에서 읽히려면 약 <b>'+np.toFixed(0)+'pt</b>가 필요합니다 · 지금 '+p.value+'pt — '+
+            (Number(p.value)>=np?'<b>뒷자리에서도 읽힙니다.</b>':'<b>뒷자리에서는 안 읽힙니다.</b> '+Math.ceil(np-Number(p.value))+'pt 더 키워야 합니다.');
+        }
+        out.innerHTML=msg;
         done();}},70);
   },
   record:function(){
-    return {cells:[p.value,Number(d.value).toFixed(1),ct.value,amt.value],
-            raw:{p:Number(p.value),d:Number(d.value),c:ct.value,a:amt.value}};
+    return {cells:[p.value,Number(d.value).toFixed(1),ct.value,amt.value,Number(back.value).toFixed(1)],
+            raw:{p:Number(p.value),d:Number(d.value),c:ct.value,a:amt.value,b:Number(back.value)}};
   },
   verify:function(rs){
     var n=rs.length,sx=0,sy=0,sxy=0,sxx=0;
     for(var i=0;i<n;i++){var x=rs[i].raw.p,y=rs[i].raw.d;sx+=x;sy+=y;sxy+=x*y;sxx+=x*x;}
     var slope=(n*sxy-sx*sy)/Math.max(n*sxx-sx*sx,1e-9);
     var inter=(sy-slope*sx)/n;
-    var need6=slope!==0?((6-inter)/slope):null;
+    var bd=Number(back.value);
+    var need6=slope!==0?((bd-inter)/slope):null;
     var byC={};
     for(var j=0;j<n;j++){
       var k=rs[j].raw.c;if(!byC[k])byC[k]={s:0,c:0};
@@ -205,7 +239,12 @@ return {
     var h='<div class="vgrid"><div><h3>내 데이터의 경향</h3>'+
       '<p style="font-size:1.03rem;line-height:1.85">글자를 <b>1pt</b> 키울 때 읽히는 거리는 평균 <b>'+slope.toFixed(2)+'m</b> 늘었습니다.</p>';
     if(need6&&need6>0&&need6<200){
-      h+='<p style="font-size:1.03rem;line-height:1.85">이 경향대로라면 <b>6m 뒤</b>에서도 읽히려면 글자 크기가 약 <b>'+need6.toFixed(0)+'pt</b> 필요합니다.</p>';
+      var small=0;
+      for(var q=0;q<rs.length;q++){if(rs[q].raw.p<need6)small++;}
+      h+='<p style="font-size:1.03rem;line-height:1.85">이 경향대로라면 <b>'+bd.toFixed(1)+'m 뒤</b>에서도 읽히려면 글자 크기가 약 <b>'+need6.toFixed(0)+'pt</b> 필요합니다.<br>'+
+         '내 기록 '+rs.length+'개 가운데 <b>'+small+'개</b>는 그보다 작아서 뒷자리에서 안 읽히는 크기였습니다.</p>';
+    }else{
+      h+='<p style="font-size:1.03rem;line-height:1.85">점들이 한 방향으로 늘어나지 않아 필요한 크기를 셈할 수 없습니다. 글자 크기를 넓게 바꿔 가며 다시 재어 보세요.</p>';
     }
     h+='<h3 style="margin-top:.9rem">배경별 1pt당 거리</h3>';
     for(var k2 in byC){

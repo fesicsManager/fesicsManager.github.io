@@ -91,7 +91,7 @@ tbody tr:nth-child(even){background:#fafcff}
 <div class="wrap">
   <header class="lab">
     <h1>생물의 쓰임 분류판</h1>
-    <p>같은 생물도 쓰임이 여러 가지입니다. 하나씩 놓아 보고, 눈에 보이지 않는 도움도 찾아보세요. (5화 · 우리 곁의 생물들)</p>
+    <p>같은 생물도 쓰임이 여러 가지입니다. 하나씩 놓아 보며 한 생물이 몇 칸에 걸치는지 세어 보고, 그 쓰임을 <b>빼 보면</b> 무슨 일이 생기는지도 확인해 보세요. (5화 · 우리 곁의 생물들)</p>
   </header>
 
   <div class="tabs">
@@ -115,7 +115,8 @@ tbody tr:nth-child(even){background:#fafcff}
 <div class="ctrl"><label for="usek">쓰임</label><select id="usek">
 <option>먹는 것</option><option>보는 것</option><option>일을 돕는 것</option><option>옷·재료가 되는 것</option><option>마음을 돌보는 것</option>
 </select></div>
-<div class="ctrl"><label for="vis">이 도움은</label><select id="vis"><option>눈에 잘 보임</option><option>눈에 잘 안 보임</option></select></div></div>
+<div class="ctrl"><label for="vis">이 도움은</label><select id="vis"><option>눈에 잘 보임</option><option>눈에 잘 안 보임</option></select></div>
+<div class="ctrl"><label for="act">무엇을 할까</label><select id="act"><option>놓기</option><option>빼 보기 — 없어지면?</option></select></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">분류판에 놓기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -147,7 +148,22 @@ var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 var rows=[];
 var LAB=(function(){
 var out,c,cvv,board=[];
-var bio=document.getElementById('bio'),usek=document.getElementById('usek'),vis=document.getElementById('vis');
+var bio=document.getElementById('bio'),usek=document.getElementById('usek'),vis=document.getElementById('vis'),act=document.getElementById('act');
+/* 그 생물의 도움이 없어지면 생기는 일 (사실에 바탕을 둔 짧은 설명) */
+var LOSS={
+ '꿀벌':'꽃가루받이가 줄어 사과·딸기 같은 열매가 잘 맺히지 않습니다.',
+ '닭':'달걀과 닭고기를 얻기 어려워집니다.',
+ '벼':'주된 곡식이 없어져 밥을 지을 수 없습니다.',
+ '소나무':'목재와 그늘이 줄고, 뿌리가 붙잡아 주던 흙이 쉽게 쓸려 갑니다.',
+ '누에':'명주실(비단)을 얻을 수 없습니다.',
+ '강아지':'안내견·구조견의 도움과, 함께 있어 주는 도움이 줄어듭니다.',
+ '지렁이':'흙에 난 구멍이 줄어 공기와 물이 덜 드나들고 흙이 굳어집니다.',
+ '목화':'솜과 면섬유를 얻기 어려워 옷 재료가 줄어듭니다.',
+ '젖산균':'김치와 요구르트가 익지 않습니다.',
+ '난초':'보고 즐기는 식물과 꽃 농사가 줄어듭니다.',
+ '소':'우유와 소고기, 밭갈이를 돕던 힘이 줄어듭니다.'
+};
+function spanOf(name){ var ks={},i; for(i=0;i<board.length;i++){ if(board[i].n===name) ks[board[i].k]=1; } return Object.keys(ks).length; }
 var KS=['먹는 것','보는 것','일을 돕는 것','옷·재료가 되는 것','마음을 돌보는 것'];
 var CC=['#f0903a','#9a7cd8','#2f6df0','#6ab98a','#e05c6e'];
 function draw(flash){
@@ -168,47 +184,78 @@ function draw(flash){
     c.fillStyle='#1d2433';c.font='bold 21px sans-serif';c.fillText(String(n),x,y+7);
     if(hid){c.fillStyle='#f0903a';c.font='10px sans-serif';c.fillText('안 보임 '+hid,x,y+24);}
   }
-  c.fillStyle='#53617a';c.font='12px sans-serif';c.textAlign='center';
+  var sp=spanOf(bio.value);
+  c.textAlign='center';
+  c.fillStyle=sp>1?'#2f6df0':'#53617a';c.font='bold 13px sans-serif';
+  c.fillText(bio.value+' — 지금 '+sp+'칸에 놓였습니다'+(sp>1?' (여러 쓰임!)':''),cx,cvv.height-34);
+  c.fillStyle='#53617a';c.font='12px sans-serif';
   c.fillText('한 생물이 여러 칸에 들어갈 수 있습니다',cx,cvv.height-14);
 }
 return {
-  columns:['생물','쓰임','눈에 보임'],
+  columns:['생물','쓰임','눈에 보임','한 일','걸친 칸'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(-1);
     out.innerHTML='생물과 쓰임을 고르고 <b>분류판에 놓기</b>를 눌러 보세요.';},
   run:function(done){
-    var k=KS.indexOf(usek.value);
-    board.push({n:bio.value,k:k,h:vis.value==='눈에 잘 안 보임'});
+    var k=KS.indexOf(usek.value), take=(act.value.indexOf('빼')===0), msg='', removed=false, i;
+    if(take){
+      for(i=board.length-1;i>=0;i--){ if(board[i].n===bio.value&&board[i].k===k){ board.splice(i,1); removed=true; break; } }
+    } else {
+      board.push({n:bio.value,k:k,h:vis.value==='눈에 잘 안 보임'});
+    }
     var t=0,iv=setInterval(function(){t++;draw(t%2?k:-1);
       if(t>=6){clearInterval(iv);draw(-1);
-        out.innerHTML='<b>'+bio.value+'</b>을(를) <b>'+usek.value+'</b>에 놓았습니다. 같은 생물의 다른 쓰임도 찾아보세요.';
+        var sp=spanOf(bio.value);
+        if(!take){
+          msg='<b>'+bio.value+'</b>을(를) <b>'+usek.value+'</b>에 놓았습니다. 지금 <b>'+sp+'칸</b>에 걸쳐 있어요. 같은 생물의 다른 쓰임도 찾아보세요.';
+        } else if(removed){
+          msg='<b>'+bio.value+'</b>의 <b>'+usek.value+'</b> 쓰임을 뺐습니다. 남은 칸은 <b>'+sp+'칸</b>이에요.<br>없어지면 이런 일이 생깁니다 — '+(LOSS[bio.value]||'그 도움을 다른 것으로 메워야 합니다.');
+        } else {
+          msg='아직 <b>'+bio.value+'</b>을(를) <b>'+usek.value+'</b>에 놓지 않았어요. 먼저 「놓기」로 놓아 본 뒤 빼 보세요.';
+        }
+        out.innerHTML=msg;
         done();}},110);
   },
   record:function(){
-    return {cells:[bio.value,usek.value,vis.value],raw:{n:bio.value,k:usek.value,h:vis.value==='눈에 잘 안 보임'}};
+    var take=(act.value.indexOf('빼')===0), sp=spanOf(bio.value);
+    return {cells:[bio.value,usek.value,vis.value,take?'빼 봄':'놓음',sp+'칸'],
+      raw:{n:bio.value,k:usek.value,h:vis.value==='눈에 잘 안 보임',take:take,span:sp,
+           loss:take?(LOSS[bio.value]||'그 도움을 다른 것으로 메워야 합니다.'):''}};
   },
   verify:function(rs){
-    var byB={},byK={},hid=0;
+    var byB={},byK={},hid=0,takes=[],seenT={};
     for(var i=0;i<rs.length;i++){
+      if(rs[i].raw.take){ var tk=rs[i].raw.n+'|'+rs[i].raw.k;
+        if(!seenT[tk]){ seenT[tk]=1; takes.push(rs[i].raw); }
+        continue; }
       if(!byB[rs[i].raw.n])byB[rs[i].raw.n]={};
       byB[rs[i].raw.n][rs[i].raw.k]=1;
       byK[rs[i].raw.k]=(byK[rs[i].raw.k]||0)+1;
       if(rs[i].raw.h)hid++;
     }
-    var multi=[];
-    for(var b in byB){if(Object.keys(byB[b]).length>1)multi.push(b+'('+Object.keys(byB[b]).length+'가지)');}
+    var multi=[],maxSpan=0,maxName='';
+    for(var b in byB){var sp2=Object.keys(byB[b]).length;
+      if(sp2>1)multi.push(b+'('+sp2+'가지)');
+      if(sp2>maxSpan){maxSpan=sp2;maxName=b;}}
+    var placed=rs.length-takes.length; if(placed<1)placed=1;
     var h='<div class="vgrid"><div><h3>쓰임별 개수</h3>';
     for(var j=0;j<KS.length;j++){
       var n=byK[KS[j]]||0;
       h+='<div style="font-size:.95rem">'+KS[j]+' · '+n+'개</div>'+
-         '<div class="barwrap"><div class="bar" style="width:'+(n/rs.length*100)+'%;background:'+CC[j]+'"></div></div>';
+         '<div class="barwrap"><div class="bar" style="width:'+(n/placed*100)+'%;background:'+CC[j]+'"></div></div>';
     }
     h+='</div><div><h3>읽어 내기</h3><p style="font-size:1.03rem;line-height:1.85">'+
        '쓰임이 두 가지 이상인 생물: '+(multi.length?'<b>'+multi.join(', ')+'</b>':'아직 없음')+'<br>'+
+       '가장 여러 칸에 걸친 생물: '+(maxSpan?'<b>'+maxName+' — '+maxSpan+'칸</b>':'아직 없음')+'<br>'+
        '눈에 잘 안 보이는 도움으로 표시한 것 <b>'+hid+'개</b></p>'+
+       '<h3>빼 보았을 때 생기는 일</h3>'+
+       (takes.length?'<ul style="font-size:1rem;line-height:1.8;padding-left:1.2rem">'+
+         takes.map(function(t2){return '<li><b>'+t2.n+'</b>의 '+t2.k+' 쓰임이 없어지면 — '+t2.loss+'</li>';}).join('')+'</ul>'
+        :'<p style="font-size:1rem">아직 빼 본 기록이 없어요. 「빼 보기」로 놓았던 쓰임을 빼고 기록해 보세요.</p>')+
        '<ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
        '<li>꿀벌을 어디에 놓았나요? 꿀 말고 더 큰 도움이 있지 않았나요?</li>'+
        '<li>꿀벌이 사라진 밭에서는 무엇이 맺히지 않게 될까요?</li>'+
-       '<li>쓰임은 생물이 정한 것일까요, 사람이 붙인 이름일까요?</li></ol></div></div>'+
+       '<li>쓰임은 생물이 정한 것일까요, 사람이 붙인 이름일까요?</li>'+
+       '<li>여러 칸에 걸친 생물이 없어지면, 한 칸짜리 생물이 없어질 때보다 무엇이 더 달라질까요?</li></ol></div></div>'+
        '<div class="note">우리가 먹는 열매와 채소의 많은 부분이 곤충의 꽃가루받이 도움을 받습니다. <b>눈에 보이는 생산물이 전부가 아닙니다.</b></div>';
     return h;
   }

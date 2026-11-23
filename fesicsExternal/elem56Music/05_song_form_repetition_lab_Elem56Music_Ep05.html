@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -483,13 +485,19 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 }
 
 
-      var FM = [{n:'AABA', f:'AABA'}, {n:'ABAB', f:'ABAB'}, {n:'ABCD<br><small>모두 새 가락</small>', f:'ABCD'}, {n:'AAAA<br><small>같은 것만</small>', f:'AAAA'}];
+      var FM = [{n:'AABA', f:'AABA'}, {n:'ABAB', f:'ABAB'}, {n:'ABCD<br><small>모두 새 가락</small>', f:'ABCD'}, {n:'AAAA<br><small>같은 것만</small>', f:'AAAA'},
+        {n:'내가 짜기<br><small>네 칸 직접</small>', f:'', free:true}];
+      var KN = ['A', 'B', 'C', 'D'];
       var AO = [{n:'A: 도 미 솔 미', v:[0, 4, 7, 4]}, {n:'A: 솔 미 레 도', v:[7, 4, 2, 0]}];
       var BO = [{n:'B: 라 솔 파 미', v:[9, 7, 5, 4]}, {n:'B: 파 파 레 레', v:[5, 5, 2, 2]}];
       var CC = [2, 4, 5, 7], DD = [4, 2, -1, 0];
       var COL = {A:PAL[0], B:PAL[4], C:PAL[3], D:PAL[6]};
       function calc(p){
-        var F = FM[p.f].f, L = {A:AO[p.a].v, B:BO[p.b].v, C:CC, D:DD}, seq = F.split(''), uniq = [];
+        /* 둘째 조작 - 네 칸에 덩어리를 직접 배치해 내 형식을 만든다 */
+        var F = FM[p.f].free
+          ? [p.k1 || 0, p.k2 || 0, p.k3 || 0, p.k4 || 0].map(function(i){ return KN[i]; }).join('')
+          : FM[p.f].f;
+        var L = {A:AO[p.a].v, B:BO[p.b].v, C:CC, D:DD}, seq = F.split(''), uniq = [];
         seq.forEach(function(x){ if (uniq.indexOf(x) < 0) uniq.push(x); });
         var notes = []; seq.forEach(function(x){ notes = notes.concat(L[x]); });
         return {F:F, seq:seq, L:L, uniq:uniq, n:uniq.length, mem:uniq.length * 4, rep:4 - uniq.length, contrast:uniq.length > 1, notes:notes};
@@ -497,9 +505,14 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
       return {
         sceneHeight: 380,
         idle: '형식과 A·B 가락을 고른 뒤 <b>노래 듣기</b>를 누르세요.',
-        shortHint: '네 가지 형식을 모두 들어 보고 외울 양을 비교해 보세요.',
+        shortHint: '네 가지 형식을 들어 본 뒤, <b>내가 짜기</b>로 자기 형식도 만들어 비교해 보세요.',
         params: [
-          {key:'f', type:'seg', label:'형식', cols:4, value:0, options:FM.map(function(x){ return x.n; })},
+          {key:'f', type:'seg', label:'형식', cols:3, value:0, options:FM.map(function(x){ return x.n; })},
+          {key:'k1', type:'seg', label:'내가 짜기 — 첫째 칸', cols:4, value:0, options:KN},
+          {key:'k2', type:'seg', label:'내가 짜기 — 둘째 칸', cols:4, value:0, options:KN},
+          {key:'k3', type:'seg', label:'내가 짜기 — 셋째 칸', cols:4, value:1, options:KN},
+          {key:'k4', type:'seg', label:'내가 짜기 — 넷째 칸', cols:4, value:0, options:KN,
+            note:'네 칸 설정은 형식을 <b>내가 짜기</b>로 고를 때만 쓰여요. 같은 덩어리를 다시 쓰면 외울 양이 줄고, 새 덩어리를 쓰면 대비가 생겨요. ※ \'외울 음\'은 서로 다른 덩어리 수 × 4음으로 셈한 <b>교육용 모형값</b>이에요.'},
           {key:'a', type:'seg', label:'A 가락', cols:2, value:0, options:AO.map(function(x){ return x.n; })},
           {key:'b', type:'seg', label:'B 가락', cols:2, value:0, options:BO.map(function(x){ return x.n; })}
         ],
@@ -530,19 +543,33 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
           return [['형식', r.F], ['외울 덩어리', r.n + '개 (' + r.uniq.join('·') + ')', PAL[0]], ['외울 음', r.mem + '개 / 전체 16개', PAL[1]],
             ['반복', r.rep ? r.rep + '번 다시 나옴' : '반복 없음'], ['대비 (새 덩어리)', r.contrast ? '있음' : '없음 — 지루해질 수 있어요', r.contrast ? PAL[3] : PAL[4]]];
         },
-        columns: ['형식', 'A·B', '외울 덩어리', '외울 음', '반복', '대비'],
+        columns: ['형식', 'A·B', '외울 덩어리', '외울 음', '반복', '대비'],  /* 형식 칸에 내가 짠 형식도 그대로 들어간다 */
         record: function(p, r){ return {f:p.f, a:p.a, b:p.b, F:r.F, n:r.n, mem:r.mem, rep:r.rep, con:r.contrast}; },
         row: function(d){ return [d.F, 'A' + (d.a + 1) + '·B' + (d.b + 1), d.n + '개', d.mem + '음', d.rep + '번', d.con ? '있음' : '없음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('형식별 외울 음 수', '<div id="m5a"></div><p class="ask">같은 16음인데 외울 양이 가장 적으면서 대비도 있는 형식은 무엇이었나요? 예측 게임의 노래(첫째·둘째·넷째가 같음)는 어떤 형식이에요?</p>') +
-            card('반복과 대비 정리', '<div id="m5b"></div><p class="ask">과제: 계이름 4마디 가락 A와 B를 직접 만들고, AABA와 ABAB 두 가지로 이어 불러 녹음해 보세요. 가족에게 어느 쪽이 더 기억에 남는지 물어 오기.</p>') + '</div>';
+            card('반복과 대비 정리', '<div id="m5b"></div><p class="ask">과제: 계이름 4마디 가락 A와 B를 직접 만들고, AABA와 ABAB 두 가지로 이어 불러 녹음해 보세요. 가족에게 어느 쪽이 더 기억에 남는지 물어 오기.</p>') +
+            card('외우기 쉽고 지루하지 않은 형식은?', '<div id="m5c"></div><p id="m5j" class="ask"></p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.F; }), items = [], rows = [];
-          FM.forEach(function(F){ var a = g[F.f]; if (!a) return; var d = a[0];
-            items.push({label:F.f, v:d.mem, color:d.n <= 2 ? PAL[1] : d.n === 3 ? PAL[6] : PAL[4], text:d.mem + '음 (덩어리 ' + d.n + ')'});
-            rows.push([F.f, d.rep + '번', d.con ? '있음' : '없음']); });
+          var ds = Object.keys(g).map(function(k){ return g[k][0]; }).sort(function(a, b){ return a.mem - b.mem; });
+          ds.forEach(function(d){
+            items.push({label:d.F, v:d.mem, color:d.n <= 2 ? PAL[1] : d.n === 3 ? PAL[6] : PAL[4], text:d.mem + '음 (덩어리 ' + d.n + ')'});
+            rows.push([d.F, d.rep + '번', d.con ? '있음' : '없음']); });
           $('m5a').innerHTML = hbars(items, 16);
           $('m5b').innerHTML = tableHTML(['형식', '반복', '대비'], rows);
+          /* 외울 양과 대비를 함께 보면 판정이 갈린다 */
+          var good = ds.filter(function(d){ return d.con; });
+          var best = good.length ? good[0] : null;
+          var dull = ds.filter(function(d){ return !d.con; });
+          $('m5c').innerHTML = tableHTML(['형식', '외울 음', '대비', '한 줄 평'], ds.map(function(d){
+            return [d.F, d.mem + '음', d.con ? '있음' : '없음',
+              !d.con ? '외우기 가장 쉽지만 지루함' : (d.mem <= 8 ? '외우기 쉽고 대비도 있음' : '대비는 많지만 외울 양이 큼')]; }));
+          $('m5j').innerHTML = (best
+              ? ('지금까지 기록한 것 가운데 <b>' + best.F + '</b>가 대비가 있으면서 외울 음이 가장 적었어요(' + best.mem + '음). ')
+              : '아직 대비가 있는 형식을 기록하지 않았어요. ')
+            + (dull.length ? ('<b>' + dull.map(function(d){ return d.F; }).join('·') + '</b>처럼 같은 덩어리만 쓰면 외울 양은 가장 적지만 대비가 없어 지루해져요. ') : '')
+            + '그래서 좋은 노래는 \'매번 새 가락\'도 아니고 \'똑같은 것만\'도 아니에요. <b>내가 짜기</b>로 네 칸을 바꿔 가며, 외울 양을 줄이면서도 대비를 남기는 자리를 찾아보세요.';
         }
       };
     })();
@@ -551,7 +578,8 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -258,6 +258,10 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">놓는 높이: <span class="slider-val" id="hVal">20</span> cm (최저점 기준)</div>
             <input type="range" id="hSlider" min="5" max="50" step="5" value="20" aria-label="놓는 높이">
+            <div class="control-label">줄 길이: <span class="slider-val" id="lVal">1.00</span> m</div>
+            <input type="range" id="lSlider" min="60" max="200" step="10" value="100" aria-label="줄 길이">
+            <div class="control-label">추의 질량: <span class="slider-val" id="mVal">1.0</span> kg</div>
+            <input type="range" id="mSlider" min="1" max="5" step="1" value="1" aria-label="추의 질량">
             <button class="btn-main" id="runBtn">손을 놓아 흔들어보기 ▶</button>
             <div class="result-box" id="result">높이를 정하고 놓으면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -266,8 +270,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>높이(cm)</th><th>놓는 각도(°)</th><th>최저점 속력(m/s)</th><th>왕복 주기(초)</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>줄 길이(m)</th><th>질량(kg)</th><th>높이(cm)</th><th>놓는 각도(°)</th><th>최저점 속력(m/s)</th><th>왕복 주기(초)</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -503,7 +507,7 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 /* ================= 실험 ================= */
 
 var G=9.8, L=1.0, M=1.0;
-function theta0(hcm){ return Math.acos(1-(hcm/100)/L); }
+function theta0(hcm){ return Math.acos(Math.max(-1,Math.min(1,1-(hcm/100)/L))); }
 function vBottom(hcm){ return Math.sqrt(2*G*(hcm/100)); }
 /* 실제 운동 방정식을 수치적으로 풀어 왕복 주기를 구한다 */
 function period(hcm){
@@ -522,19 +526,34 @@ var th=0, w=0, running=false, tElapsed=0;
 var canvas=document.getElementById('pCanvas'), ctx=canvas.getContext('2d');
 var PX=170, PY=80, LPX=150;                /* 지지점과 화면상 줄 길이 — 60°(50cm)로 놓아도 추가 왼쪽 밖으로 나가거나 에너지 막대를 덮지 않게, 천장이 속력 글자를 가리지 않게 */
 
-document.getElementById('hSlider').addEventListener('input',function(e){
-  setH=parseInt(e.target.value,10);
-  document.getElementById('hVal').textContent=setH;
+function resetRun(){
   running=false; revealed=false; tElapsed=0;
   th=theta0(setH); w=0;
   if(raf){ cancelAnimationFrame(raf); raf=null; }
   document.getElementById('result').className='result-box';
-  document.getElementById('result').innerHTML='높이를 정하고 놓으면 결과가 표에 자동으로 기록됩니다.';
+  document.getElementById('result').innerHTML='높이·줄 길이·질량을 정하고 놓으면 결과가 표에 자동으로 기록됩니다.';
   draw();
+}
+document.getElementById('hSlider').addEventListener('input',function(e){
+  setH=parseInt(e.target.value,10);
+  document.getElementById('hVal').textContent=setH;
+  resetRun();
+});
+document.getElementById('lSlider').addEventListener('input',function(e){
+  L=parseInt(e.target.value,10)/100;
+  document.getElementById('lVal').textContent=L.toFixed(2);
+  resetRun();
+});
+document.getElementById('mSlider').addEventListener('input',function(e){
+  M=parseInt(e.target.value,10);
+  document.getElementById('mVal').textContent=M.toFixed(1);
+  resetRun();
 });
 th=theta0(setH);
 
 function draw(){
+  /* 그림상 줄 길이: 실제 줄 길이에 따라 조금 달라지되 캔버스를 넘지 않게 (1.0 m 일 때 예전과 같은 150) */
+  var LP=Math.round(90+60*Math.min(1,L/1.0));
   var hNow=L*(1-Math.cos(th));                    /* 현재 높이(m) */
   var v=Math.sqrt(Math.max(0, 2*G*((setH/100)-hNow)));
   var E=M*G*(setH/100), Ep=M*G*hNow, Ek=E-Ep;
@@ -547,14 +566,14 @@ function draw(){
   ctx.beginPath(); ctx.arc(PX,PY,6,0,Math.PI*2); ctx.fill();
 
   /* 최저점 기준선 */
-  var bottomY=PY+LPX;
+  var bottomY=PY+LP;
   ctx.strokeStyle='rgba(23,50,56,0.25)'; ctx.lineWidth=2; ctx.setLineDash([5,5]);
   ctx.beginPath(); ctx.moveTo(40,bottomY); ctx.lineTo(300,bottomY); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle='#8ea6a6'; ctx.font="600 16px 'Noto Sans KR',sans-serif"; ctx.textAlign='left';
   ctx.fillText('최저점', 42, bottomY+20);
 
   /* 놓은 높이 표시 */
-  var startY=bottomY-(setH/100)/L*LPX;
+  var startY=bottomY-Math.min(1,(setH/100)/L)*LP;
   ctx.strokeStyle='#c1443c'; ctx.lineWidth=2; ctx.setLineDash([6,5]);
   ctx.beginPath(); ctx.moveTo(40,startY); ctx.lineTo(300,startY); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle='#c1443c'; ctx.font="700 17px 'Noto Sans KR',sans-serif";
@@ -562,10 +581,10 @@ function draw(){
 
   /* 궤적 호 */
   ctx.strokeStyle='rgba(160,185,190,0.55)'; ctx.lineWidth=2; ctx.setLineDash([3,5]);
-  ctx.beginPath(); ctx.arc(PX,PY,LPX,Math.PI/2-theta0(setH),Math.PI/2+theta0(setH)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(PX,PY,LP,Math.PI/2-theta0(setH),Math.PI/2+theta0(setH)); ctx.stroke(); ctx.setLineDash([]);
 
   /* 줄과 추 */
-  var bx=PX+Math.sin(th)*LPX, by=PY+Math.cos(th)*LPX;
+  var bx=PX+Math.sin(th)*LP, by=PY+Math.cos(th)*LP;
   ctx.strokeStyle='#a86825'; ctx.lineWidth=3;
   ctx.beginPath(); ctx.moveTo(PX,PY); ctx.lineTo(bx,by); ctx.stroke();
   var g=ctx.createRadialGradient(bx-5,by-5,2,bx,by,18);
@@ -590,7 +609,7 @@ function draw(){
 
   /* 에너지 막대 */
   var BX=330, BY0=70, BH=190, BW=28;
-  var maxE=M*G*0.5;
+  var maxE=M*G*0.5;   /* 막대 눈금: 50cm 를 꽉 찬 높이로 */
   function bar(x,val,col,label){
     ctx.fillStyle='#e0e8e6'; ctx.fillRect(x,BY0,BW,BH);
     var hh=BH*Math.max(0,Math.min(1,val/maxE));
@@ -622,7 +641,7 @@ function draw(){
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
     ctx.fillText('"손을 놓아 흔들어보기"를 눌러보세요', 220, 368);
-    ctx.fillText('놓는 높이: '+setH+'cm (각도 '+(theta0(setH)*180/Math.PI).toFixed(0)+'°)', 220, 396);
+    ctx.fillText('높이 '+setH+'cm · 각도 '+(theta0(setH)*180/Math.PI).toFixed(0)+'° · 줄 '+L.toFixed(2)+'m · '+M.toFixed(1)+'kg', 220, 396);
   }
   ctx.textAlign='left';
 }
@@ -631,14 +650,14 @@ draw();
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return r.h===setH; })){
-    notify('이미 측정한 높이예요. 다른 높이를 골라보세요.');
+  if(records.some(function(r){ return r.h===setH && Math.abs(r.L-L)<1e-9 && r.M===M; })){
+    notify('이미 측정한 조합이에요. 높이·줄 길이·질량을 바꿔보세요.');
     return;
   }
   busy=true; revealed=false; running=true; tElapsed=0;
   th=theta0(setH); w=0;
   var btn=this; btn.disabled=true;
-  lockInputs('#hSlider', true);
+  lockInputs('#hSlider,#lSlider,#mSlider', true);
   var T=period(setH);
   var stopAt=T*1.5;                       /* 1.5 왕복 뒤 기록 */
   if(raf) cancelAnimationFrame(raf);
@@ -652,13 +671,14 @@ document.getElementById('runBtn').addEventListener('click', function(){
       th += w*0.0005;
       tElapsed += 0.0005;
     }
+    if(!isFinite(th)||!isFinite(w)){ th=theta0(setH); w=0; }
     draw();
     if(tElapsed<stopAt){ raf=requestAnimationFrame(frame); }
     else{
       running=false; revealed=true;
       btn.disabled=false; busy=false;
-      lockInputs('#hSlider', false);
-      records.push({h:setH, ang:theta0(setH)*180/Math.PI, v:vBottom(setH), T:T});
+      lockInputs('#hSlider,#lSlider,#mSlider', false);
+      records.push({h:setH, ang:theta0(setH)*180/Math.PI, v:vBottom(setH), T:T, L:L, M:M});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
@@ -679,10 +699,10 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  var s=records.slice().sort(function(a,b){ return a.h-b.h; });
+  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  var s=records.slice().sort(function(a,b){ return (a.L-b.L)||(a.M-b.M)||(a.h-b.h); });
   tb.innerHTML=s.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.h+'</td><td>'+r.ang.toFixed(0)+'</td><td>'+r.v.toFixed(2)+'</td>'
+    return '<tr><td>'+(i+1)+'</td><td>'+r.L.toFixed(2)+'</td><td>'+r.M.toFixed(1)+'</td><td>'+r.h+'</td><td>'+r.ang.toFixed(0)+'</td><td>'+r.v.toFixed(2)+'</td>'
       +'<td>'+r.T.toFixed(2)+'</td></tr>';
   }).join('');
 }
@@ -721,16 +741,48 @@ function renderValidation(){
     + '</span>(= 2g)로 일정합니다. 이는 <span class="mono">½mv² = mgh</span>, 즉 <b>위치 에너지가 그대로 운동 에너지로 바뀐다</b>는 뜻이에요. '
     + '실험 중 오른쪽 막대에서도 두 에너지의 합이 변하지 않았습니다.</div>';
 
+  var byL={}, byM={};
+  s.forEach(function(r){ var k=r.L.toFixed(2); (byL[k]=byL[k]||[]).push(r); var k2=r.M.toFixed(1); (byM[k2]=byM[k2]||[]).push(r); });
+  var Lk=Object.keys(byL).map(Number).sort(function(a,b){ return a-b; });
+  var Mk=Object.keys(byM).map(Number).sort(function(a,b){ return a-b; });
   var Ts=s.map(function(r){ return r.T; });
   var tmin=Math.min.apply(null,Ts), tmax=Math.max.apply(null,Ts);
+  var rowsL=Lk.map(function(l){
+    var g=byL[l.toFixed(2)];
+    var tm=g.reduce(function(a,r){ return a+r.T; },0)/g.length;
+    return '<div class="mini-row"><span>줄 '+l.toFixed(2)+'m (기록 '+g.length+'개)</span><span class="mono">주기 평균 '
+      +tm.toFixed(3)+'초 · 이론 2π√(L/g) = '+(2*Math.PI*Math.sqrt(l/G)).toFixed(3)+'초</span></div>';
+  }).join('');
+  var rowsM=Mk.map(function(m){
+    var g=byM[m.toFixed(1)];
+    var tm=g.reduce(function(a,r){ return a+r.T; },0)/g.length;
+    return '<div class="mini-row"><span>추 '+m.toFixed(1)+'kg (기록 '+g.length+'개)</span><span class="mono">주기 평균 '+tm.toFixed(3)+'초</span></div>';
+  }).join('');
+  /* 같은 줄 길이 안에서 높이만 바꾼 묶음을 찾아 '높이와 무관'을 보인다 */
+  var sameL=null;
+  Lk.forEach(function(l){ var g=byL[l.toFixed(2)]; var hs={}; g.forEach(function(r){ hs[r.h]=1; }); if(!sameL && Object.keys(hs).length>=2) sameL=g; });
+  var noteH;
+  if(sameL){
+    var t2=sameL.map(function(r){ return r.T; });
+    noteH='줄 길이를 '+sameL[0].L.toFixed(2)+'m 로 고정하고 <b>높이만</b> 바꾼 기록에서는 주기가 '
+      +Math.min.apply(null,t2).toFixed(3)+'~'+Math.max.apply(null,t2).toFixed(3)+'초로 <b>거의 그대로</b>였습니다 (차이 '
+      +((Math.max.apply(null,t2)/Math.min.apply(null,t2)-1)*100).toFixed(1)+'%).';
+  } else {
+    noteH='줄 길이를 그대로 두고 <b>높이만</b> 바꿔 두 번 재 보면, 주기가 거의 변하지 않는 것을 볼 수 있어요.';
+  }
+  var noteM = Mk.length>=2
+    ? '추의 질량을 '+Mk.map(function(m){ return m.toFixed(1)+'kg'; }).join(' · ')+' 로 바꿔 봐도 주기는 달라지지 않았습니다.'
+    : '<b>추의 질량</b>도 바꿔 재 보세요 — 주기가 달라지지 않습니다.';
+  var noteL = Lk.length>=2
+    ? '그런데 <b>줄 길이</b>를 '+Lk[0].toFixed(2)+'m → '+Lk[Lk.length-1].toFixed(2)+'m 로 바꾸니 주기가 '
+      +(2*Math.PI*Math.sqrt(Lk[0]/G)).toFixed(2)+'초 → '+(2*Math.PI*Math.sqrt(Lk[Lk.length-1]/G)).toFixed(2)
+      +'초로 <b>분명히 달라졌습니다</b>. 줄을 4배로 늘리면 주기는 2배(√4배)가 돼요.'
+    : '<b>줄 길이</b>를 바꿔 재 보면, 그때는 주기가 분명히 달라집니다 — 주기를 정하는 것은 줄 길이뿐이에요.';
   document.getElementById('periodAnalysis').innerHTML =
-    s.map(function(r){
-      return '<div class="mini-row"><span>'+r.h+'cm ('+r.ang.toFixed(0)+'°)</span><span class="mono">주기 '+r.T.toFixed(3)+'초</span></div>';
-    }).join('')
-    + '<div class="insight-box">자동 분석: 놓는 높이를 '+(hi.h/lo.h).toFixed(1)+'배 바꿔도 주기는 '
-    + tmin.toFixed(2)+'~'+tmax.toFixed(2)+'초로 <b>거의 변하지 않습니다</b> (차이 '+((tmax/tmin-1)*100).toFixed(1)+'%). '
-    + '진자의 주기는 <b>줄 길이</b>로 정해지기 때문이에요 — 갈릴레이가 발견한 <b>진자의 등시성</b>입니다. '
-    + '다만 각도가 커지면 아주 조금 길어지는 것도 계산에 그대로 나타났습니다.</div>';
+    rowsL + rowsM
+    + '<div class="insight-box">자동 분석: '+noteH+' '+noteM+' '+noteL
+    + ' 셋 가운데 주기를 정하는 것은 <b>줄 길이 하나</b>입니다 — 갈릴레이가 발견한 <b>진자의 등시성</b>이에요. '
+    + '전체 기록의 주기 범위는 '+tmin.toFixed(2)+'~'+tmax.toFixed(2)+'초입니다.</div>';
 }
 
 document.querySelectorAll('[data-q="rel"]').forEach(function(btn){

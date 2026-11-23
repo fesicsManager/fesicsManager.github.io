@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -309,8 +311,8 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -407,13 +409,17 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var tkR = -1e9;
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke();
+    var tkS = f(v, decOf(xr[2])), tkW = c.measureText(tkS).width / 2;
+    if (X(v) - tkW > tkR + 4){ c.fillText(tkS, X(v), y + h + 6); tkR = X(v) + tkW; } }
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
   if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
   if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
-  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; var xlCx = x + w / 2, xlCv = c.canvas.width / (c.getTransform().a || 1);
+  c.fillText(xLabel, xlCx, y + h + 30, Math.max(60, 2 * Math.min(xlCx, xlCv - xlCx) - 8));
   c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
   c.textBaseline = 'alphabetic';
   return {X:X, Y:Y};
@@ -472,7 +478,7 @@ function room(S, rt, wet){ if (!S) return null;
 var NMK = ['도', '도♯', '레', '레♯', '미', '파', '파♯', '솔', '솔♯', '라', '라♯', '시'];
 function noteOf(fq){ var m = 69 + 12 * Math.log(fq / 440) / Math.LN2, k = Math.round(m); return {name:NMK[((k % 12) + 12) % 12] + (Math.floor(k / 12) - 1), cents:(m - k) * 100, midi:k}; }
 function semi(s){ return 261.6256 * Math.pow(2, s / 12); }
-function wrapTxt(c, s, x, y, maxW, lh, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+function wrapTxt(c, s, x, y, maxW, lh, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT;
   var words = String(s).split(' '), line = '', yy = y;
   words.forEach(function(w){ var t = line ? line + ' ' + w : w; if (c.measureText(t).width > maxW && line){ txt(c, line, x, yy, o); line = w; yy += lh; } else line = t; });
   if (line) txt(c, line, x, yy, o); return yy; }
@@ -490,13 +496,16 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
       ];
       var DY = [{n:'대비 작게', w:0.65}, {n:'대비 보통', w:0.4}, {n:'대비 뚜렷하게', w:0.22}];
       var GR = [{n:'정확한 등간격', ms:0}, {n:'박 사이 음을 살짝 늦게 (약 20 ms)', ms:20}];
+      var GG = ['안 찍음', '기계음처럼 들림', '행진곡·동요', '재즈·라틴', '록·대중가요', '블루스·셔플', '폴리리듬·국악 장단'];
       function calc(p){
         var P = PT[p.pt], bar = 240 / p.bpm, cell = bar / P.g, hits = [], strong = 0, onb = 0;
         P.c.forEach(function(v, i){ if (!v) return; var off = i % (P.g / 4) !== 0;
           var t = i * cell + (off ? GR[p.gr].ms / 1000 : 0); hits.push({i:i, v:v, t:t});
           if (v === 2){ strong++; if (i % (P.g / 4) === 0) onb++; } });
         var ratio = strong && !P.two ? onb / strong : null;
-        return {P:P, bar:bar, cell:cell, hits:hits, strong:strong, ratio:ratio};
+        var gg = p.gg || 0;
+        return {P:P, bar:bar, cell:cell, hits:hits, strong:strong, ratio:ratio,
+          guess:gg, gtext:GG[gg], ok:(gg > 0 ? (gg - 1 === p.pt) : null), ansText:GG[p.pt + 1]};
       }
       return {
         sceneHeight: 430,
@@ -506,6 +515,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           {key:'pt', type:'seg', label:'강세 패턴', cols:3, value:0, options:PT.map(function(x){ return x.n; })},
           {key:'dy', type:'seg', label:'셈여림 (강 : 약 대비)', cols:3, value:1, options:DY.map(function(x){ return x.n; })},
           {key:'gr', type:'seg', label:'타이밍', cols:2, value:0, options:GR.map(function(x){ return x.n; })},
+          {key:'gg', type:'seg', label:'먼저 맞히기: 이 패턴은 어느 쪽에 많이 쓰일까?', cols:3, value:0, options:GG,
+            note:'「안 찍음」이 아니면 재생하기 전까지 대표 장르를 가립니다. 소리를 들어 보고 찍은 뒤 재생하면 채점해 기록 표에 남습니다. ※ 장르는 그 강세가 자주 쓰이는 경향이고, 한 장르가 한 패턴만 쓴다는 뜻은 아닙니다. 아래 빠르기는 한 마디 길이를 바꿉니다.'},
           {key:'bpm', type:'range', label:'빠르기 (한 마디 = 4박)', min:120, max:160, step:5, value:130, fmt:function(v){ return '♩ = ' + v; }}
         ],
         compute: function(p){
@@ -534,31 +545,40 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           if (r){ var ph = gx + gw * tau; seg(c, ph, gy - 14, ph, gy + gh + 14, '#26313D', 3); }
           // 강세 비율 막대
           var yy = gy + gh + 70;
-          txt(c, '박 위 강세 비율', gx, yy, {color:'#4A5868'});
+          txt(c, '박 위 강세 비율', gx, yy, {color:'#4A5868', fs:gw < 260 ? 13 : 18});
           box(c, gx + 150, yy - 18, gw - 230, 22, '#E6EBF1');
           if (q.ratio != null){ c.fillStyle = PAL[1]; c.fillRect(gx + 150, yy - 18, (gw - 230) * q.ratio, 22); txt(c, f(q.ratio * 100, 0) + '%', gx + gw - 70, yy, {bold:true}); }
           else txt(c, P.two ? '두 층 겹침' : '강세 없음', gx + gw - 70, yy, {bold:true, color:'#8C99A8'});
           if (P.two) txt(c, '파랑 = 2박 층(낮은 북), 빨강 = 3박 층(높은 소리)', gx, yy + 70, {color:'#4A5868'});
-          txt(c, '대표 장르(경향): ' + P.gen, gx, yy + 40, {color:'#4A5868'});
+          txt(c, '대표 장르(경향): ' + ((p.gg > 0 && !r) ? '??? (찍은 뒤 재생하면 공개)' : P.gen), gx, yy + 40, {color:'#4A5868'});
           txt(c, r ? '한 마디 ' + f(q.bar, 2) + '초 · ♩=' + p.bpm + (p.gr ? ' · 그루브' : '') : '예상: 어떤 느낌일까요?', gx, H - 12, {bold:true, color:r ? PAL[0] : '#1E2833'});
         },
         stats: function(p, r){
-          return [['패턴', r.P.n], ['강세 위치', r.P.two ? '2박 층과 3박 층이 한 마디 첫 칸에서만 만남' : r.strong ? r.hits.filter(function(h){ return h.v === 2; }).map(function(h){ return (h.i / (r.P.g / 4) + 1).toFixed(1).replace('.0', '') + '박'; }).join(', ') : '없음 (모두 같은 세기)', PAL[4]],
+          var a3 = [['패턴', r.P.n], ['강세 위치', r.P.two ? '2박 층과 3박 층이 한 마디 첫 칸에서만 만남' : r.strong ? r.hits.filter(function(h){ return h.v === 2; }).map(function(h){ return (h.i / (r.P.g / 4) + 1).toFixed(1).replace('.0', '') + '박'; }).join(', ') : '없음 (모두 같은 세기)', PAL[4]],
             ['박 위 강세 비율', r.ratio == null ? (r.P.two ? '— (한 마디를 2와 3으로 동시에 나눔)' : '— (강세 없음)') : f(r.ratio * 100, 0) + '%', PAL[1]], ['빠르기', '♩=' + p.bpm + ' · 한 마디 ' + f(r.bar, 2) + '초'],
             ['타이밍', GR[p.gr].n], ['대표 장르(웹툰 표 경향)', r.P.gen, PAL[3]]];
+          if (r.guess > 0) a3.push(['먼저 찍은 장르 채점', r.gtext + ' → ' + (r.ok ? '맞음' : '틀림 (답: ' + r.ansText + ')'), r.ok ? PAL[1] : PAL[3]]);
+          return a3;
         },
-        columns: ['패턴', '빠르기', '셈여림', '타이밍', '박 위 강세'],
-        record: function(p, r){ return {pt:p.pt, bpm:p.bpm, dy:p.dy, gr:p.gr, ratio:r.ratio}; },
-        row: function(d){ return [PT[d.pt].s, '♩=' + d.bpm, PT[d.pt].flat ? '없음' : DY[d.dy].n, d.gr ? '그루브' : '등간격', d.ratio == null ? '—' : f(d.ratio * 100, 0) + '%']; },
+        columns: ['패턴', '빠르기', '셈여림', '타이밍', '박 위 강세', '찍은 장르', '채점'],
+        record: function(p, r){ return {pt:p.pt, bpm:p.bpm, dy:p.dy, gr:p.gr, ratio:r.ratio, guess:r.guess, ok:r.ok}; },
+        row: function(d){ return [PT[d.pt].s, '♩=' + d.bpm, PT[d.pt].flat ? '없음' : DY[d.dy].n, d.gr ? '그루브' : '등간격', d.ratio == null ? '—' : f(d.ratio * 100, 0) + '%',
+          d.guess > 0 ? GG[d.guess] : '안 찍음', d.guess > 0 ? (d.ok ? '맞음 ○' : '틀림 ×') : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('패턴별 박 위 강세 비율', '<div id="m4a"></div><p class="ask">음표 수는 같았는데 느낌을 바꾼 핵심은 무엇이었나요? 빠르기와 강세 위치 중 무엇이 이 비율을 바꾸는지 확인하세요.</p>') +
-            card('빠르기를 바꾸면', '<canvas class="chart" id="m4c"></canvas><p class="ask">과제: 좋아하는 곡의 강세 위치를 표시하고, 같은 선율을 다른 강세 패턴으로 바꿔 불러 녹음해 비교해 보세요.</p>') + '</div>';
+            card('빠르기를 바꾸면', '<canvas class="chart" id="m4c"></canvas><p class="ask">과제: 좋아하는 곡의 강세 위치를 표시하고, 같은 선율을 다른 강세 패턴으로 바꿔 불러 녹음해 비교해 보세요.</p>') +
+            card('먼저 찍은 장르 채점표', '<div id="m4d"></div><p class="ask">어떤 패턴에서 많이 틀렸나요? 틀린 패턴은 어떤 패턴과 헷갈렸는지 적어 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.pt; }), items = [];
           PT.forEach(function(x, i){ var a = g[i]; if (!a) return; var v = a[0].ratio; items.push({label:x.s, v:v == null ? 0 : v * 100, color:v == null ? PAL[7] : v > 0.5 ? PAL[0] : PAL[4], text:v == null ? (x.two ? '두 층 겹침 · ' + x.gen : '강세 없음') : f(v * 100, 0) + '% · ' + x.gen}); });
           $('m4a').innerHTML = hbars(items, 100);
           var ser = []; PT.forEach(function(x, i){ var a = (g[i] || []).filter(function(d){ return d.ratio != null; }); if (a.length) ser.push({color:PAL[i % 8], pts:a.map(function(d){ return {x:d.bpm, y:d.ratio * 100}; })}); });
           drawScatter($('m4c'), {series:ser.length ? ser : [{color:PAL[0], pts:[]}], xLabel:'빠르기 (♩)', yLabel:'박 위 강세 %', tightX:true});
+          var tried = rec.filter(function(d){ return d.guess > 0; }), hit = tried.filter(function(d){ return d.ok; }).length;
+          var grows = tried.map(function(d){ return [PT[d.pt].s, GG[d.guess], GG[d.pt + 1], d.ok ? '맞음 ○' : '틀림 ×']; });
+          $('m4d').innerHTML = (grows.length ? tableHTML(['패턴', '내가 찍은 것', '표의 경향', '채점'], grows) : '<p class="msg">장르를 먼저 찍고 재생해 보세요.</p>') +
+            tableHTML(['합계', '값'], [['찍어 본 횟수', tried.length + '회'],
+              ['맞힌 횟수', hit + '회' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')]]);
         }
       };
     })();
@@ -567,7 +587,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

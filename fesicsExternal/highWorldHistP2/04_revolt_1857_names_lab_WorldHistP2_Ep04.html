@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,20 +479,32 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         {n:'인도 대봉기', s:'대봉기', who:'오늘날 연구자들', when:'최근', stress:'여러 집단이 함께 일어난 큰 봉기', miss:'(지역 차이를 따로 설명해야 함)'},
         {n:'제1차 독립 전쟁', s:'독립 전쟁', who:'독립운동가 사바르카르', when:'1909년', stress:'민족 운동의 출발점', miss:'영국 편에 선 지역과 조용했던 지역'}
       ];
-      function fit(R, i){
-        if (i === 0) return R.up ? (R.g.length > 1 ? '좁음' : '맞음') : '해당 없음';
-        if (i === 1) return R.up ? '맞음' : '이 지역은 봉기하지 않음';
-        return R.up ? '맞음(이 지역은)' : '넓음';
+      var ONOFF = ['빼기', '넣기'];
+      function selOf(p){ var a = []; for (var i = 0; i < RG.length; i++) if (p['r' + i] === 1) a.push(i); return a; }
+      /* 고른 지역을 모아 이름이 얼마나 들어맞는지 수치로 잰다 */
+      function tally(sel){
+        var N = sel.length, U = 0, solo = 0, multi = 0, gs = {};
+        sel.forEach(function(i){ var R = RG[i]; if (!R.up) return; U++;
+          if (R.g.length <= 1) solo++; else multi++;
+          R.g.forEach(function(g){ gs[g] = (gs[g] || 0) + 1; }); });
+        var pct = [U ? solo / U * 100 : 0, U ? multi / U * 100 : 0, N ? U / N * 100 : 0];
+        return {N:N, U:U, solo:solo, multi:multi, groups:Object.keys(gs), pct:pct};
       }
+      function verdict(v){ return v >= 70 ? '들어맞음' : v >= 40 ? '일부만 맞음' : '어긋남'; }
       return {
         sceneHeight: 420,
         idle: '지역과 이름 렌즈를 고른 뒤 <b>이 지역 자료로 재 보기</b>를 누르세요.',
         shortHint: '다섯 지역을 모두 보고, 이름 렌즈 세 개를 한 번 이상씩 써 보세요.',
         params: [
-          {key:'r', type:'seg', label:'지역', cols:3, value:1, options:RG.map(function(x){ return x.n; })},
           {key:'n', type:'seg', label:'이름 렌즈', cols:3, value:0, options:NM.map(function(x){ return x.n; })}
-        ],
-        compute: function(p){ var R = RG[p.r]; return {R:R, N:NM[p.n], fit:fit(R, p.n)}; },
+        ].concat(RG.map(function(g, i){ return {key:'r' + i, type:'seg', label:'자료에 넣을 지역 — ' + g.n, cols:2, value:i === 1 ? 1 : 0, options:ONOFF,
+          note:i === RG.length - 1 ? '넣은 지역을 모아 참여 집단 구성을 집계하고, 고른 이름이 그 자료에 얼마나 들어맞는지 %로 재 줍니다. 봉기하지 않은 지역까지 넣으면 ‘전 인도’라는 이름의 몫이 떨어집니다.' : undefined}; })),
+        compute: function(p){
+          var sel = selOf(p);
+          if (!sel.length) return {fail:'지역을 하나 이상 넣고 다시 눌러 보세요.'};
+          var t = tally(sel), v = t.pct[p.n];
+          return {sel:sel, R:RG[sel[0]], N:NM[p.n], t:t, v:v, fit:verdict(v) + ' (' + f(v, 0) + '%)'};
+        },
         draw: function(c, W, H, p, r, tau){
           var s = fz(W), mx = 10, my = 10, mw = Math.min(W - 20, W * 0.62), mh = H - 30, k = r ? ease(tau) : 0;
           c.fillStyle = '#F7F9FC'; c.fillRect(0, 0, W, H);
@@ -498,28 +512,39 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           c.fillStyle = '#E4E9D6'; c.beginPath(); c.moveTo(mx + mw * 0.2, my + mh * 0.08); c.lineTo(mx + mw * 0.8, my + mh * 0.1); c.lineTo(mx + mw * 0.9, my + mh * 0.34); c.lineTo(mx + mw * 0.7, my + mh * 0.5);
           c.lineTo(mx + mw * 0.5, my + mh * 0.96); c.lineTo(mx + mw * 0.3, my + mh * 0.56); c.lineTo(mx + mw * 0.12, my + mh * 0.4); c.closePath(); c.fill(); c.strokeStyle = '#B8C4AE'; c.lineWidth = 1; c.stroke();
           tx(c, '개략도', mx + mw - 6, my + mh - 6, {align:'right', size:11, color:'#7A8794'});
-          RG.forEach(function(R, i){ var x = mx + R.p[0] * mw, y = my + R.p[1] * mh, sel = i === p.r;
+          var selA = selOf(p);
+          RG.forEach(function(R, i){ var x = mx + R.p[0] * mw, y = my + R.p[1] * mh, sel = selA.indexOf(i) >= 0;
             c.globalAlpha = sel ? 0.45 + 0.3 * k : 0.25; disc(c, x, y, sel ? 30 : 22, R.up ? PAL[0] : PAL[1]); c.globalAlpha = 1;
             tx(c, R.n.split(' ')[0], x, y + 5, {align:'center', bold:sel, size:s - 3}); });
-          var R0 = RG[p.r], px = mx + mw + 12, pw = W - px - 10;
+          var R0 = RG[selA.length ? selA[0] : 1], px = mx + mw + 12, pw = W - px - 10;
           if (pw < 120){ px = 16; pw = W - 32; }
           var yy = pw < 120 ? H - 120 : 40;
           if (pw >= 120){ tx(c, R0.n, px, yy, {bold:true, size:s}); R0.g.forEach(function(g, j){ if (!r || k > j * 0.2){ rrect(c, px, yy + 14 + j * 34, pw, 28, 6, R0.up ? '#FBECEA' : '#E7EEF6', R0.up ? PAL[0] : PAL[1], 1); tx(c, g, px + 10, yy + 33 + j * 34, {size:s - 2}); } });
-            if (r) stamp(c, px + pw / 2, H - 50, NM[p.n].s + ': ' + r.fit, r.fit.indexOf('맞음') === 0 ? PAL[2] : PAL[6], (k - 0.6) * 3, s - 2); }
+            if (r) stamp(c, px + pw / 2, H - 50, NM[p.n].s + ' ' + f(r.v, 0) + '%', r.v >= 70 ? PAL[2] : PAL[6], (k - 0.6) * 3, s - 2); }
         },
         stats: function(p, r){
-          return [['지역', r.R.n + (r.R.up ? ' — 봉기' : ' — 봉기하지 않음/영국 편'), r.R.up ? PAL[0] : PAL[1]], ['참여 집단', r.R.g.join(' · ')], ['자료', r.R.note],
-            ['이름 렌즈', r.N.n + ' — 붙인 쪽: ' + r.N.who + ' (' + r.N.when + ')'], ['이 지역 자료로 잰 결과', r.fit, r.fit.indexOf('맞음') === 0 ? PAL[2] : PAL[6]], ['이 이름이 빠뜨리기 쉬운 것', r.N.miss, PAL[3]]];
+          var lbl = ['세포이만 싸운 봉기 지역의 몫', '여러 집단이 함께 싸운 봉기 지역의 몫', '넣은 지역 가운데 봉기한 지역의 몫'][p.n];
+          return [['넣은 지역', r.sel.map(function(i){ return RG[i].n; }).join(', ') + ' (' + r.t.N + '곳)'],
+            ['봉기한 지역', r.t.U + ' / ' + r.t.N + '곳 — 세포이만 ' + r.t.solo + '곳, 여러 집단 ' + r.t.multi + '곳', PAL[0]],
+            ['모아 본 참여 집단', r.t.groups.join(' · ') || '—'],
+            ['이름 렌즈', r.N.n + ' — 붙인 쪽: ' + r.N.who + ' (' + r.N.when + ')'],
+            ['이 이름을 재는 잣대', lbl],
+            ['모은 자료로 잰 결과', r.fit, r.v >= 70 ? PAL[2] : PAL[6]],
+            ['세 이름을 한꺼번에 재면', NM.map(function(x, j){ return x.s + ' ' + f(r.t.pct[j], 0) + '%'; }).join(' · '), PAL[1]],
+            ['이 이름이 빠뜨리기 쉬운 것', r.N.miss, PAL[3]]];
         },
-        columns: ['지역', '봉기', '참여 집단 수', '이름', '판정'],
-        record: function(p, r){ return {r:p.r, n:p.n, fit:r.fit}; },
-        row: function(d){ var R = RG[d.r]; return [R.n, R.up ? '예' : '아니요', R.up ? R.g.length + '개' : '—', NM[d.n].s, d.fit]; },
+        columns: ['넣은 지역', '봉기 지역', '이름', '들어맞는 정도'],
+        record: function(p, r){ return {sel:r.sel.slice(), n:p.n, v:r.v, fit:r.fit, U:r.t.U, N:r.t.N, pct:r.t.pct.slice()}; },
+        row: function(d){ return [d.sel.map(function(i){ return RG[i].n.split(' ')[0]; }).join('·'), d.U + '/' + d.N, NM[d.n].s, d.fit]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('지역 × 이름 판정표', '<div id="h4a"></div><p class="ask">‘반란’은 왜 좁고, ‘전 인도가 일어난 독립 전쟁’은 왜 넓은가요? 봉기 지역과 영국 편 지역을 모두 본 뒤 답해 보세요.</p>') +
             card('세 이름 비교 (과제)', '<div id="h4b"></div><p class="ask">과제: 인도 지도에 봉기 지역과 영국 편 지역을 다른 색으로 칠하고, 세 이름을 ‘붙인 사람·시기·강조점·빠뜨리는 것’ 네 칸으로 비교해 보세요.</p>') + '</div>';
-          var m = {}; rec.forEach(function(d){ m[d.r + '_' + d.n] = d.fit; });
-          $('h4a').innerHTML = tableHTML(['지역'].concat(NM.map(function(x){ return x.s; })), RG.map(function(R, i){ return [R.n].concat(NM.map(function(x, j){ return m[i + '_' + j] || '·'; })); }));
+          var cs = {}, crows = [];
+          rec.forEach(function(d){ var kk = d.sel.join('-'); if (cs[kk]) return; cs[kk] = 1;
+            crows.push([d.sel.map(function(i){ return RG[i].n.split(' ')[0]; }).join('·'), d.U + '/' + d.N].concat(NM.map(function(x, j){ return f(d.pct[j], 0) + '%'; }))); });
+          $('h4a').innerHTML = tableHTML(['넣은 지역', '봉기'].concat(NM.map(function(x){ return x.s; })), crows) +
+            '<p class="msg">지역을 더 넣거나 빼면 같은 이름의 숫자가 달라집니다. 어떤 지역을 자료에 넣느냐가 이름을 정합니다.</p>';
           $('h4b').innerHTML = tableHTML(['이름', '붙인 사람', '시기', '강조점', '빠뜨리는 것'], NM.map(function(x){ return [x.s, x.who, x.when, x.stress, x.miss]; }));
         }
       };
@@ -530,7 +555,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -479,6 +481,26 @@ var LAB = (function anonymous(
         {w:'女子', ci:0, pr:'자', ans:0, m:'여성인 사람'}, {w:'男女', ci:1, pr:'남', ans:0, m:'남자와 여자'}
       ];
       var NTH = ['자전의 첫째 음', '둘째 음', '셋째 음'];
+      /* 새 단어로 시험하기 — 위 표에 없는 단어를 주고 세운 규칙을 적용해 보게 한다 */
+      var NEW = [
+        {w:'樂器', ci:0, pr:'기', ans:1, m:'음악을 연주하는 기구'},
+        {w:'樂天', ci:0, pr:'천', ans:0, m:'세상을 즐겁게 봄'},
+        {w:'不便', ci:1, pr:'불', ans:0, m:'편하지 않음'},
+        {w:'惡夢', ci:0, pr:'몽', ans:0, m:'나쁜 꿈'},
+        {w:'北進', ci:0, pr:'진', ans:0, m:'북쪽으로 나아감'}
+      ];
+      var RU = ['고르지 않음', '한자어에서의 뜻에 따라 음이 정해진다', '글자가 앞·뒤 어디에 오는지에 따라 정해진다', '짝 글자의 소리에 따라 정해진다'];
+      /* 세운 규칙을 표의 단어들에 실제로 맞춰 본다 — 근거가 되는 짝과 반례를 센다 */
+      function testRule(ch, ru){
+        var ws = WD.filter(function(x){ return x.w.charAt(x.ci) === ch; });
+        if (ru === 1) return {v:'성립', d:'뜻이 다른 단어끼리 음도 달라요 — ' + ws.map(function(x){ return x.w + '(' + RD[ch][x.ans][1] + ', ' + x.m + ')'; }).join(' · ')};
+        var key = ru === 2 ? function(x){ return x.ci; } : function(x){ return x.pr; };
+        var g = {}, bad = [], pairs = 0;
+        ws.forEach(function(x){ var k = key(x); if (g[k] == null) g[k] = x; else { pairs++; if (g[k].ans !== x.ans) bad.push(g[k].w + ' vs ' + x.w); } });
+        if (bad.length) return {v:'반례 있음 — 성립하지 않음', d:bad.join(', ') + ' — 같은 조건인데 음이 달라요'};
+        if (!pairs) return {v:'이 표로는 가릴 수 없음', d:'견줄 짝이 없어요 (같은 조건인 단어가 둘 이상 있어야 시험할 수 있어요)'};
+        return {v:'이 표에서는 반례 없음', d:'다만 다른 글자에서도 성립하는지 더 보아야 해요'};
+      }
       function duum(s){ var h = hsplit(s); if (!h) return s; var y = [2, 3, 6, 7, 12, 17, 20].indexOf(h.jung) >= 0;
         if (h.cho === 5) h.cho = y ? 11 : 2; else if (h.cho === 2 && y) h.cho = 11; return hjoin(h); }
       return {
@@ -487,17 +509,23 @@ var LAB = (function anonymous(
         shortHint:'樂이 들어간 세 단어를 모두 읽어 보고, 敗北와 南北, 女子와 男女도 비교해 보세요.',
         params:[
           {key:'w', type:'seg', label:'한자어', cols:5, value:1, options:WD.map(function(x){ return x.w; })},
-          {key:'n', type:'seg', label:'다음자를 읽을 음', cols:3, value:0, options:NTH}
+          {key:'n', type:'seg', label:'다음자를 읽을 음', cols:3, value:0, options:NTH},
+          {key:'nw', type:'seg', label:'새 단어로 시험하기 (표에 없는 단어)', cols:3, value:0, options:['안 함(위 한자어)'].concat(NEW.map(function(x){ return x.w; })),
+            note:'뜻만 보고 음을 골라 보세요. 외운 것이 아니라 규칙을 쓰는 것인지 알 수 있어요.'},
+          {key:'ru', type:'seg', label:'내가 세운 규칙 — 음은 무엇에 따라 정해지나', cols:1, value:0, options:RU,
+            note:'고르면 그 규칙을 표의 단어들에 맞춰 보고 반례가 있는지 알려 줘요.'}
         ],
         compute:function(p){
-          var d = WD[p.w], ch = d.w.charAt(d.ci), rs = RD[ch];
+          var d = p.nw > 0 ? NEW[p.nw - 1] : WD[p.w], ch = d.w.charAt(d.ci), rs = RD[ch];
           if (p.n >= rs.length) return {fail:ch + '의 음은 ' + rs.length + '개뿐이에요. 자전에 실린 음 안에서 골라 보세요.'};
           var my = rs[p.n][1], first = d.ci === 0, shown = first ? duum(my) : my, word = first ? shown + d.pr : d.pr + shown;
           var cor = first ? duum(rs[d.ans][1]) : rs[d.ans][1], right = first ? cor + d.pr : d.pr + cor, hit = p.n === d.ans, alt = d.alt === p.n;
-          return {d:d, ch:ch, rs:rs, my:rs[p.n], word:word, right:right, hit:hit, alt:alt, du:first && shown !== my, poly:rs.length > 1};
+          var out = {d:d, ch:ch, rs:rs, my:rs[p.n], word:word, right:right, hit:hit, alt:alt, du:first && shown !== my, poly:rs.length > 1, isNew:p.nw > 0};
+          if (p.ru > 0){ out.ru = p.ru; out.rt = testRule(ch, p.ru); }
+          return out;
         },
         draw:function(c, W, H, p, r, tau){
-          var d = WD[p.w], k = r ? ease(tau / 0.8) : 0, s = Math.min(130, (W - 80) / 2), x0 = W / 2 - s - 10, y = 20;
+          var d = (r && r.d) ? r.d : (p.nw > 0 ? NEW[p.nw - 1] : WD[p.w]), k = r ? ease(tau / 0.8) : 0, s = Math.min(130, (W - 80) / 2), x0 = W / 2 - s - 10, y = 20;
           [0, 1].forEach(function(i){ var x = x0 + i * (s + 20), tg = i === d.ci; rbox(c, x, y, s, s, tg ? '#FDF1DC' : '#FFFDF6', tg ? PAL[2] : '#E2B9A8', tg ? 3 : 1.5);
             T(c, d.w.charAt(i), x + s / 2, y + s * 0.78, {align:'center', bold:true, size:s * 0.7}); });
           var tx = x0 + d.ci * (s + 20) + s / 2, ox = x0 + (1 - d.ci) * (s + 20) + s / 2;
@@ -510,15 +538,30 @@ var LAB = (function anonymous(
           } else T(c, '?', tx, y + s + 34, {align:'center', bold:true, size:22, color:'#B9C6D3'});
         },
         stats:function(p, r){
-          return [['한자어', r.d.w + ' — ' + r.d.m], ['다음자', r.ch + ': ' + r.rs.map(function(x){ return x[0] + ' ' + x[1]; }).join(' / '), PAL[2]], ['내가 고른 음', r.my[0] + ' ' + r.my[1]],
+          return [].concat(
+            r.isNew ? [['새 단어로 시험', r.d.w + ' (표에 없는 단어) — ' + r.d.m, PAL[2]]] : [],
+            r.ru ? [['내가 세운 규칙', RU[r.ru], PAL[3]],
+              ['표에 맞춰 본 결과', r.rt.v + ' — ' + r.rt.d, /성립$|반례 없음/.test(r.rt.v) ? PAL[1] : PAL[4]]] : [],
+            [['한자어', r.d.w + ' — ' + r.d.m], ['다음자', r.ch + ': ' + r.rs.map(function(x){ return x[0] + ' ' + x[1]; }).join(' / '), PAL[2]], ['내가 고른 음', r.my[0] + ' ' + r.my[1]],
             ['읽기', r.word + (r.hit ? ' — 맞음' : ' — 바른 읽기는 ' + r.right), r.hit ? PAL[1] : PAL[4]]].concat(r.du ? [['두음 법칙', '단어 첫머리 ' + r.my[1] + ' → ' + r.word.charAt(0) + ' (뜻은 그대로, 소리만 바뀜)', PAL[3]]] : [])
-            .concat(r.alt ? [['참고', r.d.altM, PAL[2]]] : []).concat(!r.poly ? [['구별', '이 실험에서는 女를 다음자로 다루지 않음 — 교육용 대표 음 "녀"(첫머리에서는 두음 법칙으로 "여")만 봄', PAL[3]]] : []);
+            .concat(r.alt ? [['참고', r.d.altM, PAL[2]]] : []).concat(!r.poly ? [['구별', '이 실험에서는 女를 다음자로 다루지 않음 — 교육용 대표 음 "녀"(첫머리에서는 두음 법칙으로 "여")만 봄', PAL[3]]] : []));
         },
-        columns:['한자어', '고른 음', '읽기', '판정'],
-        record:function(p, r){ return {w:p.w, n:p.n, word:r.word, hit:r.hit}; },
-        row:function(d){ var x = WD[d.w], ch = x.w.charAt(x.ci); return [x.w, RD[ch][d.n][0] + ' ' + RD[ch][d.n][1], d.word, d.hit ? '맞음' : '틀림']; },
+        columns:['한자어', '고른 음', '읽기', '판정', '새 단어 · 규칙'],
+        record:function(p, r){ return {w:p.w, n:p.n, word:r.word, hit:r.hit, nw:p.nw, ww:r.d.w, ch:r.ch, isNew:r.isNew, ru:r.ru || 0, rv:r.rt ? r.rt.v : ''}; },
+        row:function(d){ return [d.ww, RD[d.ch][d.n][0] + ' ' + RD[d.ch][d.n][1], d.word, d.hit ? '맞음' : '틀림', (d.isNew ? '새 단어' : '—') + (d.ru ? ' · ' + RU[d.ru].slice(0, 10) + '… → ' + d.rv : '')]; },
         verify:function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var rs2 = {}; rec.forEach(function(d){ if (d.ru) rs2[d.ru + '_' + d.ch] = d; });
+          var rk = Object.keys(rs2);
+          var rcard = !rk.length ? '' : card('내가 세운 규칙을 표에 맞춰 보기', tableHTML(['글자', '규칙', '결과'],
+              rk.map(function(k){ var d = rs2[k]; return [d.ch, RU[d.ru], d.rv]; })) +
+            '<p class="ask">「앞·뒤 자리에 따라 정해진다」는 규칙은 어디서 반례가 나왔나요? 快樂(락)과 音樂(악)은 둘 다 樂이 뒤에 있습니다. ' +
+            '음을 가르는 것은 자리가 아니라 그 단어에서의 <b>뜻</b>이에요.</p>');
+          var ns = rec.filter(function(d){ return d.isNew; });
+          var ncard = !ns.length ? '' : card('새 단어로 시험한 결과', tableHTML(['새 단어', '내가 고른 음', '읽기', '판정'],
+              ns.map(function(d){ return [d.ww, RD[d.ch][d.n][0] + ' ' + RD[d.ch][d.n][1], d.word, d.hit ? '맞음 ○' : '틀림 ✕']; })) +
+            '<p class="ask">맞힌 ' + ns.filter(function(d){ return d.hit; }).length + ' / ' + ns.length + '개. ' +
+            '樂器와 樂天은 둘 다 樂이 앞에 있는데 음이 달랐어요. 樂天은 「락」인데 왜 「낙천」으로 적나요? 두음 법칙과 다음자를 구분해 말해 보세요.</p>');
+          box.innerHTML = '<div class="vgrid">' + rcard + ncard +
             card('글자별 — 짝에 따라 달라진 음', '<div id="mh3a"></div><p class="ask">樂 자체는 그대로인데 짝이 바뀌니 무엇이 바뀌었나요? 女의 "여/녀"는 다음자와 원인이 어떻게 다른가요?</p>') +
             card('나의 읽기 정확도', '<div id="mh3b"></div><p class="ask">과제: 다음자 다섯 자를 골라 음마다 단어를 두 개씩 찾고, 그 음일 때의 뜻을 한 줄씩 적어 보세요.</p>') + '</div>';
           var rows = [];
@@ -536,7 +579,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

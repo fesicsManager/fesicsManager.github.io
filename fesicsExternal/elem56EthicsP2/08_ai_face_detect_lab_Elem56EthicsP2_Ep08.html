@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,20 +446,28 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
       var NP = [10, 40, 100], GU = ['약 90%', '약 75%', '약 50%', '약 0%'];
       return {
         sceneHeight: 400,
-        idle: '모둠·사진 수·내 예상을 고른 뒤 <b>300명 판별해 보기</b>를 누르세요.',
+        idle: '모둠·사진 수·연습 정도를 고른 뒤 <b>300명 판별해 보기</b>를 누르세요. 연습을 늘리면 몇 %부터 동전과 구별되는지 보세요.',
         shortHint: '사진 수를 10장과 100장으로 바꿔 보면, 막대 모양이 어떻게 변하는지 보세요.',
         params: [
           {key:'gr', type:'seg', label:'모둠', cols:2, value:0, options:GR.map(function(x){ return x.n; })},
           {key:'n', type:'seg', label:'한 사람이 본 사진 수', cols:3, value:1, options:NP.map(function(x){ return x + '장'; })},
+          {key:'tr', type:'range', label:'요령을 배우는 정도 (연습 문제 수)', min:0, max:40, step:5, value:0,
+            fmt:function(v){ return v + '문제'; }},
           {key:'g', type:'seg', label:'내 예상: 사람들이 맞힌 비율은?', cols:4, value:0, options:GU}
         ],
         compute: function(p){
-          var n = NP[p.n], base = GR[p.gr].ref / 100, acc = [], i;
+          /* 연습 문제 1문제마다 맞힐 확률이 0.4%p 오른다고 본 교육용 모형값 */
+          var n = NP[p.n], gain = (p.tr || 0) * 0.4, base = (GR[p.gr].ref + gain) / 100, acc = [], i;
           for (i = 0; i < 300; i++){ var pi = clamp(base + gs() * 0.05, 0.05, 0.95); acc.push(binom(n, pi) / n * 100); }
           var avg = mean(acc), bins = [], b; for (b = 0; b < 10; b++) bins.push(0);
           acc.forEach(function(a){ bins[Math.min(9, Math.floor(a / 10))]++; });
           var over = acc.filter(function(a){ return a > 50; }).length, srt = acc.slice().sort(function(a, b){ return a - b; });
-          return {acc:acc, avg:avg, bins:bins, over:over, n:n, lo:srt[15], hi:srt[284]};
+          var lo = srt[15], hi = srt[284];
+          /* 가운데 90% 가 50% 위에 온전히 올라오면 동전과 구별된다고 본다 */
+          var apart = (lo > 50);
+          return {acc:acc, avg:avg, bins:bins, over:over, n:n, lo:lo, hi:hi, gain:gain, tr:(p.tr || 0), apart:apart,
+            verdict: apart ? '가운데 90% 가 모두 50% 위 — 동전 던지기와 구별됩니다'
+              : '가운데 90% 가 50% 를 걸칩니다 — 아직 동전 던지기와 구별되지 않습니다'};
         },
         draw: function(c, W, H, p, r, tau){
           var gx = 30, gy = 30, gw = W - 60, gh = H - 120, i, mx = r ? Math.max.apply(null, r.bins) : 1, k = r ? Math.min(tau / 0.7, 1) : 0;
@@ -468,21 +478,24 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
           txt(c, '100', gx + gw, gy + gh + 22, {align:'center', color:'#4A5868'});
           seg(c, gx + gw / 2, gy, gx + gw / 2, gy + gh, PAL[4], 2, [6, 4]); fitT(c, '동전 50%', gx + gw / 2 + 6, gy + 16, {color:PAL[4], bold:true}, gw / 2 - 10);
           if (r && tau > 0.75){ var ax = gx + gw * r.avg / 100; seg(c, ax, gy, ax, gy + gh, PAL[0], 3); }
-          fitT(c, r && tau > 0.75 ? '300명 평균 ' + f(r.avg, 0) + '% 맞힘 · 내 예상 ' + GU[p.g] : '맞힌 비율 (%)', 20, H - 12, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 40);
+          fitT(c, r && tau > 0.75 ? '300명 평균 ' + f(r.avg, 0) + '% 맞힘 · 연습 ' + r.tr + '문제 · ' + (r.apart ? '동전과 구별됨' : '동전과 구별 안 됨') : '맞힌 비율 (%)', 20, H - 12, {bold:true, color:r ? (r.apart ? PAL[1] : PAL[4]) : '#1E2833'}, W - 40);
         },
         stats: function(p, r){
-          return [['모둠', GR[p.gr].n + ' · 한 사람 ' + r.n + '장'], ['300명 평균 맞힌 비율', f(r.avg, 1) + '%', PAL[0]],
+          return [['모둠', GR[p.gr].n + ' · 한 사람 ' + r.n + '장 · 연습 ' + r.tr + '문제'], ['300명 평균 맞힌 비율', f(r.avg, 1) + '%', PAL[0]],
+            ['가운데 90% 사람의 정답률 폭', f(r.lo, 0) + '% ~ ' + f(r.hi, 0) + '%', PAL[0]],
+            ['이번 판정', r.verdict, r.apart ? PAL[1] : PAL[4]],
             ['50%보다 잘 맞힌 사람', r.over + '명 / 300명', PAL[1]],
-            ['연구 참고치 (2022, 대략)', '그냥 보기 약 48% · 요령+정답 약 59% · 동전 50%', PAL[6]],
+            ['연구 참고치 (2022, 대략) — 연습 효과는 교육용 모형값', '그냥 보기 약 48% · 요령+정답 약 59% · 동전 50%', PAL[6]],
             ['믿을 만해 보이는 정도 (연구)', 'AI 얼굴을 진짜 얼굴보다 조금 더 믿을 만하다고 봄', PAL[3]],
             ['내 예상', GU[p.g], PAL[3]]];
         },
-        columns: ['모둠', '사진 수', '평균 맞힘', '50% 넘은 사람'],
-        record: function(p, r){ return {gr:p.gr, n:r.n, avg:r.avg, over:r.over, lo:r.lo, hi:r.hi}; },
-        row: function(d){ return [GR[d.gr].s, d.n + '장', f(d.avg, 1) + '%', d.over + '명']; },
+        columns: ['모둠', '연습', '사진 수', '평균 맞힘', '동전과 구별'],
+        record: function(p, r){ return {gr:p.gr, n:r.n, avg:r.avg, over:r.over, lo:r.lo, hi:r.hi, tr:r.tr, apart:r.apart}; },
+        row: function(d){ return [GR[d.gr].s, (d.tr || 0) + '문제', d.n + '장', f(d.avg, 1) + '%', d.apart ? '구별됨' : '안 됨']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('모둠별 평균 맞힌 비율', '<div id="af1"></div><p class="ask">요령을 배워도 몇 %였나요? "눈으로 보면 가려낼 수 있다"는 말을 자료로 고쳐 써 보세요.</p>') +
+            card('연습을 얼마나 해야 동전과 구별되나', '<div id="af3"></div><p class="ask">연습을 몇 문제쯤 해야 가운데 90% 가 50% 위로 올라갔나요? 사진 수를 늘리면 더 적은 연습으로도 구별되는지 보세요.</p>') +
             card('사진 수에 따른 운', '<div id="af2"></div><p class="ask">과제: 가족과 "보내기 전 확인 3단계"(누가 올렸나·다른 곳에도 있나·언제 것인가) 카드를 만들고, 일주일 동안 받은 사진이나 영상 하나를 골라 3단계로 확인해 기록해요. 친구 얼굴 사진은 허락 없이 바꾸거나 올리지 않아요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.gr; }), items = [];
           GR.forEach(function(x, i){ var a = g[i];
@@ -492,6 +505,14 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
           $('af1').innerHTML = hbars(items, 100);
           var h = groupBy(rec, function(d){ return d.n; }), rows = [];
           NP.forEach(function(n){ var a = h[n]; if (a) rows.push([n + '장', a.length + '회', f(mean(a.map(function(d){ return d.over; })), 0) + '명', f(mean(a.map(function(d){ return d.lo; })), 0) + '% ~ ' + f(mean(a.map(function(d){ return d.hi; })), 0) + '%']); });
+          var q = groupBy(rec, function(d){ return (d.tr || 0); }), rows3 = [];
+          Object.keys(q).sort(function(a, b){ return a - b; }).forEach(function(k){ var a = q[k];
+            var ap = a.filter(function(d){ return d.apart; }).length;
+            rows3.push([k + '문제', a.length + '회', f(mean(a.map(function(d){ return d.avg; })), 1) + '%',
+              f(mean(a.map(function(d){ return d.lo; })), 0) + '% ~ ' + f(mean(a.map(function(d){ return d.hi; })), 0) + '%',
+              ap + ' / ' + a.length + '회']); });
+          $('af3').innerHTML = tableHTML(['연습 문제 수', '기록', '평균 맞힘', '가운데 90% 폭', '동전과 구별된 횟수'], rows3) +
+            '<p class="msg">평균이 50% 를 조금 넘는 것만으로는 부족해요. 사람마다 운이 섞이니, 가운데 90% 가 모두 50% 위로 올라와야 “눈으로 가려낼 수 있다”고 말할 수 있어요. 연습 효과는 교육용 모형값(1문제에 0.4%p)으로 둔 것이에요.</p>';
           $('af2').innerHTML = tableHTML(['한 사람 사진 수', '기록', '50% 넘은 사람 (평균)', '가운데 90% 사람의 정답률 폭'], rows) + '<p class="msg">50%를 넘은 사람 수는 사진 수가 달라도 크게 다르지 않아요. 하지만 사진이 적을수록 한 사람의 정답률이 운에 따라 크게 출렁여요(폭이 넓어져요). 몇 장 맞혔다고 "내 눈은 정확하다"고 믿기 쉬운 까닭이에요.</p>';
         }
       };
@@ -501,7 +522,8 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

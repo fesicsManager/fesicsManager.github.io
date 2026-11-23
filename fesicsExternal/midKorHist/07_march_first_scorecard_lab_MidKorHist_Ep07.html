@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,6 +440,16 @@ var LAB = (function(){
       ];
       var VD = ['달성', '부분 달성', '달성 못함'];
       var VC = [PAL[1], PAL[6], PAL[4]];
+      /* 기준마다 무게를 달리 주면 종합 판정이 뒤집힌다 */
+      var WN = ['1배 (다른 기준과 같게)', '3배', '10배 (거의 이 기준만)'];
+      var WV = [1, 3, 10];
+      var SCORE = [1, 0.5, 0];   /* 달성 1 · 부분 0.5 · 못함 0 */
+      function total(w){
+        var num = 0, den = 0;
+        CR.forEach(function(cr, i){ var wi = i === 0 ? w : 1; num += wi * SCORE[cr.ref]; den += wi; });
+        return num / den;
+      }
+      function label(t){ return t >= 0.6 ? '대체로 성공' : t >= 0.35 ? '절반의 성공' : '실패'; }
       function wrap(s, n){ var out = []; for (var i = 0; i < s.length; i += n) out.push(s.slice(i, i + n)); return out; }
       return {
         sceneHeight: 430,
@@ -445,9 +457,17 @@ var LAB = (function(){
         shortHint: '다섯 기준을 모두 한 번씩 판정해 보세요. 기준을 바꾸면 "실패"라는 말이 어떻게 달라지나요?',
         params: [
           {key:'k', type:'seg', label:'평가 기준', cols:3, value:0, options:CR.map(function(x){ return x.n; })},
-          {key:'v', type:'seg', label:'나의 판정', cols:3, value:2, options:VD}
+          {key:'v', type:'seg', label:'나의 판정', cols:3, value:2, options:VD},
+          {key:'w', type:'seg', label:'&lsquo;독립 달성’ 기준에 둘 무게', cols:3, value:0, options:WN,
+            note:'무엇을 무겁게 보느냐에 따라 종합 판정이 뒤집히는지 확인해 보세요.'}
         ],
-        compute: function(p){ var cr = CR[p.k]; return {cr:cr, ref:cr.ref, same:p.v === cr.ref}; },
+        compute: function(p){ var cr = CR[p.k], w = WV[p.w];
+          var t = total(w), all = WV.map(function(x){ return total(x); });
+          var flips = label(all[0]) !== label(all[WV.length - 1]);
+          return {cr:cr, ref:cr.ref, same:p.v === cr.ref, w:w, t:t, lab:label(t),
+            allList:WV.map(function(x, i){ return WN[i].split(' ')[0] + ' → ' + f(all[i] * 100, 0) + '점 (' + label(all[i]) + ')'; }).join(' · '),
+            flipMsg:flips ? '무게만 바꿨는데 종합 판정이 「' + label(all[0]) + '」 에서 「' + label(all[WV.length - 1]) + '」 으로 뒤집혀요'
+              : '무게를 바꿔도 종합 판정은 그대로예요', flips:flips}; },
         draw: function(c, W, H, p, r, tau){
           var n = 8, gap = Math.min(70, (W - 40) / n), k = r ? Math.min(tau / 0.5, 1) : 1;
           for (var i = 0; i < n; i++){
@@ -470,11 +490,15 @@ var LAB = (function(){
         stats: function(p, r){
           return [['기준', r.cr.n], ['증거', r.cr.ev, PAL[0]], ['나의 판정', VD[p.v], VC[p.v]],
             ['역사학계의 대체적 평가', VD[r.ref] + (r.same ? ' — 나와 같음' : ' — 나와 다름'), VC[r.ref]],
-            ['생각할 점', p.k === 0 ? '이 기준 하나로만 재면 "실패" — 다른 기준도 확인해 보세요' : '독립 여부만으로는 보이지 않던 성과·한계', PAL[3]]];
+            ['종합 점수 (무게 ' + r.w + '배)', f(r.t * 100, 0) + '점 / 100 → ' + r.lab, r.lab === '실패' ? PAL[4] : (r.lab === '대체로 성공' ? PAL[1] : PAL[6])],
+            ['무게를 바꿔 보면', r.allList, PAL[0]],
+            ['판정이 뒤집히나', r.flipMsg, r.flips ? PAL[6] : '#4A5868'],
+            ['생각할 점', p.k === 0 ? '이 기준 하나로만 재면 "실패" — 다른 기준도 확인해 보세요' : '독립 여부만으로는 보이지 않던 성과·한계', PAL[3]],
+            ['※', '달성 1점·부분 0.5점·못함 0점으로 더한 교육용 모형 점수입니다 — 학계가 쓰는 지표가 아닙니다.']];
         },
-        columns: ['기준', '나의 판정', '대체적 평가'],
-        record: function(p, r){ return {k:p.k, v:p.v, ref:r.ref}; },
-        row: function(d){ return [CR[d.k].s, VD[d.v], VD[d.ref]]; },
+        columns: ['기준', '나의 판정', '대체적 평가', '무게', '종합 판정'],
+        record: function(p, r){ return {k:p.k, v:p.v, ref:r.ref, w:r.w, t:r.t, lab:r.lab}; },
+        row: function(d){ return [CR[d.k].s, VD[d.v], VD[d.ref], (d.w || 1) + '배', d.lab == null ? '—' : f(d.t * 100, 0) + '점 ' + d.lab]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기준별 판정표', '<div id="mf1"></div><p class="ask">"독립 달성" 기준 하나만 쓰면 3·1 운동은 어떻게 평가되나요? 다섯 기준을 모두 쓰면 어떻게 바뀌나요?</p>') +
@@ -482,7 +506,8 @@ var LAB = (function(){
           var last = {}; rec.forEach(function(d){ last[d.k] = d; });
           $('mf1').innerHTML = tableHTML(['기준', '나', '대체적', '근거'], CR.map(function(cr, i){ var d = last[i]; return [cr.s, d ? VD[d.v] : '—', VD[cr.ref], cr.ev.split(' — ')[0].slice(0, 28)]; }));
           var cnt = [0, 0, 0]; Object.keys(last).forEach(function(k){ cnt[last[k].v]++; });
-          $('mf2').innerHTML = hbars(VD.map(function(v, i){ return {label:v, v:cnt[i], color:VC[i], text:cnt[i] + '개 기준'}; }), 5) + (Object.keys(last).length < 5 ? '<p class="msg">아직 판정하지 않은 기준이 있어요.</p>' : '');
+          $('mf2').innerHTML = hbars(VD.map(function(v, i){ return {label:v, v:cnt[i], color:VC[i], text:cnt[i] + '개 기준'}; }), 5) + (Object.keys(last).length < 5 ? '<p class="msg">아직 판정하지 않은 기준이 있어요.</p>' : '') +
+            tableHTML(['독립 기준의 무게', '종합 점수', '종합 판정'], WV.map(function(x, i){ var t = total(x); return [WN[i], f(t * 100, 0) + '점', label(t)]; }));
         }
       };
     })();
@@ -491,7 +516,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

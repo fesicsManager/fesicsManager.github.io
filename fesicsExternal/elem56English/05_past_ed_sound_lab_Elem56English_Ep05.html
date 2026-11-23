@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -430,29 +432,44 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var WD = [
-        {w:'walk', ps:'walked', last:'k', v:0, sy:[1, 1]}, {w:'jump', ps:'jumped', last:'p', v:0, sy:[1, 1]}, {w:'cook', ps:'cooked', last:'k', v:0, sy:[1, 1]}, {w:'wash', ps:'washed', last:'sh', v:0, sy:[1, 1]},
-        {w:'play', ps:'played', last:'y (모음)', v:1, sy:[1, 1]}, {w:'clean', ps:'cleaned', last:'n', v:1, sy:[1, 1]}, {w:'open', ps:'opened', last:'n', v:1, sy:[2, 2]}, {w:'live', ps:'lived', last:'v', v:1, sy:[1, 1]},
-        {w:'want', ps:'wanted', last:'t', v:2, sy:[1, 2]}, {w:'need', ps:'needed', last:'d', v:2, sy:[1, 2]}, {w:'paint', ps:'painted', last:'t', v:2, sy:[1, 2]}, {w:'visit', ps:'visited', last:'t', v:2, sy:[2, 3]},
-        {w:'charge', ps:'charged', last:'g (쥐)', v:1, sy:[1, 1]}
+        {w:'walk', ps:'walked', last:'k', v:0, sy:[1, 1], st:'wal'}, {w:'jump', ps:'jumped', last:'p', v:0, sy:[1, 1], st:'jum'}, {w:'cook', ps:'cooked', last:'k', v:0, sy:[1, 1], st:'coo'}, {w:'wash', ps:'washed', last:'sh', v:0, sy:[1, 1], st:'wa'},
+        {w:'play', ps:'played', last:'y (모음)', v:1, sy:[1, 1], st:'pla'}, {w:'clean', ps:'cleaned', last:'n', v:1, sy:[1, 1], st:'clea'}, {w:'open', ps:'opened', last:'n', v:1, sy:[2, 2], st:'ope'}, {w:'live', ps:'lived', last:'v', v:1, sy:[1, 1], st:'li'},
+        {w:'want', ps:'wanted', last:'t', v:2, sy:[1, 2], st:'wan'}, {w:'need', ps:'needed', last:'d', v:2, sy:[1, 2], st:'nee'}, {w:'paint', ps:'painted', last:'t', v:2, sy:[1, 2], st:'pain'}, {w:'visit', ps:'visited', last:'t', v:2, sy:[2, 3], st:'visi'},
+        {w:'charge', ps:'charged', last:'g (쥐)', v:1, sy:[1, 1], st:'char'}
       ];
+      /* -ed 바로 앞 소리를 내가 직접 갈아 끼우는 칸 — 끝소리를 표에서 꺼내 오지 않고 바꾼 소리로 다시 정한다 */
+      var SWAP = [null,
+        {l:'k',  v:0, nm:'k (안 떨림)'},  {l:'p',  v:0, nm:'p (안 떨림)'},  {l:'sh', v:0, nm:'sh (안 떨림)'},
+        {l:'n',  v:1, nm:'n (떨림)'},     {l:'l',  v:1, nm:'l (떨림)'},     {l:'v',  v:1, nm:'v (떨림)'},
+        {l:'t',  v:2, nm:'t'},            {l:'d',  v:2, nm:'d'}];
       var END = ['트', '드', '이드'], VN = ['목 울림 없음', '목 울림 있음', 't·d 소리'], PL = ['스', '즈', '이즈'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
+      /* 지금 고른 동사 — 앞 소리를 바꿨으면 그 소리로 만든 동사가 된다 */
+      function eff(p){
+        var d = WD[p.w], s = SWAP[p.c || 0];
+        if (!s) return {w:d.w, ps:d.ps, last:d.last, v:d.v, sy:d.sy, made:false, swap:'그대로'};
+        var w = d.st + s.l;
+        return {w:w, ps:w + 'ed', last:s.nm, v:s.v, sy:[d.sy[0], d.sy[0] + (s.v === 2 ? 1 : 0)], made:true, swap:s.l};
+      }
       function say(t, rate){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = rate || 0.9; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
       function claps(c, n, x, y, col){ for (var i = 0; i < n; i++){ c.fillStyle = col; c.beginPath(); c.arc(x + i * 30, y, 11, 0, Math.PI * 2); c.fill(); } }
       return {
         sceneHeight: 380,
-        idle: '동사와 나의 예측을 고른 뒤 <b>끝소리 확인하기</b>를 누르세요.',
-        shortHint: '세 줄(트·드·이드)의 동사를 골고루 확인하고, charged로 규칙을 시험해 보세요.',
+        idle: '동사와 나의 예측을 고른 뒤 <b>끝소리 확인하기</b>를 누르세요. 앞 소리를 갈아 끼우면 같은 동사에서도 끝소리가 뒤집힙니다.',
+        shortHint: '세 줄(트·드·이드)의 동사를 골고루 확인하고, 한 동사를 골라 <b>앞 소리 갈아 끼우기</b>로 k·n·t 를 차례로 넣어 보세요.',
         params: [
           {key:'w', type:'seg', label:'동사', cols:4, value:1, options:WD.map(function(x){ return x.ps; })},
+          {key:'c', type:'seg', label:'-ed 앞 소리 갈아 끼우기 (내가 동사를 만든다)', cols:5, value:0,
+            options:['그대로', 'k', 'p', 'sh', 'n', 'l', 'v', 't', 'd'],
+            note:'앞 소리만 바꾼 동사를 만들어 끝소리가 어떻게 달라지는지 보세요. 영어에 실제로 없는 동사가 될 수도 있어요 — 규칙이 <b>철자가 아니라 소리</b>로 정해지는지 시험하는 칸이에요.'},
           {key:'g', type:'seg', label:'예측: 끝소리는?', cols:3, value:1, options:END.map(function(e){ return "'" + e + "'"; })},
           {key:'s', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
-          var d = WD[p.w], played = p.s === 0 ? say(d.w + '. ' + d.ps + '.', 0.8) : false;
-          return {d:d, end:END[d.v], hit:p.g === d.v, grow:d.sy[1] > d.sy[0], played:played};
+          var d = eff(p), played = (p.s === 0 && !d.made) ? say(d.w + '. ' + d.ps + '.', 0.8) : false;
+          return {d:d, end:END[d.v], hit:p.g === d.v, grow:d.sy[1] > d.sy[0], played:played, made:d.made};
         },
         draw: function(c, W, H, p, r, tau){
-          var d = WD[p.w], k = r ? Math.min(tau / 0.5, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.5) / 0.4, 1)) : 0;
+          var d = eff(p), k = r ? Math.min(tau / 0.5, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.5) / 0.4, 1)) : 0;
           txt(c, d.w + '  →  ' + d.ps, 20, 36, {bold:true});
           txt(c, '-ed 바로 앞 소리: ' + d.last, 20, 70, {color:'#4A5868'});
           var nx = Math.min(W - 80, 260), ny = 170;
@@ -472,25 +489,42 @@ var LAB = (function(){
           if (r && k2 >= 1 && r.grow) txt(c, '1칸 늘어남!', 120 + d.sy[1] * 30 + 10, 350, {bold:true, color:PAL[6]});
         },
         stats: function(p, r){
-          return [['동사', r.d.w + ' → ' + r.d.ps], ['-ed 앞 소리', r.d.last + ' — ' + VN[r.d.v], [PAL[0], PAL[4], PAL[3]][r.d.v]],
+          return [['동사', r.d.w + ' → ' + r.d.ps + (r.made ? ' (내가 만든 동사)' : '')],
+            ['앞 소리', r.made ? ('원래 ' + WD[p.w].w + ' 의 앞 소리를 ' + r.d.swap + ' 로 갈아 끼웠어요') : '그대로 (' + WD[p.w].w + ')'],
+            ['-ed 앞 소리', r.d.last + ' — ' + VN[r.d.v], [PAL[0], PAL[4], PAL[3]][r.d.v]],
             ['끝소리', "'" + r.end + "'", PAL[1]], ['박수 칸', r.d.sy[0] + '칸 → ' + r.d.sy[1] + '칸' + (r.grow ? ' (1칸 늘어남)' : ' (그대로)'), PAL[6]],
             ['나의 예측', "'" + END[p.g] + "'" + (r.hit ? ' — 맞았어요' : ' — 빗나갔어요'), r.hit ? PAL[1] : PAL[6]],
             ['복수 -s와 비교', "목 울림을 따라가는 원리는 같지만, '이'가 붙는 앞 소리는 달라요 (-s는 s·z·sh·ch 뒤, -ed는 t·d 뒤)", PAL[3]],
-            ['소리', p.s === 1 ? '끔' : r.played ? '원래 동사 → 과거형 순서로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']];
+            ['소리', r.made ? '만든 동사는 들려주지 않아요 — 목에 손을 대고 직접 소리 내 보세요'
+              : (p.s === 1 ? '끔' : r.played ? '원래 동사 → 과거형 순서로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)')]];
         },
-        columns: ['과거형', '앞 소리', '끝소리', '칸 수', '예측'],
-        record: function(p, r){ return {w:p.w, v:r.d.v, hit:r.hit}; },
-        row: function(d){ var x = WD[d.w]; return [x.ps, x.last, END[x.v], x.sy[0] + '→' + x.sy[1], d.hit ? '맞음' : '빗나감']; },
+        columns: ['과거형', '바꾼 앞 소리', '앞 소리', '끝소리', '칸 수', '예측'],
+        record: function(p, r){ return {base:WD[p.w].w, ps:r.d.ps, last:r.d.last, v:r.d.v, sy:r.d.sy, hit:r.hit, made:r.made, swap:r.d.swap}; },
+        row: function(d){ return [d.ps, d.made ? d.swap : '그대로', d.last, END[d.v], d.sy[0] + '→' + d.sy[1], d.hit ? '맞음' : '빗나감']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('앞 소리별로 나눈 표', '<div id="ed1"></div><p class="ask">목이 안 떨리면 \'트\', 떨리면 \'드\', t·d 뒤면 \'이드\'였나요? 칸이 늘어난 줄은 어디였나요?</p>') +
             card('복수 -s 규칙과 나란히', '<div id="ed2"></div><p class="ask">과제: 지난 주말에 한 일 다섯 가지를 -ed 과거형으로 쓰고, 목에 손을 대고 말해 보며 \'트·드·이드\' 중 어느 소리인지 옆에 적어 보세요.</p>') + '</div>';
           var rows = [];
           [0, 1, 2].forEach(function(v){ var a = rec.filter(function(d){ return d.v === v; }); if (!a.length) return;
-            var ws = {}; a.forEach(function(d){ ws[WD[d.w].ps] = 1; });
+            var ws = {}; a.forEach(function(d){ ws[d.ps] = 1; });
             var h = a.filter(function(d){ return d.hit; }).length;
             rows.push([VN[v], Object.keys(ws).join(', '), "'" + END[v] + "'", h + ' / ' + a.length]); });
-          $('ed1').innerHTML = tableHTML(['앞 소리', '단어', '끝소리', '예측 맞힘'], rows) + (rows.length < 3 ? '<p class="msg">세 줄을 모두 확인해 보세요.</p>' : '');
+          $('ed1').innerHTML = tableHTML(['앞 소리', '단어', '끝소리', '예측 맞힘'], rows) + (rows.length < 3 ? '<p class="msg">세 줄을 모두 확인해 보세요.</p>' : '')
+            + (function(){
+                /* 같은 동사에서 앞 소리만 바꿔 본 것을 모아, 끝소리가 실제로 갈렸는지 보여 준다 */
+                var g = {}; rec.forEach(function(d){ (g[d.base] = g[d.base] || []).push(d); });
+                var lines = [];
+                Object.keys(g).forEach(function(b){
+                  var vs = {}; g[b].forEach(function(d){ vs[d.v] = (vs[d.v] || []); vs[d.v].push(d.ps); });
+                  var ks = Object.keys(vs);
+                  if (ks.length < 2) return;
+                  lines.push('<tr><td>' + b + '</td><td>' + ks.map(function(v){ return vs[v].join('/') + " → '" + END[v] + "'"; }).join('<br>') + '</td><td>' + ks.length + '가지</td></tr>');
+                });
+                if (!lines.length) return '<p class="note">한 동사를 고른 뒤 <b>앞 소리</b>만 k·n·t 로 바꿔 두 번 이상 기록하면, 같은 동사에서 끝소리가 갈리는지 여기에 모아 보여 줍니다.</p>';
+                return '<p class="note">같은 동사에서 앞 소리만 바꿔 본 결과 — 바꾼 소리에 따라 끝소리가 실제로 갈렸습니다. 규칙은 낱말을 외워서가 아니라 <b>바로 앞 소리</b>를 보고 움직입니다.</p>'
+                  + '<table><thead><tr><th>원래 동사</th><th>내가 만든 동사와 끝소리</th><th>갈린 수</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>';
+              })();
           $('ed2').innerHTML = tableHTML(['앞 소리', '복수 -s', '과거 -ed', '칸 수'], [['목 울림 없음', "'스' (cats)", "'트' (jumped)", '그대로'], ['목 울림 있음', "'즈' (dogs)", "'드' (played)", '그대로'], ['비슷한 소리 겹침', "'이즈' (boxes)", "'이드' (wanted)", '1칸 늘어남']]);
         }
       };
@@ -500,7 +534,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -442,6 +444,23 @@ var LAB = (function(){
       var ONOFF = ['끄기', '켜기'];
       var WHO = ['운전자', '상인', '주민', '학생', '다음 세대'];
       function on(p){ return [p.t, p.s, p.c, p.e]; }
+      /* 목록을 펼쳐 보는 대신 학생이 먼저 쟁점을 꼽아 보고 9칸과 대조한다.
+         i = 그 쟁점이 보이는 돋보기(0 시간 · 1 공간 · 2 사회 · 3 윤리), i = -2 는 9칸에 없는 쟁점. */
+      var PICK = [
+        {q:'(고르지 않음)', i:-1},
+        {q:'교통 흐름', i:1},
+        {q:'가로수 품종 고르기', i:-2},
+        {q:'보행 안전', i:3},
+        {q:'상인 매출', i:2},
+        {q:'나무의 나이·역사', i:0},
+        {q:'도로 포장 색 고르기', i:-2},
+        {q:'길 폭', i:1},
+        {q:'생명 가치', i:3},
+        {q:'주민 의견 수렴 절차', i:2},
+        {q:'버스 노선 번호 바꾸기', i:-2},
+        {q:'마을 잔치(공동체 기억)', i:0},
+        {q:'공사비·예산', i:2}
+      ];
       return {
         sceneHeight: 420,
         idle: '돋보기를 켜고 끈 뒤 <b>이 돋보기로 조사하기</b>를 누르세요.',
@@ -450,7 +469,11 @@ var LAB = (function(){
           {key:'t', type:'seg', label:'⏱ 시간적 관점 (언제·어떻게 변해 왔나)', cols:2, value:0, options:ONOFF},
           {key:'s', type:'seg', label:'🗺 공간적 관점 (어디·주변과의 관계)', cols:2, value:1, options:ONOFF},
           {key:'c', type:'seg', label:'👥 사회적 관점 (제도·이해관계)', cols:2, value:0, options:ONOFF},
-          {key:'e', type:'seg', label:'⚖ 윤리적 관점 (무엇이 옳은가)', cols:2, value:0, options:ONOFF, note:'관점을 많이 켠다고 결론이 정해지지는 않아요. 빠뜨린 쟁점과 사람이 줄어들 뿐이에요.'}
+          {key:'e', type:'seg', label:'⚖ 윤리적 관점 (무엇이 옳은가)', cols:2, value:0, options:ONOFF, note:'관점을 많이 켠다고 결론이 정해지지는 않아요. 빠뜨린 쟁점과 사람이 줄어들 뿐이에요.'},
+          {key:'gn', type:'range', label:'먼저 짐작: 이 돋보기로 쟁점 몇 개를 찾을까? (모두 9개)', min:0, max:9, step:1, value:0,
+            fmt:function(v){ return v === 0 ? '짐작 안 함' : v + '개'; }},
+          {key:'pk', type:'seg', label:'내가 먼저 꼽는 쟁점 — 이것이 9칸에 있을까', cols:2, value:0, options:PICK.map(function(x){ return x.q; }),
+            note:'목록을 펼쳐 보기 전에 하나 꼽아 보세요. 9칸에 없는 쟁점도 섞여 있습니다.'}
         ],
         compute: function(p){
           var o = on(p), n = o.filter(function(v){ return v; }).length;
@@ -459,7 +482,21 @@ var LAB = (function(){
           LN.forEach(function(L, i){ L.is.forEach(function(s){ (o[i] ? found : missed).push({s:s, i:i}); }); if (o[i]) L.who.forEach(function(w){ who[w] = 1; }); });
           var wl = WHO.filter(function(w){ return who[w]; });
           var names = LN.filter(function(L, i){ return o[i]; }).map(function(L){ return L.n; });
-          return {n:n, found:found, missed:missed, who:wl, names:names};
+          var out = {n:n, found:found, missed:missed, who:wl, names:names};
+          if (p.gn > 0){
+            var dd = Math.abs(p.gn - found.length);
+            out.gn = p.gn;
+            out.grade = dd === 0 ? '맞음 ✓' : (dd === 1 ? '한 개 차이' : '빗나감 ✕');
+            out.gmsg = out.grade + ' — 실제 ' + found.length + '개 (내 짐작 ' + p.gn + '개)';
+          }
+          if (p.pk > 0){
+            var pk = PICK[p.pk];
+            out.pk = p.pk; out.pkIn = pk.i >= 0; out.pkLit = pk.i >= 0 && !!o[pk.i];
+            out.pmsg = pk.i === -2 ? '9칸에 없는 쟁점이에요 — 이 사안의 쟁점이라기보다 세부 선택에 가까워요'
+              : (out.pkLit ? '지금 켠 ' + LN[pk.i].n + ' 돋보기로 찾을 수 있어요 ✓'
+                : '9칸에 있지만 ' + LN[pk.i].n + ' 돋보기로만 보여요 — 그 돋보기를 켜야 찾을 수 있어요');
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var o = on(p), cx = W / 2, cy = H * 0.42, k = r ? Math.min(1, tau / 0.8) : 0;
@@ -486,17 +523,32 @@ var LAB = (function(){
           else tf(c, r ? '조사 중…' : '쟁점 9칸 (가상 조사 기준)', 16, H - 14, {color:'#4A5868'});
         },
         stats: function(p, r){
-          return [['켠 관점', r.names.join(' + ') + ' (' + r.n + '개)', PAL[0]],
+          return [].concat(
+            r.pk ? [['내가 먼저 꼽은 쟁점', PICK[r.pk].q + ' → ' + r.pmsg, r.pkLit ? PAL[1] : PAL[4]]] : [],
+            r.gn ? [['내 짐작 채점 (쟁점 수)', r.gmsg, /맞음/.test(r.grade) ? PAL[1] : PAL[4]]] : [],
+            [['켠 관점', r.names.join(' + ') + ' (' + r.n + '개)', PAL[0]],
             ['찾아낸 쟁점 (' + r.found.length + '개)', r.found.map(function(q){ return q.s; }).join(', '), PAL[1]],
             ['떠올린 이해 당사자', r.who.join(', '), PAL[3]],
             ['놓친 것', r.missed.length ? r.missed.map(function(q){ return q.s; }).join(', ') : '거의 없음', PAL[4]],
-            ['웹툰 표와 비교', r.n === 1 && p.s ? '공간 1개 모둠: 쟁점 2개 — 같은 결과' : r.n === 2 && p.s && p.c ? '공간+사회 모둠: 쟁점 5개 — 같은 결과' : r.n === 4 ? '4개 모두 모둠: 쟁점 9개 — 같은 결과' : '웹툰 표에 없는 조합 — 새 탐구']];
+            ['웹툰 표와 비교', r.n === 1 && p.s ? '공간 1개 모둠: 쟁점 2개 — 같은 결과' : r.n === 2 && p.s && p.c ? '공간+사회 모둠: 쟁점 5개 — 같은 결과' : r.n === 4 ? '4개 모두 모둠: 쟁점 9개 — 같은 결과' : '웹툰 표에 없는 조합 — 새 탐구']]);
         },
-        columns: ['켠 관점', '관점 수', '쟁점 수', '이해 당사자 수', '놓친 쟁점'],
-        record: function(p, r){ return {names:r.names.join('+'), n:r.n, f:r.found.length, w:r.who.length, m:r.missed.length}; },
-        row: function(d){ return [d.names, d.n + '개', d.f + '개', d.w + '명', d.m + '개']; },
+        columns: ['켠 관점', '관점 수', '쟁점 수', '이해 당사자 수', '놓친 쟁점', '내 짐작 · 내가 꼽은 쟁점'],
+        record: function(p, r){ return {names:r.names.join('+'), n:r.n, f:r.found.length, w:r.who.length, m:r.missed.length, gn:r.gn || 0, grade:r.grade || '', pk:r.pk || 0, pkIn:r.pkIn, pkLit:r.pkLit}; },
+        row: function(d){ return [d.names, d.n + '개', d.f + '개', d.w + '명', d.m + '개', (d.gn ? '짐작 ' + d.gn + '개 ' + d.grade : '—') + (d.pk ? ' · ' + PICK[d.pk].q + (d.pkLit ? ' ○' : (d.pkIn ? ' △' : ' ✕')) : '')]; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ps = {}; rec.forEach(function(d){ if (d.pk) ps[d.pk] = d; });
+          var pk2 = Object.keys(ps).map(Number).sort();
+          var pcard = !pk2.length ? '' : card('내가 먼저 꼽은 쟁점 대조', tableHTML(['내가 꼽은 쟁점', '9칸에 있나', '보이는 돋보기', '그때 켜 있었나'],
+              pk2.map(function(k){ var it2 = PICK[k], d = ps[k];
+                return [it2.q, it2.i >= 0 ? '있음' : '없음', it2.i >= 0 ? LN[it2.i].n : '—', d.pkLit ? '켜 있었음 ○' : (d.pkIn ? '꺼져 있었음 △' : '—')]; })) +
+            '<p class="ask">9칸에 없는 쟁점을 꼽은 적이 있나요? 또 9칸에 있는데도 돋보기를 끄고 있어 못 찾은 쟁점은 무엇이었나요? ' +
+            '돋보기를 많이 켜는 것보다 <b>어느 돋보기가 어떤 쟁점을 보여 주는지</b>를 아는 것이 중요합니다.</p>');
+          var gcard2 = '';
+          var gs2 = rec.filter(function(d){ return d.gn; });
+          if (gs2.length) gcard2 = card('쟁점 수 짐작 채점', tableHTML(['켠 관점', '내 짐작', '실제', '채점'],
+              gs2.map(function(d){ return [d.names, d.gn + '개', d.f + '개', d.grade]; })) +
+            '<p class="ask">관점을 하나 켤 때마다 쟁점이 똑같이 늘었나요? 관점마다 보여 주는 쟁점 수가 다릅니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + pcard + gcard2 +
             card('관점 수에 따라 찾아낸 쟁점 (내 기록)', '<div id="fl1"></div><p class="ask">관점이 같은 수(예: 1개)여도 어떤 관점을 골랐느냐에 따라 놓친 쟁점이 달라집니다. 공간 1개와 윤리 1개는 서로 무엇을 놓쳤나요?</p>') +
             card('웹툰 #4 가상 조사와 비교', '<div id="fl2"></div><p class="ask">과제: 우리 지역에서 최근 논란이 된 변화 하나를 골라 시간·공간·사회·윤리적 관점에서 각각 질문을 두 개씩 만들고, 관점마다 떠오르는 이해 당사자를 적어 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.names; }), items = [];
@@ -512,7 +564,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

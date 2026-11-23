@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>대화는 내 말만 잘하면 되나</h1>
-    <p>친구가 “나 주말에 바다에 갔어.”라고 말했어요. <b>듣는 사람의 첫 대답만</b> 바꿔 보고, 대화가 몇 번 오가는지 공 주고받기로 보여 줘요.<br><span style="font-size:.9em;color:#a86825">※ 짝 10쌍이 주고받은 횟수(평균)는 제로 랩의 가상 자료예요.</span></p>
+    <p>친구가 “나 주말에 바다에 갔어.”라고 말했어요. 듣는 사람의 <b>첫 대답</b>과 <b>이어서 할 대답</b>을 두 번 골라 보고, 대화가 몇 번 오가는지 공 주고받기로 보여 줘요. 중간에 맞장구를 넣고 빼 보세요.<br><span style="font-size:.9em;color:#a86825">※ 주고받은 횟수는 <b>교육용 모형값</b>이에요. 대답마다 공을 더 오가게 하는 힘을 정해 두고(맞장구치고 묻기 4, 내 이야기로 바꾸기 1, 짧게 ‘응’ 0.5, 아무 대답 안 하기 0) 두 대답의 힘을 더해 계산해요. 공을 돌려주지 않으면 그 자리에서 멈춰요. 실제 대화는 사람과 이야기에 따라 달라져요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -431,31 +433,47 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
+      /* g = 그 대답이 공을 더 오가게 하는 힘 (교육용 모형값). 총 횟수 = 첫 대답의 힘 + 둘째 대답의 힘 */
       var RP = [
-        {k:'(가) 내 이야기로 바꾸기', s:'나는 어제 게임했어.', n:2, note:'두 사람이 각자 다른 이야기를 했어요.', data:true},
-        {k:'(나) 맞장구치고 묻기', s:'와, 바다! 거기서 뭐 했어?', n:8, note:'질문을 받으니 더 이야기하고 싶어졌어요.', data:true},
-        {k:'(다) 짧게 ‘응’', s:'응.', n:1, note:'공을 바닥에 내려놓은 셈이에요.', data:true},
-        {k:'(라) 아무 대답 안 하기', s:'(……)', n:0, note:'공을 돌려주지 않아서 대화가 끝났어요.', data:false}
+        {k:'(가) 내 이야기로 바꾸기', s:'나는 어제 게임했어.', g:1, note:'각자 다른 이야기를 했어요.'},
+        {k:'(나) 맞장구치고 묻기', s:'와, 바다! 거기서 뭐 했어?', g:4, note:'물음을 받으니 더 이야기하고 싶어졌어요.'},
+        {k:'(다) 짧게 ‘응’', s:'응.', g:0.5, note:'공을 바닥에 살짝 내려놓은 셈이에요.'},
+        {k:'(라) 아무 대답 안 하기', s:'(……)', g:0, note:'공을 돌려주지 않아 대화가 멈췄어요.'}
       ];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
+      /* 둘째 대답까지 이어 고르면 공이 몇 번 오갈까 */
+      function turnsOf(a, b){
+        if (a === 3) return 0;                        // 첫 대답에서 공을 돌려주지 않으면 거기서 끝
+        if (b === 3) return Math.round(RP[a].g);      // 둘째에서 멈추면 첫 대답까지만
+        return Math.round(RP[a].g + RP[b].g);
+      }
       return {
         sceneHeight: 400,
-        idle: '첫 대답을 고른 뒤 <b>대화 시작하기</b>를 누르세요.',
-        shortHint: '네 가지 대답을 모두 해 보세요. 어떤 대답 뒤에 공이 가장 오래 오가나요?',
+        idle: '첫 대답과 둘째 대답을 고른 뒤 <b>대화 시작하기</b>를 누르세요.',
+        shortHint: '첫 대답을 그대로 두고 둘째 대답만 바꿔 보세요. 중간에 맞장구를 넣으면 공이 몇 번 더 오가나요?',
         params: [
-          {key:'r', type:'seg', label:'듣는 사람의 첫 대답', cols:2, value:0, options:RP.map(function(x){ return x.k; })}
+          {key:'r', type:'seg', label:'듣는 사람의 첫 대답', cols:2, value:0, options:RP.map(function(x){ return x.k; })},
+          {key:'r2', type:'seg', label:'그다음에 이어서 할 대답', cols:2, value:0, options:RP.map(function(x){ return x.k; }), note:'첫 대답만 좋아도 둘째에서 공을 놓으면 대화는 짧아져요.'}
         ],
-        compute: function(p){ var x = RP[p.r]; return {x:x, n:x.n}; },
+        compute: function(p){
+          var x = RP[p.r], x2 = RP[p.r2], n = turnsOf(p.r, p.r2);
+          return {x:x, x2:x2, n:n, stop:p.r === 3 ? 1 : (p.r2 === 3 ? 2 : 0)};
+        },
         draw: function(c, W, H, p, r, tau){
-          var x = RP[p.r], lx = 50, rx = W - 50, y = 150, sz = W < 500 ? 14 : 17;
+          var x = RP[p.r], x2 = RP[p.r2], lx = 50, rx = W - 50, y = 150, sz = W < 500 ? 14 : 17;
           c.fillStyle = PAL[0]; c.beginPath(); c.arc(lx, y, 20, 0, Math.PI * 2); c.fill(); c.fillRect(lx - 16, y + 24, 32, 44);
           c.fillStyle = PAL[3]; c.beginPath(); c.arc(rx, y, 20, 0, Math.PI * 2); c.fill(); c.fillRect(rx - 16, y + 24, 32, 44);
           T(c, '말하는 친구', lx, y + 90, 13, '#4A5868', 'center', true); T(c, '듣는 사람', rx, y + 90, 13, '#4A5868', 'center', true);
-          c.fillStyle = '#fff'; c.strokeStyle = '#B8C3D0'; c.lineWidth = 1.5; c.fillRect(16, 20, W * 0.62, 30); c.strokeRect(16, 20, W * 0.62, 30);
-          T(c, '“나 주말에 바다에 갔어.”', 24, 41, sz, '#1E2833', 'left', true);
-          c.font = '700 ' + sz + 'px ' + FONT; var bw = Math.min(W - 32, c.measureText('“' + x.s + '”').width + 20);
-          c.fillStyle = '#FFF1D6'; c.fillRect(W - 16 - bw, 60, bw, 30); c.strokeRect(W - 16 - bw, 60, bw, 30);
-          T(c, '“' + x.s + '”', W - 26, 81, sz, '#1E2833', 'right', true);
+          c.fillStyle = '#fff'; c.strokeStyle = '#B8C3D0'; c.lineWidth = 1.5; c.fillRect(16, 16, W * 0.62, 28); c.strokeRect(16, 16, W * 0.62, 28);
+          T(c, '“나 주말에 바다에 갔어.”', 24, 36, sz, '#1E2833', 'left', true);
+          c.font = '700 ' + sz + 'px ' + FONT;
+          var bw = Math.min(W - 32, c.measureText('“' + x.s + '”').width + 20);
+          c.fillStyle = '#FFF1D6'; c.fillRect(W - 16 - bw, 52, bw, 28); c.strokeRect(W - 16 - bw, 52, bw, 28);
+          T(c, '“' + x.s + '”', W - 26, 72, sz, '#1E2833', 'right', true);
+          c.font = '700 ' + sz + 'px ' + FONT;
+          var bw2 = Math.min(W - 32, c.measureText('“' + x2.s + '”').width + 20);
+          c.fillStyle = p.r === 3 ? '#EEF2F6' : '#FFF1D6'; c.fillRect(W - 16 - bw2, 88, bw2, 28); c.strokeRect(W - 16 - bw2, 88, bw2, 28);
+          T(c, '“' + x2.s + '”', W - 26, 108, sz, p.r === 3 ? '#A8B2BE' : '#1E2833', 'right', true);
           if (!r) return;
           var n = r.n, k = Math.min(1, tau / 0.8), passes = n * k, done = Math.floor(passes), u = passes - done;
           var from = done % 2 === 0 ? lx : rx, to = done % 2 === 0 ? rx : lx, bx, by;
@@ -465,24 +483,63 @@ var LAB = (function(){
           c.fillStyle = '#E97B3C'; c.beginPath(); c.arc(bx, by, 10, 0, Math.PI * 2); c.fill();
           T(c, Math.min(n, Math.round(passes)) + '번', W / 2, y + 10, 30, PAL[0], 'center', true);
           if (tau > 0.85){
-            T(c, '주고받은 횟수(짝 10쌍 평균, 가상)', 20, 296, 14, '#4A5868', 'left', true);
-            var bw2 = W - 40;
-            RP.forEach(function(q, i){ if (!q.data) return; var yy = 306 + i * 24; c.fillStyle = '#E6EBF1'; c.fillRect(20, yy, bw2, 18); c.fillStyle = i === p.r ? PAL[1] : '#9FB0C3'; c.fillRect(20, yy, bw2 * q.n / 8, 18); T(c, q.k.slice(0, 3) + ' 약 ' + q.n + '번', 24, yy + 14, 13, '#1E2833', 'left', true); });
-            if (!x.data) T(c, '(라)는 웹툰 표에 없어요', 20, H - 10, 13, '#8C99A8');
+            T(c, '첫 대답별 — 둘째도 같은 대답일 때(모형)', 20, 296, 14, '#4A5868', 'left', true);
+            var bwx = W - 40;
+            RP.forEach(function(q, i){
+              var tn = turnsOf(i, i), yy = 306 + i * 24;
+              c.fillStyle = '#E6EBF1'; c.fillRect(20, yy, bwx, 18);
+              c.fillStyle = i === p.r ? PAL[1] : '#9FB0C3'; c.fillRect(20, yy, bwx * tn / 8, 18);
+              T(c, q.k.slice(0, 3) + ' ' + tn + '번', 24, yy + 14, 13, '#1E2833', 'left', true);
+            });
           }
         },
         stats: function(p, r){
-          return [['첫 대답', r.x.k + ' — “' + r.x.s + '”'], ['주고받은 횟수', (r.x.data ? '약 ' : '') + r.n + '번' + (r.x.data ? ' (짝 10쌍 평균, 가상)' : ' (웹툰 표에 없음)'), r.n >= 8 ? PAL[1] : PAL[4]], ['무슨 일이?', r.x.note, PAL[3]]];
+          var how = r.stop === 1 ? '첫 대답에서 공을 돌려주지 않아 대화가 바로 멈췄어요.'
+            : r.stop === 2 ? r.x.note + ' 그런데 둘째에서 공을 놓아 대화가 멈췄어요.'
+            : (r.x.note === r.x2.note ? r.x.note + ' 두 번 다 그랬어요.' : r.x.note + ' ' + r.x2.note);
+          var judge = r.n >= 8 ? '공이 오래 오갔어요 — 맞장구와 물음이 대화를 이어 갔어요'
+            : r.n >= 4 ? '절반쯤 오갔어요 — 한쪽만 공을 잘 돌려줬어요'
+            : '곧 끊겼어요 — 공을 돌려주는 말이 없었어요';
+          if (p.r === 1 && p.r2 !== 1) judge += ' / (나)로 잘 시작했지만 중간에 맞장구를 빼자 ' + r.n + '번으로 줄었어요';
+          else if (p.r !== 1 && p.r2 === 1) judge += ' / 중간에 맞장구와 물음을 넣자 ' + r.n + '번으로 늘었어요';
+          return [['첫 대답', r.x.k + ' — “' + r.x.s + '”'],
+            ['이어서 한 대답', p.r === 3 ? '할 기회가 없었어요' : r.x2.k + ' — “' + r.x2.s + '”'],
+            ['주고받은 횟수(모형)', r.n + '번', r.n >= 8 ? PAL[1] : PAL[4]],
+            ['무슨 일이?', how, PAL[3]],
+            ['판정', judge, r.n >= 8 ? PAL[1] : PAL[4]]];
         },
-        columns: ['첫 대답', '주고받은 횟수'],
-        record: function(p, r){ return {r:p.r, n:r.n}; },
-        row: function(d){ return [RP[d.r].k, d.n + '번']; },
+        columns: ['첫 대답', '이어서', '주고받은 횟수'],
+        record: function(p, r){ return {r:p.r, r2:p.r2, n:r.n}; },
+        row: function(d){ return [RP[d.r].k.slice(0, 3), RP[d.r2].k.slice(0, 3), d.n + '번']; },
         verify: function(rec, box){
+          var items = [], seen = {};
+          rec.forEach(function(d){
+            var key = d.r + '-' + d.r2; if (seen[key]) return; seen[key] = 1;
+            items.push({label:RP[d.r].k.slice(0, 3) + ' → ' + RP[d.r2].k.slice(0, 3), v:d.n, color:d.n >= 8 ? PAL[1] : PAL[4], text:d.n + '번'});
+          });
+          var rows = RP.map(function(x, i){
+            var a = rec.filter(function(d){ return d.r === i; });
+            var b = rec.filter(function(d){ return d.r2 === i; });
+            return [x.k, a.length ? a.length + '번' : '<span style="color:#8C99A8">아직</span>',
+              b.length ? b.length + '번' : '<span style="color:#8C99A8">아직</span>'];
+          });
+          var withB = rec.filter(function(d){ return d.r2 === 1 && d.r !== 1; });
+          var noB = rec.filter(function(d){ return d.r === 1 && d.r2 !== 1; });
+          var msg;
+          if (withB.length && noB.length){
+            msg = '중간에 맞장구를 넣었을 때 평균 ' + Math.round(mean(withB.map(function(d){ return d.n; }))) +
+              '번, (나)로 시작했어도 중간에 맞장구를 뺐을 때 평균 ' + Math.round(mean(noB.map(function(d){ return d.n; }))) +
+              '번이에요. 첫 대답만이 아니라 이어 가는 대답도 대화 길이를 갈랐어요.';
+          } else if (withB.length){
+            msg = '중간에 맞장구를 넣으면 평균 ' + Math.round(mean(withB.map(function(d){ return d.n; }))) + '번 오갔어요. 이번에는 (나)로 시작한 뒤 중간에 맞장구를 빼 보세요.';
+          } else {
+            msg = '같은 첫 대답에서 둘째 대답만 바꿔 보면, 대화 길이를 가른 것이 첫 대답인지 이어 가는 말인지 알 수 있어요.';
+          }
           box.innerHTML = '<div class="vgrid">' +
-            card('첫 대답에 따라 — 주고받은 횟수(가상 평균)', '<div id="cv1"></div><p class="ask">(나)는 (가)보다 몇 배쯤 길었나요? 말을 많이 하는 사람과 상대 말을 잘 받는 사람 중 누가 대화를 잘 이어 가나요?</p>') +
-            card('내가 해 본 대답', '<div id="cv2"></div><p class="ask">과제: 저녁에 가족에게 ‘오늘 어땠어요?’로 대화를 시작하고, 맞장구와 질문으로 몇 번 주고받는지 세어 보세요. 다음 날 더 늘릴 수 있는지 도전!</p>') + '</div>';
-          $('cv1').innerHTML = hbars(RP.filter(function(x){ return x.data; }).map(function(x){ return {label:x.k, v:x.n, color:x.n >= 8 ? PAL[1] : PAL[4], text:'약 ' + x.n + '번'}; }), 8);
-          $('cv2').innerHTML = tableHTML(['첫 대답', '해 봄'], RP.map(function(x, i){ var a = rec.filter(function(d){ return d.r === i; }).length; return [x.k, a ? a + '번 해 봄' : '<span style="color:#8C99A8">아직</span>']; }));
+            card('내가 이어 본 대답 — 주고받은 횟수(모형)', '<div id="cv1"></div><p class="ask">첫 대답이 같아도 둘째 대답을 바꾸면 횟수가 달라졌나요? 대화를 이어 가는 힘은 어느 대답에서 왔나요?</p>') +
+            card('대답마다 해 본 횟수', '<div id="cv2"></div><p class="ask">과제: 저녁에 가족에게 ‘오늘 어땠어요?’로 대화를 시작하고, 맞장구와 물음으로 몇 번 주고받는지 세어 보세요. 다음 날 더 늘릴 수 있는지 도전!</p>') + '</div>';
+          $('cv1').innerHTML = hbars(items, 8) + '<p class="msg">' + msg + '</p>';
+          $('cv2').innerHTML = tableHTML(['대답', '첫 대답으로', '이어서'], rows);
         }
       };
     })();
@@ -491,7 +548,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

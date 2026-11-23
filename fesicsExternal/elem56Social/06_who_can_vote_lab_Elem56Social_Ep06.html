@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -431,32 +433,50 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var ST = []; (function(){
-        for (var i = 0; i < 30; i++){ var gl = i % 3 === 0, v; ST.push({gl:gl}); }
+        for (var i = 0; i < 30; i++){ var gl = i % 3 === 0, v; ST.push({gl:gl, no:i}); }
         var gi = 0, ni = 0;
         ST.forEach(function(s){ if (s.gl){ s.v = gi < 7 ? 0 : 1; gi++; } else { s.v = ni < 6 ? 0 : 1; ni++; } });
+        ST.forEach(function(s, i){ s.h = (s.v === 1 ? 20 : 0) + (i % 10); });   /* 키 — 교육용 모형값 */
       })();
-      var WHO = ['30명 모두', '안경 쓴 10명만', '안경 안 쓴 20명만'];
+      var WHO = ['기준 없이 모두', '안경 쓴 사람', '안경 안 쓴 사람', '키 큰 사람', '번호 앞 사람'];
+      var SZN = ['기준에 맞는 사람 모두', '10명만', '15명만', '20명만'];
       var CAND = ['가 후보', '나 후보'];
-      function can(p, s){ return p.w === 0 || (p.w === 1 ? s.gl : !s.gl); }
+      /* 기준(w) × 몇 명(sz) 으로 투표할 수 있는 사람을 내가 정한다 */
+      function groupOf(p){
+        var idx = [];
+        ST.forEach(function(s, i){ if (p.w === 0 || (p.w === 1 && s.gl) || (p.w === 2 && !s.gl) || p.w >= 3) idx.push(i); });
+        if (p.w === 3) idx.sort(function(a, b){ return ST[b].h - ST[a].h; });
+        var lim = [idx.length, 10, 15, 20][p.sz];
+        idx = idx.slice(0, Math.min(lim, idx.length));
+        var set = {}; idx.forEach(function(i){ set[i] = 1; });
+        return set;
+      }
+      function whoText(p){ return WHO[p.w] + ' · ' + SZN[p.sz]; }
       return {
         sceneHeight: 380,
         idle: '투표할 수 있는 사람과 나의 예측을 고른 뒤 <b>표 세기</b>를 누르세요.',
         shortHint: '세 가지 경우를 모두 세어 보세요. 당선자가 바뀌는 경우는 어떤 경우인가요?',
         params: [
-          {key:'w', type:'seg', label:'투표할 수 있는 사람', cols:3, value:1, options:WHO},
+          {key:'w', type:'seg', label:'투표할 수 있는 사람 (기준)', cols:3, value:1, options:WHO},
+          {key:'sz', type:'seg', label:'그 가운데 몇 명에게 줄까', cols:2, value:0, options:SZN,
+            note:'기준과 사람 수를 내가 정해 집단을 만들어 보세요. 학생들의 마음은 그대로인데 당선자가 바뀌는 집단을 찾을 수 있어요. ※ 키와 마음은 교육용 모형값이에요.'},
           {key:'g', type:'seg', label:'나의 예측 (당선자)', cols:2, value:1, options:CAND,
             note:'뭉치는 "사람 마음은 다 비슷하니까 결과는 똑같아!"라고 했어요.'}
         ],
         compute: function(p){
-          var a = 0, b = 0; ST.forEach(function(s){ if (can(p, s)){ if (s.v === 0) a++; else b++; } });
+          var set = groupOf(p), a = 0, b = 0;
+          ST.forEach(function(s, i){ if (set[i]){ if (s.v === 0) a++; else b++; } });
           var win = a > b ? 0 : b > a ? 1 : -1;
-          return {a:a, b:b, n:a + b, win:win, ok:p.g === win};
+          var a0 = 0, b0 = 0; ST.forEach(function(s){ if (s.v === 0) a0++; else b0++; });
+          var win0 = a0 > b0 ? 0 : b0 > a0 ? 1 : -1;
+          var vd = win === win0 ? '모두가 투표한 결과와 같아요' : '학생들의 마음은 그대로인데 당선자가 달라졌어요';
+          return {a:a, b:b, n:a + b, win:win, win0:win0, ok:p.g === win, vd:vd, set:set, who:whoText(p)};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.85, 1) : 0, cols = 10, cw = (W - 40) / cols, rh = 70, top = 30, counted = r ? Math.floor(30 * k) : 0;
           var ta = 0, tb = 0;
           ST.forEach(function(s, i){
-            var x = 20 + (i % cols) * cw + cw / 2, y = top + Math.floor(i / cols) * rh, on = can(p, s);
+            var x = 20 + (i % cols) * cw + cw / 2, y = top + Math.floor(i / cols) * rh, on = !!(r ? r.set[i] : groupOf(p)[i]);
             c.globalAlpha = on ? 1 : 0.22;
             var col = r && i < counted && on ? (s.v === 0 ? PAL[6] : PAL[0]) : '#5C6B7A';
             c.fillStyle = col; c.beginPath(); c.arc(x, y + 10, 9, 0, Math.PI * 2); c.fill(); c.fillRect(x - 8, y + 22, 16, 18);
@@ -470,22 +490,24 @@ var LAB = (function(){
           if (r && k >= 1) txt(c, r.win >= 0 ? CAND[r.win] + ' 당선' : '동점', W - 20, by - 12, {align:'right', bold:true, color:r.win === 0 ? PAL[6] : PAL[0]});
         },
         stats: function(p, r){
-          return [['투표한 사람', WHO[p.w] + ' (' + r.n + '명)'], ['개표', '가 ' + r.a + '표 · 나 ' + r.b + '표'],
+          return [['투표한 사람', r.who + ' (' + r.n + '명)'], ['개표', '가 ' + r.a + '표 · 나 ' + r.b + '표'],
             ['당선', r.win >= 0 ? CAND[r.win] : '동점', r.win === 0 ? PAL[6] : PAL[0]],
+            ['모두가 투표하면', r.win0 >= 0 ? CAND[r.win0] + ' 당선' : '동점'],
             ['나의 예측', CAND[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
-            ['바뀐 것', '학생들의 마음은 그대로, 투표할 수 있는 사람만 바뀜']];
+            ['바뀐 것', '학생들의 마음은 그대로, 투표할 수 있는 사람만 바뀜'],
+            ['판정', r.vd, r.win === r.win0 ? PAL[1] : PAL[4]]];
         },
         columns: ['투표한 사람', '가', '나', '당선', '예측 맞음'],
-        record: function(p, r){ return {w:p.w, a:r.a, b:r.b, win:r.win, ok:r.ok}; },
-        row: function(d){ return [WHO[d.w], d.a, d.b, d.win >= 0 ? CAND[d.win] : '동점', d.ok ? '○' : '✕']; },
+        record: function(p, r){ return {w:p.w, sz:p.sz, who:r.who, a:r.a, b:r.b, win:r.win, ok:r.ok}; },
+        row: function(d){ return [d.who, d.a, d.b, d.win >= 0 ? CAND[d.win] : '동점', d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('투표한 사람에 따른 결과', '<div id="wv1"></div><p class="ask">투표권이 일부에게만 있으면 결과는 누구의 생각을 따르게 되나요? 보통 선거가 필요한 까닭을 말해 보세요.</p>') +
             card('가 후보 득표율', '<div id="wv2"></div><p class="ask">과제: 가족과 "주말 나들이 장소" 투표를 해 보세요. 한 번은 모두가, 한 번은 키가 가장 큰 두 사람만 투표해서 결과가 같은지 비교해 보세요.</p>') + '</div>';
           var seen = {}, rows = [], items = [];
-          rec.forEach(function(d){ if (seen[d.w]) return; seen[d.w] = 1; rows.push([WHO[d.w], d.a + ' : ' + d.b, d.win >= 0 ? CAND[d.win] : '동점']);
-            var pa = d.a / (d.a + d.b) * 100; items.push({label:WHO[d.w], v:pa, color:pa > 50 ? PAL[6] : PAL[0], text:f(pa, 0) + '%'}); });
-          $('wv1').innerHTML = tableHTML(['투표한 사람', '가 : 나', '당선'], rows) + (rows.length < 3 ? '<p class="msg">세 경우를 모두 세어 보세요.</p>' : '');
+          rec.forEach(function(d){ var key = d.w + '|' + d.sz; if (seen[key]) return; seen[key] = 1; rows.push([d.who, d.a + ' : ' + d.b, d.win >= 0 ? CAND[d.win] : '동점']);
+            var pa = d.a / (d.a + d.b) * 100; items.push({label:d.who, v:pa, color:pa > 50 ? PAL[6] : PAL[0], text:f(pa, 0) + '%'}); });
+          $('wv1').innerHTML = tableHTML(['투표한 사람', '가 : 나', '당선'], rows) + (rows.length < 3 ? '<p class="msg">기준과 사람 수를 바꿔 세 가지 이상 세어 보세요.</p>' : '<p class="msg">내가 만든 집단에 따라 당선자가 뒤집히는 경우를 찾아보세요.</p>');
           $('wv2').innerHTML = hbars(items, 100) + '<p class="msg">50%를 넘으면 가 후보가 당선돼요.</p>';
         }
       };
@@ -495,7 +517,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

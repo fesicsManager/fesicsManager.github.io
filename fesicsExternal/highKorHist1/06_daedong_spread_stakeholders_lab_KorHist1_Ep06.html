@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -483,15 +485,18 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
       function done(y){ return PV.filter(function(v){ return v.y != null && v.y <= y; }); }
       return {
         sceneHeight: 440,
-        idle: '연도와 이해 집단을 고른 뒤 <b>이 해의 상황 보기</b>를 누르세요.',
+        idle: '연도를 고르고 <b>몇 개 도에서 시행되었을지 먼저 예측</b>한 뒤 <b>이 해의 상황 보기</b>를 누르세요.',
         shortHint: '연도를 1608년 앞뒤, 1650년대, 1700년 이후 등으로 바꿔 4번 이상 기록하세요.',
         params: [
           {key:'y', type:'range', label:'연도', min:1600, max:1710, step:1, value:1608, fmt:function(v){ return v + '년'; }},
+          {key:'gp', type:'seg', label:'먼저 예측 — 이 해까지 몇 개 도에서 시행되었을까요?', cols:4, value:1,
+            options:['0개', '1개', '2개', '3개', '4개', '5개', '6개'],
+            note:'평안·함경은 국경 방어 비용 때문에 따로 처리되어 6개 도로 셉니다. 경기에서 시작해 마지막 황해까지 꼭 100년이 걸렸습니다.'},
           {key:'g', type:'seg', label:'이해 집단', cols:3, value:0, options:G.map(function(x){ return x.n; })}
         ],
         compute: function(p){
           var d = done(p.y), nx = PV.filter(function(v){ return v.y != null && v.y > p.y; }).sort(function(a, b){ return a.y - b.y; })[0];
-          return {d:d, n:d.length, nx:nx, g:G[p.g], since:p.y - 1608};
+          return {d:d, n:d.length, nx:nx, g:G[p.g], since:p.y - 1608, gp:p.gp, hit:(p.gp === d.length)};
         },
         draw: function(c, W, H, p, r, tau){
           var sz = fz(W), narrow = W < 560, mw = narrow ? W * 0.46 : Math.min(W * 0.4, 300), mh = narrow ? H * 0.6 : H - 60, mx = 10, my = 20, k = r ? ease(tau / 0.7) : 1;
@@ -517,20 +522,26 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           tx(c, g.n + ' — ' + g.s, gx + 10, by + 22, {bold:true, size:sz - 1, color:g.col});
           if (r){ c.globalAlpha = ease((tau - 0.4) / 0.6); var yy = wrapT(c, '얻음: ' + g.gain, gx + 10, by + 44, gw - 20, sz + 3, {size:sz - 3, max:2}); wrapT(c, '잃음: ' + g.loss, gx + 10, yy + 2, gw - 20, sz + 3, {size:sz - 3, max:2, color:'#4A5868'}); c.globalAlpha = 1; }
           tx(c, p.y + '년', W - 16, H - 16, {align:'right', bold:true, size:sz + 4, color:PAL[4]});
+          if (r && tau >= 1) tx(c, '내 예측 ' + r.gp + '개 ' + (r.hit ? '⭕' : '❌'), 12, H - 16, {bold:true, size:sz - 1, color:r.hit ? PAL[1] : PAL[6]});
         },
         stats: function(p, r){
           return [['연도', p.y + '년' + (p.y < 1608 ? ' (시행 전, 공납제)' : ' (경기 시행 ' + r.since + '년째)')], ['시행된 도', r.n ? r.d.map(function(v){ return v.n; }).join(' · ') : '없음', PAL[1]],
+            ['내 예측', r.gp + '개' + (r.hit ? ' — ⭕ 맞혔어요' : ' — ❌ 실제로는 ' + r.n + '개'), r.hit ? PAL[1] : PAL[6]],
             ['다음 시행', r.nx ? r.nx.n + ' (' + r.nx.y + ', ' + (r.nx.y - p.y) + '년 뒤)' : '6개 도 모두 시행 완료'], ['고른 집단', r.g.n + ' — ' + r.g.s, r.g.col], ['얻는 것', r.g.gain], ['잃는 것', r.g.loss]];
         },
-        columns: ['연도', '시행 도 수', '집단', '태도'],
-        record: function(p, r){ return {y:p.y, n:r.n, g:p.g}; },
-        row: function(d){ return [d.y, d.n + ' / 6', G[d.g].n, G[d.g].s]; },
+        columns: ['연도', '시행 도 수', '내 예측', '맞힘', '집단', '태도'],
+        record: function(p, r){ return {y:p.y, n:r.n, g:p.g, gp:r.gp, hit:r.hit}; },
+        row: function(d){ return [d.y, d.n + ' / 6', d.gp + '개', d.hit ? '⭕' : '❌', G[d.g].n, G[d.g].s]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('연도별 시행 도 수 (내 기록 vs 실제 계단)', '<canvas class="chart" id="ds1"></canvas>' + legend([{label:'내 기록', color:PAL[0]}, {label:'실제 시행 연도', color:PAL[1]}]) + '<p class="ask">경기에서 충청까지 43년, 충청에서 황해까지 57년이 걸렸습니다. 가장 오래 멈춘 구간은 어디이고, 그 사이 누가 반대했을까요?</p>') +
             card('이해 집단 정리', '<div id="ds2"></div><p class="ask">과제: 대동법 시행 연표를 지도에 그리고, 각 도의 시행이 늦어진 까닭을 찬반 상소에서 찾아 표로 정리해 보세요. 대동법·균역법 시행 뒤 부담이 실제로 누구에게 갔는지도 추적해 보세요.</p>') + '</div>';
           var real = [[1608, 1], [1623, 2], [1651, 3], [1658, 4], [1677, 5], [1708, 6]];
           drawScatter($('ds1'), {series:[{color:PAL[1], hollow:true, pts:real.map(function(a){ return {x:a[0] - 1600, y:a[1]}; })}, {color:PAL[0], pts:rec.map(function(d){ return {x:d.y - 1600, y:d.n}; })}], xLabel:'1600년부터 지난 햇수', yLabel:'시행 도 수', xHi:110, xStep:20});
+          var hits = rec.filter(function(d){ return d.hit; }).length;
+          var over = rec.filter(function(d){ return d.gp > d.n; }).length;
+          $('ds1').insertAdjacentHTML('afterend', '<p class="msg">예측을 맞힌 횟수 <b>' + hits + ' / ' + rec.length + '</b>' +
+            (over ? ' · 실제보다 <b>빨리</b> 퍼졌을 것이라 짐작한 적이 ' + over + '번 있었어요 — 좋은 제도라고 해서 곧바로 퍼지지 않았습니다.' : '') + '</p>');
           var seen = {}; rec.forEach(function(d){ seen[d.g] = 1; });
           $('ds2').innerHTML = tableHTML(['집단', '태도', '얻음', '잃음'], G.map(function(g, i){ return [(seen[i] ? '' : '(미확인) ') + g.n, dot(g.col) + g.s, g.gain, g.loss]; }));
         }
@@ -542,7 +553,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

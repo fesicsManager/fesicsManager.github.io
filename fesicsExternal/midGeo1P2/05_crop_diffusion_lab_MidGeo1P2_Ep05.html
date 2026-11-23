@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,19 +442,27 @@ var LAB = (function(){
         {n:'마늘', o:2, home:'중앙아시아', when:'아주 오래전 (정확한 시기는 알기 어려움)', route:'중앙아시아 → 중국 → 한반도', pts:[[42, 68], [36, 110], [37, 127]], note:'아메리카 작물이 아닌 비교용'}
       ];
       var GUESS = ['한반도', '중국', '중앙아시아', '인도', '아메리카 대륙'];
+      var QSEQ = [3, 0, 5, 2, 4, 1], QI = 0;          /* 거꾸로 맞히기 문제 순서 */
+      function qT(){ return QSEQ[QI % QSEQ.length]; }
       var CONT = [
         {n:'북아메리카', x:-100, y:45, rx:30, ry:18}, {n:'남아메리카', x:-60, y:-15, rx:16, ry:24}, {n:'유럽', x:15, y:50, rx:18, ry:9},
         {n:'아프리카', x:20, y:5, rx:20, ry:28}, {n:'아시아', x:95, y:45, rx:48, ry:20}, {n:'오세아니아', x:135, y:-25, rx:16, ry:10}
       ];
       return {
         sceneHeight: 400,
-        idle: '식재료와 예상한 고향을 고른 뒤 <b>전파 경로 따라가기</b>를 누르세요.',
-        shortHint: '여섯 식재료를 모두 따라가 보세요. 아메리카에서 온 것이 몇 개인지 세어 보는 게 핵심입니다.',
+        idle: '식재료와 예상한 고향을 고른 뒤 <b>전파 경로 따라가기</b>를 누르세요. <b>거꾸로 맞히기</b>로 바꾸면 이름을 가린 길이 먼저 그려집니다 — 어느 작물의 길인지 찾아보세요.',
+        shortHint: '<b>자료 보기</b>와 <b>거꾸로 맞히기</b>를 섞어 4번 이상 기록하세요. 전래 시기를 연표에 모아 공통점을 찾아보세요.',
         params: [
           {key:'c', type:'seg', label:'식재료', cols:3, value:0, options:CR.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'내가 예상한 원래 고향', cols:3, value:0, options:GUESS}
+          {key:'g', type:'seg', label:'내가 예상한 원래 고향', cols:3, value:0, options:GUESS},
+          {key:'qz', type:'seg', label:'하는 방식', cols:2, value:0, options:['자료 보기 (고른 식재료)', '거꾸로 맞히기 (길만 보고 찾기)'],
+            note:'거꾸로 맞히기에서는 이름을 가린 전파 경로가 먼저 그려집니다. 위에서 식재료를 골라 답으로 내고 채점해 보세요. 맞히면 다음 문제로 길이 바뀝니다.'}
         ],
-        compute: function(p){ var cr = CR[p.c]; return {cr:cr, ok:p.g === cr.o}; },
+        compute: function(p){
+          if (p.qz){ var ti = qT(), cq = CR[ti], okq = (p.c === ti); QI++;
+            return {cr:cq, quiz:true, ti:ti, pick:p.c, ok:okq, hok:(p.g === cq.o)}; }
+          var cr = CR[p.c]; return {cr:cr, quiz:false, ti:p.c, pick:p.c, ok:p.g === cr.o, hok:p.g === cr.o};
+        },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#E4EEF6'; c.fillRect(0, 0, W, H);
           var mx = 8, my = 8, mw = W - 16, mh = H - 70;
@@ -476,25 +486,57 @@ var LAB = (function(){
                 else { seg(c, X(a0[1]), Y(a0[0]), X(edge), Y(midLat), PAL[0], 2.5); var u2 = (u - part) / (1 - part); arrow(c, X(-edge), Y(midLat), X(-edge + (a1[1] - (-edge)) * u2), Y(midLat + (a1[0] - midLat) * u2), PAL[0], 2.5); }
               } else arrow(c, X(a0[1]), Y(a0[0]), X(a0[1] + dl * u), Y(a0[0] + (a1[0] - a0[0]) * u), PAL[0], 2.5);
             }
-            if (tau >= 1){ txt(c, r.cr.n + '의 고향: ' + r.cr.home.split(' (')[0], W / 2, H - 36, {bold:true, align:'center', color:PAL[1]}); c.font = '13px ' + FONT; c.fillStyle = r.ok ? PAL[1] : PAL[4]; c.textAlign = 'center'; c.fillText(r.ok ? '예상이 맞았어요' : '예상(' + GUESS[p.g] + ')과 달라요', W / 2, H - 14); }
+            if (tau >= 1){
+              txt(c, r.quiz ? '정답은 ' + r.cr.n : r.cr.n + '의 고향: ' + r.cr.home.split(' (')[0], W / 2, H - 36, {bold:true, align:'center', color:PAL[1]});
+              c.font = '13px ' + FONT; c.fillStyle = r.ok ? PAL[1] : PAL[4]; c.textAlign = 'center';
+              c.fillText(r.quiz ? (r.ok ? '맞혔어요' : '아쉬워요') : (r.ok ? '예상이 맞았어요' : '예상과 달라요'), W / 2, H - 14); }
+          } else if (p.qz){
+            var tq = CR[qT()], pq = tq.pts, j2;
+            c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.setLineDash([6, 5]); c.beginPath();
+            for (j2 = 0; j2 < pq.length; j2++){ var xx = X(pq[j2][1]), yy = Y(pq[j2][0]); if (j2) c.lineTo(xx, yy); else c.moveTo(xx, yy); }
+            c.stroke(); c.setLineDash([]);
+            c.fillStyle = PAL[1]; c.beginPath(); c.arc(X(pq[0][1]), Y(pq[0][0]), 8, 0, Math.PI * 2); c.fill();
+            txt(c, '이 길의 작물은?', W / 2, H - 30, {align:'center', color:'#4A5868'});
           } else txt(c, CR[p.c].n + '는 어디서 왔을까?', W / 2, H - 30, {align:'center', color:'#4A5868'});
         },
         stats: function(p, r){
-          return [['식재료', r.cr.n], ['내 예상', GUESS[p.g]], ['원래 고향', r.cr.home, PAL[1]], ['예상', r.ok ? '맞음' : '틀림', r.ok ? PAL[1] : PAL[4]],
-            ['한반도 전래 시기', r.cr.when, PAL[0]], ['전파 경로 (대표적인 설)', r.cr.route], ['덧붙임', r.cr.note]];
+          var s = [];
+          if (r.quiz){
+            s.push(['하는 방식', '거꾸로 맞히기 — 길만 보고 찾기'],
+              ['내가 낸 답', CR[r.pick].n],
+              ['채점', r.ok ? '✅ 맞혔어요' : '❌ 아니에요', r.ok ? PAL[1] : PAL[4]],
+              ['이 길의 작물', r.cr.n, PAL[1]]);
+          } else {
+            s.push(['식재료', r.cr.n], ['내 예상', GUESS[p.g]], ['예상', r.ok ? '맞음' : '틀림', r.ok ? PAL[1] : PAL[4]]);
+          }
+          s.push(['원래 고향', r.cr.home, PAL[1]], ['한반도 전래 시기', r.cr.when, PAL[0]],
+            ['전파 경로 (대표적인 설)', r.cr.route], ['덧붙임', r.cr.note]);
+          if (r.quiz) s.push(['다음 문제', '조건을 바꾸면 새 길이 그려집니다.']);
+          return s;
         },
-        columns: ['식재료', '내 예상', '원래 고향', '맞음', '전래 시기'],
-        record: function(p, r){ return {c:p.c, g:p.g, ok:r.ok}; },
-        row: function(d){ return [CR[d.c].n, GUESS[d.g], CR[d.c].home.split(' (')[0], d.ok ? '예' : '아니오', CR[d.c].when]; },
+        columns: ['방식', '식재료', '내가 낸 답', '원래 고향', '맞음', '전래 시기'],
+        record: function(p, r){ return {c:r.ti, g:p.g, pick:r.pick, qz:r.quiz ? 1 : 0, ok:r.ok}; },
+        row: function(d){ return [d.qz ? '거꾸로 맞히기' : '자료 보기', CR[d.c].n,
+          d.qz ? CR[d.pick].n : GUESS[d.g], CR[d.c].home.split(' (')[0], d.ok ? '예' : '아니오', CR[d.c].when]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('고향별로 모아 보기', '<div id="gv9"></div><p class="ask">따라가 본 식재료 가운데 아메리카에서 온 것은 몇 개인가요? 한반도가 고향인 것이 있었나요?</p>') +
-            card('나의 예상 기록', '<div id="gv10"></div><p class="ask">과제: 우리 집 냉장고 식재료 다섯 가지의 원래 고향(처음 재배된 지역)을 조사해 세계지도에 화살표로 그리고, 가장 먼 길을 온 재료를 찾아보세요.</p>') + '</div>';
+            card('나의 기록과 채점', '<div id="gv10"></div><p class="ask">과제: 우리 집 냉장고 식재료 다섯 가지의 원래 고향(처음 재배된 지역)을 조사해 세계지도에 화살표로 그리고, 가장 먼 길을 온 재료를 찾아보세요.</p>') +
+            card('전래 시기 연표', '<div id="gv11"></div><p class="ask">아메리카에서 온 작물들의 전래 시기에 어떤 공통점이 있나요? 마늘처럼 아주 오래전에 들어온 것과 무엇이 다른가요?</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.c] = 1; });
           var g = {}; Object.keys(seen).forEach(function(k){ var h = CR[k].home.split(' (')[0]; (g[h] = g[h] || []).push(CR[k].n); });
           $('gv9').innerHTML = hbars(Object.keys(g).map(function(h, i){ return {label:h, v:g[h].length, color:PAL[i + 1], text:g[h].join(', ')}; }), 6);
-          var ok = rec.filter(function(d){ return d.ok; }).length;
-          $('gv10').innerHTML = tableHTML(['식재료', '내 예상', '맞음'], rec.slice(-8).map(function(d){ return [CR[d.c].n, GUESS[d.g], d.ok ? '예' : '아니오']; })) + '<p class="msg">예상 적중 ' + ok + ' / ' + rec.length + '회</p>';
+          var qz = rec.filter(function(d){ return d.qz; }), bk = rec.filter(function(d){ return !d.qz; });
+          var okQ = qz.filter(function(d){ return d.ok; }).length, okB = bk.filter(function(d){ return d.ok; }).length;
+          $('gv10').innerHTML = tableHTML(['방식', '식재료', '내가 낸 답', '맞음'],
+            rec.slice(-8).map(function(d){ return [d.qz ? '거꾸로 맞히기' : '자료 보기', CR[d.c].n, d.qz ? CR[d.pick].n : GUESS[d.g], d.ok ? '예' : '아니오']; })) +
+            '<p class="msg">거꾸로 맞히기 ' + okQ + ' / ' + qz.length + '회 적중 · 고향 예상 ' + okB + ' / ' + bk.length + '회 적중</p>' +
+            (qz.length ? '' : '<p class="msg">거꾸로 맞히기로도 해 보면 자료를 읽는 것과 어떻게 다른지 알 수 있어요.</p>');
+          var seen2 = {}, tl = [];
+          rec.forEach(function(d){ if (seen2[d.c]) return; seen2[d.c] = 1;
+            tl.push([CR[d.c].n, CR[d.c].home.split(' (')[0], CR[d.c].when]); });
+          $('gv11').innerHTML = tableHTML(['작물', '고향', '한반도 전래 시기'], tl) +
+            '<p>아메리카에서 온 작물은 대부분 <b>16세기 뒤</b>, 유럽·중국·일본을 거쳐 들어왔습니다. 아메리카 항로가 열린 뒤에야 건너올 수 있었기 때문이에요.</p>';
         }
       };
     })();
@@ -503,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

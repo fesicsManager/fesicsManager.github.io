@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,6 +438,22 @@ var LAB = (function(){
         {n:'The robot that the doctor… (2겹)', w:'The robot that the doctor who built the lab made lost.'.split(' '), ld:[0, 1, 1, 1, 2, 3, 2, 2, 2, 1, 0], sj:1, vb:[10]}
       ];
       var ST = ['앞에서부터 차례로', '동사 먼저 찾기 (뼈대 먼저)'];
+      /* 같은 길이의 수식어를 어디에 끼우는지 학생이 고르게 한다 */
+      var INS = ['끼우지 않기', '주어 바로 뒤에 한 겹 더', '문장 끝에 한 겹 더'];
+      function build(s, ins){
+        if (!ins) return s;
+        if (ins === 2) return {n:s.n + ' + 끝에 한 겹', w:s.w.concat(['that', 'everyone', 'read']),
+          ld:s.ld.concat([0, 0, 0]), sj:s.sj, vb:s.vb.slice()};
+        var add = ['that', 'the', 'team', 'chose,'], at = s.sj + 1;
+        var nw = s.w.slice(0, at).concat(add, s.w.slice(at));
+        var base = s.ld[at] != null ? s.ld[at] : 0, nld = [];
+        for (var i = 0; i < nw.length; i++){
+          if (i < at) nld.push(s.ld[i]);
+          else if (i < at + add.length) nld.push(base + 1);
+          else { var o = i - add.length; nld.push((s.ld[o] || 0) + (o < s.vb[0] ? 1 : 0)); }
+        }
+        return {n:s.n + ' + 주어 뒤 한 겹', w:nw, ld:nld, sj:s.sj, vb:s.vb.map(function(j){ return j + add.length; })};
+      }
       function info(s){ var peak = Math.max.apply(null, s.ld), dist = s.vb[0] - s.sj - 1; return {n:s.w.length, peak:peak, dist:dist, load:dist + 3 * peak}; }
       function layout(c, words, x, y, maxW, lh){
         c.font = '18px ' + FONT; var pos = [], cx = x, cy = y, sp = c.measureText(' ').width || 5;
@@ -443,19 +461,25 @@ var LAB = (function(){
         return pos;
       }
       return {
-        sceneHeight: 400,
+        sceneHeight: function(w){ return w < 420 ? 680 : w < 620 ? 520 : 440; },
         idle: '문장과 읽기 방식을 고른 뒤 <b>한 단어씩 읽기</b>를 누르세요.',
         shortHint: '다섯 문장을 모두 읽어야 "단어 수"와 "처리 부담"이 따로 논다는 것이 결과 비교 탭에서 보입니다.',
         params: [
           {key:'s', type:'seg', label:'문장', cols:2, value:0, options:S.map(function(x){ return x.n; })},
+          {key:'ins', type:'seg', label:'수식어 한 겹 끼워 넣기 (같은 길이)', cols:3, value:0, options:INS},
           {key:'st', type:'seg', label:'읽기 방식', cols:2, value:0, options:ST}
         ],
         compute: function(p){
-          var s = S[p.s], i = info(s), sk = s.w.slice(Math.max(0, s.sj - 1), s.sj + 1).join(' ') + ' … ' + s.vb.map(function(j){ return s.w[j]; }).join(' ');
-          return {i:i, sk:sk.replace(/[.,]/g, ''), level:i.load >= 12 ? '어려움' : i.load >= 6 ? '보통' : '쉬움'};
+          var s = build(S[p.s], p.ins), i = info(s), b = info(S[p.s]);
+          var sk = s.w.slice(Math.max(0, s.sj - 1), s.sj + 1).join(' ') + ' … ' + s.vb.map(function(j){ return s.w[j]; }).join(' ');
+          var cmp = p.ins === 0 ? '끼우지 않은 원래 문장이에요'
+            : i.load > b.load ? '단어를 ' + (i.n - b.n) + '개 더했을 뿐인데 부담이 ' + b.load + ' → ' + i.load + ' 으로 올랐어요 (주어–동사 거리가 벌어짐)'
+            : i.load === b.load ? '단어를 ' + (i.n - b.n) + '개 더했는데도 부담은 ' + b.load + ' 그대로예요 (뼈대를 건드리지 않음)'
+            : '부담이 ' + b.load + ' → ' + i.load + ' 으로 줄었어요';
+          return {s:s, i:i, base:b, cmp:cmp, sk:sk.replace(/[.,]/g, ''), level:i.load >= 12 ? '어려움' : i.load >= 6 ? '보통' : '쉬움'};
         },
         draw: function(c, W, H, p, r, tau){
-          var s = S[p.s], pos = layout(c, s.w, 20, 40, W - 40, 36), n = s.w.length;
+          var s = build(S[p.s], p.ins), pos = layout(c, s.w, 20, 40, W - 40, 36), n = s.w.length;
           var cur = r ? Math.min(n - 1, Math.floor(tau * n)) : -1, sk = p.st === 1 && r;
           s.w.forEach(function(w, i){
             var q = pos[i], isS = i === s.sj, isV = s.vb.indexOf(i) >= 0, read = r && (i <= cur || (sk && (isS || isV)));
@@ -474,19 +498,24 @@ var LAB = (function(){
         },
         stats: function(p, r){
           var col = r.level === '어려움' ? PAL[4] : r.level === '보통' ? PAL[6] : PAL[1];
-          return [['문장', S[p.s].w.join(' ')], ['단어 수', r.i.n + '개'], ['뼈대 주어–동사 거리', r.i.dist + '단어', PAL[0]], ['최대 기억 부담', '동사를 기다리는 주어 ' + r.i.peak + '개', PAL[6]],
-            ['처리 부담 점수 (모형)', r.i.load + ' → ' + r.level, col], ['첫 문장의 뼈대', r.sk, PAL[4]]];
+          return [['문장', r.s.w.join(' ')], ['끼워 넣기', INS[p.ins]], ['단어 수', r.i.n + '개 (원래 ' + r.base.n + '개)'],
+            ['뼈대 주어–동사 거리', r.i.dist + '단어 (원래 ' + r.base.dist + ')', PAL[0]], ['최대 기억 부담', '동사를 기다리는 주어 ' + r.i.peak + '개', PAL[6]],
+            ['처리 부담 점수 (모형)', r.i.load + ' → ' + r.level, col],
+            ['끼운 자리가 만든 차이', r.cmp, p.ins === 0 ? '#4A5868' : (r.i.load > r.base.load ? PAL[4] : PAL[1])],
+            ['첫 문장의 뼈대', r.sk, PAL[4]],
+            ['※', '처리 부담 점수는 (주어–동사 거리) + 3 ×(최대 기억 부담)으로 어림한 교육용 모형값입니다.']];
         },
-        columns: ['문장', '단어 수', '거리', '최대 부담', '처리 부담'],
-        record: function(p, r){ return {s:p.s, n:r.i.n, dist:r.i.dist, peak:r.i.peak, load:r.i.load}; },
-        row: function(d){ return [S[d.s].n, d.n, d.dist, d.peak, d.load]; },
+        columns: ['문장', '끼움', '단어 수', '거리', '최대 부담', '처리 부담'],
+        record: function(p, r){ return {s:p.s, ins:p.ins, nm:r.s.n, n:r.i.n, dist:r.i.dist, peak:r.i.peak, load:r.i.load}; },
+        row: function(d){ return [d.nm || S[d.s].n, INS[d.ins || 0], d.n, d.dist, d.peak, d.load]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('단어 수 vs 처리 부담', '<canvas class="chart" id="sv1"></canvas><div id="sv1l"></div><p class="ask">단어 수가 많을수록 처리 부담도 컸나요? "길면 어렵다" 가설과 "주어–동사 거리가 멀면 어렵다" 가설 중 어느 쪽이 기록에 맞나요?</p>') +
             card('문장별 요약', '<div id="sv2"></div><p class="ask">과제: 지문에서 가장 긴 문장 세 개를 골라 주어·동사에 밑줄을 긋고 수식 덩어리를 괄호로 묶은 뒤, 짧은 문장 여러 개로 다시 써 보세요.</p>') + '</div>';
-          var by = groupBy(rec, function(d){ return d.s; }), series = [], leg = [], rows = [];
-          Object.keys(by).forEach(function(k){ var d = by[k][0]; series.push({color:PAL[k % 8], pts:[{x:d.n, y:d.load}]}); leg.push({color:PAL[k % 8], label:S[k].n});
-            rows.push([S[k].n, d.n, d.dist, d.load]); });
+          var by = groupBy(rec, function(d){ return d.s + '|' + (d.ins || 0); }), series = [], leg = [], rows = [];
+          Object.keys(by).forEach(function(k, j){ var d = by[k][0]; series.push({color:PAL[j % 8], pts:[{x:d.n, y:d.load}]});
+            leg.push({color:PAL[j % 8], label:d.nm || S[d.s].n});
+            rows.push([d.nm || S[d.s].n, d.n, d.dist, d.load]); });
           drawScatter($('sv1'), {series:series, xLabel:'단어 수', yLabel:'처리 부담 (모형)', xHi:20, xStep:5});
           $('sv1l').innerHTML = legend(leg);
           $('sv2').innerHTML = tableHTML(['문장', '단어 수', '주어–동사 거리', '처리 부담'], rows);
@@ -498,7 +527,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

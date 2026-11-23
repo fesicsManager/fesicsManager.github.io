@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -477,14 +479,19 @@ return {
   shortHint: '자유 탐구 탭에서 여러 시료를 정리하고, 확대할 염색체도 바꿔 가며 기록하세요.',
   params: [
     {key:'s', type:'seg', label:'핵형 사진 시료', cols:3, value:0, options:SMP.map(function(x){ return x.name; })},
-    {key:'z', type:'range', label:'확대해서 볼 염색체 (23 = X, 24 = Y)', min:1, max:24, step:1, value:21, fmt:function(v){ return zid(v) + (typeof zid(v) === 'number' ? '번' : ' 염색체'); },}
+    {key:'z', type:'range', label:'확대해서 볼 염색체 (23 = X, 24 = Y)', min:1, max:24, step:1, value:21, fmt:function(v){ return zid(v) + (typeof zid(v) === 'number' ? '번' : ' 염색체'); },},
+    {key:'gn', type:'range', label:'짐작 — 이 시료의 전체 염색체 수', min:44, max:48, step:1, value:46, fmt:function(v){ return v + '개'; }},
+    {key:'gs', type:'seg', label:'짐작 — 성염색체', cols:3, value:0, options:['XY', 'XX', '그 밖(X 하나·XXY 등)'],
+      note:'정리하기 전에 먼저 찍어 보세요. 사진만 보고 수를 세는 것이 핵형 분석입니다.'}
   ],
   compute: function(p){
     var S = SMP[p.s], all = set(S), auto = all.filter(function(o){ return o.slot !== 'S'; });
     var odd = []; for (var n = 1; n <= 22; n++){ var k = auto.filter(function(o){ return o.id === n; }).length; if (k !== 2) odd.push(n + '번 ' + k + '개'); }
     var Z = info(zid(p.z));
+    var sx = S.sex.join(''), sk = sx === 'XY' ? 0 : (sx === 'XX' ? 1 : 2);
     return {all:all, total:all.length, auto:auto.length, X:S.sex.filter(function(x){ return x === 'X'; }).length, Y:S.sex.filter(function(x){ return x === 'Y'; }).length,
-      odd:odd.length ? odd.join(', ') : '없음', zid:Z[0], len:Z[1], genes:Z[3]};
+      odd:odd.length ? odd.join(', ') : '없음', zid:Z[0], len:Z[1], genes:Z[3],
+      sx:sx, sk:sk, gn:p.gn, gs:p.gs, gnHit:(all.length === p.gn), gsHit:(sk === p.gs)};
   },
   draw: function(c, W, H, p, r, tau){
     var S = SMP[p.s], all = r ? r.all : set(S), k = r ? Math.max(0, Math.min((tau - 0.1) / 0.7, 1)) : 0, e = k * k * (3 - 2 * k);
@@ -516,15 +523,21 @@ return {
   stats: function(p, r){
     return [['전체 염색체 수', r.total + '개', PAL[0]], ['상염색체 수', r.auto + '개'], ['성염색체', 'X ' + r.X + '개, Y ' + r.Y + '개', PAL[3]],
       ['개수가 2개가 아닌 상염색체', r.odd, r.odd === '없음' ? PAL[7] : PAL[4]],
-      ['확대한 염색체', (typeof r.zid === 'number' ? r.zid + '번' : r.zid) + ': ' + f(r.len, 1) + '백만 염기쌍, 유전자 약 ' + r.genes + '개']];
+      ['확대한 염색체', (typeof r.zid === 'number' ? r.zid + '번' : r.zid) + ': ' + f(r.len, 1) + '백만 염기쌍, 유전자 약 ' + r.genes + '개'],
+      ['짐작한 염색체 수 → 실제', r.gn + ' → ' + r.total + '개' + (r.gnHit ? ' · 맞힘' : ' · 빗나감'), r.gnHit ? PAL[7] : PAL[4]],
+      ['짐작한 성염색체 → 실제', ['XY', 'XX', '그 밖'][r.gs] + ' → ' + r.sx + (r.gsHit ? ' · 맞힘' : ' · 빗나감'), r.gsHit ? PAL[7] : PAL[4]]];
   },
-  columns: ['시료', '염색체 수', 'X', 'Y', '2개가 아닌 상염색체', '확대한 염색체', 'DNA (백만 염기쌍)', '유전자 수 (약)'],
-  record: function(p, r){ return {s:p.s, total:r.total, X:r.X, Y:r.Y, odd:r.odd, zid:r.zid, len:r.len, genes:r.genes}; },
-  row: function(d){ return [SMP[d.s].name, d.total, d.X, d.Y, d.odd, typeof d.zid === 'number' ? d.zid + '번' : d.zid, f(d.len, 1), d.genes]; },
+  columns: ['시료', '염색체 수', 'X', 'Y', '2개가 아닌 상염색체', '짐작(수/성)', '맞힘', '확대한 염색체', 'DNA (백만 염기쌍)', '유전자 수 (약)'],
+  record: function(p, r){ return {s:p.s, total:r.total, X:r.X, Y:r.Y, odd:r.odd, zid:r.zid, len:r.len, genes:r.genes, gn:r.gn, gs:r.gs, sx:r.sx, gnHit:r.gnHit, gsHit:r.gsHit}; },
+  row: function(d){ return [SMP[d.s].name, d.total, d.X, d.Y, d.odd,
+    d.gn == null ? '−' : (d.gn + ' / ' + ['XY', 'XX', '그 밖'][d.gs]),
+    d.gn == null ? '−' : ((d.gnHit ? '○' : '×') + (d.gsHit ? '○' : '×')),
+    typeof d.zid === 'number' ? d.zid + '번' : d.zid, f(d.len, 1), d.genes]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('시료별 핵형', '<div id="ro1"></div><p class="ask">정상 핵형과 다른 시료는 무엇이 다른가요? 이런 차이는 생식세포가 만들어질 때 무슨 일이 있어서 생길 수 있을까요?</p>') +
-      card('염색체 길이와 유전자 수', '<canvas class="chart" id="ch1" role="img" aria-label="핵형 분석: 염색체, DNA, 유전자 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">긴 염색체일수록 유전자가 많나요? 19번과 18번처럼 길이는 비슷한데 유전자 수가 크게 다른 까닭을 DNA와 유전자의 관계로 설명해 보세요.</p>') + '</div>';
+      card('염색체 길이와 유전자 수', '<canvas class="chart" id="ch1" role="img" aria-label="핵형 분석: 염색체, DNA, 유전자 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">긴 염색체일수록 유전자가 많나요? 19번과 18번처럼 길이는 비슷한데 유전자 수가 크게 다른 까닭을 DNA와 유전자의 관계로 설명해 보세요.</p>') +
+      card('먼저 찍은 짐작 채점', '<div id="ro3"></div><p class="ask">빗나간 시료는 어느 쪽이었나요? 염색체 수와 성염색체 가운데 어느 것이 더 찍기 어려웠는지 적어 보세요.</p>') + '</div>';
     var seen = {}, rows = [];
     rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; rows.push([SMP[d.s].name, d.total, 'X' + d.X + (d.Y ? ' Y' + d.Y : ''), d.odd]); });
     $('ro1').innerHTML = tableHTML(['시료', '염색체 수', '성염색체', '2개가 아닌 상염색체'], rows);
@@ -533,6 +546,15 @@ return {
     drawScatter($('ch1'), {xLabel:'DNA 길이 (백만 염기쌍)', yLabel:'유전자 수 (약)', series:[{color:'#E08A2E', pts:pts}]});
     $('ro2').innerHTML = pts.length < 2 ? '<li>확대할 염색체를 바꿔 가며 2개 이상 기록하면 비교할 수 있어요.</li>' :
       pts.map(function(q){ return '<li>' + (typeof q.id === 'number' ? q.id + '번' : q.id) + ': 백만 염기쌍당 유전자 약 ' + f(q.y / q.x, 1) + '개</li>'; }).join('');
+    (function(){
+      var gr = rec.filter(function(d){ return d.gn != null; });
+      if (!gr.length){ $('ro3').innerHTML = '<p class="msg">짐작을 찍고 정리하면 여기에서 채점해 줍니다.</p>'; return; }
+      var hn = gr.filter(function(d){ return d.gnHit; }).length, hs = gr.filter(function(d){ return d.gsHit; }).length;
+      var rows = gr.map(function(d){ return [SMP[d.s].name, d.gn + ' → ' + d.total, (d.gnHit ? '○' : '×'), ['XY', 'XX', '그 밖'][d.gs] + ' → ' + d.sx, (d.gsHit ? '○' : '×')]; });
+      $('ro3').innerHTML = '<p>염색체 수 <b>' + hn + ' / ' + gr.length + '</b> · 성염색체 <b>' + hs + ' / ' + gr.length + '</b> 맞혔습니다.</p>' +
+        tableHTML(['시료', '짐작 → 실제 수', '맞힘', '짐작 → 실제 성', '맞힘'], rows) +
+        '<p class="msg">46개가 아닌 시료, X가 하나뿐인 시료도 넣어 보세요 — "사람은 46개"라는 짐작이 언제 깨지는지 보입니다.</p>';
+    })();
   }
 };
 })();
@@ -541,7 +563,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

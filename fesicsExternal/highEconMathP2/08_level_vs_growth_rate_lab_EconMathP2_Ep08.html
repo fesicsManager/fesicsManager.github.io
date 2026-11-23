@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,25 +438,41 @@ var LAB = (function(){
         {name:'물가 3 → 2 → 1 → 0 → −1% (과제)', short:'물가 과제', g:[3, 2, 1, 0, -1]},
         {name:'매년 3%로 일정', short:'3% 일정', g:[3, 3, 3, 3, 3]}];
       function lv(g){ var v = [100]; g.forEach(function(x){ v.push(v[v.length - 1] * (1 + x / 100)); }); return v; }
+      /* 해마다의 성장률을 학생이 직접 넣어, 규모가 처음 줄어드는 해를 스스로 만들어 보게 한다 */
+      var USE = ['준비된 시나리오', '내가 넣은 성장률'];
+      function gOf(p){ return p.use === 1 ? [p.g1, p.g2, p.g3, p.g4, p.g5] : SC[p.s].g; }
+      function nameOf(p){ return p.use === 1 ? '내가 넣은 성장률 (' + [p.g1, p.g2, p.g3, p.g4, p.g5].join(' → ') + '%)' : SC[p.s].name; }
       return {
         sceneHeight: function(w){ return w < 420 ? 484 : 460; },
         idle: '성장률 시나리오를 고른 뒤 <b>해마다 계산하기</b>를 누르세요.',
         shortHint: '웹툰 시나리오와 6년째 −1% 시나리오를 비교해 보세요. 규모가 처음 줄어든 해의 성장률은 몇 %였나요?',
         params: [
-          {key:'s', type:'seg', label:'해마다의 성장률 (가상)', cols:2, value:0, options:SC.map(function(x){ return x.name; })}
+          {key:'use', type:'seg', label:'무엇으로 계산할까', cols:2, value:0, options:USE},
+          {key:'s', type:'seg', label:'준비된 시나리오 (가상)', cols:2, value:0, options:SC.map(function(x){ return x.name; })},
+          {key:'g1', type:'range', label:'1년째 성장률', min:-5, max:8, step:1, value:5, fmt:function(v){ return f(v, 0) + '%'; }},
+          {key:'g2', type:'range', label:'2년째 성장률', min:-5, max:8, step:1, value:4, fmt:function(v){ return f(v, 0) + '%'; }},
+          {key:'g3', type:'range', label:'3년째 성장률', min:-5, max:8, step:1, value:3, fmt:function(v){ return f(v, 0) + '%'; }},
+          {key:'g4', type:'range', label:'4년째 성장률', min:-5, max:8, step:1, value:2, fmt:function(v){ return f(v, 0) + '%'; }},
+          {key:'g5', type:'range', label:'5년째 성장률', min:-5, max:8, step:1, value:1, fmt:function(v){ return f(v, 0) + '%'; }}
         ],
         compute: function(p){
-          var g = SC[p.s].g, v = lv(g), inc = [], firstDown = 0;
+          var g = gOf(p), v = lv(g), inc = [], firstDown = 0;
           for (var i = 1; i < v.length; i++){ inc.push(v[i] - v[i - 1]); if (!firstDown && v[i] < v[i - 1] - 1e-12) firstDown = i; }
           var rateDown = 0; for (i = 1; i < g.length; i++) if (g[i] < g[i - 1]) rateDown++;
-          return {g:g, v:v, inc:inc, fin:v[v.length - 1], firstDown:firstDown, rateDown:rateDown, peak:Math.max.apply(null, v)};
+          var neg = g.filter(function(x){ return x < 0; }).length;
+          return {g:g, v:v, inc:inc, fin:v[v.length - 1], firstDown:firstDown, rateDown:rateDown, peak:Math.max.apply(null, v),
+            nm:nameOf(p), use:p.use, neg:neg,
+            made:firstDown ? '규모가 ' + firstDown + '년째에 처음 줄었어요 — 그 해의 성장률은 ' + sgn(g[firstDown - 1], 0) + '%입니다'
+              : (rateDown ? '성장률은 ' + rateDown + '번 떨어졌지만 규모는 한 번도 줄지 않았어요 — 성장률이 0 이상이면 규모는 줄지 않습니다'
+                : '성장률도 규모도 줄지 않았어요')};
         },
         draw: function(c, W, H, p, r, tau){
-          var g = SC[p.s].g, v = r ? r.v : lv(g), n = g.length, bx = W >= 620 ? 80 : 62, bw = W - bx - 24, i;
+          var g = gOf(p), v = r ? r.v : lv(g), n = g.length, bx = W >= 620 ? 80 : 62, bw = W - bx - 24, i;
           var lo = Math.min.apply(null, v), hi = Math.max.apply(null, v), ax = axisFrom(Math.min(100, lo) - 2, hi + 2);
           var hb = W < 420 ? 174 : 150, h1 = (H - hb) * 0.55, h2 = (H - hb) * 0.45;
           var P = plotBox(c, bx, 14, bw, h1, [0, n, 1], [ax.lo, ax.hi, ax.step], '', '규모');
-          var Q = plotBox(c, bx, 14 + h1 + 44, bw, h2, [0, n, 1], [-2, 6, 2], '해', '성장률 %');
+          var glo = Math.min(-2, Math.min.apply(null, g) - 1), ghi = Math.max(6, Math.max.apply(null, g) + 1);
+          var Q = plotBox(c, bx, 14 + h1 + 44, bw, h2, [0, n, 1], [glo, ghi, 2], '해', '성장률 %');
           var shown = r ? tau * n : 0, full = Math.floor(shown);
           c.strokeStyle = PAL[0]; c.lineWidth = 3; c.beginPath(); c.moveTo(P.X(0), P.Y(v[0]));
           for (i = 1; i <= full; i++) c.lineTo(P.X(i), P.Y(v[i]));
@@ -473,22 +491,24 @@ var LAB = (function(){
           else txt(c, r ? '해마다 곱하는 중…' : '아래 막대 = 성장률', 16, H - 14, {bold:true});
         },
         stats: function(p, r){
-          return [['시나리오', SC[p.s].name],
+          return [['시나리오', r.nm],
+            ['내가 만든 결과', r.made, r.firstDown ? PAL[4] : PAL[3]],
             ['규모 (해마다)', r.v.map(function(x){ return f(x, 2); }).join(' → '), PAL[0]],
             ['늘어난 양', r.inc.map(function(x){ return sgn(x, 2); }).join(' · '), PAL[1]],
             ['성장률이 전년보다 떨어진 해', r.rateDown + '번'],
             ['규모가 처음 줄어든 해', r.firstDown ? r.firstDown + '년째 (성장률 ' + sgn(r.g[r.firstDown - 1], 0) + '%)' : '없음 — 성장률이 0 이상이면 규모는 줄지 않음', r.firstDown ? PAL[4] : PAL[3]],
             ['판단 기준', '규모가 늘어나는가 ↔ 성장률(변화율) > 0']];
         },
-        columns: ['시나리오', '마지막 규모', '성장률 하락 횟수', '처음 감소한 해'],
-        record: function(p, r){ return {s:p.s, fin:r.fin, rd:r.rateDown, fd:r.firstDown}; },
-        row: function(d){ return [SC[d.s].short, f(d.fin, 2), d.rd + '번', d.fd ? d.fd + '년째' : '없음']; },
+        columns: ['시나리오', '성장률', '마지막 규모', '성장률 하락 횟수', '처음 감소한 해'],
+        record: function(p, r){ return {s:p.s, use:r.use, g:r.g, fin:r.fin, rd:r.rateDown, fd:r.firstDown}; },
+        row: function(d){ return [d.use === 1 ? '내가 넣음' : SC[d.s].short, (d.g || SC[d.s].g).join('·') + '%', f(d.fin, 2), d.rd + '번', d.fd ? d.fd + '년째' : '없음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('성장률 하락 vs 규모 감소', '<div id="gr1"></div><p class="ask">성장률이 떨어진 횟수와 규모가 줄어든 해는 일치했나요? 규모가 처음 줄어든 해의 성장률은 부호가 무엇이었나요?</p>') +
             card('웹툰 #4 규모와 성장률의 이중 표', '<div id="gr2"></div><p class="ask">과제: 물가 상승률이 3%, 2%, 1%, 0%, −1%로 바뀐 가상의 5년을 만들어 물가 수준을 계산하고, 물가가 처음으로 내려간 해를 찾아보세요. 두 그래프를 위아래로 그려 비교하세요.</p>') + '</div>';
           var seen = {}, rows = [];
-          rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; rows.push([SC[d.s].name, d.rd + '번', f(d.fin, 2), d.fd ? d.fd + '년째' : '없음']); });
+          rec.forEach(function(d){ var key = d.use === 1 ? (d.g || []).join(',') : 's' + d.s; if (seen[key]) return; seen[key] = 1;
+            rows.push([d.use === 1 ? '내가 넣음 (' + (d.g || []).join('·') + '%)' : SC[d.s].name, d.rd + '번', f(d.fin, 2), d.fd ? d.fd + '년째' : '없음']); });
           $('gr1').innerHTML = tableHTML(['시나리오', '성장률 하락', '마지막 규모', '규모 처음 감소'], rows);
           $('gr2').innerHTML = tableHTML(['해', '성장률', '규모', '늘어난 양'], [[0, '', '100', ''], [1, '5%', '105.00', '+5.00'], [2, '4%', '109.20', '+4.20'], [3, '3%', '112.48', '+3.28'], [4, '2%', '114.73', '+2.25'], [5, '1%', '115.87', '+1.15']]) +
             '<p class="msg">6년째 성장률이 −1%라면 115.87 × 0.99 ≈ 114.71로 그때 처음 줄어듭니다.</p>';
@@ -500,7 +520,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

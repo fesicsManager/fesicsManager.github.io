@@ -257,6 +257,13 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">수정 후 <span class="slider-val" id="dVal">3</span>일째 관찰</div>
             <input type="range" id="dSlider" min="1" max="6" step="1" value="3" aria-label="수정 후 3 일째 관찰">
+            <div class="control-label">수정란 지름: <span class="slider-val" id="eggVal">100</span> µm</div>
+            <input type="range" id="eggSlider" min="80" max="140" step="10" value="100" aria-label="수정란 지름">
+            <div class="control-label">세포가 늘 때 전체 크기는?</div>
+            <div class="btn-row" id="modeButtons">
+              <button class="btn-choice active" data-mode="cleave">난할 — 전체는 그대로</button>
+              <button class="btn-choice" data-mode="grow">세포 크기 그대로 — 전체가 커짐</button>
+            </div>
             <button class="btn-main" id="runBtn">그날까지 난할 진행시키기 ▶</button>
             <div class="result-box" id="result">날짜를 정하고 실행하면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -265,8 +272,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">관찰 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>수정 후</th><th>단계</th><th>세포 수</th><th>세포 하나의 지름(µm)</th><th>배아 전체 지름(µm)</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>수정 후</th><th>세포 수</th><th>세포 하나 지름(µm)</th><th>세포 하나 부피(10³µm³)</th><th>전체 부피(10³µm³)</th><th>수정란의 몇 배</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -510,6 +517,10 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 /* ================= 실험 ================= */
 
 var EMBRYO_UM=100;                 /* 배아 전체 지름 약 100µm — 난할 동안 거의 그대로 */
+var eggUm=100, growMode=false;
+function wholeUm(cells){ return growMode ? eggUm*Math.pow(cells,1/3) : eggUm; }
+/* 공 모양으로 본 부피 (µm³) */
+function ballVol(d){ return Math.PI/6*d*d*d; }
 var DAYS=[
   {d:1, cells:2,   n:'2세포기'},
   {d:2, cells:4,   n:'4세포기'},
@@ -519,12 +530,34 @@ var DAYS=[
   {d:6, cells:120, n:'배반포'}
 ];
 function info(d){ return DAYS[d-1]; }
-function cellDia(cells){ return EMBRYO_UM/Math.pow(cells,1/3); }
+function cellDia(cells){ return growMode ? eggUm : eggUm/Math.pow(cells,1/3); }
 
 var setD=3, records=[], busy=false, revealed=false, prog=0;
 var canvas=document.getElementById('dCanvas'), ctx=canvas.getContext('2d');
 var CX=220, CY=180, R=104;
 
+document.getElementById('eggSlider').addEventListener('input',function(e){
+  if(busy) return;
+  eggUm=parseInt(e.target.value,10);
+  document.getElementById('eggVal').textContent=eggUm;
+  prog=0; revealed=false;
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='날짜와 수정란 지름을 정하고 실행하면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+});
+document.querySelectorAll('#modeButtons .btn-choice').forEach(function(b){
+  b.addEventListener('click',function(){
+    if(busy) return;
+    growMode = b.dataset.mode==='grow';
+    document.querySelectorAll('#modeButtons .btn-choice').forEach(function(x){
+      x.classList.toggle('active', (x.dataset.mode==='grow')===growMode);
+    });
+    prog=0; revealed=false;
+    document.getElementById('result').className='result-box';
+    document.getElementById('result').innerHTML='날짜와 수정란 지름을 정하고 실행하면 결과가 표에 자동으로 기록됩니다.';
+    draw();
+  });
+});
 document.getElementById('dSlider').addEventListener('input',function(e){
   setD=parseInt(e.target.value,10);
   document.getElementById('dVal').textContent=setD;
@@ -611,7 +644,7 @@ function draw(){
   ctx.beginPath(); ctx.moveTo(CX-R,CY+R+18); ctx.lineTo(CX-R,CY+R+30);
   ctx.moveTo(CX+R,CY+R+18); ctx.lineTo(CX+R,CY+R+30); ctx.stroke();
   ctx.fillStyle='#c1443c'; ctx.font="700 19px 'IBM Plex Mono',monospace"; ctx.textAlign='center';
-  ctx.fillText('약 100 µm (변하지 않음)', CX, CY+R+46);
+  ctx.fillText('약 '+wholeUm(info(setD).cells).toFixed(0)+' µm'+(growMode?' (세포 수만큼 커짐)':' (변하지 않음)'), CX, CY+R+46);
 
   ctx.fillStyle='#173238'; ctx.font="700 22px 'Noto Sans KR',sans-serif"; ctx.textAlign='left';
   ctx.fillText('수정 후 '+(prog>=1?setD:Math.max(0,Math.ceil(prog*setD)))+'일', 20, 38);
@@ -657,12 +690,20 @@ document.getElementById('runBtn').addEventListener('click', function(){
       btn.disabled=false; busy=false;
       lockInputs('#dSlider', false);
       var T=info(setD);
-      records.push({d:setD, n:T.n, cells:T.cells, dia:cellDia(T.cells), whole:EMBRYO_UM});
+      var dia=cellDia(T.cells), tot=T.cells*ballVol(dia), eggV=ballVol(eggUm);
+      records.push({d:setD, n:T.n, cells:T.cells, dia:dia, whole:wholeUm(T.cells),
+                    vol:ballVol(dia), tot:tot, ratio:tot/eggV, grow:growMode, egg:eggUm});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
       box.innerHTML=T.n+' — 세포 <span class="big-val">'+T.cells+'개</span>, 세포 하나 '
-        +cellDia(T.cells).toFixed(1)+'µm <span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
+        +dia.toFixed(1)+'µm <span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span><br>'
+        +'세포 하나의 부피 '+(ballVol(dia)/1000).toFixed(1)+'×10³ µm³ × '+T.cells+'개 = <b>'+(tot/1000).toFixed(0)+'×10³ µm³</b><br>'
+        +'수정란 한 개의 부피는 '+(eggV/1000).toFixed(0)+'×10³ µm³ 이니, 전체 부피는 수정란의 <b>'+(tot/eggV).toFixed(2)+'배</b>입니다 — '
+        +(growMode
+          ? '세포 크기가 그대로면 전체 부피가 세포 수만큼 늘어나고, 배아 지름도 '+wholeUm(T.cells).toFixed(0)+'µm 로 커집니다.'
+          : '난할에서는 전체 부피가 <b>그대로 보존</b>됩니다. 세포 수는 늘지만 배아 지름은 '+eggUm+'µm 그대로입니다.')
+        +'<br><span style="font-size:.9rem;color:#a86825">※ 세포를 공 모양으로 본 교육용 모형 계산이에요.</span>';
       maybeToast(records.length);
     }
   }
@@ -672,11 +713,12 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   var s=records.slice().sort(function(a,b){ return a.d-b.d; });
   tb.innerHTML=s.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.d+'일</td><td class="kr">'+r.n+'</td><td>'+r.cells+'</td>'
-      +'<td>'+r.dia.toFixed(1)+'</td><td>'+r.whole+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td>'+r.d+'일'+(r.grow?' (커짐)':'')+'</td><td>'+r.cells+'</td>'
+      +'<td>'+r.dia.toFixed(1)+'</td><td>'+((r.vol==null?0:r.vol)/1000).toFixed(1)+'</td>'
+      +'<td>'+((r.tot==null?0:r.tot)/1000).toFixed(0)+'</td><td>'+(r.ratio==null?1:r.ratio).toFixed(2)+'배</td></tr>';
   }).join('');
 }
 

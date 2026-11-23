@@ -128,7 +128,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
 <body>
 <div class="wrap">
 <h1>치환 실험실 — 속미분을 되돌린다</h1>
-<p class="sub">치환으로 구한 부정적분을 다시 미분해 원래 식으로 돌아오는지 검산합니다.</p>
+<p class="sub">치환으로 구한 부정적분을 다시 미분해 검산하고, 치환이 막히는 적분도 함께 봅니다.</p>
 <div class="tabs">
 <button class="tab on" data-t="explore">🔬 자유 탐구</button>
 <button class="tab" data-t="verify">✅ 데이터 검증</button>
@@ -157,7 +157,7 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="치환 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="a">(ax+b)ⁿ 의 a <b><span id="a_v">2</span></b></label><input type="range" id="a" min="1" max="5" step="1" value="2"></div><div class="ctl"><label for="n">n <b><span id="n_v">3</span></b></label><input type="range" id="n" min="1" max="5" step="1" value="3"></div><div class="ctl"><label for="x">검산할 x (×0.5) <b><span id="x_v">2.0</span></b></label><input type="range" id="x" min="1" max="8" step="1" value="2" data-fmt="1"></div><div class="row"><button class="btn go" id="goBtn">🔁 적분하고 다시 미분</button></div>
+      <div class="ctl"><label for="a">(ax+b)ⁿ 의 a <b><span id="a_v">2</span></b></label><input type="range" id="a" min="1" max="5" step="1" value="2"></div><div class="ctl"><label for="n">n <b><span id="n_v">3</span></b></label><input type="range" id="n" min="1" max="5" step="1" value="3"></div><div class="ctl"><label for="x">검산할 x (×0.5) <b><span id="x_v">2.0</span></b></label><input type="range" id="x" min="1" max="8" step="1" value="2" data-fmt="1"></div><div class="pick">어떤 적분을 해 볼까 <label><input type="radio" name="kd" value="k" checked> ∫(ax+1)ⁿ dx</label><label><input type="radio" name="kd" value="p"> ∫x·e^(x²) dx</label><label><input type="radio" name="kd" value="e"> ∫e^(x²) dx</label></div><div class="row"><button class="btn go" id="goBtn">🔁 적분하고 다시 미분</button></div>
       <div class="readout" id="readout"></div>
       <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
@@ -243,15 +243,58 @@ if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();})
 
 
 function st(){var a=v('a'),n=v('n'),x=v('x')/2;
+var kd=rv('kd')||'k';
+if(kd==='p'){
+/* 속미분 2x 가 식 속에 이미 있는 경우 — 치환이 통한다 */
+var fp=function(t){return t*Math.exp(t*t);};
+var Fp=function(t){return 0.5*Math.exp(t*t);};
+var Fpw=function(t){return Math.exp(t*t);};
+var bp=nder(Fp,x),bpw=nder(Fpw,x);
+return{kd:kd,a:a,n:n,x:x,f:fp,F:Fp,fx:fp(x),back:bp,backW:bpw,
+ok:(Math.abs(bp-fp(x))<1e-3*Math.max(1,Math.abs(fp(x)))),okW:false,solvable:true};}
+if(kd==='e'){
+/* 속미분이 식 속에 없는 경우 — 1/(2x) 로 나눠 꺼낼 수 없다 */
+var fe=function(t){return Math.exp(t*t);};
+var Few=function(t){return Math.exp(t*t)/(2*t);};
+var bew=nder(Few,x);
+return{kd:kd,a:a,n:n,x:x,f:fe,F:null,fx:fe(x),back:NaN,backW:bew,
+ok:false,okW:(Math.abs(bew-fe(x))<1e-3*Math.max(1,Math.abs(fe(x)))),solvable:false};}
 var b=1;
 var f=function(t){return Math.pow(a*t+b,n);};
 var F=function(t){return Math.pow(a*t+b,n+1)/(a*(n+1));};
 var Fw=function(t){return Math.pow(a*t+b,n+1)/(n+1);};
 var back=nder(F,x), backW=nder(Fw,x);
-return{a:a,b:b,n:n,x:x,f:f,F:F,fx:f(x),back:back,backW:backW,
+return{kd:kd,a:a,b:b,n:n,x:x,f:f,F:F,fx:f(x),back:back,backW:backW,solvable:true,
 ok:(Math.abs(back-f(x))<1e-3*Math.max(1,Math.abs(f(x)))),
 okW:(Math.abs(backW-f(x))<1e-3*Math.max(1,Math.abs(f(x))))};}
+function drawOther(o){
+var isP=(o.kd==='p');
+label(isP?'∫ x·e^(x²) dx':'∫ e^(x²) dx',W/2,32,'#e9eefb',20);
+panel(24,62,W-48,150);
+label('t = x² 로 치환  →  dt = 2x dx',44,90,'#5ee0c8',15,'left');
+label(isP?'식에 x 가 이미 있어 x dx = dt/2 로 바꿀 수 있습니다'
+:'식에 x 가 없어 dx 를 dt 로 바꿀 수 없습니다',W/2,124,isP?'#5ee0c8':'#ff7a8a',15);
+label(isP?'∫ e^t · (dt/2) = e^t / 2 + C = e^(x²)/2 + C'
+:'1/(2x) 은 상수가 아니어서 적분 밖으로 꺼낼 수 없습니다',W/2,162,isP?'#5ee0c8':'#ff7a8a',15);
+label(isP?'나눠 준 2 는 상수입니다':'e^(x²) 의 부정적분은 초등함수로 쓸 수 없습니다',W/2,196,'#9db0d4',14);
+panel(24,222,W-48,94);
+label('검산 : 다시 미분하면',W/2,248,'#9db0d4',14);
+label(isP?("F′("+nf(o.x,1)+") = "+nf(o.back,5)+'      원래 f = '+nf(o.fx,5)+(o.ok?'   ✅':'   ❌'))
+:'쓸 수 있는 F 가 없습니다',W/2,284,isP?(o.ok?'#5ee0c8':'#ff7a8a'):'#ff7a8a',16);
+panel(24,326,W-48,94);
+label(isP?'나눠 주기를 빠뜨리면':'1/(2x) 로 그냥 나눠 보면',W/2,352,'#ff7a8a',14);
+label("F′ = "+nf(o.backW,4)+'   원래 f = '+nf(o.fx,4)+(o.okW?'  (우연히 같음)':'  ← 맞지 않습니다'),
+W/2,388,o.okW?'#ffb86b':'#ff7a8a',16);
+ro(kv("F′(x)",isP?nf(o.back,5):'없음')+' &nbsp;'+kv('원래 f(x)',nf(o.fx,5))+'<br>'+
+kv('그냥 나눈 쪽',nf(o.backW,4))+' &nbsp;'+kv('치환이 통하나',isP?'통함':'통하지 않음'));
+var el=$('why');if(el){el.className=isP?'why same':'why diff';
+el.innerHTML=isP?('✅ <b>속미분이 식 속에 이미 있어요.</b><br>· t = x² 의 속미분은 2x 인데, 적분할 식에 x 가 들어 있어 x dx = dt/2 로 깔끔히 바뀌어요. 나눠 준 <b>2 는 상수</b>라 밖으로 꺼낼 수 있어요.')
+:('🤔 <b>여기서는 치환이 통하지 않아요.</b><br>· t = x² 로 바꾸려면 dx = dt/(2x) 인데, <b>1/(2x) 는 상수가 아니에요</b>. 상수가 아닌 것은 적분 기호 밖으로 꺼낼 수 없어요.<br>'
++'· 억지로 e^(x²)/(2x) 를 써서 미분해 보면 '+nf(o.backW,4)+' 가 나와 원래 '+nf(o.fx,4)+' 와 달라요.<br>'
++'· 그래서 “1/a 로 나눠 주기”는 <b>속미분이 상수일 때만</b> 쓰는 요령이에요.');}
+}
 function draw(){clr();var o=st();
+if(o.kd!=='k'){drawOther(o);return;}
 label('∫ ('+o.a+'x + 1)'+sup(o.n)+' dx',W/2,32,'#e9eefb',20);
 panel(24,62,W-48,150);
 label('t = '+o.a+'x + 1 로 치환',44,90,'#5ee0c8',15,'left');
@@ -280,14 +323,22 @@ el.innerHTML='✅ <b>이 실험은 언제나 같아요. 까닭은?</b><br>'
 +'· 지금 x = '+X+': F′ = '+nf(o.back,5)+', 원래 f = <span class="hl">'+nf(o.fx,5)+'</span>.<br>'
 +'· '+(a===1?'지금은 a = 1 이라 1/a 를 빠뜨려도 우연히 같아요. a 를 2 이상으로 바꿔 보세요.':'1/'+a+' 을 빠뜨리면 속미분 '+a+' 가 지워지지 않고 남아 <b>'+a+'배</b>가 돼요(아래 상자).');}
 function record(){var o=st();
+if(o.kd==='p')return{cells:['x·e^(x²)','t = x²','e^t/2',nf(o.back,4),nf(o.fx,4),
+(o.ok?'✅':'❌')+'<small>속미분 2x 가 식에 있음</small>'],
+a:'—',n:'—',back:o.back,fx:o.fx,ok:o.ok,okW:o.okW,ratio:o.backW/o.fx,kd:o.kd,solvable:true};
+if(o.kd==='e')return{cells:['e^(x²)','t = x²','쓸 수 없음','—',nf(o.fx,4),
+'❌<small>1/(2x) 은 상수가 아님</small>'],
+a:'—',n:'—',back:NaN,fx:o.fx,ok:false,okW:o.okW,ratio:o.backW/o.fx,kd:o.kd,solvable:false};
 return{cells:['('+o.a+'x+1)'+sup(o.n),'t = '+o.a+'x+1','t'+sup(o.n+1)+'/'+(o.a*(o.n+1)),
 nf(o.back,4),nf(o.fx,4),(o.ok?'✅':'❌')+'<small>속미분 '+o.a+' × 1/'+o.a+' = 1</small>'],
-a:o.a,n:o.n,back:o.back,fx:o.fx,ok:o.ok,okW:o.okW,ratio:o.backW/o.fx};}
-function analyze(){var allok=rows.every(function(r){return r.ok;});
+a:o.a,n:o.n,back:o.back,fx:o.fx,ok:o.ok,okW:o.okW,ratio:o.backW/o.fx,kd:o.kd,solvable:true};}
+function analyze(){var konly=rows.filter(function(r){return r.solvable;});
+var allok=konly.length>0&&konly.every(function(r){return r.ok;});
 var wrong=rows.filter(function(r){return !r.okW;}).length;
+var nbad=rows.filter(function(r){return !r.solvable;}).length;
 var t='<table><thead><tr><th>a</th><th>n</th><th>F′(x)</th><th>f(x)</th><th>계수 빠뜨리면</th></tr></thead><tbody>';
 rows.forEach(function(r){t+='<tr><td>'+r.a+'</td><td>'+r.n+'</td>'+
-'<td class="'+(r.ok?'ok':'no')+'">'+nf(r.back,4)+'</td><td>'+nf(r.fx,4)+'</td>'+
+'<td class="'+(r.ok?'ok':'no')+'">'+(r.solvable?nf(r.back,4):'없음')+'</td><td>'+nf(r.fx,4)+'</td>'+
 '<td class="'+(r.okW?'':'no')+'">'+nf(r.ratio,2)+'배</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
@@ -297,7 +348,8 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 '<p class="big">틀린 기록 <span class="no">'+wrong+'개</span> — 정확히 a배만큼 어긋남</p>'+
 '<p class="note">치환은 <b>연쇄법칙을 거꾸로</b> 읽는 것입니다. (F(g(x)))′ 에는 g′(x) 가 곱해져 있으므로, 적분에서는 그만큼 나눠 줘야 합니다.</p>'+
 '<p class="note">식에 속미분이 이미 들어 있으면 그대로 쓰고, 상수 차이만 나면 계수로 맞춥니다.</p>'+
-'<p class="note">헷갈릴 때는 <b>결과를 미분해 보는 것</b>이 가장 빠른 확인입니다.</p></div></div>';}
+'<p class="note">헷갈릴 때는 <b>결과를 미분해 보는 것</b>이 가장 빠른 확인입니다.</p>'+
+'<p class="note">다만 “1/a 로 나눠 주기”는 <b>속미분이 상수일 때만</b> 쓰는 요령입니다. ∫e^(x²)dx 처럼 속미분 2x 가 식 속에 없으면 1/(2x) 를 밖으로 꺼낼 수 없어 치환이 막힙니다 — 그런 기록 <span class="no">'+nbad+'개</span>.</p></div></div>';}
 
 
 draw();sync();

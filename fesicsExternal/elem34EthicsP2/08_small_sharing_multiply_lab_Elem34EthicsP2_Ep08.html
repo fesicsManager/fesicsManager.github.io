@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -309,6 +311,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -437,6 +446,8 @@ var LAB = (function(){
       var TM = [{n:'1번 (하루)', v:1}, {n:'5번 (일주일 날마다)', v:5}, {n:'38번 (1년, 일주일에 한 번)', v:38}, {n:'190번 (1년, 학교 오는 날마다)', v:190}];
       var GU = ['① 아무것도 안 모인다', '② 약 2,500원', '③ 약 47만 원', '④ 약 1만 원'];
       function cm(n){ return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+      /* 목표를 먼저 주고, 지금 조합으로 닿는지 판단하게 한다 */
+      var GOAL = [{n:'1만 원', v:10000, u:'원'}, {n:'5만 원', v:50000, u:'원'}, {n:'47만 원', v:470000, u:'원'}, {n:'10시간 (600분)', v:600, u:'분'}];
       function amt(v, u){ if (u === '원'){ if (v >= 100000){ var mn = Math.floor(v / 10000), ch = Math.round((v - mn * 10000) / 1000); if (ch === 10){ mn++; ch = 0; } return cm(v) + '원 (약 ' + cm(mn) + '만' + (ch ? ' ' + ch + '천' : '') + ' 원)'; } return cm(v) + '원' + (v >= 10000 ? ' (약 ' + f(v / 10000, 1) + '만 원)' : ''); } if (v < 60) return cm(v) + '분'; var h = Math.floor(v / 60), m = v - h * 60; if (h >= 10) return cm(v) + '분 (약 ' + cm(Math.round(v / 60)) + '시간)'; return cm(v) + '분 (' + h + '시간' + (m ? ' ' + m + '분' : '') + ')'; }
       return {
         sceneHeight: function(w){ return w < 500 ? 400 : 420; },
@@ -446,12 +457,21 @@ var LAB = (function(){
           {key:'n', type:'range', label:'함께하는 사람 수', min:1, max:25, step:1, value:25, fmt:function(v){ return v + '명'; }},
           {key:'k', type:'seg', label:'한 번의 나눔', cols:3, value:0, options:KD.map(function(x){ return x.n; })},
           {key:'t', type:'seg', label:'횟수', cols:2, value:3, options:TM.map(function(x){ return x.n; })},
+          {key:'goal', type:'seg', label:'모을 목표', cols:4, value:2, options:GOAL.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'나의 짐작 — 25명이 100원씩, 1년(약 190일) 동안 모으면?', cols:2, value:0, options:GU,
             note:'뭉치는 "100원은 100원이야, 아무것도 못 해!"라고 했어요.'}
         ],
         compute: function(p){
           var kd = KD[p.k], tm = TM[p.t], day = p.n * kd.v, tot = day * tm.v;
-          return {kd:kd, tm:tm, day:day, tot:tot, base:25 * 100 * 190, ok:p.g === 2};
+          var gl = GOAL[p.goal], same = gl.u === kd.u;
+          var reach = same && tot >= gl.v;
+          var needN = same ? Math.ceil(gl.v / (kd.v * tm.v)) : null;
+          var needT = same ? Math.ceil(gl.v / (kd.v * p.n)) : null;
+          var gmsg = !same ? '목표는 ' + gl.u + ' 단위인데 지금 나눔은 ' + kd.u + ' 단위예요 — 나눔의 종류를 바꿔야 견줄 수 있어요'
+            : reach ? '목표 ' + gl.n + '에 닿았어요 (' + amt(tot, kd.u) + ')'
+            : '아직 모자라요 — 사람 수를 ' + needN + '명으로 늘리거나, 횟수를 ' + needT + '번으로 늘리면 닿아요';
+          return {kd:kd, tm:tm, day:day, tot:tot, base:25 * 100 * 190, ok:p.g === 2,
+            gl:gl, same:same, reach:reach, needN:needN, needT:needT, gmsg:gmsg};
         },
         draw: function(c, W, H, p, r, tau){
           var kd = KD[p.k], tm = TM[p.t], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -480,12 +500,15 @@ var LAB = (function(){
           return [['한 번에 모이는 양', p.n + '명 × ' + r.kd.n + ' = ' + amt(r.day, r.kd.u)],
             ['횟수', r.tm.n], ['모두 모으면', amt(r.tot, r.kd.u), PAL[3]],
             ['한 사람 한 번과 비교', cm(r.tot / r.kd.v) + '배'],
+            ['모을 목표', r.gl.n],
+            ['목표에 닿았나', r.gmsg, r.reach ? PAL[1] : PAL[4]],
             ['기준 상황 (25명 · 100원 · 190번)', '475,000원 (약 47만 5천 원)', PAL[6]],
             ['나의 짐작', GU[p.g] + (r.ok ? ' — 계산과 맞음' : ' — 계산과 다름'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['사람 수', '한 번', '횟수', '모인 양', '나의 짐작'],
-        record: function(p, r){ return {n:p.n, k:p.k, t:p.t, tot:r.tot, g:p.g}; },
-        row: function(d){ var kd = KD[d.k]; return [d.n + '명', kd.n, TM[d.t].v + '번', cm(d.tot) + kd.u, GU[d.g].slice(0, 1)]; },
+        columns: ['사람 수', '한 번', '횟수', '모인 양', '목표', '닿았나'],
+        record: function(p, r){ return {n:p.n, k:p.k, t:p.t, tot:r.tot, g:p.g, goal:p.goal, reach:r.reach, same:r.same}; },
+        row: function(d){ var kd = KD[d.k]; return [d.n + '명', kd.n, TM[d.t].v + '번', cm(d.tot) + kd.u,
+          d.goal == null ? '—' : GOAL[d.goal].n, d.goal == null ? '—' : (!d.same ? '단위 다름' : (d.reach ? '○' : '✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('바꿔 본 조건과 모인 양', '<div id="sh1"></div><p class="ask">사람 수를 25배로 늘릴 때와 횟수를 190배로 늘릴 때, 어느 쪽이 더 크게 바뀌었나요? "100원으로는 아무것도 못 한다"는 말은 계산과 맞나요?</p>') +
@@ -504,7 +527,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

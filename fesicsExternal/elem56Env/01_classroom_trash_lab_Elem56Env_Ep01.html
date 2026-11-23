@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -463,37 +465,83 @@ function hbars(items, max){
 var LAB = (function(){
 
 var PER = [0.5, 1, 1.5], PN = ['적게 (0.5 kg)', '보통 (1 kg)', '많이 (1.5 kg)'], DAYS = [1, 5, 200], DN = ['하루', '일주일 (5일)', '1년 (학교 오는 날 200일)'];
-function calc(n, pi, di, cut){ var total = n * PER[pi] * DAYS[di], save = total * cut / 100; return {n:n, per:PER[pi], dn:DN[di], days:DAYS[di], total:total, bags:total / 10, save:save, left:total - save, cut:cut, eleph:total / 5000}; }
+/* 줄이기 방법마다 '쓰레기에서 차지하는 비율'이 다르다 — 교육용 모형값 */
+var MET = [
+  {n:'전체 쓰레기', s:1.00},
+  {n:'과대 포장',   s:0.35},
+  {n:'일회용컵·빨대', s:0.15},
+  {n:'남긴 음식',   s:0.30}
+];
+var MN = ['전체 쓰레기 (100 %)', '과대 포장 (35 %)', '일회용컵·빨대 (15 %)', '남긴 음식 (30 %)'];
+function calc(n, pi, di, cut, mi){
+  var M = MET[mi || 0], total = n * PER[pi] * DAYS[di];
+  var part = total * M.s;                 /* 그 방법이 손댈 수 있는 쓰레기 */
+  var save = part * cut / 100;            /* 그중 지킨 만큼이 줄어든다 */
+  return {n:n, per:PER[pi], dn:DN[di], days:DAYS[di], total:total, bags:total / 10,
+          mi:mi || 0, mn:M.n, share:M.s, part:part,
+          save:save, left:total - save, cut:cut, eleph:total / 5000,
+          ratio:total > 0 ? save / total * 100 : 0};
+}
+function metLabel(mi){ return MET[mi || 0].n; }
 return {
   sceneHeight: 380,
-  idle: '친구 수·한 사람 양·기간·안 만들 수 있는 비율을 정하고 <b>쓰레기 재 보기</b>를 누르세요.',
-  shortHint: '자유 탐구 탭에서 기간을 하루·일주일·1년으로 바꿔 가며 기록해 보세요.',
+  idle: '친구 수·한 사람 양·기간을 정하고, <b>어떤 방법으로 줄일지</b>와 <b>얼마나 지킬지</b>를 골라 <b>쓰레기 재 보기</b>를 누르세요. 방법을 바꿔 가며 재면 어느 쪽이 더 많이 줄이는지 겨룰 수 있어요.',
+  shortHint: '자유 탐구 탭에서 줄이기 방법을 과대 포장·일회용컵·남긴 음식으로 바꿔 가며 기록해 보세요.',
   params: [
     {key:'n', type:'range', label:'우리 반 친구 수', min:10, max:40, step:1, value:30, fmt:function(v){ return v + '명'; }},
     {key:'p', type:'seg', label:'한 사람이 하루에 버리는 양', cols:3, value:1, options:PN},
     {key:'d', type:'seg', label:'기간', cols:3, value:0, options:DN},
-    {key:'c', type:'range', label:'안 만들 수 있었던 것', min:0, max:80, step:10, value:50, fmt:function(v){ return v + ' %'; },
-      note:'봉투 하나 = 10 kg, 코끼리 한 마리 = 5,000 kg으로 계산해요.'}
+    {key:'m', type:'seg', label:'어떤 방법으로 줄일까 (괄호는 쓰레기에서 차지하는 비율 — 교육용 모형값)', cols:2, value:0, options:MN},
+    {key:'c', type:'range', label:'그 방법을 얼마나 지킬 수 있을까', min:0, max:80, step:10, value:50, fmt:function(v){ return v + ' %'; },
+      note:'줄어드는 양 = 전체 쓰레기 × 그 방법의 비율 × 지킨 비율. 봉투 하나 = 10 kg, 코끼리 한 마리 = 5,000 kg으로 계산해요.'}
   ],
-  compute: function(p){ return calc(p.n, p.p, p.d, p.c); },
+  compute: function(p){ return calc(p.n, p.p, p.d, p.c, p.m); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.n, p.p, p.d, p.c), bags = Math.round(C.bags * k), cols = Math.floor((W - 40) / 34), maxShow = cols * 6;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.n, p.p, p.d, p.c, p.m), bags = Math.round(C.bags * k), cols = Math.floor((W - 40) / 34), maxShow = cols * 6;
     for (var i = 0; i < Math.min(bags, maxShow); i++){ var x = 20 + (i % cols) * 34, y = H - 80 - Math.floor(i / cols) * 34; var saved = i >= (bags > maxShow ? Math.round(maxShow * C.left / C.total) : Math.round(C.left / 10)); /* 봉투가 다 안 그려질 때도 초록 봉투 비율을 보여 줌 */ c.fillStyle = saved ? '#DDF0E6' : '#5C6B7A'; c.fillRect(x, y, 28, 28); c.fillStyle = '#1E2833'; c.fillRect(x + 10, y - 4, 8, 6); }
     if (bags > maxShow) txt(c, '… 봉투 ' + bags + '개!', 20, H - 80 - 6 * 34 - 10, {bold:true, color:'#C8463D'});
-    txt(c, r ? C.dn + ' 동안 ' + f(C.total, 0) + ' kg = 봉투 ' + bags + '개' + (C.eleph >= 1 ? ' (코끼리 ' + f(C.eleph, 1) + '마리 무게!)' : '') : '', 12, H - 40, {bold:true});
-    txt(c, r ? '초록 봉투 = 안 만들 수 있었던 것 ' + f(C.save, 0) + ' kg' : '', 12, H - 14, {color:'#2E9E78'});
+    txt(c, r ? C.dn + ' 동안 ' + f(C.total, 0) + ' kg = 봉투 ' + bags + '개' + (C.eleph >= 1 ? ' (코끼리 ' + f(C.eleph, 1) + '마리 무게!)' : '')
+            : '지금 고른 것: ' + C.n + '명 · ' + C.per + ' kg · ' + C.dn, 12, W < 560 ? H - 70 : H - 40, {bold:true});
+    txt(c, r ? '초록 봉투 = ' + C.mn + '에서 줄인 것 ' + f(C.save, 0) + ' kg (전체의 ' + f(C.ratio, 0) + ' %)'
+            : C.mn + '에서 ' + C.cut + ' % 줄이기 — 쓰레기 재 보기를 누르세요', 12, W < 560 ? H - 24 : H - 14, {color:'#2E9E78'});
   },
   stats: function(p, r){
-    return [['친구 · 1인당 · 기간', r.n + '명 · ' + r.per + ' kg · ' + r.dn], ['쓰레기 양', f(r.total, 0) + ' kg (봉투 ' + f(r.bags, 0) + '개)', PAL[4]], ['코끼리로 치면', f(r.eleph, 2) + '마리'], ['안 만들 수 있었던 것', f(r.save, 0) + ' kg (' + r.cut + ' %)', PAL[1]], ['꼭 버려야 하는 것', f(r.left, 0) + ' kg', PAL[0]]];
+    return [['친구 · 1인당 · 기간', r.n + '명 · ' + r.per + ' kg · ' + r.dn], ['쓰레기 양', f(r.total, 0) + ' kg (봉투 ' + f(r.bags, 0) + '개)', PAL[4]], ['코끼리로 치면', f(r.eleph, 2) + '마리'],
+      ['고른 방법', r.mn + ' — 전체의 ' + f(r.share * 100, 0) + ' %'],
+      ['줄인 양', f(r.save, 0) + ' kg = ' + f(r.total, 0) + ' × ' + f(r.share * 100, 0) + ' % × ' + r.cut + ' %', PAL[1]],
+      ['전체에서 줄인 비율', f(r.ratio, 0) + ' %'],
+      ['꼭 버려야 하는 것', f(r.left, 0) + ' kg', PAL[0]]];
   },
-  columns: ['친구', '1인당', '기간', '쓰레기 (kg)', '줄일 수 있는 (kg)'],
-  record: function(p, r){ return {n:r.n, per:r.per, d:p.d, total:r.total, save:r.save}; },
-  row: function(d){ return [d.n, d.per, DN[d.d], f(d.total, 0), f(d.save, 0)]; },
+  columns: ['방법', '지킨 비율', '친구 · 1인당 · 기간', '쓰레기 (kg)', '줄인 양 (kg)'],
+  record: function(p, r){ return {n:r.n, per:r.per, d:p.d, mi:r.mi, mn:r.mn, share:r.share, cut:r.cut, total:r.total, save:r.save, ratio:r.ratio}; },
+  row: function(d){ return [d.mn, d.cut + ' %', d.n + '명 · ' + d.per + ' kg · ' + DN[d.d], f(d.total, 0), f(d.save, 0)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('기간이 길어지면', '<div id="ro1"></div><p class="ask">하루 쓰레기는 작아 보이는데 학교 오는 날 1년(200일)이면 얼마나 될까요? 쓰레기는 어디로 갈까요?</p>') +
+      card('어느 방법이 더 많이 줄였나', '<div id="ro3"></div><div id="ro4"></div>') +
       card('안 만들기', '<div id="ro2"></div><p class="ask">내가 오늘 버린 것 중 안 만들 수 있었던 것 세 가지를 적어 보세요.</p>') + '</div>';
     $('ro1').innerHTML = hbars(rec.map(function(d){ return {label:DN[d.d] + ' (' + d.n + '명, ' + d.per + ' kg)', v:d.total, color:PAL[4], text:f(d.total, 0) + ' kg'}; }), Math.max.apply(null, rec.map(function(d){ return d.total; })) || 1);
+    /* 방법끼리 겨루기 — '전체에서 줄인 비율'로 재면 반 규모·기간이 달라도 나란히 견줄 수 있다 */
+    var mrec = rec.filter(function(d){ return d.mi > 0; });
+    var base = mrec.length ? mrec : rec;
+    var srt = base.slice().sort(function(a, b){ return b.ratio - a.ratio; });
+    $('ro3').innerHTML = hbars(srt.map(function(d, i){
+      return {label:(d.mn || '') + ' ' + d.cut + ' % 지키기', v:d.ratio, color:i === 0 ? PAL[1] : PAL[4], text:f(d.ratio, 1) + ' %'};
+    }), Math.max.apply(null, srt.map(function(d){ return d.ratio; })) || 1);
+    var msg;
+    if (srt.length < 2){
+      msg = '아직 한 가지만 재어 보았어요. 방법을 바꿔 가며 몇 번 더 재면 어느 쪽이 더 많이 줄이는지 겨룰 수 있어요.';
+    } else {
+      var top = srt[0], low = srt[srt.length - 1];
+      var upset = top.share < low.share;
+      msg = '내 기록에서 가장 많이 줄인 것은 <b>' + top.mn + '을 ' + top.cut + ' % 지키기</b>(전체의 ' + f(top.ratio, 1) + ' %)이고, '
+        + '가장 적게 줄인 것은 <b>' + low.mn + '을 ' + low.cut + ' % 지키기</b>(' + f(low.ratio, 1) + ' %)였어요.'
+        + (upset
+            ? ' 재미있는 점은 이긴 쪽이 쓰레기에서 차지하는 비율이 <b>더 작은</b> 쪽이라는 거예요 — 비율이 작아도 <b>많이 지키면</b> 이깁니다.'
+            : ' 두 값을 가른 것은 <b>차지하는 비율 × 지킨 비율</b>이에요. 비율이 작은 방법이라도 더 많이 지키면 순서가 뒤집히는지 찾아보세요.');
+    }
+    $('ro4').innerHTML = '<p class="ask">' + msg + '</p>'
+      + '<p class="note">※ 과대 포장 35 %, 일회용컵·빨대 15 %, 남긴 음식 30 % 는 <b>교육용 모형값</b>이에요. 실제 비율은 학교·지역마다 달라요.</p>';
     $('ro2').innerHTML = tableHTML(['자주 버리는 것', '안 만드는 방법'], [['종이컵·빨대', '텀블러·컵 쓰기'], ['과자 봉지·포장', '큰 봉지 하나, 낱개 포장 줄이기'], ['남긴 급식', '먹을 만큼만 받기'], ['물티슈', '손수건·걸레'], ['한 번 쓴 비닐', '장바구니·다시 쓰기']]);
   }
 };
@@ -503,7 +551,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

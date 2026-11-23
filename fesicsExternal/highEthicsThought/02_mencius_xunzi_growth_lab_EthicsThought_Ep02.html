@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -435,16 +437,28 @@ var LAB = (function(){
       var VW = [{n:'맹자 — 선의 단서(사단)가 있다', s:'맹자', start:30, tg:[12, 90, 75, 95], idle:'싹이 시들어 악해질 수 있음'},
         {n:'순자 — 욕망을 좇는 경향이 있다', s:'순자', start:10, tg:[0, 45, 90, 95], idle:'다툼과 혼란이 생김'}];
       var EN = [{n:'그대로 둔다', s:'방치'}, {n:'안에서 기른다 (수양·확충)', s:'수양'}, {n:'밖에서 다듬는다 (예·스승·제도)', s:'예·제도'}, {n:'둘 다 한다', s:'둘 다'}];
-      function curve(v, e){ var a = []; for (var t = 0; t <= 10; t++) a.push(v.tg[e] + (v.start - v.tg[e]) * Math.exp(-t / 3)); return a; }
+      /* 둘째 변수: 또래·주변 사람의 수준(0~100, 기본 50 = 지금까지와 같은 목표값).
+         맹자 쪽은 환경에 민감(35), 순자 쪽은 덜 민감(12)하게 둔 교육용 모형값이다.
+         그래서 같은 환경이라도 주변 수준이 낮으면 두 경로의 끝값이 갈라진다. */
+      var SENS = [35, 12];
+      function tgOf(i, e, k){ return Math.max(0, Math.min(100, VW[i].tg[e] + (k - 50) / 50 * SENS[i])); }
+      function curve(i, e, k){ var g = tgOf(i, e, k), st = VW[i].start, a = []; for (var t = 0; t <= 10; t++) a.push(g + (st - g) * Math.exp(-t / 3)); return a; }
       return {
         sceneHeight: 450,
         idle: '인간관과 환경을 고른 뒤 <b>10년 돌려 보기</b>를 누르세요.',
         shortHint: '두 인간관을 네 환경에서 모두 돌려 보세요. 두 곡선이 겹치는 환경을 찾는 게 목표예요.',
         params: [
           {key:'v', type:'seg', label:'인간 본성에 대한 가정', cols:2, value:0, options:VW.map(function(x){ return x.n; })},
-          {key:'e', type:'seg', label:'환경', cols:2, value:0, options:EN.map(function(x){ return x.n; })}
+          {key:'e', type:'seg', label:'환경', cols:2, value:0, options:EN.map(function(x){ return x.n; })},
+          {key:'k', type:'range', label:'또래·주변 사람의 수준 (교육용 모형값)', min:0, max:100, step:10, value:50, fmt:function(x){ return f(x, 0); }},
+          {key:'q', type:'seg', label:'예측: 이 조건에서 맹자·순자의 10년 뒤 값은?', cols:2, value:0, options:['갈라진다 (차이 10 이상)', '거의 같다 (차이 10 미만)'],
+            note:'먼저 찍고 돌려 보세요. 맞히는 것은 "이 모형이 그렇게 움직이는가"일 뿐, 어느 사상이 옳은지가 아니에요.'}
         ],
-        compute: function(p){ var v = VW[p.v], cv = curve(v, p.e); return {v:v, cv:cv, end:cv[10]}; },
+        compute: function(p){
+          var cv = curve(p.v, p.e, p.k), e0 = curve(0, p.e, p.k)[10], e1 = curve(1, p.e, p.k)[10];
+          var diff = Math.abs(e0 - e1), split = diff >= 10;
+          return {v:VW[p.v], cv:cv, end:cv[10], e0:e0, e1:e1, diff:diff, split:split, ok:(p.q === 0) === split};
+        },
         draw: function(c, W, H, p, r, tau){
           var v = VW[p.v], n = r ? Math.round(tau * 10) : 0, val = r ? r.cv[n] : v.start, lw = 160, gx = W * 0.3, gy = 186;
           c.fillStyle = '#8A6A45'; c.fillRect(gx - lw / 2, gy, lw, 12);
@@ -468,20 +482,28 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['인간관 · 환경', r.v.s + ' · ' + EN[p.e].n], ['10년 뒤 도덕적 성숙 (모형)', f(r.end, 0), r.end >= 80 ? PAL[1] : r.end < 20 ? PAL[4] : PAL[6]],
+            ['또래·주변 수준 (모형값)', f(p.k, 0) + (p.k === 50 ? ' — 기본값' : ''), PAL[7]],
+            ['맹자 / 순자 10년 뒤 (모형)', f(r.e0, 0) + ' / ' + f(r.e1, 0) + ' — 차이 ' + f(r.diff, 0), PAL[3]],
+            ['내 예측 / 모형 결과', (p.q === 0 ? '갈라진다' : '거의 같다') + ' / ' + (r.split ? '갈라졌다' : '거의 같다') + ' → ' + (r.ok ? '맞음' : '다름'), r.ok ? PAL[1] : PAL[4]],
             ['그대로 두면 (' + r.v.s + ')', r.v.idle],
             ['필요한 것 (' + r.v.s + ')', p.v === 0 ? '수양·확충·좋은 환경 — 안에서 기르기' : '예와 스승, 교육과 제도 — 밖에서 다듬기', PAL[3]],
-            ['두 사상의 공통 결론', '누구나 성인이 될 수 있다 — 둘 다 교육과 제도가 필요하다는 실천으로 이어져요', PAL[0]]];
+            ['이 조건에서 모형이 보여 준 것', r.split ? '같은 환경이라도 주변 수준이 달라지면 두 경로의 끝값이 갈라졌어요 — "환경이 같으면 늘 한곳에 모인다"로 요약하면 놓치는 게 생겨요.' : '이 조건에서는 두 경로가 10년 뒤 거의 같은 곳에 닿았어요 — 둘 다 교육과 제도가 필요하다는 실천으로 이어집니다. (값 판단은 네 몫이에요)', PAL[0]]];
         },
-        columns: ['인간관', '환경', '10년 뒤 (모형)'],
-        record: function(p, r){ return {v:p.v, e:p.e, end:r.end}; },
-        row: function(d){ return [VW[d.v].s, EN[d.e].s, f(d.end, 0)]; },
+        columns: ['인간관', '환경', '또래', '10년 뒤 (모형)', '차이', '예측'],
+        record: function(p, r){ return {v:p.v, e:p.e, k:p.k, end:r.end, diff:r.diff, split:r.split, q:p.q, ok:r.ok}; },
+        row: function(d){ return [VW[d.v].s, EN[d.e].s, f(d.k, 0), f(d.end, 0), f(d.diff, 0) + (d.split ? ' 갈림' : ' 비슷'), d.ok ? '맞음' : '다름']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('환경별 10년 뒤 — 맹자 vs 순자 (모형)', '<div id="mv1"></div><p class="ask">출발점이 다른 두 경로가 어느 환경에서 가까워지나요? "정반대 사상"이라는 요약에서 무엇이 빠져 있었나요?</p>') +
+            card('환경별 10년 뒤 — 맹자 vs 순자 (모형)', '<div id="mv1"></div><p class="ask">출발점이 다른 두 경로가 어느 환경에서 가까워지나요? 또래·주변 수준을 낮추면 그 환경에서도 가까워지나요?</p>') +
+            card('내 예측과 모형 결과', '<div id="mv3"></div><p class="ask">예측이 틀린 조건은 어느 것이었나요? 그 조건에서 모형이 왜 그렇게 움직였는지 말로 적어 보세요. (어느 사상이 옳은지는 채점하지 않아요)</p>') +
             card('무게가 다른 곳', '<div id="mv2"></div><p class="ask">과제: 우리 사회 제도 두 개를 골라 각각 어떤 인간관을 전제하는지 분석하고, 그 전제가 실제 결과와 맞는지 자료로 확인해 보세요.</p>') + '</div>';
           var it = [];
           EN.forEach(function(e, j){ VW.forEach(function(v, i){ var a = rec.filter(function(d){ return d.v === i && d.e === j; }); if (!a.length) return; var m = a[a.length - 1].end; it.push({label:e.s + ' · ' + v.s, v:m, color:i ? PAL[3] : PAL[1], text:f(m, 0)}); }); });
           $('mv1').innerHTML = hbars(it, 100);
+          var hit = rec.filter(function(d){ return d.ok; }).length;
+          $('mv3').innerHTML = tableHTML(['환경 · 또래', '내 예측', '모형 결과', '맞음?'],
+            rec.slice(-8).map(function(d){ return [EN[d.e].s + ' · ' + f(d.k, 0), d.q === 0 ? '갈라진다' : '거의 같다', (d.split ? '갈라짐' : '거의 같음') + ' (차이 ' + f(d.diff, 0) + ')', d.ok ? '맞음' : '다름']; }), 'wrap') +
+            '<p class="msg">예측 적중 ' + hit + ' / ' + rec.length + '회. 차이가 10 이상이면 "갈라짐"으로 본 교육용 기준이에요.</p>';
           $('mv2').innerHTML = tableHTML(['', '맹자', '순자'], [['무게를 두는 곳', '안에서 기르기(수양)', '밖에서 다듬기(예·제도)'], ['비유', '싹, 우산(牛山)의 나무', '굽은 나무와 도지개'], ['통치론으로', '덕으로 이끄는 정치', '예와 제도로 다스림']]);
         }
       };
@@ -491,7 +513,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

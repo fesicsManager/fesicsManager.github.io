@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -302,9 +303,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -480,34 +482,45 @@ return (function(){
         {w:'hop', e:'hope', s:'/hɑp/', l:'/hoʊp/', ks:'합', kl:'호우프', vi:1, nm:'오우'},
         {w:'cut', e:'cute', s:'/kʌt/', l:'/kjuːt/', ks:'컷', kl:'큐트', vi:1, nm:'유'},
         {w:'bap', e:'bape', s:'/bæp/', l:'/beɪp/', ks:'뱁', kl:'베이프', vi:1, nm:'에이', made:true},
-        {w:'mip', e:'mipe', s:'/mɪp/', l:'/maɪp/', ks:'밉', kl:'마이프', vi:1, nm:'아이', made:true}
+        {w:'mip', e:'mipe', s:'/mɪp/', l:'/maɪp/', ks:'밉', kl:'마이프', vi:1, nm:'아이', made:true},
+        /* 규칙이 깨지는 실제 단어들 — 끝 e가 있어도 앞 모음이 짧게 소리 난다.
+           e를 뗀 모양(hav·giv·lov)은 영어 단어가 아니라 비교용 모양이다. */
+        {w:'hav', e:'have', s:'/hæv/', l:'/hæv/', ks:'해브', kl:'해브', vi:1, nm:'에이', exc:true},
+        {w:'giv', e:'give', s:'/ɡɪv/', l:'/ɡɪv/', ks:'기브', kl:'기브', vi:1, nm:'아이', exc:true},
+        {w:'lov', e:'love', s:'/lʌv/', l:'/lʌv/', ks:'러브', kl:'러브', vi:1, nm:'오우', exc:true}
       ];
       var E = ['끝에 e 없음', '끝에 e 붙이기'], SND = ['소리 끄기', '소리 켜기 (기기 음성)'];
+      var GP = ['안 찍음', '길게 (알파벳 이름대로)', '짧게 (그대로)'];
       return {
         sceneHeight: 400,
         idle: '바탕 단어와 끝 e를 고른 뒤 <b>읽어 보기</b>를 누르세요.',
-        shortHint: '네 쌍의 진짜 단어를 모두 해 본 뒤, 만든 단어 bap·mip에도 e를 붙여 보세요. 처음 보는 단어도 읽히나요?',
+        shortHint: '네 쌍의 진짜 단어를 모두 해 본 뒤, 만든 단어 bap·mip에도 e를 붙여 보세요. 그다음 have·give·love도 먼저 찍고 읽어 보세요. 규칙이 늘 통하나요?',
         params: [
-          {key:'b', type:'seg', label:'바탕 단어 (* 만든 단어)', cols:3, value:0, options:B.map(function(x){ return x.made ? x.w + ' *' : x.w; })},
+          {key:'b', type:'seg', label:'바탕 단어 (* 만든 단어, e를 뗀 모양은 단어가 아닐 수 있어요)', cols:3, value:0,
+            options:B.map(function(x){ return x.made ? x.w + ' *' : (x.exc ? x.w + ' / ' + x.e : x.w); })},
           {key:'e', type:'seg', label:'끝의 e', cols:2, value:1, options:E},
+          {key:'gp', type:'seg', label:'먼저 찍기: 이 단어에 끝 e를 붙이면 앞 모음은?', cols:3, value:0, options:GP,
+            note:'찍고 나서 읽어 보면 채점해 기록 표에 남깁니다. 끝 e가 붙어도 앞 모음이 길어지지 않는 실제 단어도 목록에 들어 있습니다.'},
           {key:'snd', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
           var x = B[p.b], hasE = p.e === 1, word = hasE ? x.e : x.w;
           var played = p.snd === 1 ? say(word, 'en-US', 0.8) : false;
-          return {x:x, hasE:hasE, word:word, ipa:hasE ? x.l : x.s, ko:hasE ? x.kl : x.ks, vowel:x.w.charAt(x.vi), played:played};
+          var gp = p.gp || 0, longv = !x.exc;
+          return {x:x, hasE:hasE, word:word, ipa:hasE ? x.l : x.s, ko:hasE ? x.kl : x.ks, vowel:x.w.charAt(x.vi), played:played,
+            exc:!!x.exc, longv:longv, guess:gp, gtext:GP[gp], ok:(gp > 0 ? ((gp === 1) === longv) : null)};
         },
         draw: function(c, W, H, p, r, tau){
           var x = B[p.b], hasE = r ? r.hasE : p.e === 1, word = hasE ? x.e : x.w, n = word.length;
           var tw = Math.min(90, (W - 60) / 4.4), x0 = (W - n * (tw + 10) + 10) / 2, y0 = 60;
           for (var i = 0; i < n; i++){
             var ch = word.charAt(i), silent = hasE && i === n - 1, vow = i === x.vi, a = r ? ph(tau, 0.3, 0.6) : 0;
-            var fill = silent ? null : vow && hasE && r ? (a > 0.5 ? PAL[6] : '#EEF3FA') : vow ? '#DCE8F7' : '#EEF3FA';
+            var fill = silent ? null : vow && hasE && r && !x.exc ? (a > 0.5 ? PAL[6] : '#EEF3FA') : vow ? '#DCE8F7' : '#EEF3FA';
             if (silent){ c.setLineDash([6, 5]); rbox(c, x0 + i * (tw + 10), y0, tw, tw, null, '#8C99A8', 2.5); c.setLineDash([]); }
             else rbox(c, x0 + i * (tw + 10), y0, tw, tw, fill, '#B8C7DB');
             tx(c, ch, x0 + i * (tw + 10) + tw / 2, y0 + tw / 2 + 2, {bold:true, size:Math.round(tw * 0.55), align:'center', base:'middle', color:silent ? '#8C99A8' : '#1E2833'});
           }
-          if (hasE && r){
+          if (hasE && r && !x.exc){
             var t = ph(tau, 0, 0.35), sx = x0 + (n - 1) * (tw + 10) + tw / 2, vx = x0 + x.vi * (tw + 10) + tw / 2;
             c.globalAlpha = t; c.strokeStyle = PAL[6]; c.lineWidth = 3; c.beginPath(); c.moveTo(sx, y0 - 6); c.quadraticCurveTo((sx + vx) / 2, y0 - 50, vx, y0 - 8); c.stroke();
             arrow(c, vx + 6, y0 - 22, vx, y0 - 8, PAL[6], 3);
@@ -519,24 +532,39 @@ return (function(){
           c.globalAlpha = b;
           tx(c, r.ipa, W / 2, y1, {bold:true, size:30, align:'center', color:PAL[3]});
           tx(c, '대략 “' + r.ko + '”', W / 2, y1 + 38, {size:20, align:'center', color:'#26313D'});
-          wrapT(c, hasE ? '끝 e는 소리 없음 → 앞 모음이 긴 소리(알파벳 이름)' : '끝 e 없음 → 앞 모음이 짧은 소리', 20, y1 + 82, W - 40, 22, {bold:true, color:hasE ? PAL[6] : PAL[0]});
+          wrapT(c, hasE ? (x.exc ? '끝 e가 있어도 앞 모음은 짧은 소리 — 규칙이 깨지는 단어' : '끝 e는 소리 없음 → 앞 모음이 긴 소리(알파벳 이름)') : '끝 e 없음 → 앞 모음이 짧은 소리', 20, y1 + 82, W - 40, 22, {bold:true, color:hasE && !x.exc ? PAL[6] : PAL[0]});
           if (x.made) wrapT(c, '만든 단어 — 웹툰의 반 친구들: ' + (hasE ? '거의 모두 긴 모음' : '거의 모두 짧은 모음'), 20, y1 + 112, W - 40, 22, {color:PAL[1], bold:true});
           c.globalAlpha = 1;
         },
         stats: function(p, r){
-          return [['단어', r.word + (r.x.made ? ' (만든 단어)' : '')], ['발음', r.ipa + ' — 대략 “' + r.ko + '”', PAL[3]], ['모음 ' + r.vowel, r.hasE ? '긴 소리 — 알파벳 이름 ‘' + r.x.nm + '’' : '짧은 소리', r.hasE ? PAL[6] : PAL[0]],
-            ['끝 e', r.hasE ? '소리 나지 않음 (신호 역할)' : '없음'], ['짝', r.x.w + ' ' + r.x.s + ' ↔ ' + r.x.e + ' ' + r.x.l],
+          var a6 = [['단어', r.word + (r.x.made ? ' (만든 단어)' : (r.exc ? ' (규칙이 깨지는 단어)' : ''))], ['발음', r.ipa + ' — 대략 “' + r.ko + '”', PAL[3]],
+            ['모음 ' + r.vowel, r.hasE ? (r.exc ? '짧은 소리 — e가 붙어도 길어지지 않음' : '긴 소리 — 알파벳 이름 ‘' + r.x.nm + '’') : '짧은 소리', r.hasE && !r.exc ? PAL[6] : PAL[0]],
+            ['끝 e', r.hasE ? (r.exc ? '소리 나지 않지만 모음을 길게 만들지도 않음' : '소리 나지 않음 (신호 역할)') : '없음'],
+            ['규칙대로인가', r.exc ? '아니요 — 끝 e 규칙의 예외 (have·give·love 무리)' : '네 — 끝 e가 앞 모음을 길게 바꿈', r.exc ? PAL[3] : PAL[1]],
+            ['짝', r.x.w + ' ' + r.x.s + ' ↔ ' + r.x.e + ' ' + r.x.l],
             ['소리', p.snd === 1 ? (r.played ? '기기 음성으로 읽음' : '이 기기에서는 음성을 쓸 수 없어요') : '끔']];
+          if (r.guess > 0) a6.push(['먼저 찍은 것 채점', r.gtext + ' → ' + (r.ok ? '맞음' : '틀림') + ' (실제: ' + (r.longv ? '길게' : '짧게') + ')', r.ok ? PAL[1] : PAL[3]]);
+          return a6;
         },
-        columns: ['단어', '끝 e', '발음', '모음 소리'],
-        record: function(p, r){ return {b:p.b, e:p.e, w:r.word, ipa:r.ipa}; },
-        row: function(d){ return [d.w + (B[d.b].made ? ' *' : ''), d.e ? '있음' : '없음', d.ipa, d.e ? '긴 소리' : '짧은 소리']; },
+        columns: ['단어', '끝 e', '발음', '모음 소리', '규칙대로', '찍은 것'],
+        record: function(p, r){ return {b:p.b, e:p.e, w:r.word, ipa:r.ipa, exc:r.exc, longv:r.longv, guess:r.guess, ok:r.ok}; },
+        row: function(d){ return [d.w + (B[d.b].made ? ' *' : ''), d.e ? '있음' : '없음', d.ipa,
+          d.e ? (d.exc ? '짧은 소리 (예외)' : '긴 소리') : '짧은 소리', d.exc ? '예외' : '규칙대로',
+          d.guess > 0 ? (GP[d.guess].split(' ')[0] + (d.ok ? ' ○' : ' ×')) : '안 찍음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('e 하나로 바뀐 짝 — 내가 확인한 단어', '<div id="me1a"></div><p class="ask">진짜 단어 네 쌍과 만든 단어 두 쌍이 모두 같은 방식으로 바뀌었나요? “통째로 외웠다면 처음 보는 단어는 못 읽어야 한다”는 말을 이 결과로 설명해 보세요.</p>') +
-            card('소리 나지 않는 글자의 무리와 진짜 예외', '<div id="me1b"></div><p class="ask">과제: 교과서에서 끝에 e가 붙은 단어 열 개를 찾아 e를 뗀 모양과 함께 소리 내어 읽고, 규칙대로 읽히는 것과 아닌 것을 나눠 보세요. 그리고 가짜 단어 세 개를 만들어 가족에게 읽혀 보세요.</p>') + '</div>';
-          $('me1a').innerHTML = tableHTML(['바탕', 'e 없음', 'e 붙임', '내가 해 봄'], B.map(function(x, i){ var a = rec.filter(function(d){ return d.b === i; }); return [x.w + (x.made ? ' *' : ''), x.w + ' ' + x.s, x.e + ' ' + x.l, a.length ? a.map(function(d){ return d.e ? 'e 붙임' : 'e 없음'; }).filter(function(v, k, arr){ return arr.indexOf(v) === k; }).join(', ') : '—']; }));
+            card('소리 나지 않는 글자의 무리와 진짜 예외', '<div id="me1b"></div><p class="ask">과제: 교과서에서 끝에 e가 붙은 단어 열 개를 찾아 e를 뗀 모양과 함께 소리 내어 읽고, 규칙대로 읽히는 것과 아닌 것을 나눠 보세요. 그리고 가짜 단어 세 개를 만들어 가족에게 읽혀 보세요.</p>') +
+            card('규칙대로인 단어와 깨지는 단어 · 먼저 찍기 채점', '<div id="me1c"></div><p class="ask">만든 단어(bap·mip)는 규칙대로 읽혔는데 have·give·love는 왜 아닐까요? 규칙과 예외 가운데 어느 쪽이 더 많았나요?</p>') + '</div>';
+          $('me1a').innerHTML = tableHTML(['바탕', 'e 없음', 'e 붙임', '규칙', '내가 해 봄'], B.map(function(x, i){ var a = rec.filter(function(d){ return d.b === i; }); return [x.w + (x.made ? ' *' : ''), x.w + ' ' + x.s, x.e + ' ' + x.l, x.exc ? '예외 (짧은 소리 그대로)' : '규칙대로 (길어짐)', a.length ? a.map(function(d){ return d.e ? 'e 붙임' : 'e 없음'; }).filter(function(v, k, arr){ return arr.indexOf(v) === k; }).join(', ') : '—']; }));
           $('me1b').innerHTML = tableHTML(['무리', '예', '읽는 법'], [['kn-', 'knife, knee, know', 'k를 읽지 않음'], ['wr-', 'write, wrong, wrist', 'w를 읽지 않음'], ['-mb', 'climb, lamb, thumb', 'b를 읽지 않음'], ['ee · sh · ck', 'gleep, shog, zeck (만든 단어)', '대부분 ‘이-’, sh 소리, ‘젝’으로 읽음'], ['진짜 예외', 'though, through, tough', 'ough 읽는 법이 제각각']]);
+          var tried = rec.filter(function(d){ return d.guess > 0; }), hit = tried.filter(function(d){ return d.ok; }).length;
+          $('me1c').innerHTML = tableHTML(['항목', '값'], [
+            ['규칙대로 읽힌 기록', rec.filter(function(d){ return !d.exc; }).length + '회'],
+            ['규칙이 깨진 기록', rec.filter(function(d){ return d.exc; }).length + '회'],
+            ['먼저 찍어 본 횟수', tried.length + '회'],
+            ['맞힌 횟수', hit + '회' + (tried.length ? ' (' + Math.round(hit / tried.length * 100) + '%)' : '')]
+          ]) + '<p class="note">※ have · give · love 처럼 끝 e가 있어도 앞 모음이 길어지지 않는 단어가 실제로 있습니다. 비교용으로 쓴 hav · giv · lov 는 영어 단어가 아닙니다.</p>';
         }
       };
     })();
@@ -546,7 +574,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

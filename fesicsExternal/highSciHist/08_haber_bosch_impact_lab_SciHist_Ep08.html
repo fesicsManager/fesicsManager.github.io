@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -453,10 +455,13 @@ var LAB = (function(){
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       function Y(n){ return 2 + 7 * (1 - Math.exp(-n / 90)); }
       function U(n){ return 150 * (1 - Math.exp(-n / 150)); }
-      function calc(e, n){
+      /* 같은 암모니아를 비료와 폭약에 나눠 배분한다. 100% 비료가 기본값이라 예전 결과가 그대로 나온다. */
+      function calc(e, n0, share){
+        var sh = share == null ? 100 : share, n = n0 * sh / 100, ex = n0 - n;
         var y = Y(n), u = U(n), left = n - u, dY = n >= 25 ? y - Y(n - 25) : y - Y(0);
         var envLv = e < 2 ? (e === 0 ? 1 : 0) : Math.min(3, Math.max(1, Math.round(left / 40)));
-        return {y:y, u:u, left:left, dY:dY, envLv:envLv};
+        var warLv = Math.min(3, Math.round(ex / 75));
+        return {y:y, u:u, left:left, dY:dY, envLv:envLv, n:n, ex:ex, sh:sh, warLv:warLv, n0:n0};
       }
       return {
         sceneHeight: 470,
@@ -465,15 +470,19 @@ var LAB = (function(){
         params: [
           {key:'e', type:'seg', label:'시기', cols:2, value:2, options:ERA.map(function(x){ return x.name; })},
           {key:'n', type:'range', label:'가상의 밭에 넣는 질소 비료', min:0, max:300, step:25, value:150, fmt:function(v){ return f(v, 0) + ' kg/ha'; },
-            note:'수확량과 남는 질소는 단순 모형의 가상 수치예요.'}
+            note:'수확량과 남는 질소는 단순 모형의 가상 수치예요.'},
+          {key:'sh', type:'range', label:'암모니아를 비료에 쓰는 몫', min:0, max:100, step:10, value:100, fmt:function(v){ return f(v, 0) + '% (나머지는 폭약)'; },
+            note:'같은 생산량을 비료와 폭약에 나눠 보세요. 수확량과 남는 질소가 배분에 따라 갈립니다.'}
         ],
-        compute: function(p){ return calc(p.e, p.n); },
+        compute: function(p){ return calc(p.e, p.n, p.sh); },
         draw: function(c, W, H, p, r, tau){
-          var E = ERA[p.e], res = r || calc(p.e, p.n), k = r ? Math.min(1, tau / 0.6) : 0.25;
+          var E = ERA[p.e], res = r || calc(p.e, p.n, p.sh), k = r ? Math.min(1, tau / 0.6) : 0.25;
           var cx = W / 2, cy = 76, narrow = W < 620;
           c.fillStyle = '#26313D'; c.fillRect(cx - Math.min(170, W / 2 - 14), cy - 30, Math.min(340, W - 28), 52);
           tf(c, '하버–보슈 공정: N₂ + 3H₂ → 2NH₃', cx, cy + 2, {align:'center', color:'#fff', bold:true}, Math.min(320, W - 40));
-          var br = [{t:'비료', lv:E.food[0], s:E.food[1], col:PAL[1]}, {t:'무기', lv:E.war[0], s:E.war[1], col:PAL[4]}, {t:'환경', lv:res.envLv, s:E.env, col:PAL[5]}];
+          var br = [{t:'비료', lv:E.food[0], s:E.food[1], col:PAL[1]},
+            {t:'무기', lv:Math.max(E.war[0], res.warLv), s:res.ex > 0 ? E.war[1] + ' — 이 배분에서는 ' + f(res.ex, 0) + ' kg/ha 가 폭약 쪽으로' : E.war[1], col:PAL[4]},
+            {t:'환경', lv:res.envLv, s:E.env, col:PAL[5]}];
           br.forEach(function(b, i){
             var bx, by, bw, bh = 74;
             if (narrow){ bx = 14; bw = W - 28; by = 132 + i * 86; } else { bw = (W - 56) / 3; bx = 14 + i * (bw + 14); by = 150; }
@@ -486,33 +495,57 @@ var LAB = (function(){
             if (r && tau > 0.4) tf(c, b.s, bx + 10, by + 56, {color:b.lv >= 2 ? '#fff' : '#1E2833'}, bw - 20);
           });
           var gy = H - 64, gw = W - 28, tot = 300;
-          tf(c, '밭에 넣은 질소 ' + f(p.n, 0) + ' kg/ha의 행방', 14, gy - 12, {bold:true}, W - 28);
+          tf(c, '만든 질소 ' + f(p.n, 0) + ' kg/ha 중 비료로 ' + f(res.n, 0) + ' kg/ha 의 행방', 14, gy - 12, {bold:true}, W - 28);
           c.fillStyle = '#E6EBF1'; c.fillRect(14, gy, gw, 24);
           var ku = r ? Math.min(1, Math.max(0, (tau - 0.5) / 0.5)) : 0;
           c.fillStyle = PAL[1]; c.fillRect(14, gy, gw * res.u / tot * ku, 24);
           c.fillStyle = PAL[6]; c.fillRect(14 + gw * res.u / tot * ku, gy, gw * res.left / tot * ku, 24);
-          if (r && tau >= 1) tf(c, '작물 ' + f(res.u, 0) + ' · 남음 ' + f(res.left, 0) + ' kg/ha · 수확 ' + f(res.y, 1) + ' t/ha', 14, gy + 50, {color:'#4A5868'}, W - 28);
+          if (r && tau >= 1) tf(c, '작물 ' + f(res.u, 0) + ' · 남음 ' + f(res.left, 0) + ' · 폭약 ' + f(res.ex, 0) + ' kg/ha · 수확 ' + f(res.y, 1) + ' t/ha', 14, gy + 50, {color:'#4A5868'}, W - 28);
         },
         stats: function(p, r){
           var E = ERA[p.e];
           return [['시기', E.name], ['공기 중 질소', '약 78% — 식물은 바로 쓰지 못함'],
-            ['질소 비료 투입 (가상 밭)', f(p.n, 0) + ' kg/ha'], ['수확량 (단순 모형)', f(r.y, 1) + ' t/ha', PAL[1]],
+            ['만든 질소 (가상 밭 기준)', f(r.n0, 0) + ' kg/ha'],
+            ['배분', '비료 ' + f(r.sh, 0) + '% (' + f(r.n, 0) + ' kg/ha) · 폭약 ' + f(100 - r.sh, 0) + '% (' + f(r.ex, 0) + ' kg/ha)', PAL[3]],
+            ['질소 비료 투입 (가상 밭)', f(r.n, 0) + ' kg/ha'], ['수확량 (단순 모형)', f(r.y, 1) + ' t/ha', PAL[1]],
             ['작물이 쓴 비료 질소', f(r.u, 0) + ' kg/ha'], ['남는 질소 (유출 위험)', f(r.left, 0) + ' kg/ha', r.left > 60 ? PAL[4] : PAL[6]],
             ['마지막 25 kg이 늘린 수확', p.n >= 25 ? '+' + f(r.dY, 2) + ' t/ha' : '— (투입 0)'],
-            ['비료 갈래', E.food[1], PAL[1]], ['무기 갈래', E.war[1], PAL[4]], ['환경 갈래', E.env, PAL[5]]];
+            ['비료 갈래', E.food[1], PAL[1]], ['무기 갈래', E.war[1], PAL[4]], ['환경 갈래', E.env, PAL[5]],
+            ['판정', r.sh >= 90 ? '거의 다 비료로 갔어요 — 수확은 높지만 남는 질소도 함께 늘어납니다.'
+              : r.sh >= 40 ? '비료와 폭약으로 나뉘었어요 — 수확량은 줄고 폭약 쪽 몫이 늘었습니다.'
+              : '거의 다 폭약으로 갔어요 — 같은 공정, 같은 생산량인데 수확은 ' + f(r.y, 1) + ' t/ha 뿐입니다.',
+              r.sh >= 90 ? PAL[1] : r.sh >= 40 ? PAL[6] : PAL[4]]];
         },
-        columns: ['시기', '질소 투입', '수확량', '남는 질소', '마지막 25 kg 효과'],
-        record: function(p, r){ return {e:p.e, n:p.n, y:r.y, left:r.left, dY:r.dY}; },
-        row: function(d){ return [ERA[d.e].short, f(d.n, 0) + ' kg/ha', f(d.y, 1) + ' t/ha', f(d.left, 0) + ' kg/ha', d.n >= 25 ? '+' + f(d.dY, 2) + ' t/ha' : '—']; },
+        columns: ['시기', '만든 질소', '비료 몫', '비료로 간 질소', '수확량', '남는 질소', '폭약으로'],
+        record: function(p, r){ return {e:p.e, n:r.n0, y:r.y, left:r.left, dY:r.dY, sh:r.sh, fert:r.n, ex:r.ex}; },
+        row: function(d){ return [ERA[d.e].short, f(d.n, 0) + ' kg/ha', f(d.sh == null ? 100 : d.sh, 0) + '%',
+          f(d.fert == null ? d.n : d.fert, 0) + ' kg/ha', f(d.y, 1) + ' t/ha', f(d.left, 0) + ' kg/ha', f(d.ex == null ? 0 : d.ex, 0) + ' kg/ha']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('질소 투입량과 수확량 · 남는 질소', '<canvas class="chart" id="hb8a"></canvas><div id="hb8b"></div><p class="ask">투입량을 늘릴수록 수확량의 증가 폭과 남는 질소는 각각 어떻게 변했나요? &lsquo;많이 쓸수록 좋다&rsquo;를 누가, 어떤 기준으로 조정해야 할까요?</p>') +
+            card('배분에 따라 갈리는 결과 (내가 나눈 몫으로 계산)', '<div id="hb8d"></div><p class="ask">같은 생산량인데 비료 몫을 줄이면 수확량과 남는 질소가 어떻게 갈렸나요? "과학이 발전하면 사회가 저절로 나아진다"는 말을 이 표로 반박해 보세요.</p>') +
             card('과학이 발전하면 윤리도 저절로 생길까', '<div id="hb8c"></div><p class="ask">과제: 최근 기술 하나(유전자 편집, 인공지능, 드론 등)를 골라 비료·무기·환경처럼 갈래를 채운 영향 지도를 그리고, 필요한 연구 윤리 규칙을 한 가지 제안해 보세요.</p>') + '</div>';
           var pts = rec.map(function(d){ return {x:d.n, y:d.y}; }), pl = rec.map(function(d){ return {x:d.n, y:d.left / 20}; });
           drawScatter($('hb8a'), {series:[{color:PAL[1], pts:pts}, {color:PAL[6], pts:pl, hollow:true}], xLabel:'질소 투입 (kg/ha)', yLabel:'수확량 (t/ha)', xHi:300, xStep:50});
           var srt = rec.slice().sort(function(a, b){ return a.n - b.n; }), seen = {}, rows = [];
           srt.forEach(function(d){ if (seen[d.n]) return; seen[d.n] = 1; rows.push([f(d.n, 0), f(d.y, 1), f(d.left, 0), d.n >= 25 ? '+' + f(d.dY, 2) : '—']); });
           $('hb8b').innerHTML = legend([{color:PAL[1], label:'수확량 (t/ha)'}, {color:PAL[6], label:'남는 질소 ÷ 20 (kg/ha)'}]) + tableHTML(['투입(kg/ha)', '수확(t/ha)', '남는 질소(kg/ha)', '마지막 25 kg 효과'], rows.slice(0, 8));
+          /* 만든 질소가 같은 기록끼리 묶어 배분만 다른 결과를 늘어놓는다 */
+          var byN = groupBy(rec, function(x){ return x.n; });
+          var bestN = null;
+          Object.keys(byN).forEach(function(kk){ if (bestN === null || byN[kk].length > byN[bestN].length) bestN = kk; });
+          var grp = bestN === null ? [] : byN[bestN].slice().sort(function(a, b){ return (b.sh == null ? 100 : b.sh) - (a.sh == null ? 100 : a.sh); });
+          var seen2 = {}, rows4 = [];
+          grp.forEach(function(x){ var s2 = x.sh == null ? 100 : x.sh; if (seen2[s2]) return; seen2[s2] = 1;
+            rows4.push([f(s2, 0) + '%', f(x.fert == null ? x.n : x.fert, 0) + ' kg/ha', f(x.y, 1) + ' t/ha',
+              f(x.left, 0) + ' kg/ha', f(x.ex == null ? 0 : x.ex, 0) + ' kg/ha']); });
+          $('hb8d').innerHTML = (rows4.length
+            ? '<p class="msg">만든 질소 ' + f(+bestN, 0) + ' kg/ha 를 어떻게 나눴는지에 따라:</p>'
+              + tableHTML(['비료 몫', '비료로', '수확량', '남는 질소', '폭약으로'], rows4)
+              + '<p class="msg">' + (rows4.length > 1
+                ? '공정도 생산량도 같은데 <b>배분만 달라도 결과가 갈립니다</b>. 무엇을 만들 수 있는지는 과학이 정하지만, 무엇에 쓸지는 사회가 정합니다.'
+                : '같은 생산량에서 "비료에 쓰는 몫"을 여러 값으로 바꿔 기록해 보면 배분에 따라 결과가 갈리는 것을 볼 수 있어요.') + '</p>'
+            : '<p class="msg">"암모니아를 비료에 쓰는 몫"을 바꿔 가며 기록해 보세요.</p>');
           $('hb8c').innerHTML = tableHTML(['연도', '제도', '배경과 핵심'], [['1947', '뉘른베르크 강령', '강제 인체 실험을 다룬 재판 뒤 정리 — 피험자의 자발적 동의가 절대적으로 필요'], ['1964', '헬싱키 선언', '세계의사회가 채택 — 의학 연구의 윤리 원칙, 이후 여러 차례 개정']]);
         }
       };
@@ -522,7 +555,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

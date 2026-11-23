@@ -111,7 +111,9 @@ tbody tr:nth-child(even){background:#fafcff}
         <div id="controls"><div class="ctrl"><label for="a">잠 <span class="val" id="vA">9</span>시간</label><input type="range" id="a" min="5" max="12" step="0.5" value="9"></div>
 <div class="ctrl"><label for="b">학교·학원 <span class="val" id="vB">7</span>시간</label><input type="range" id="b" min="3" max="12" step="0.5" value="7"></div>
 <div class="ctrl"><label for="c">밥·씻기·이동 <span class="val" id="vC">3</span>시간</label><input type="range" id="c" min="1" max="6" step="0.5" value="3"></div>
-<div class="ctrl"><label for="d">숙제·집안일 <span class="val" id="vD">2</span>시간</label><input type="range" id="d" min="0" max="6" step="0.5" value="2"></div></div>
+<div class="ctrl"><label for="d">숙제·집안일 <span class="val" id="vD">2</span>시간</label><input type="range" id="d" min="0" max="6" step="0.5" value="2"></div>
+<div class="ctrl"><label for="cut">줄여 볼 항목</label><select id="cut"><option>안 줄임</option><option>잠</option><option>학교·학원</option><option>밥·씻기·이동</option><option>숙제·집안일</option></select></div>
+<div class="ctrl"><label for="cutH">줄이는 시간 <span class="val" id="vCut">0</span>시간</label><input type="range" id="cutH" min="0" max="3" step="0.5" value="0"></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">원그래프 그리기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -148,10 +150,20 @@ var colors=['#5b7cc7','#2f6df0','#f0903a','#6ab98a','#e05c6e'];
 var el={};for(var i=0;i<ids.length;i++){el[ids[i]]=document.getElementById(ids[i]);}
 var vs={a:'vA',b:'vB',c:'vC',d:'vD'};
 for(var k in el){(function(kk){el[kk].oninput=function(){document.getElementById(vs[kk]).textContent=Number(el[kk].value);};})(k);}
+var cut=document.getElementById('cut'),cutH=document.getElementById('cutH');
+cutH.oninput=function(){document.getElementById('vCut').textContent=Number(cutH.value);};
 function parts(){
   var a=Number(el.a.value),b=Number(el.b.value),cc=Number(el.c.value),d=Number(el.d.value);
   var free=24-a-b-cc-d;
   return [a,b,cc,d,free];
+}
+function cutInfo(){
+  var names=['잠','학교·학원','밥·씻기·이동','숙제·집안일'];
+  var idx=names.indexOf(cut.value),h=Number(cutH.value);
+  if(idx<0||h<=0)return null;
+  var pp=parts(),take=Math.min(h,pp[idx]);
+  var sleep=idx===0?pp[0]-take:pp[0];
+  return {name:names[idx],take:take,before:pp[4],after:pp[4]+take,sleep:sleep,short:sleep<9};
 }
 function draw(prog){
   c.clearRect(0,0,cvv.width,cvv.height);
@@ -180,22 +192,33 @@ function draw(prog){
   }
 }
 return {
-  columns:['번호','잠','학교·학원','생활','숙제·집안일','남는 시간'],
+  columns:['번호','잠','학교·학원','생활','숙제·집안일','남는 시간','줄인 항목','늘어난 시간'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='네 가지를 넣고 나면 <b>내가 정하는 시간</b>이 얼마나 남는지 가운데 숫자로 나옵니다.';},
   run:function(done){
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/30,1));
       if(t>=30){clearInterval(iv);
         var p=parts();
-        out.innerHTML=p[4]<0
+        var msg=p[4]<0
           ? '<b>24시간을 넘었습니다.</b> 계획이 하루보다 큽니다. 어디를 줄일 수 있을까요?'
           : '내가 정할 수 있는 시간은 <b>'+p[4].toFixed(1)+'시간</b>입니다. 이 칸을 어떻게 쓸지가 자기 관리입니다.';
+        var ci=cutInfo();
+        if(ci){
+          msg+='<br><b>'+ci.name+'</b>을(를) '+ci.take.toFixed(1)+'시간 줄이면 내가 정하는 시간은 '+
+               ci.before.toFixed(1)+'시간 → <b>'+ci.after.toFixed(1)+'시간</b>'+
+               (ci.short?' 이 되지만, 잠이 <b>'+ci.sleep.toFixed(1)+'시간</b>으로 줄어 권장 수면(초등 9~11시간, 교육용 기준값)보다 적어집니다. 이렇게 얻은 시간은 <b>빌린 시간</b>입니다.'
+                        :' 이 됩니다. 이 항목은 줄여도 괜찮은 범위였습니다.');
+        }else{
+          msg+='<br>옆에서 <b>줄여 볼 항목</b>과 <b>줄이는 시간</b>을 정하면, 무엇을 줄였을 때 몇 시간이 늘어나는지 견줄 수 있습니다.';
+        }
+        out.innerHTML=msg;
         done();}},30);
   },
   record:function(){
-    var p=parts();
+    var p=parts(),ci=cutInfo();
     recN++;
-    return {cells:[String(recN),p[0],p[1],p[2],p[3],p[4].toFixed(1)],raw:{free:p[4],sleep:p[0],school:p[1]}};
+    return {cells:[String(recN),p[0],p[1],p[2],p[3],p[4].toFixed(1),ci?ci.name:'안 줄임',ci?('+'+ci.take.toFixed(1)):'0'],
+            raw:{free:p[4],sleep:p[0],school:p[1],cut:ci?ci.name:null,take:ci?ci.take:0,gain:ci?ci.after:p[4],short:ci?ci.short:false}};
   },
   verify:function(rs){
     var f=[],s=[];for(var i=0;i<rs.length;i++){f.push(rs[i].raw.free);s.push(rs[i].raw.sleep);}
@@ -210,6 +233,22 @@ return {
     h+='</div><div><h3>읽어 내기</h3><p style="font-size:1.03rem;line-height:1.85">'+
        '가장 많이 남은 경우 <b>'+mx.toFixed(1)+'시간</b><br>가장 적게 남은 경우 <b>'+mn.toFixed(1)+'시간</b><br>'+
        '24시간을 넘긴 계획 <b>'+over+'개</b></p>'+
+       (function(){
+         var g={},bad=0,any=false;
+         for(var q=0;q<rs.length;q++){
+           var r=rs[q].raw; if(!r.cut)continue; any=true;
+           if(!g[r.cut])g[r.cut]={t:0,n:0};
+           g[r.cut].t+=(r.gain-r.free); g[r.cut].n++;
+           if(r.short)bad++;
+         }
+         if(!any)return '<p style="font-size:1rem;line-height:1.8">아직 <b>줄여 볼 항목</b>을 쓴 기록이 없습니다. 항목을 바꿔 가며 기록하면 어느 쪽이 가장 이득인지 여기서 겨뤄 줍니다.</p>';
+         var best='',bv=-1,lines='';
+         for(var k in g){var av=g[k].t/g[k].n; if(av>bv){bv=av;best=k;}
+           lines+='<div style="font-size:.95rem">'+k+' 줄이기 · 평균 +'+av.toFixed(1)+'시간 ('+g[k].n+'회)</div><div class="barwrap"><div class="bar" style="width:'+Math.min(av/3*100,100)+'%"></div></div>';}
+         return '<h4 style="margin:.6rem 0 .2rem">줄이기 방법 겨루기</h4>'+lines+
+           '<p style="font-size:1.03rem;line-height:1.8">가장 많이 늘어난 방법은 <b>'+best+' 줄이기</b>(평균 +'+bv.toFixed(1)+'시간)였습니다.'+
+           (bad?' 그런데 잠이 권장 수면보다 적어진 계획이 <b>'+bad+'개</b> 있었습니다 — 이득처럼 보여도 다음 날에서 빌려 온 시간입니다.':' 잠을 깎지 않고 얻은 시간입니다.')+'</p>';
+       })()+
        '<ol style="font-size:1rem;line-height:1.9;padding-left:1.2rem">'+
        '<li>어느 항목을 바꿨을 때 남는 시간이 가장 많이 달라졌나요?</li>'+
        '<li>게임 한 시간은 무엇을 한 시간 포기한 것과 같을까요?</li></ol></div></div>'+

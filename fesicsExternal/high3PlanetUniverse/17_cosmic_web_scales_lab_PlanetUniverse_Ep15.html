@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -448,9 +450,13 @@ var LAB = (function(){
       var best = nodes[0], bc = -1;
       nodes.forEach(function(nd){ var n = 0; GAL.forEach(function(q){ if (Math.abs(q[0] - nd[0]) < 5 && Math.abs(q[1] - nd[1]) < 5) n++; }); if (n > bc && nd[0] > 150 && nd[0] < 450 && nd[1] > 150 && nd[1] < 450){ bc = n; best = nd; } });
       if (bc < 0) best = [300, 300];
+      /* 견줄 가짜 우주 — 은하 수는 같게, 자리만 무작위로 흩었다 */
+      var R2 = rng(777), GALR = [];
+      for (var q2 = 0; q2 < GAL.length; q2++) GALR.push([R2() * S, R2() * S]);
+      var UNI = ['실제처럼 뭉친 우주', '무작위로 흩은 가짜 우주'];
       var ZM = [{n:'은하군 규모 (10 Mpc)', w:10, lab:'은하군 · 국부 은하군 지름 약 3 Mpc'}, {n:'은하단 규모 (40 Mpc)', w:40, lab:'은하단 · 수백~수천 개 은하'}, {n:'초은하단 규모 (150 Mpc)', w:150, lab:'초은하단 · 필라멘트와 보이드'}, {n:'전체 (600 Mpc)', w:600, lab:'우주 거미줄 전체'}];
-      function measure(L){ var n = Math.floor(S / L), cnt = [], j; for (j = 0; j < n * n; j++) cnt.push(0);
-        GAL.forEach(function(q){ var ix = Math.floor(q[0] / L), iy = Math.floor(q[1] / L); if (ix < n && iy < n) cnt[iy * n + ix]++; });
+      function measure(L, arr){ var n = Math.floor(S / L), cnt = [], j; for (j = 0; j < n * n; j++) cnt.push(0);
+        (arr || GAL).forEach(function(q){ var ix = Math.floor(q[0] / L), iy = Math.floor(q[1] / L); if (ix < n && iy < n) cnt[iy * n + ix]++; });
         var mn = mean(cnt), v = mean(cnt.map(function(x){ return (x - mn) * (x - mn); })); return {n:n * n, mn:mn, dl:mn > 0 ? Math.sqrt(Math.max(0, v - mn)) / mn : 0, mx:Math.max.apply(null, cnt), zero:cnt.filter(function(x){ return x === 0; }).length / cnt.length}; }
       return {
         sceneHeight: 460,
@@ -458,9 +464,15 @@ var LAB = (function(){
         shortHint: '상자 크기를 10, 25, 50, 100, 200 Mpc로 바꿔 기록하고 검증 탭에서 δ가 어떻게 줄어드는지 보세요.',
         params: [
           {key:'z', type:'seg', label:'확대 단계', cols:2, value:3, options:ZM.map(function(x){ return x.n; })},
-          {key:'L', type:'range', label:'상자 크기 L', min:10, max:200, step:5, value:50, fmt:function(v){ return v + ' Mpc (' + (v * 3.26).toFixed(0) + '백만 광년)'; }}
+          {key:'L', type:'range', label:'상자 크기 L', min:10, max:200, step:5, value:50, fmt:function(v){ return v + ' Mpc (' + (v * 3.26).toFixed(0) + '백만 광년)'; }},
+          {key:'u', type:'seg', label:'볼 우주', cols:2, value:0, options:UNI,
+            note:'은하 수는 같고 자리만 무작위로 흩은 가짜 우주와 견줘 보세요. δ가 큰 것이 상자 크기 탓인지, 정말 뭉쳐 있기 때문인지 갈라 볼 수 있습니다.'}
         ],
-        compute: function(p){ var m = measure(p.L); return {L:p.L, nCell:m.n, mn:m.mn, dl:m.dl, mx:m.mx, zero:m.zero, total:GAL.length}; },
+        compute: function(p){
+          var mine = measure(p.L, p.u ? GALR : GAL), other = measure(p.L, p.u ? GAL : GALR);
+          return {L:p.L, nCell:mine.n, mn:mine.mn, dl:mine.dl, mx:mine.mx, zero:mine.zero, total:GAL.length,
+            u:p.u, dlOther:other.dl, zeroOther:other.zero};
+        },
         draw: function(c, W, H, p, r, tau){
           var zm = ZM[p.z], side = Math.min(W - 20, H - 60), x0 = (W - side) / 2, y0 = 10, sc = side / zm.w;
           var cx = zm.w >= S ? S / 2 : best[0], cy = zm.w >= S ? S / 2 : best[1];
@@ -469,7 +481,7 @@ var LAB = (function(){
           c.save(); c.beginPath(); c.rect(x0, y0, side, side); c.clip();
           var ps = zm.w <= 10 ? 5 : zm.w <= 40 ? 3 : zm.w <= 150 ? 2 : 1.4;
           c.fillStyle = 'rgba(220,235,255,.85)';
-          GAL.forEach(function(q){ var px = X(q[0]), py = Y(q[1]); if (px < x0 - 5 || px > x0 + side + 5 || py < y0 - 5 || py > y0 + side + 5) return; c.fillRect(px - ps / 2, py - ps / 2, ps, ps); });
+          (p.u ? GALR : GAL).forEach(function(q){ var px = X(q[0]), py = Y(q[1]); if (px < x0 - 5 || px > x0 + side + 5 || py < y0 - 5 || py > y0 + side + 5) return; c.fillRect(px - ps / 2, py - ps / 2, ps, ps); });
           if (r){ var n = Math.floor(S / p.L), shown = Math.floor(n * tau + 1e-9); c.strokeStyle = 'rgba(124,240,176,.55)'; c.lineWidth = 1;
             for (var i = 0; i <= Math.min(n, shown); i++){ var gx = X(i * p.L), gy = Y(i * p.L); c.beginPath(); c.moveTo(gx, Y(0)); c.lineTo(gx, Y(n * p.L)); c.stroke(); c.beginPath(); c.moveTo(X(0), gy); c.lineTo(X(n * p.L), gy); c.stroke(); } }
           c.restore();
@@ -479,25 +491,45 @@ var LAB = (function(){
           else txt(c, '상자 ' + p.L + ' Mpc > 이 화면', x0 + 8, y0 + 24, {bold:true, color:'#7CF0B0'});
           var bar = zm.w / 5; seg(c, x0 + side - 12 - bar * sc, y0 + side - 16, x0 + side - 12, y0 + side - 16, '#FFD66B', 3);
           txt(c, f(bar, 0) + ' Mpc', x0 + side - 12, y0 + side - 24, {align:'right', color:'#FFD66B', bold:true});
-          txt(c, zm.lab, 12, H - 20, {bold:true, color:'#fff'});
+          txt(c, p.u ? '무작위로 흩은 가짜 우주' : zm.lab, 12, H - 20, {bold:true, color:p.u ? '#FFD66B' : '#fff'});
           if (r && tau >= 1) txt(c, 'δ = ' + f(r.dl, 2), W - 12, H - 20, {align:'right', bold:true, color:r.dl < 0.3 ? '#7CF0B0' : '#FFD66B'});
         },
         stats: function(p, r){
           return [['상자 크기 L', r.L + ' Mpc (약 ' + f(r.L * 3.26 / 100, 1) + '억 광년)'], ['상자 수 / 상자당 평균 은하', r.nCell + '개 / ' + f(r.mn, 1) + '개'],
             ['밀도 요동 δ', f(r.dl, 2), r.dl < 0.3 ? PAL[1] : PAL[4]], ['가장 붐비는 상자 / 평균', f(r.mx / Math.max(r.mn, 1e-9), 1) + '배'],
-            ['은하가 하나도 없는 상자', f(r.zero * 100, 0) + ' %', PAL[3]], ['해석', r.dl > 0.6 ? '뭉침과 보이드가 뚜렷 (계층 구조)' : r.dl > 0.25 ? '구조가 남아 있음' : '거의 균일 — 우주 원리에 가까움', PAL[0]]];
+            ['은하가 하나도 없는 상자', f(r.zero * 100, 0) + ' %', PAL[3]], ['해석', r.dl > 0.6 ? '뭉침과 보이드가 뚜렷 (계층 구조)' : r.dl > 0.25 ? '구조가 남아 있음' : '거의 균일 — 우주 원리에 가까움', PAL[0]],
+            ['지금 보는 우주', UNI[r.u], r.u ? PAL[6] : PAL[0]],
+            ['같은 L 에서 ' + UNI[1 - r.u] + '의 δ', f(r.dlOther, 2)],
+            ['가짜 우주와 견주면', (r.u ? r.dlOther - r.dl : r.dl - r.dlOther) > 0.1
+              ? '뭉친 우주의 δ 가 뚜렷하게 큽니다 — δ 는 상자 크기 탓이 아니라 <b>정말 뭉쳐 있기</b> 때문입니다'
+              : '두 우주의 δ 가 비슷합니다 — 이 상자 크기에서는 뭉침이 드러나지 않습니다',
+              (r.u ? r.dlOther - r.dl : r.dl - r.dlOther) > 0.1 ? PAL[1] : PAL[6]]];
         },
-        columns: ['L (Mpc)', '상자 수', '평균 은하', 'δ', '빈 상자(%)'],
-        record: function(p, r){ return {L:r.L, n:r.nCell, mn:r.mn, dl:r.dl, zero:r.zero}; },
-        row: function(d){ return [d.L, d.n, f(d.mn, 1), f(d.dl, 2), f(d.zero * 100, 0)]; },
+        columns: ['우주', 'L (Mpc)', '상자 수', '평균 은하', 'δ', '가짜 우주 δ', '빈 상자(%)'],
+        record: function(p, r){ return {L:r.L, n:r.nCell, mn:r.mn, dl:r.dl, zero:r.zero, u:r.u, dlo:r.dlOther}; },
+        row: function(d){ return [d.u == null ? '뭉친 우주' : UNI[d.u], d.L, d.n, f(d.mn, 1), f(d.dl, 2), d.dlo == null ? '−' : f(d.dlo, 2), f(d.zero * 100, 0)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('상자 크기와 밀도 요동', '<canvas class="chart" id="wv1"></canvas><div id="wv1t"></div><p class="ask">δ가 0.3 아래로 떨어지는 상자 크기는 대략 몇 Mpc인가요? 이 크기를 보이드·필라멘트의 크기와 비교해 보세요.</p>') +
             card('계층 구조 크기 비교', '<div id="wv2"></div><p class="ask">과제: 은하 → 은하군 → 은하단 → 초은하단 → 우주 거미줄 순으로 크기와 은하 수를 표로 정리하고, "구조가 있다"와 "큰 규모에서 균일하다"가 동시에 참인 까닭을 이 실험 결과로 설명하세요.</p>') + '</div>';
-          var pts = rec.map(function(d){ return {x:d.L, y:d.dl}; });
-          drawScatter($('wv1'), {series:[{color:PAL[4], pts:pts}], lines:[{h:0.3, color:PAL[1], dash:true}], xLabel:'상자 크기 L (Mpc)', yLabel:'밀도 요동 δ'});
-          var srt = rec.slice().sort(function(a, b){ return a.L - b.L; }), cross = srt.filter(function(d){ return d.dl < 0.3; })[0];
-          $('wv1t').innerHTML = '<p class="msg">' + (cross ? '기록 중 δ &lt; 0.3이 처음 나온 상자 크기: ' + cross.L + ' Mpc' : '아직 δ &lt; 0.3인 기록이 없어요. 상자를 더 크게 해 보세요.') + '</p>';
+          var real = rec.filter(function(d){ return !d.u; }), fake = rec.filter(function(d){ return d.u; });
+          drawScatter($('wv1'), {series:[{color:PAL[4], pts:real.map(function(d){ return {x:d.L, y:d.dl}; })},
+              {color:PAL[6], pts:fake.map(function(d){ return {x:d.L, y:d.dl}; }), hollow:true}],
+            lines:[{h:0.3, color:PAL[1], dash:true}], xLabel:'상자 크기 L (Mpc)', yLabel:'밀도 요동 δ'});
+          var srt = real.slice().sort(function(a, b){ return a.L - b.L; }), cross = srt.filter(function(d){ return d.dl < 0.3; })[0];
+          var msg = '<p class="msg">' + (cross ? '뭉친 우주에서 δ &lt; 0.3 이 처음 나온 상자 크기: ' + cross.L + ' Mpc' : '아직 δ &lt; 0.3 인 기록이 없어요. 상자를 더 크게 해 보세요.') + '</p>' +
+            legend([{color:PAL[4], label:UNI[0]}, {color:PAL[6], label:UNI[1]}]);
+          if (fake.length){
+            var fm = fake.reduce(function(a, d){ return a + d.dl; }, 0) / fake.length;
+            var rm = real.length ? real.reduce(function(a, d){ return a + d.dl; }, 0) / real.length : null;
+            msg += '<p class="msg">무작위로 흩은 가짜 우주의 δ 평균은 <b>' + f(fm, 2) + '</b>' + (rm != null ? ', 뭉친 우주는 <b>' + f(rm, 2) + '</b>' : '') + '입니다. ' +
+              (rm != null && rm - fm > 0.1
+                ? '같은 은하 수, 같은 상자 크기인데도 <b>뭉친 우주에서만 δ 가 큽니다</b> — δ 는 셈하는 방법이 만든 값이 아니라 구조의 값입니다.'
+                : '두 쪽이 비슷하다면 상자 크기를 더 작게 해 보세요 — 작은 상자에서 차이가 커집니다.') + '</p>';
+          } else {
+            msg += '<p class="msg"><b>무작위로 흩은 가짜 우주</b>로도 같은 상자 크기에서 재어 보세요. 뭉친 우주에서만 δ 가 큰지 확인할 수 있습니다.</p>';
+          }
+          $('wv1t').innerHTML = msg;
           $('wv2').innerHTML = tableHTML(['구조', '대략 크기', '예'], [['은하', '수십 kpc', '우리은하 (지름 약 30 kpc)'], ['은하군', '수 Mpc', '국부 은하군'], ['은하단', '수 Mpc, 은하 수백~수천', '처녀자리 은하단'], ['초은하단', '수십~100 Mpc 이상', '라니아케아'], ['장성·보이드', '수십~수백 Mpc', 'CfA2 장성, 목동자리 보이드']]);
         }
       };
@@ -507,7 +539,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

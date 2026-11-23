@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>처음부터 반도체를 팔았나</h1>
-    <p>우리나라가 다른 나라에 많이 판 물건(수출품) 카드를 하나 고르고, <b>어느 시기에 많이 팔았는지</b> 예측해 보세요. 카드가 세 시기 계단 중 하나에 놓이고, 만드는 데 많이 필요한 것(손·공장·기술)이 함께 나와요.<br><span style="font-size:.9em;color:#a86825">※ 시기별 대표 수출품을 어림해 묶었어요. 정확한 순위와 금액은 해마다 달라요.</span></p>
+    <p>우리나라가 다른 나라에 많이 판 물건(수출품) 카드를 하나 고르고, <b>어느 시기에 많이 팔았는지</b>와 <b>만드는 데 무엇이 가장 많이 드는지</b>를 예측해 보세요. 카드가 세 시기 계단 중 하나에 놓이고, 만드는 데 많이 필요한 것(손·공장·기술)이 함께 나와요.<br><span style="font-size:.9em;color:#a86825">※ 시기별 대표 수출품을 어림해 묶었어요. 정확한 순위와 금액은 해마다 달라요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,16 +438,17 @@ var LAB = (function(){
       var ERA = ['1960년대', '1970~1980년대', '1990년대 이후'], NEED = ['사람의 손', '큰 공장과 기계', '높은 기술과 연구'], EC = [PAL[2], PAL[7], PAL[0]];
       return {
         sceneHeight: 380,
-        idle: '수출품 카드와 시기 예측을 고른 뒤 <b>시기에 놓기</b>를 누르세요.',
+        idle: '수출품 카드와 두 가지 예측을 고른 뒤 <b>시기에 놓기</b>를 누르세요.',
         shortHint: '카드 9장을 모두 놓아 보세요. 시기마다 많이 필요한 것이 무엇으로 바뀌었나요?',
         params: [
           {key:'i', type:'seg', label:'수출품 카드', cols:3, value:7, options:IT.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'예측: 많이 판 시기는?', cols:3, value:0, options:ERA,
-            note:'뭉치는 "우리나라는 원래부터 반도체 나라!"라고 했어요.'}
+          {key:'g', type:'seg', label:'예측 ①: 많이 판 시기는?', cols:3, value:0, options:ERA,
+            note:'뭉치는 "우리나라는 원래부터 반도체 나라!"라고 했어요.'},
+          {key:'q', type:'seg', label:'예측 ②: 만드는 데 가장 많이 드는 것은?', cols:3, value:0, options:NEED}
         ],
         compute: function(p){
-          var it = IT[p.i], ok = it.e.indexOf(p.g) >= 0;
-          return {it:it, ok:ok, first:it.e[0], eras:it.e.map(function(e){ return ERA[e]; }).join(', ')};
+          var it = IT[p.i], ok = it.e.indexOf(p.g) >= 0, first = it.e[0];
+          return {it:it, ok:ok, okq:p.q === first, first:first, eras:it.e.map(function(e){ return ERA[e]; }).join(', ')};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, sw = (W - 40) / 3, base = H - 40;
@@ -470,19 +473,22 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['수출품', r.it.n], ['내가 놓은 시기', ERA[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
-            ['많이 판 시기', r.eras, PAL[1]], ['만드는 데 많이 필요한 것', NEED[r.first], EC[r.first]],
+            ['많이 판 시기', r.eras, PAL[1]],
+            ['내가 고른 "많이 드는 것"', NEED[p.q] + (r.okq ? ' — ○' : ' — ✕'), r.okq ? PAL[1] : PAL[4]],
+            ['만드는 데 많이 필요한 것', NEED[r.first], EC[r.first]],
             ['뭉치의 주장과 비교', r.it.n === '반도체' ? '반도체가 수출 1위가 된 것은 1990년대부터예요' : '처음부터 반도체가 아니라, 한 계단씩 올라왔어요']];
         },
-        columns: ['수출품', '내가 놓은 시기', '많이 판 시기', '판정'],
-        record: function(p, r){ return {i:p.i, g:p.g, ok:r.ok}; },
-        row: function(d){ return [IT[d.i].n, ERA[d.g], IT[d.i].e.map(function(e){ return ERA[e]; }).join(', '), d.ok ? '○' : '✕']; },
+        columns: ['수출품', '내가 놓은 시기', '내가 고른 것', '많이 판 시기', '판정'],
+        record: function(p, r){ return {i:p.i, g:p.g, q:p.q, ok:r.ok, okq:r.okq}; },
+        row: function(d){ return [IT[d.i].n, ERA[d.g], NEED[d.q], IT[d.i].e.map(function(e){ return ERA[e]; }).join(', '), (d.ok ? '○' : '✕') + (d.okq ? '○' : '✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('시기별로 바르게 놓은 카드', '<div id="ex1"></div><p class="ask">1960년대 카드와 1990년대 이후 카드는 만드는 데 필요한 것이 어떻게 달랐나요?</p>') +
+            card('시기별로 바르게 놓은 카드', '<div id="ex1"></div><p class="ask">1960년대 카드와 1990년대 이후 카드는 만드는 데 필요한 것이 어떻게 달랐나요? 손·공장·기술 가운데 내가 맞힌 것은 몇 번이었나요?</p>') +
             card('시기별 카드 수 (자료 기준)', '<div id="ex2"></div><p class="ask">과제: 할머니·할아버지나 부모님께 어릴 때 집에 있던 물건과 지금 집에 있는 물건을 여쭤보고, 무엇이 새로 생겼는지 표로 비교해 보세요.</p>') + '</div>';
           var rows = ERA.map(function(en, ei){ var ok = {}; rec.forEach(function(d){ if (d.ok && d.g === ei) ok[d.i] = 1; });
             return [en, NEED[ei], Object.keys(ok).map(function(k){ return IT[k].n; }).join(', ') || '–']; });
-          $('ex1').innerHTML = tableHTML(['시기', '많이 필요한 것', '바르게 놓은 카드'], rows);
+          var qn = rec.filter(function(d){ return d.okq; }).length;
+          $('ex1').innerHTML = tableHTML(['시기', '많이 필요한 것', '바르게 놓은 카드'], rows) + '<p>"많이 드는 것"을 맞힌 기록: ' + rec.length + '번 중 ' + qn + '번</p>';
           $('ex2').innerHTML = hbars(ERA.map(function(en, ei){ var n = IT.filter(function(x){ return x.e.indexOf(ei) >= 0; }).length; return {label:en, v:n, color:EC[ei], text:n + '장'}; }), 4);
         }
       };
@@ -492,7 +498,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

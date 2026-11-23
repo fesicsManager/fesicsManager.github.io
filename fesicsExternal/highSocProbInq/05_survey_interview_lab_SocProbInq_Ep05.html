@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -448,6 +450,16 @@ var LAB = (function(){
         [[2, '강함 — 면접이 찾은 네 범주가 각각 얼마나 흔한지 잴 수 있어요 (값은 새 조사로)'], [1, '보통 — 범주는 보이지만, 범주 자체는 면접이 찾아 준 것이에요'], [0, '약함 — 여전히 스스로 답한 말이에요']]
       ];
       var LV = ['약함/못 함', '보통', '강함'], LC = [PAL[4], PAL[6], PAL[1]];
+      /* 가상 모집단(교육용 모형): 혼자 33.3% · 도움 25% · 되는 곳만 25% · 못 함 16.7% */
+      var TRUE = [
+        {p:0.833, n:'‘이용할 수 있다(예)’라고 답할 사람'},
+        {p:0.333, n:'‘예’ 가운데 혼자 끝내는 사람'},
+        {p:0.333, n:'줄에서 혼자 끝내지 못하는 사람'},
+        {p:0.333, n:'혼자 이용한다고 고른 사람'}
+      ];
+      var MIN_PER = [1, 30, 20, 2];   /* 한 사람당 드는 시간(분) — 교육용 모형값 */
+      function srnd(seed){ var s = seed % 2147483647; if (s <= 0) s += 2147483646; return function(){ s = s * 16807 % 2147483647; return (s - 1) / 2147483646; }; }
+      function simulate(p0, n, seed){ var g = srnd(seed), k = 0; for (var i = 0; i < n; i++) if (g() < p0) k++; return k / n; }
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       function person(c, x, y, s, col){ c.fillStyle = col; c.beginPath(); c.arc(x, y - s * 0.9, s * 0.45, 0, Math.PI * 2); c.fill(); c.fillRect(x - s * 0.45, y - s * 0.4, s * 0.9, s * 1.1); }
       return {
@@ -457,9 +469,17 @@ var LAB = (function(){
         params: [
           {key:'m', type:'seg', label:'조사 방법', cols:2, value:0, options:M.map(function(x){ return x.name; })},
           {key:'q', type:'seg', label:'던질 질문', cols:3, value:0, options:Q,
-            note:'고친 설문 문항: “키오스크를 어떻게 이용하십니까? 1) 혼자 이용한다 2) 도움을 받아 이용한다 3) 키오스크만 있는 곳은 피한다 4) 이용하지 않는다”'}
+            note:'고친 설문 문항: “키오스크를 어떻게 이용하십니까? 1) 혼자 이용한다 2) 도움을 받아 이용한다 3) 키오스크만 있는 곳은 피한다 4) 이용하지 않는다”'},
+          {key:'n', type:'range', label:'조사한 사람 수', min:12, max:600, step:12, value:12, fmt:function(v){ return f(v, 0) + '명'; },
+            note:'같은 가상 모집단(혼자 33 · 도움 25 · 되는 곳만 25 · 못 함 17명/100명, 교육용 모형값)에 방법을 적용해 봅니다. 사람 수를 늘리면 숫자가 참값에 가까워지지만 드는 시간도 함께 커집니다.'}
         ],
-        compute: function(p){ var x = FIT[p.m][p.q]; return {lv:x[0], msg:x[1]}; },
+        compute: function(p){
+          var x = FIT[p.m][p.q], t = TRUE[p.m], n = p.n;
+          var est = simulate(t.p, n, p.m * 7919 + p.q * 104729 + n * 13);
+          var moe = 1.96 * Math.sqrt(t.p * (1 - t.p) / n) * 100;
+          var hours = n * MIN_PER[p.m] / 60;
+          return {lv:x[0], msg:x[1], t:t, n:n, est:est * 100, moe:moe, hours:hours, hard:hours > 60};
+        },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(1, tau / 0.7) : 0, s = Math.min(22, (W - 40) / 13);
           tf(c, M[p.m].short + ' → ' + Q[p.q], 16, 26, {bold:true}, W - 32);
@@ -486,17 +506,23 @@ var LAB = (function(){
           }
           if (r){
             var lv = r.lv, bw = (W - 40) / 3;
-            for (var b = 0; b < 3; b++){ c.fillStyle = b <= lv ? LC[lv] : '#E6EBF1'; c.fillRect(20 + b * bw, H - 70, bw - 6, 22); }
-            tf(c, '이 질문에 대한 방법의 힘: ' + LV[lv], 20, H - 20, {bold:true, color:LC[lv]}, W - 40);
+            for (var b = 0; b < 3; b++){ c.fillStyle = b <= lv ? LC[lv] : '#E6EBF1'; c.fillRect(20 + b * bw, H - 94, bw - 6, 22); }
+            tf(c, '이 질문에 대한 방법의 힘: ' + LV[lv], 20, H - 60, {bold:true, color:LC[lv]}, W - 40);
+            tf(c, r.n + '명 조사 → ' + f(r.est, 1) + '% (±' + f(r.moe, 1) + '%p)', 20, H - 36, {bold:true, color:PAL[0]}, W - 40);
+            tf(c, '드는 시간 약 ' + f(r.hours, 1) + '시간' + (r.hard ? ' — 현실적으로 벅참' : ''), 20, H - 12, {color:r.hard ? PAL[4] : '#4A5868'}, W - 40);
           }
         },
         stats: function(p, r){
           return [['조사 방법', M[p.m].name], ['질문', Q[p.q]], ['답하는 힘', LV[r.lv], LC[r.lv]], ['근거', r.msg, PAL[3]],
+            ['이 방법이 재는 것', r.t.n + ' — 참값 ' + f(r.t.p * 100, 1) + '% (교육용 모형)'],
+            ['조사해서 나온 값', f(r.est, 1) + '% (' + r.n + '명) — 참값과 ' + f(Math.abs(r.est - r.t.p * 100), 1) + '%p 차이', PAL[0]],
+            ['들쭉날쭉한 폭', '±' + f(r.moe, 1) + '%p — 사람 수를 4배로 늘리면 폭은 절반이 됩니다', PAL[6]],
+            ['드는 시간', f(r.hours, 1) + '시간 (한 사람당 ' + MIN_PER[p.m] + '분)' + (r.hard ? ' — 이 방법으로는 벅찬 규모' : ''), r.hard ? PAL[4] : PAL[2]],
             ['연구 윤리', p.m === 0 || p.m === 3 ? '응답은 익명으로, 원하지 않는 문항은 건너뛸 수 있게' : '참여 동의·녹음 허락·익명 처리·언제든 그만둘 권리를 먼저 안내']];
         },
-        columns: ['방법', '질문', '답하는 힘'],
-        record: function(p, r){ return {m:p.m, q:p.q, lv:r.lv}; },
-        row: function(d){ return [M[d.m].short, Q[d.q], LV[d.lv]]; },
+        columns: ['방법', '질문', '사람 수', '나온 값', '±폭', '시간'],
+        record: function(p, r){ return {m:p.m, q:p.q, lv:r.lv, n:r.n, est:r.est, moe:r.moe, hours:r.hours}; },
+        row: function(d){ return [M[d.m].short, Q[d.q], d.n + '명', f(d.est, 1) + '%', '±' + f(d.moe, 1) + '%p', f(d.hours, 1) + 'h']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 채운 방법 × 질문 지도', '<div id="si1"></div><p class="ask">어느 방법도 세 질문 모두에 강하지 않습니다. 면접이 설문에 넘겨준 것과 설문이 면접에 넘겨준 것을 한 문장씩 써 보세요.</p>') +
@@ -504,7 +530,9 @@ var LAB = (function(){
           var cell = {}; rec.forEach(function(d){ cell[d.m + '-' + d.q] = d.lv; });
           $('si1').innerHTML = tableHTML(['방법'].concat(Q), M.map(function(m, i){ return [m.short].concat(Q.map(function(q, j){ var v = cell[i + '-' + j]; return v == null ? '·' : '<b style="color:' + LC[v] + '">' + LV[v] + '</b>'; })); })) +
             (Object.keys(cell).length < 6 ? '<p class="msg">빈 칸(·)을 더 채워 보세요.</p>' : '');
-          $('si2').innerHTML = hbars(CODE.map(function(cd){ return {label:cd.n, v:cd.k, color:cd.c, text:cd.k + '명'}; }), 12) + '<p class="msg">설문 ‘예’ 칸에 들어갔을 사람: 혼자 4 + 도움 3 + 골라 감 3 = 10명</p>';
+          $('si2').innerHTML = hbars(CODE.map(function(cd){ return {label:cd.n, v:cd.k, color:cd.c, text:cd.k + '명'}; }), 12) + '<p class="msg">설문 ‘예’ 칸에 들어갔을 사람: 혼자 4 + 도움 3 + 골라 감 3 = 10명</p>' +
+            '<p class="msg">사람 수를 바꿔 본 결과 (교육용 모형)</p>' +
+            tableHTML(['방법', '사람 수', '나온 값', '±폭', '시간'], rec.map(function(d){ return [M[d.m].short, d.n + '명', f(d.est, 1) + '%', '±' + f(d.moe, 1) + '%p', f(d.hours, 1) + '시간']; }));
         }
       };
     })();
@@ -513,7 +541,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

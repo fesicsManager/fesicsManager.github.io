@@ -253,6 +253,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>물 섭취량(mL) <b id="xVal">500</b></label>
         <input type="range" id="xSlider" min="200" max="2000" step="50" value="500" aria-label="물 섭취량(mL)">
       </div>
+      <div class="control-row">
+        <label for="zSel">그날의 상태</label>
+        <select id="zSel" aria-label="그날의 상태" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">보통 — 땀·호흡 900 mL (기본)</option><option value="1">더운 날 많이 땀 흘림 — 1800 mL</option><option value="2">항이뇨 호르몬이 많이 나옴</option></select>
+      </div>
       <div class="readout"><span>오줌 생성량</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -262,7 +266,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>물 섭취량(mL)</th><th>오줌 생성량(mL)</th></tr></thead>
+          <thead><tr><th>#</th><th>물 섭취량(mL)</th><th>그날의 상태</th><th>오줌 생성량(mL)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -279,7 +283,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>물 섭취량(mL)</th><th>오줌 생성량(mL)</th><th>마신 물 − 오줌 (mL)</th></tr></thead>
+        <thead><tr><th>#</th><th>물 섭취량(mL)</th><th>그날의 상태</th><th>오줌 생성량(mL)</th><th>마신 물 − 오줌 (mL)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -410,7 +414,10 @@ let _t0=performance.now(), _dt=16;
 = 마신 물 − 50   (단, 노폐물 배출을 위한 최소 오줌량 약 500 mL 아래로는 내려가지 않음)
 그래서 마신 물이 늘어난 만큼 오줌도 거의 그대로 늘어난다. */
 const FOOD_W=700, META_W=250, SKIN_W=900, STOOL_W=100, URINE_MIN=500;
-function urineOf(x){ return Math.max(URINE_MIN, x+FOOD_W+META_W-SKIN_W-STOOL_W); }
+/* 땀·호흡으로 나가는 물과 항이뇨 호르몬을 둘째 조작으로 연다.
+   '보통'은 땀 900 mL·배수 1 이라 예전 식과 같다. ※ 숫자는 교육용 모형값. */
+var ZOPT=[{n:'보통 (땀·호흡 900 mL)', s:'보통', skin:900, adh:1},{n:'더운 날 많이 땀 흘림 (1800 mL)', s:'땀 많음', skin:1800, adh:1},{n:'항이뇨 호르몬이 많이 나옴', s:'호르몬 많음', skin:900, adh:0.45}];
+function urineOf(x){ const Z=ZOPT[curZ]; return Math.max(URINE_MIN*Z.adh, (x+FOOD_W+META_W-Z.skin-STOOL_W)*Z.adh); }
 let drops=[];
 
 function kidney(cx,cy,sign,glow){
@@ -516,21 +523,36 @@ function drawDevice(){
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>그날의 상태를 바꿔 보면 (내 기록으로 계산)</b> 땀을 많이 흘린 날과 호르몬이 많이 나온 경우로도 몇 개 더 재 보면, 뺄셈 하나로 끝나는지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>그날의 상태를 바꿔 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'같은 양을 마셔도 땀이 많거나 항이뇨 호르몬이 많이 나오면 오줌량이 <b>크게 갈렸습니다</b>. 그래서 "마신 물 − 오줌 = 늘 같다"는 뺄셈은 성립하지 않아요 — 콩팥은 몸속 물을 맞추려고 오줌량을 바꿉니다.';
+}
 let curX=500;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   const y=Math.max(0, urineOf(curX)+(Math.random()*60-30));
   yVal.textContent=y.toFixed(0)+' mL';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -541,7 +563,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -630,7 +652,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -667,9 +689,9 @@ document.getElementById('checkBtn').addEventListener('click', () => {
   if (isNaN(input)) {
     result.innerHTML = '값을 입력해 주세요.';
   } else if (ok) {
-    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   } else {
-    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   }
 });
 

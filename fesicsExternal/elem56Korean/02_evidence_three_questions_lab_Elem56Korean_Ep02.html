@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>근거는 많기만 하면 될까 — 근거 점검 세 질문</h1>
-    <p>‘운동장에 그늘막을 설치해야 한다’는 주장의 근거를 하나씩 <b>세 관문</b>에 통과시켜 봐요. ① 주장과 관련 있나? ② 확인할 수 있나? ③ 믿을 만한 곳에서 나왔나? 세 개를 한꺼번에 넣어 보기도 해요.<br><span style="font-size:.9em;color:#a86825">※ ④ 온도 측정은 제로 랩의 가상 자료라 실제 온도 숫자는 넣지 않았어요.</span></p>
+    <p>‘운동장에 그늘막을 설치해야 한다’는 주장의 근거를 하나씩 <b>세 관문</b>에 통과시켜 봐요. ① 주장과 관련 있나? ② 확인할 수 있나? ③ 믿을 만한 곳에서 나왔나? 세 개를 한꺼번에 넣어 보고, <b>관문을 하나씩 켜고 꺼</b> 어느 질문이 무엇을 걸러 내는지도 살펴보세요.<br><span style="font-size:.9em;color:#a86825">※ ④ 온도 측정은 제로 랩의 가상 자료라 실제 온도 숫자는 넣지 않았어요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,36 +439,46 @@ var LAB = (function(){
         {name:'반대편: 설치 비용이 든다', q:[0, 0, 1], note:['그렇다', '그렇다', '얼마인지 알아봐야 함']}
       ];
       var QN = ['관련 있나?', '확인할 수 있나?', '믿을 만한 출처?'], MK = ['○', '△', '✕'], MC = [PAL[1], PAL[6], PAL[4]];
+      /* 켜 둘 관문 — 끈 관문은 그냥 통과시킨다 */
+      var GT = [
+        {n:'세 질문 모두 켜기', s:'①②③', on:[1, 1, 1]},
+        {n:'① 관련 있나? 만', s:'①만', on:[1, 0, 0]},
+        {n:'② 확인할 수 있나? 만', s:'②만', on:[0, 1, 0]},
+        {n:'③ 믿을 만한 출처? 만', s:'③만', on:[0, 0, 1]}
+      ];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
-      function pass(e){ return e.q.every(function(v){ return v === 0; }); }
-      function stop(e){ for (var i = 0; i < 3; i++) if (e.q[i] === 2 || e.q[i] === -1 || e.q[i] === 1) return i; return 3; }
+      function pass(e, on){ return e.q.every(function(v, i){ return !on[i] || v === 0; }); }
+      function stop(e, on){ for (var i = 0; i < 3; i++) if (on[i] && (e.q[i] === 2 || e.q[i] === -1 || e.q[i] === 1)) return i; return 3; }
       return {
         sceneHeight: 420,
-        idle: '근거를 고른 뒤 <b>세 관문 통과시키기</b>를 누르세요.',
-        shortHint: '①②③을 한꺼번에 넣어 본 다음 ④ 하나만 넣어 보세요. 어느 쪽이 더 센가요?',
+        idle: '근거와 켜 둘 관문을 고른 뒤 <b>관문 통과시키기</b>를 누르세요.',
+        shortHint: '①②③을 한꺼번에 넣어 본 다음 ④ 하나만 넣어 보고, 켜 둔 관문도 바꿔 보세요.',
         params: [
-          {key:'e', type:'seg', label:'근거', cols:2, value:0, options:E.map(function(x){ return x.name; }).concat(['①②③ 세 개 한꺼번에'])}
+          {key:'e', type:'seg', label:'근거', cols:2, value:0, options:E.map(function(x){ return x.name; }).concat(['①②③ 세 개 한꺼번에'])},
+          {key:'k', type:'seg', label:'켜 둘 관문', cols:2, value:0, options:GT.map(function(x){ return x.n; }), note:'끈 관문은 묻지 않고 그냥 통과시켜요.'}
         ],
         compute: function(p){
+          var on = GT[p.k].on;
           var list = p.e === 5 ? [0, 1, 2] : [p.e];
-          var n = list.filter(function(i){ return pass(E[i]); }).length;
-          return {list:list, n:n, bundle:p.e === 5};
+          var n = list.filter(function(i){ return pass(E[i], on); }).length;
+          return {list:list, n:n, on:on, bundle:p.e === 5};
         },
         draw: function(c, W, H, p, r, tau){
           T(c, '주장: 운동장에 그늘막을 설치해야 한다', 20, 30, W < 500 ? 14 : 18, '#1E2833', 'left', true);
+          var on = r ? r.on : GT[p.k].on;
           var gx = [0.38, 0.6, 0.82].map(function(v){ return W * v; }), top = 60, bot = H - 70;
-          gx.forEach(function(x, i){ c.fillStyle = '#E6EBF1'; c.fillRect(x - 6, top, 12, bot - top); T(c, QN[i], x, bot + 22 + (W < 500 && i === 1 ? 16 : 0), W < 500 ? 11 : 15, '#4A5868', 'center', true); });
+          gx.forEach(function(x, i){ c.fillStyle = on[i] ? '#E6EBF1' : '#F5F7F9'; c.fillRect(x - 6, top, 12, bot - top); T(c, QN[i], x, bot + 22 + (W < 500 && i === 1 ? 16 : 0), W < 500 ? 11 : 15, on[i] ? '#4A5868' : '#B6BFC9', 'center', true); });
           if (!r) { T(c, '근거 카드', 20, top + 40, 15, '#4A5868'); return; }
           var lane = (bot - top) / r.list.length;
           r.list.forEach(function(ei, k){
-            var e = E[ei], st = stop(e), y = top + lane * k + lane / 2, endX = st < 3 ? gx[st] - 40 : W - 40;
+            var e = E[ei], st = stop(e, on), y = top + lane * k + lane / 2, endX = st < 3 ? gx[st] - 40 : W - 40;
             var x = 30 + (endX - 30) * Math.min(1, tau / 0.75);
             for (var g = 0; g < 3; g++){
               if (g > st || x < gx[g] - 41) break;
-              var v = e.q[g], m = v < 0 ? '—' : MK[v];
-              T(c, m, gx[g], y - 20, 20, v < 0 ? '#8C99A8' : MC[v], 'center', true);
+              var v = e.q[g], m = !on[g] ? '·' : v < 0 ? '—' : MK[v];
+              T(c, m, gx[g], y - 20, 20, !on[g] ? '#B6BFC9' : v < 0 ? '#8C99A8' : MC[v], 'center', true);
             }
-            c.fillStyle = pass(e) ? PAL[1] : '#5C6B7A'; c.fillRect(x - 30, y - 12, 60, 24);
+            c.fillStyle = pass(e, on) ? PAL[1] : '#5C6B7A'; c.fillRect(x - 30, y - 12, 60, 24);
             T(c, e.name.charAt(0) === '반' ? '반대' : e.name.charAt(0), x, y + 6, 14, '#fff', 'center', true);
             if (tau > 0.8) T(c, st < 3 ? (e.q[st] === 1 ? '보충 필요' : '막힘') : '통과!', x, y + 32, 13, st < 3 ? PAL[4] : PAL[1], 'center', true);
           });
@@ -481,22 +493,23 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          var out = r.list.map(function(i){ var e = E[i]; return [e.name, QN.map(function(q, j){ return q + ' ' + e.note[j]; }).join(' · '), pass(e) ? PAL[1] : PAL[4]]; });
-          out.push(['세 관문을 모두 통과한 근거', r.n + '개 / 넣은 근거 ' + r.list.length + '개', r.n ? PAL[1] : PAL[4]]);
+          var out = r.list.map(function(i){ var e = E[i]; return [e.name, QN.map(function(q, j){ return (r.on[j] ? '' : '(끔) ') + q + ' ' + e.note[j]; }).join(' · '), pass(e, r.on) ? PAL[1] : PAL[4]]; });
+          out.push(['켜 둔 관문', GT[p.k].n, PAL[0]]);
+          out.push(['켜 둔 관문을 모두 통과한 근거', r.n + '개 / 넣은 근거 ' + r.list.length + '개', r.n ? PAL[1] : PAL[4]]);
           if (r.bundle) out.push(['정리', '근거를 셋이나 댔지만 남은 것은 0개예요. 개수보다 무게!', PAL[3]]);
           return out;
         },
-        columns: ['넣은 근거', '넣은 수', '통과한 수'],
-        record: function(p, r){ return {e:p.e, k:r.list.length, n:r.n}; },
-        row: function(d){ return [d.e === 5 ? '①②③ 한꺼번에' : E[d.e].name, d.k + '개', d.n + '개']; },
+        columns: ['넣은 근거', '켠 관문', '넣은 수', '통과한 수'],
+        record: function(p, r){ return {e:p.e, g:p.k, k:r.list.length, n:r.n}; },
+        row: function(d){ return [d.e === 5 ? '①②③ 한꺼번에' : E[d.e].name, GT[d.g].s, d.k + '개', d.n + '개']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('근거 점검 표 (웹툰과 같은 판정)', '<div id="ev1"></div><p class="ask">‘근거 셋보다 제대로 된 근거 하나가 세다’는 말을 표를 보고 설명해 보세요.</p>') +
-            card('넣은 근거 수 vs 통과한 근거 수', '<div id="ev2"></div><p class="ask">과제: 우리 반에서 바꾸고 싶은 것 하나를 주장으로 정하고, 근거 세 개를 쓴 뒤 세 질문 표로 점검해 보세요. 통과 못 한 근거는 자료를 찾아 바꿔 보세요.</p>') + '</div>';
+            card('넣은 근거 수 vs 통과한 근거 수', '<div id="ev2"></div><p class="ask">관문을 ①만 켰을 때와 ②만 켰을 때, 걸러진 근거가 달랐나요? 과제: 우리 반에서 바꾸고 싶은 것 하나를 주장으로 정하고, 근거 세 개를 쓴 뒤 세 질문 표로 점검해 보세요. 통과 못 한 근거는 자료를 찾아 바꿔 보세요.</p>') + '</div>';
           var tried = {}; rec.forEach(function(d){ if (d.e === 5){ tried[0] = tried[1] = tried[2] = 1; } else tried[d.e] = 1; });
-          $('ev1').innerHTML = tableHTML(['근거'].concat(QN), E.map(function(e, i){ return [e.name + (tried[i] ? ' ✓' : '')].concat(e.note); }));
+          $('ev1').innerHTML = tableHTML(['근거'].concat(QN), E.map(function(e, i){ return [e.name + (tried[i] ? ' ✓' : '')].concat(e.note); })) + '<p>관문을 하나만 켜면 통과하는 근거가 늘어나요. 세 질문을 모두 켜야 센 근거만 남아요.</p>';
           var seen = {}, items = [];
-          rec.forEach(function(d){ if (seen[d.e]) return; seen[d.e] = 1; var nm = d.e === 5 ? '①②③ 한꺼번에' : E[d.e].name; items.push({label:nm + ' · 넣음', v:d.k, color:'#B8C3D0', text:d.k + '개'}); items.push({label:nm + ' · 통과', v:d.n, color:d.n ? PAL[1] : PAL[4], text:d.n + '개'}); });
+          rec.forEach(function(d){ var key = d.e + '_' + d.g; if (seen[key]) return; seen[key] = 1; var nm = (d.e === 5 ? '①②③ 한꺼번에' : E[d.e].name) + ' / ' + GT[d.g].s; items.push({label:nm + ' · 넣음', v:d.k, color:'#B8C3D0', text:d.k + '개'}); items.push({label:nm + ' · 통과', v:d.n, color:d.n ? PAL[1] : PAL[4], text:d.n + '개'}); });
           $('ev2').innerHTML = hbars(items, 3);
         }
       };
@@ -506,7 +519,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

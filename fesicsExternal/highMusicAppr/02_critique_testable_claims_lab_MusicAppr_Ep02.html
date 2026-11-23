@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -528,7 +530,7 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         return {n:n, ten:ten, keep:keep, checks:checks, verdict:verdict, testable:testable, supported:testable && checks.every(function(x){ return x.ok; })};
       }
       return {
-        sceneHeight: function(w){ return w < 520 ? 540 : 460; },
+        sceneHeight: function(w){ return w < 520 ? 600 : 460; },
         idle: '반복 횟수·편곡 변화·진술을 고른 뒤 <b>곡 듣고 진술 확인하기</b>를 누르세요. 첫 회차와 마지막 회차를 이어서 들려줍니다.',
         shortHint: '진술 (나)를 여러 곡 조건에서 확인해 보세요. 언제 뒷받침되고 언제 반박되나요?',
         params: [
@@ -557,8 +559,9 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           var sy = y0 + ph + 56;
           var yy = wrapTxt(c, ST[p.s].n, x0, sy, W - 60, 24, {bold:true, color:PAL[3]});
           txt(c, '단계: ' + ST[p.s].stage, x0, yy + 28, {color:'#4A5868'});
-          if (r && tau > 0.4){ var cy = yy + 58, nar = W < 520; q.checks.forEach(function(ch, i){ txt(c, (ch.ok ? '✔ ' : '✘ ') + ch.c, nar ? x0 : x0 + i * Math.min(200, (W - 60) / 3), nar ? cy + i * 24 : cy, {bold:true, color:ch.ok ? PAL[1] : PAL[4]}); });
-            wrapTxt(c, q.verdict, x0, nar ? Math.max(H - 36, cy + q.checks.length * 24 + 8) : H - 36, W - 60, 22, {bold:true, color:q.testable ? (q.supported ? PAL[1] : PAL[4]) : PAL[7]}); }
+          /* 좁은 화면: 단계 글이 두 줄로 나뉠 수 있어 점검 줄을 더 내려 적는다 */
+          if (r && tau > 0.4){ var nar = W < 520, cy = yy + (nar ? 84 : 58); q.checks.forEach(function(ch, i){ txt(c, (ch.ok ? '✔ ' : '✘ ') + ch.c, nar ? x0 : x0 + i * Math.min(200, (W - 60) / 3), nar ? cy + i * 24 : cy, {bold:true, color:ch.ok ? PAL[1] : PAL[4]}); });
+            wrapTxt(c, q.verdict, x0, nar ? cy + q.checks.length * 24 + 10 : H - 36, W - 60, 22, {bold:true, color:q.testable ? (q.supported ? PAL[1] : PAL[4]) : PAL[7]}); }
           else txt(c, '예상: 이 진술은 곡의 자료로 확인할 수 있을까요?', x0, H - 14, {bold:true});
         },
         stats: function(p, r){
@@ -586,7 +589,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

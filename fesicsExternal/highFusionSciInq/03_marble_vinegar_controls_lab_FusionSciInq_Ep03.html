@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -216,7 +217,10 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>식초에 넣은 대리석이 가벼워졌으면 모두 식초 탓인가</h1>
-    <p>대리석 조각(병마다 약 5 g씩 세 조각)을 용액 100 mL에 20 ℃에서 24시간 담갔다가 헹구고 말려 0.01 g 저울로 잽니다. <b>병</b>을 고르고 <b>어느 대조군 값을 뺄지</b> 정하면, 처리와 상관없는 몫을 덜어 낸 값이 나옵니다.<br><b>안전</b>: 보안경을 낍니다. 식초나 석회수가 눈에 들어가면 바로 많은 물로 씻고 선생님께 알립니다. 맛보지 않고, 끝난 용액은 하수구가 아니라 정해진 통에 모읍니다.<br><span style="font-size:.9em;color:#a86825">※ 측정값은 제로 랩의 수업용 가상 자료이고, 웹툰에 없는 조건의 값은 같은 규칙으로 만든 단순 모형값입니다.</span></p>
+    <p>대리석 조각(병마다 약 5 g씩 세 조각)을 용액 100 mL에 20 ℃에서 24시간 담갔다가 헹구고 말려 잽니다. <b>병</b>을 고르고 <b>어느 대조군 값을 뺄지</b> 정하면, 처리와 상관없는 몫을 덜어 낸 값이 나옵니다.<br>
+      <b>저울 눈금과 반복한 병 수도 고를 수 있어요.</b> 재는 일에는 늘 흔들림이 있어서, 같은 0.04 g이 <b>0.01 g 저울에서는 읽히는 몫</b>이지만 <b>0.1 g 저울에서는 눈금보다 작아</b> 줄었는지 알 수 없는 차이가 됩니다. 반복을 늘리면 평균의 흔들림(표준오차)이 줄어, 같은 차이를 더 자신 있게 말할 수 있어요 — <b>“저울 한 칸 수준인가, 진짜 효과인가”를 직접 판단해 보세요.</b><br>
+      <b>안전</b>: 보안경을 낍니다. 식초나 석회수가 눈에 들어가면 바로 많은 물로 씻고 선생님께 알립니다. 맛보지 않고, 끝난 용액은 하수구가 아니라 정해진 통에 모읍니다.<br>
+      <span style="font-size:.9em;color:#a86825">※ 1회차 측정값은 웹툰에 실린 수업용 자료이고, 2회차부터는 같은 참값에 표준편차 0.02 g의 흔들림을 더해 만든 <b>교육용 모형값</b>입니다(씨를 고정했으니 같은 설정이면 늘 같은 값이 나옵니다).</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -299,9 +303,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,43 +448,96 @@ var LAB = (function(){
       ];
       var KS = ['빼지 않음', 'B(물) 값 빼기', 'D(손질만) 값 빼기'];
       var KI = [null, 1, 3];
+      var SCS = [{step:0.01, lb:'0.01 g', dec:2}, {step:0.1, lb:'0.1 g', dec:1}];
+      var SIG = 0.02;                       /* 조각마다 생기는 측정 흔들림의 표준편차 — 교육용 모형값 */
+
+      /* 씨를 고정한 가짜 난수: 같은 설정이면 언제나 같은 값이 나온다(다시 재도 되풀이할 수 있다) */
+      function rnd(a, b, c){
+        var t = (a * 73856093) ^ (b * 19349663) ^ (c * 83492791);
+        t = (t ^ (t >>> 13)) * 1274126177; t = t ^ (t >>> 16);
+        return ((t >>> 0) % 100000) / 100000;
+      }
+      /* 0 을 중심으로 표준편차 1 — 균등 난수 셋을 더해 만든다 */
+      function gauss(a, b, c){ return (rnd(a, b, c) + rnd(a, b, c + 17) + rnd(a, b, c + 41) - 1.5) * 2; }
+      function qz(v, st){ return Number((Math.round(v / st) * st).toFixed(4)); }   /* 저울 눈금으로 끊어 읽기 */
+
+      /* 병 i 의 조각별 측정값. 1회차는 웹툰에 실린 기록 그대로, 2회차부터는 같은 참값에
+         흔들림을 더한 모형값이다. 끝으로 고른 저울 눈금으로 끊어 읽는다. */
+      function meas(sc, nr, i){
+        var st = SCS[sc].step, out = [], k, j;
+        for (k = 1; k <= nr; k++){
+          for (j = 0; j < 3; j++){
+            var v = k === 1 ? B[i].pc[j] : B[i].loss + SIG * gauss(i, k, j);
+            out.push(qz(v, st));
+          }
+        }
+        return out;
+      }
+      function mstat(arr){
+        var m = mean(arr), n = arr.length, s2 = 0;
+        arr.forEach(function(v){ s2 += (v - m) * (v - m); });
+        var sd = n > 1 ? Math.sqrt(s2 / (n - 1)) : 0;
+        return {m:m, sd:sd, n:n, sem:n > 1 ? sd / Math.sqrt(n) : 0};
+      }
+      function allStat(sc, nr){ return B.map(function(x, i){ return mstat(meas(sc, nr, i)); }); }
       return {
         sceneHeight: 430,
-        idle: '병과 뺄 대조군을 고른 뒤 <b>24시간 뒤 재 보기</b>를 누르세요. 뭉치는 A 병만 보고 0.62 g이라고 했어요.',
-        shortHint: '네 병을 모두 한 번씩 재고, A 병에서 빼는 방법을 바꿔 보세요.',
+        idle: '병, 뺄 대조군, 저울 눈금, 반복한 병 수를 고른 뒤 <b>24시간 뒤 재 보기</b>를 누르세요. 뭉치는 A 병만 보고 0.62 g이라고 했어요.',
+        shortHint: '네 병을 모두 재고, B(물) 병을 <b>0.01 g 저울과 0.1 g 저울로 각각</b> 재 보세요 — 판정이 뒤집힙니다.',
         params: [
           {key:'b', type:'seg', label:'잴 병', cols:2, value:0, options:B.map(function(x){ return x.name; })},
           {key:'k', type:'seg', label:'뺄 대조군 값', cols:3, value:0, options:KS,
-            note:'대조군 병은 꺼내고 헹구고 말리는 과정을 똑같이 거쳤습니다.'}
+            note:'대조군 병은 꺼내고 헹구고 말리는 과정을 똑같이 거쳤습니다.'},
+          {key:'sc', type:'seg', label:'쓰는 저울의 눈금', cols:2, value:0, options:SCS.map(function(x){ return x.lb + ' 저울'; }),
+            note:'눈금보다 작은 차이는 저울이 읽어 내지 못해요. 0.1 g 저울로 바꿔 B 병을 재 보세요.'},
+          {key:'nr', type:'range', label:'같은 조건으로 반복한 병 수', min:1, max:10, step:1, value:1,
+            fmt:function(v){ return v + '병 (조각 ' + v * 3 + '개)'; }}
         ],
         compute: function(p){
-          var s = B[p.b], ci = KI[p.k], ctrl = ci == null ? 0 : B[ci].loss, eff = s.loss - ctrl, msg;
+          var st = SCS[p.sc].step, dec = SCS[p.sc].dec;
+          var MS = allStat(p.sc, p.nr), ms = MS[p.b], ci = KI[p.k];
+          var loss = ms.m, ctrl = ci == null ? 0 : MS[ci].m, eff = loss - ctrl, msg;
+          /* 뺄셈한 두 평균의 흔들림을 합친 표준오차 */
+          var semC = ci == null ? ms.sem : Math.sqrt(ms.sem * ms.sem + MS[ci].sem * MS[ci].sem);
           var key = p.b + '_' + p.k;
           var M = {
-            '0_0':'뭉치 방식 — 손질·물 몫 0.04 g까지 식초 탓으로 셈(약 6.5% 과대)',
-            '0_1':'식초 때문에 녹은 몫의 추정값 ✓ (A − B) — 병을 여러 개 반복해야 불확도를 알 수 있어요',
-            '0_2':'손질 몫만 뺌 — 물에 녹은 0.01 g이 남았지만 저울 한 칸이라 이 자료로는 거의 차이가 없어요',
-            '1_0':'물에 담근 대리석도 0.04 g 줄었어요 — 식초와 상관없는 몫',
+            '0_0':'뭉치 방식 — 손질·물에서 생긴 몫까지 모두 식초 탓으로 셈',
+            '0_1':'식초 때문에 녹은 몫의 추정값 ✓ (A − B)',
+            '0_2':'손질 몫만 뺌 — 물에 녹은 몫이 아직 남아 있어요',
+            '1_0':'물에 담근 대리석도 줄었어요 — 식초와 상관없는 몫',
             '1_1':'자기 자신을 뺐어요 — 비교가 되지 않아요',
-            '1_2':'물에 녹은 몫(B − D) = 저울 눈금 한 칸 → 녹았다고 말하기 어려움',
+            '1_2':'물에 녹은 몫(B − D)',
             '3_0':'손질(헹굼·건조)만으로 생긴 몫',
             '3_1':'음수 — 손질만 한 병에서 물 병을 빼는 것은 의미 없는 비교',
             '3_2':'자기 자신을 뺐어요 — 비교가 되지 않아요'
           };
-          if (p.b === 2){ eff = 0; msg = '유리구슬은 0.00 g — 식초가 아무 돌이나 녹이지는 않아요(빼기 대상이 아니라 다른 설명을 지우는 병)'; }
+          if (p.b === 2){ eff = 0; msg = '유리구슬은 거의 0 g — 식초가 아무 돌이나 녹이지는 않아요(빼기 대상이 아니라 다른 설명을 지우는 병)'; }
           else msg = M[key];
+          /* 판정: 저울이 읽을 수 있나 → 흔들림보다 큰가 */
+          var ae = Math.abs(eff), band;
+          if (ae < st - 1e-9) band = 0;            /* 눈금보다 작다 */
+          else if (ae < 2 * semC) band = 1;        /* 흔들림 안에 든다 */
+          else band = 2;                           /* 진짜 효과 */
+          var judge = band === 0
+            ? '저울 눈금(' + SCS[p.sc].lb + ')보다 작아요 — 이 저울로는 줄었는지 알 수 없어요'
+            : band === 1
+              ? '측정 흔들림 안에 들어요 (2 × 표준오차 = ' + f(2 * semC, 3) + ' g) — 진짜 효과라고 하기 어려워요. 반복을 늘려 보세요'
+              : '흔들림보다 커요 (차이 ' + f(ae, dec) + ' g > 2 × 표준오차 ' + f(2 * semC, 3) + ' g) — 진짜 효과로 볼 수 있어요';
           var mol = eff / 100.09;
-          return {s:s, ctrl:ctrl, eff:eff, msg:msg, mol:mol, co2:mol * 44.01, ml:mol * 24.06 * 1000, best:key === '0_1'};
+          return {s:B[p.b], MS:MS, ms:ms, pcs:meas(p.sc, p.nr, p.b), loss:loss, ctrl:ctrl, eff:eff, msg:msg,
+            sem:ms.sem, semC:semC, band:band, judge:judge, st:st, dec:dec, nr:p.nr, sc:p.sc,
+            mol:mol, co2:mol * 44.01, ml:mol * 24.06 * 1000, best:key === '0_1'};
         },
         draw: function(c, W, H, p, r, tau){
           var n = 4, gap = W / n, bw = Math.min(70, gap - 18), top = 70, bh = 150;
+          var MS = allStat(p.sc, p.nr), dec = SCS[p.sc].dec;      /* 지금 고른 저울·반복으로 다시 잰 평균 */
           for (var i = 0; i < n; i++){
-            var s = B[i], x = gap * i + gap / 2, on = i === p.b;
+            var s = B[i], x = gap * i + gap / 2, on = i === p.b, mv = MS[i].m;
             c.globalAlpha = on ? 1 : 0.45;
             c.strokeStyle = on ? s.col : '#8C99A8'; c.lineWidth = on ? 3 : 2;
             c.fillStyle = s.short === 'D' ? 'rgba(255,255,255,0)' : (s.acid ? 'rgba(240,225,170,.55)' : 'rgba(170,205,235,.5)');
             c.fillRect(x - bw / 2, top + 40, bw, bh - 40); c.strokeRect(x - bw / 2, top + 10, bw, bh - 10);
-            var shrink = on && r && s.marble ? 1 - 0.12 * Math.min(1, tau) * s.loss / 0.62 : 1;
+            var shrink = on && r && s.marble ? 1 - 0.12 * Math.min(1, tau) * mv / 0.62 : 1;
             for (var j = 0; j < 3; j++){
               c.fillStyle = s.marble ? '#E8E4DC' : '#BFE3E8'; c.strokeStyle = '#8F8A80'; c.lineWidth = 1.5;
               var rr = 11 * shrink;
@@ -488,37 +546,71 @@ var LAB = (function(){
             if (on && r && s.acid && s.marble) for (var q = 0; q < 8; q++){ var yy = top + bh - 30 - ((tau * 3 + q * 0.13) % 1) * (bh - 60); c.strokeStyle = '#6E8FA8'; c.lineWidth = 1; c.beginPath(); c.arc(x - 20 + (q * 13) % 40, yy, 3, 0, Math.PI * 2); c.stroke(); }
             txt(c, s.short, x, top, {align:'center', bold:true, color:on ? s.col : '#4A5868'});
             // 막대
-            var by = H - 70, sc = 120 / 0.62, hgt = s.loss * sc * (r ? Math.min(1, tau * 1.3) : 0.0001);
+            var by = H - 70, sc = 120 / 0.62, hgt = Math.max(0, mv) * sc * (r ? Math.min(1, tau * 1.3) : 0.0001);
             c.fillStyle = s.col; c.fillRect(x - 16, by - hgt, 32, hgt);
-            txt(c, r || on ? (f(s.loss, 2) === '0.00' ? '' : '−') + f(s.loss, 2) : '', x, by - hgt - 6, {align:'center', bold:on});
+            txt(c, r || on ? (Math.abs(mv) < 0.5 * SCS[p.sc].step ? '' : (mv > 0 ? '−' : '+') + f(Math.abs(mv), dec)) : '', x, by - hgt - 6, {align:'center', bold:on});
             c.globalAlpha = 1;
           }
           seg(c, 10, H - 70, W - 10, H - 70, '#8C99A8', 1.5);
           txt(c, '보안경 착용 · 맛보지 않기', 12, 26, {color:PAL[4], bold:true});
-          if (r && tau > 0.6) txt(c, (p.b === 2 ? '유리구슬 0.00 g' : B[p.b].short + (p.k ? ' − ' + B[KI[p.k]].short : '') + ' = ' + f(r.eff, 2) + ' g'), W / 2, H - 22, {align:'center', bold:true, color:r.best ? PAL[1] : '#1E2833'});
+          if (r && tau > 0.6) txt(c, (p.b === 2 ? '유리구슬 ' + f(r.loss, r.dec) + ' g' : B[p.b].short + (p.k ? ' − ' + B[KI[p.k]].short : '') + ' = ' + f(r.eff, r.dec) + ' g'), W / 2, H - 22, {align:'center', bold:true, color:r.best ? PAL[1] : '#1E2833'});
         },
         stats: function(p, r){
-          var s = [['고른 병', r.s.name + ' — 세 조각 ' + r.s.pc.map(function(v){ return sgn(-v, 2); }).join(' · ') + ' g → 평균 ' + sgn(-r.s.loss, 2) + ' g'],
-            ['뺀 대조군', p.b === 2 ? '—' : KS[p.k] + (p.k ? ' (' + f(r.ctrl, 2) + ' g)' : '')],
-            ['처리 효과로 볼 몫', f(r.eff, 2) + ' g', r.best ? PAL[1] : PAL[0]],
-            ['해석', r.msg, r.best ? PAL[1] : PAL[6]]];
+          var d3 = r.pcs.slice(0, 3).map(function(v){ return sgn(-v, r.dec); }).join(' · ');
+          var s = [['고른 병', r.s.name + ' — 1회차 세 조각 ' + d3 + ' g' + (r.nr > 1 ? ' … 모두 ' + r.pcs.length + '개 측정' : '') + ' → 평균 ' + sgn(-r.loss, r.dec) + ' g'],
+            ['저울과 반복', SCS[r.sc].lb + ' 저울 · ' + r.nr + '병(조각 ' + r.pcs.length + '개)', PAL[3]],
+            ['평균의 흔들림 (표준오차)', '± ' + f(r.sem, 3) + ' g', PAL[3]],
+            ['뺀 대조군', p.b === 2 ? '—' : KS[p.k] + (p.k ? ' (' + f(r.ctrl, r.dec) + ' g)' : '')],
+            ['처리 효과로 볼 몫', f(r.eff, r.dec) + ' g ± ' + f(r.semC, 3) + ' g', r.best ? PAL[1] : PAL[0]],
+            ['해석', r.msg, r.best ? PAL[1] : PAL[6]],
+            ['판정', r.judge, r.band === 2 ? PAL[1] : r.band === 1 ? PAL[6] : PAL[4]]];
           if (p.b === 0 && r.eff > 0) s.push(['반응식으로 한 걸음 더', '탄산 칼슘 ' + f(r.mol, 4) + ' mol → 이산화 탄소 ' + f(r.co2, 2) + ' g · 약 ' + f(r.ml, 0) + ' mL (20 ℃·1기압)', PAL[3]],
             ['산이 바닥났나?', '식초 100 mL(아세트산 약 5%)는 탄산 칼슘을 약 4.2 g 녹일 수 있어요 → 24시간 동안 산은 남아 있었어요.']);
           return s;
         },
-        columns: ['병', '줄어든 질량(g)', '뺀 값', '처리 효과(g)'],
-        record: function(p, r){ return {b:p.b, k:p.k, loss:r.s.loss, eff:r.eff}; },
-        row: function(d){ return [B[d.b].short, f(d.loss, 2), d.b === 2 ? '—' : KS[d.k], f(d.eff, 2)]; },
+        columns: ['병', '줄어든 질량(g)', '뺀 값', '처리 효과(g)', '저울·반복', '판정'],
+        record: function(p, r){ return {b:p.b, k:p.k, loss:r.loss, eff:r.eff, sem:r.sem, semC:r.semC,
+          st:r.st, dec:r.dec, nr:r.nr, sc:r.sc, band:r.band}; },
+        row: function(d){ return [B[d.b].short, f(d.loss, d.dec), d.b === 2 ? '—' : KS[d.k], f(d.eff, d.dec),
+          SCS[d.sc].lb + '·' + d.nr + '병', ['눈금 밖', '흔들림 안', '진짜 효과'][d.band]]; },
         verify: function(rec, box){
+          /* 같은 병·같은 뺄셈을 저울만 바꿔 재 본 짝을 찾아 판정이 뒤집혔는지 본다 */
+          var flip = null;
+          rec.forEach(function(d){ rec.forEach(function(e){
+            if (flip) return;
+            if (d.b === e.b && d.k === e.k && d.sc !== e.sc && d.band !== e.band) flip = [d, e];
+          }); });
+          var coarse = rec.filter(function(d){ return d.sc === 1; }), fine = rec.filter(function(d){ return d.sc === 0; });
+          var nrs = distinct(rec.map(function(d){ return d.nr; }));
+          var msgA = flip
+            ? '<b>같은 병·같은 뺄셈인데 판정이 뒤집혔어요.</b> ' + B[flip[0].b].short + ' 병을 ' + SCS[flip[0].sc].lb + ' 저울로 재면 “' +
+              ['눈금 밖', '흔들림 안', '진짜 효과'][flip[0].band] + '”, ' + SCS[flip[1].sc].lb + ' 저울로 재면 “' +
+              ['눈금 밖', '흔들림 안', '진짜 효과'][flip[1].band] + '”입니다. 돌이 달라진 게 아니라 <b>재는 도구</b>가 달라졌을 뿐이에요.'
+            : (coarse.length && fine.length
+              ? '두 저울로 모두 재 봤지만 아직 판정이 뒤집힌 짝은 없어요. <b>B(물) 병을 두 저울로 각각</b> 재 보세요 — 0.01 g 저울에서는 읽히는 몫이 0.1 g 저울에서는 눈금 밖으로 사라집니다.'
+              : '저울을 <b>0.01 g과 0.1 g 둘 다</b> 써서 같은 병을 재 보세요. 같은 0.04 g이 한쪽에서는 읽히고 한쪽에서는 눈금보다 작아 “줄었는지 알 수 없다”가 됩니다.');
+          var msgB = nrs >= 2
+            ? '반복한 병 수를 ' + nrs + '가지로 바꿔 기록했어요. 평균은 비슷해도 <b>표준오차는 반복이 늘면 줄어듭니다</b>(√n에 반비례) — 그래서 같은 차이를 더 자신 있게 말할 수 있어요.'
+            : '반복한 병 수를 1병에서 5병, 10병으로 늘려 보세요. 평균은 비슷하지만 표준오차가 줄어, “흔들림 안”이던 차이가 “진짜 효과”로 넘어갈 수 있어요.';
           box.innerHTML = '<div class="vgrid">' +
-            card('잰 병의 질량 변화', '<div id="fm1"></div><p class="ask">D 병 하나만으로도 0.03 g이 줄었습니다. A 병만 보고 결론을 내리면 무엇을 식초 공으로 잘못 돌리게 되나요? 또 0.58 g이라는 차이를 얼마나 믿을 수 있는지 알려면 무엇을 더 해야 할까요? (힌트: 독립된 병 반복, 조각의 처음 상태)</p>') +
+            card('잰 병의 질량 변화', '<div id="fm1"></div><p class="msg">' + msgA + '</p><p class="msg">' + msgB + '</p>' +
+              '<p class="ask">D 병만으로도 질량이 줄었습니다. A 병만 보고 결론을 내리면 무엇을 식초 공으로 잘못 돌리게 되나요? 물에 담근 몫이 <b>저울 한 칸 수준</b>인지 <b>진짜 효과</b>인지는 무엇을 보고 판단했나요?</p>') +
             card('A 병에서 무엇을 뺐나', '<div id="fm2"></div><p class="ask">과제: "소금물이 철못을 더 빨리 녹슬게 한다"는 가설을 검증할 실험을 설계하세요. 설명 후보 세 가지와 그것을 확인하는 대조군을 표로 적고, 처리 효과를 어떤 뺄셈으로 구할지도 써 보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.b; }), items = [];
-          B.forEach(function(s, i){ if (by[i]) items.push({label:s.name, v:s.loss, color:s.col, text:(f(s.loss, 2) === '0.00' ? '' : '−') + f(s.loss, 2) + ' g'}); });
-          $('fm1').innerHTML = hbars(items, 0.7) + (Object.keys(by).length < 4 ? '<p class="msg">아직 재지 않은 병이 있어요. 네 병을 모두 재야 후보를 다 지울 수 있어요.</p>' : '<p class="msg">물에 녹은 몫 B − D = 0.01 g(눈금 한 칸), 이 자료에서 추정한 식초 몫 A − B = 0.58 g — 병마다 한 번씩이라 불확도는 아직 몰라요.</p>');
+          B.forEach(function(s, i){
+            if (!by[i]) return;
+            var d = by[i][by[i].length - 1];
+            items.push({label:s.name + ' (' + SCS[d.sc].lb + '·' + d.nr + '병)', v:Math.max(0, d.loss), color:s.col,
+              text:sgn(-d.loss, d.dec) + ' g ± ' + f(d.sem, 3)});
+          });
+          $('fm1').innerHTML = hbars(items, 0.7) + (Object.keys(by).length < 4 ? '<p class="msg">아직 재지 않은 병이 있어요. 네 병을 모두 재야 후보를 다 지울 수 있어요.</p>' : '<p class="msg">네 병을 모두 쟀어요. 이제 어느 몫이 식초 탓이고 어느 몫이 아닌지 뺄셈으로 가를 수 있어요.</p>');
           var a = rec.filter(function(d){ return d.b === 0; }), seen = {}, rows = [];
-          a.forEach(function(d){ if (seen[d.k]) return; seen[d.k] = 1; rows.push([KS[d.k], f(d.eff, 2) + ' g', d.k === 1 ? '✓ 식초 몫' : d.k === 0 ? '과대(+0.04 g)' : '거의 같음(+0.01 g)']); });
-          $('fm2').innerHTML = rows.length ? tableHTML(['A에서 뺀 값', '결과', '판단'], rows) : '<p class="msg">A 병 기록이 아직 없어요.</p>';
+          a.forEach(function(d){
+            var kk = d.k + '_' + d.sc + '_' + d.nr; if (seen[kk]) return; seen[kk] = 1;
+            rows.push([KS[d.k], SCS[d.sc].lb + '·' + d.nr + '병', f(d.eff, d.dec) + ' g ± ' + f(d.semC, 3),
+              ['눈금 밖', '흔들림 안', '진짜 효과'][d.band] + (d.k === 1 ? ' ✓ 식초 몫' : d.k === 0 ? ' (대조군 몫까지 포함)' : '')]);
+          });
+          $('fm2').innerHTML = rows.length ? tableHTML(['A에서 뺀 값', '저울·반복', '결과', '판정'], rows) : '<p class="msg">A 병 기록이 아직 없어요.</p>';
         }
       };
     })();
@@ -527,7 +619,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

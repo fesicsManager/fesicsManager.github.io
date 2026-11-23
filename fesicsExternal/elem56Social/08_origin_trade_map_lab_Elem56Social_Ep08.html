@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,6 +443,7 @@ var LAB = (function(){
         {n:'쌀', s:'쌀', dom:29, src:'우리나라', q:null, stat:'30가정 중 국산 29'}
       ];
       var PRED = ['대부분 국내', '반반', '대부분 외국'];
+      var SHN = ['평소', '한 항로가 막힘 (수입 절반)', '바닷길이 모두 막힘'], SHF = [1, 0.5, 0];
       var KR = [0.79, 0.36];
       var CONT = [[0.08, 0.18, 0.16, 0.14], [0.22, 0.55, 0.08, 0.17], [0.47, 0.5, 0.08, 0.16], [0.62, 0.24, 0.2, 0.13], [0.85, 0.72, 0.08, 0.06]];
       return {
@@ -450,11 +453,16 @@ var LAB = (function(){
         params: [
           {key:'i', type:'seg', label:'물건', cols:3, value:0, options:IT.map(function(x){ return x.s; })},
           {key:'g', type:'seg', label:'나의 예측', cols:3, value:0, options:PRED,
-            note:'뭉치는 "주유소가 많으니 석유도 우리 땅에서 나와!"라고 했어요.'}
+            note:'뭉치는 "주유소가 많으니 석유도 우리 땅에서 나와!"라고 했어요.'},
+          {key:'sh', type:'seg', label:'바닷길 사정', cols:3, value:0, options:SHN,
+            note:'바닷길이 막히면 국산은 그대로지만 수입에 기대던 물건은 쓸 수 있는 양이 줄어요. ※ 30가정 조사표와 줄어드는 양은 교육용 모형값이에요.'}
         ],
         compute: function(p){
           var it = IT[p.i], dom = it.dom, forPct = (30 - dom) / 30 * 100, ans = forPct >= 70 ? 2 : forPct <= 30 ? 0 : 1;
-          return {it:it, dom:dom, forPct:forPct, ans:ans, ok:p.g === ans};
+          var avail = dom + Math.round((30 - dom) * SHF[p.sh]), lack = 30 - avail;
+          var vd = p.sh === 0 ? '평소에는 30가정이 다 쓸 수 있어요'
+            : avail >= 25 ? '바닷길이 막혀도 거의 그대로예요 — 국산이 많은 물건' : avail >= 10 ? '절반 가까이 모자라요' : '거의 쓸 수 없어요 — 수입에 크게 기대는 물건';
+          return {it:it, dom:dom, forPct:forPct, ans:ans, ok:p.g === ans, sh:p.sh, avail:avail, lack:lack, vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.85, 1) : 0, mx = 10, my = 10, mw = W - 20, mh = H - 50;
@@ -468,14 +476,14 @@ var LAB = (function(){
           var sz = Math.min(12, (mw * 0.45) / 10);
           for (var i = 0; i < 30; i++){
             var gx = mx + 8 + (i % 10) * (sz + 2), gy = my + 8 + Math.floor(i / 10) * (sz + 2);
-            c.fillStyle = r && i < Math.round(30 * Math.min(1, k * 1.5)) ? (i < r.dom ? PAL[0] : PAL[6]) : '#fff'; c.fillRect(gx, gy, sz, sz);
+            c.fillStyle = r && i < Math.round(30 * Math.min(1, k * 1.5)) ? (i < r.dom ? PAL[0] : (i < r.avail ? PAL[6] : '#F0D6D2')) : '#fff'; c.fillRect(gx, gy, sz, sz);
           }
           if (r){
             var it = r.it;
             if (it.q){
               var s = P(it.q), u = Math.min(1, k * 1.2), ex = s.x + (kr.x - s.x) * u, ey = s.y + (kr.y - s.y) * u;
               c.fillStyle = PAL[6]; c.beginPath(); c.arc(s.x, s.y, 6, 0, Math.PI * 2); c.fill();
-              seg(c, s.x, s.y, ex, ey, PAL[6], 3, [7, 5]);
+              seg(c, s.x, s.y, ex, ey, r.sh === 2 ? '#C9D2DC' : PAL[6], 3, [7, 5]);
               c.fillStyle = '#26313D'; c.beginPath(); c.moveTo(ex - 12, ey - 4); c.lineTo(ex + 12, ey - 4); c.lineTo(ex + 8, ey + 5); c.lineTo(ex - 8, ey + 5); c.fill();
               if (k >= 1){ var lb = it.src.length * 18 > mw * 0.6 ? it.src.split('·')[0] + ' 등' : it.src; txt(c, lb, Math.min(Math.max(s.x, mx + 4 + lb.length * 9), mx + mw - lb.length * 9 - 4), s.y + 26, {align:'center', bold:true, color:'#7A4E12'}); }
             } else if (k >= 1){ glow(c, kr.x, kr.y, 30, 'rgba(43,95,163,.5)', 1); c.font = '700 18px ' + FONT; var hw2 = c.measureText('우리 땅에서 나요').width / 2 + 4; txt(c, '우리 땅에서 나요', Math.max(hw2, Math.min(W - hw2, kr.x)), kr.y + 30, {align:'center', bold:true, color:PAL[0]}); }
@@ -485,18 +493,23 @@ var LAB = (function(){
         stats: function(p, r){
           return [['물건', r.it.n], ['조사·통계', r.it.stat], ['외국산 비율', '약 ' + Math.round(r.forPct) + '%', r.forPct > 50 ? PAL[6] : PAL[0]],
             ['주로 오는 곳', r.it.src], ['나의 예측', PRED[p.g] + (r.ok ? ' — 맞음' : ' — 실제는 ' + PRED[r.ans]), r.ok ? PAL[1] : PAL[4]],
-            ['우리가 파는 것', '반도체 · 자동차 · 배 등']];
+            ['바닷길 사정', SHN[r.sh]],
+            ['쓸 수 있는 양', r.avail + '가정 / 30가정' + (r.lack ? ' (모자람 ' + r.lack + '가정)' : ''), r.avail >= 25 ? PAL[1] : PAL[4]],
+            ['우리가 파는 것', '반도체 · 자동차 · 배 등'],
+            ['판정', r.vd, r.avail >= 25 ? PAL[1] : PAL[4]]];
         },
-        columns: ['물건', '외국산', '주로 오는 곳', '예측', '맞음'],
-        record: function(p, r){ return {i:p.i, g:p.g, fp:r.forPct, ok:r.ok}; },
-        row: function(d){ return [IT[d.i].s, '약 ' + Math.round(d.fp) + '%', IT[d.i].src.split('·')[0] + (IT[d.i].src.indexOf('·') >= 0 ? ' 등' : ''), PRED[d.g], d.ok ? '○' : '✕']; },
+        columns: ['물건', '외국산', '바닷길', '쓸 수 있는 양', '예측', '맞음'],
+        record: function(p, r){ return {i:p.i, g:p.g, sh:p.sh, av:r.avail, fp:r.forPct, ok:r.ok}; },
+        row: function(d){ return [IT[d.i].s, '약 ' + Math.round(d.fp) + '%', SHN[d.sh].split(' (')[0], d.av + '/30', PRED[d.g], d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('물건별 외국산 비율', '<div id="og1"></div><p class="ask">국산이 많은 물건과 외국산이 많은 물건은 무엇이었나요? 우리가 사 오기만 하면 돈은 어떻게 마련할까요?</p>') +
             card('나의 예측 적중', '<div id="og2"></div><p class="ask">과제: 집 냉장고와 찬장에서 물건 열 가지를 골라 포장지의 원산지를 적고, 세계지도에 스티커로 표시해 보세요. 가장 멀리서 온 것은 무엇일까요?</p>') + '</div>';
-          var seen = {}, items = [];
-          rec.forEach(function(d){ if (seen[d.i]) return; seen[d.i] = 1; items.push({label:IT[d.i].s, v:d.fp, color:d.fp > 50 ? PAL[6] : PAL[0], text:'약 ' + Math.round(d.fp) + '%'}); });
-          $('og1').innerHTML = hbars(items, 100) + (items.length < 5 ? '<p class="msg">아직 확인하지 않은 물건이 있어요.</p>' : '');
+          var seen = {}, items = [], sh = [];
+          rec.forEach(function(d){ if (seen[d.i] || d.sh) return; seen[d.i] = 1; items.push({label:IT[d.i].s, v:d.fp, color:d.fp > 50 ? PAL[6] : PAL[0], text:'약 ' + Math.round(d.fp) + '%'}); });
+          rec.filter(function(d){ return d.sh > 0; }).slice(-5).forEach(function(d){ sh.push({label:IT[d.i].s + ' · ' + SHN[d.sh].split(' (')[0], v:d.av / 30 * 100, color:d.av >= 25 ? PAL[1] : PAL[4], text:d.av + '/30가정'}); });
+          $('og1').innerHTML = hbars(items, 100) + (items.length < 5 ? '<p class="msg">아직 확인하지 않은 물건이 있어요.</p>' : '')
+            + (sh.length ? '<h3 style="font-size:1rem;margin:.8rem 0 .3rem">바닷길이 막혔을 때 쓸 수 있는 양</h3>' + hbars(sh, 100) + '<p class="msg">쌀은 거의 그대로인데 원유·커피는 거의 사라져요.</p>' : '');
           var ok = rec.filter(function(d){ return d.ok; }).length;
           $('og2').innerHTML = hbars([{label:'맞힌 예측', v:ok / rec.length * 100, color:PAL[1], text:ok + ' / ' + rec.length}], 100);
         }
@@ -507,7 +520,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

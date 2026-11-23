@@ -205,6 +205,13 @@ tbody tr:nth-child(even){background:#fafcff}
           <input type="range" id="so" min="0" max="19" value="14" aria-label="낱개">
         </div>
 
+        <div class="ctrl" style="background:#fff8ee;border:2px dashed #d98e3b;border-radius:.7rem;padding:.7rem .8rem">
+          <div class="row" style="display:block"><span>✏️ 먼저 맞혀 보기 — 10개씩 묶고 나면 블록은 모두 몇 개가 될까</span></div>
+          <input type="number" id="pvGuess" step="1" min="0" aria-label="묶은 뒤 블록 수 예측" placeholder="개수를 적어 보자"
+                 style="width:100%;font-family:inherit;font-size:1rem;padding:.45rem .5rem;border:2px solid var(--line);border-radius:.6rem">
+          <p class="hint" style="margin:.35rem 0 0">비워 두고 눌러도 된다. 적어 두면 묶은 뒤 맞았는지 채점해 준다.</p>
+        </div>
+
         <div class="btns">
           <button class="btn" id="btnGroup">10개씩 묶기</button>
         </div>
@@ -226,9 +233,10 @@ tbody tr:nth-child(even){background:#fafcff}
               <th>번호</th><th>만든 수</th>
               <th>넣은 백</th><th>넣은 십</th><th>넣은 일</th><th>묶기 전 블록 수</th>
               <th>묶은 뒤 백</th><th>묶은 뒤 십</th><th>묶은 뒤 일</th><th>묶은 뒤 블록 수</th>
+              <th>내 예측</th><th>채점</th>
             </tr>
           </thead>
-          <tbody id="tbA"><tr><td colspan="10" class="empty">아직 기록이 없다.</td></tr></tbody>
+          <tbody id="tbA"><tr><td colspan="12" class="empty">아직 기록이 없다.</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -295,7 +303,7 @@ tbody tr:nth-child(even){background:#fafcff}
   var view  = {h:2, t:13, o:14};   // 화면에 보이는 상태
   var grouped = false;
   var animating = false;
-  var records = [];
+  var records = [], pvLast = null;
 
   var sh = document.getElementById('sh');
   var st = document.getElementById('st');
@@ -494,23 +502,32 @@ tbody tr:nth-child(even){background:#fafcff}
   function autoRec(){
     if(!grouped) return;
     var g = groupResult(input.h, input.t, input.o);
+    var after = g.h + g.t + g.o;
+    var gEl = document.getElementById('pvGuess');
+    var raw = gEl ? String(gEl.value) : '';
+    var gv = (raw === '') ? null : parseFloat(raw);
+    if(gv !== null && !isFinite(gv)) gv = null;
+    pvLast = (gv === null) ? null : {g:gv, a:after, hit:(gv === after)};
     records.push({
       num: input.h*100 + input.t*10 + input.o,
       ih: input.h, it: input.t, io: input.o,
       before: input.h + input.t + input.o,
       gh: g.h, gt: g.t, go: g.o,
-      after: g.h + g.t + g.o
+      after: after,
+      gGuess: gv,
+      gHit: (gv === null) ? null : (gv === after)
     });
     drawTableA();
     drawAnalysis();
-    document.getElementById('hint').textContent = '묶기 끝! 자동으로 기록했다. 다른 방법으로도 넣어 보자. (' + records.length + '개 기록됨)';
+    document.getElementById('hint').textContent = '묶기 끝! 자동으로 기록했다. 다른 방법으로도 넣어 보자. (' + records.length + '개 기록됨)'
+      + (pvLast ? ('  ✏️ 내 예측 ' + pvLast.g + '개 → 실제 ' + pvLast.a + '개 · ' + (pvLast.hit ? '맞았다!' : '틀렸다. 어느 자리에서 어긋났는지 보자.')) : '');
   }
 
   function drawTableA(){
     var tb = document.getElementById('tbA');
     document.getElementById('cntA').textContent = records.length;
     if(records.length === 0){
-      tb.innerHTML = '<tr><td colspan="10" class="empty">아직 기록이 없다.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="12" class="empty">아직 기록이 없다.</td></tr>';
       return;
     }
     var html = '';
@@ -518,7 +535,10 @@ tbody tr:nth-child(even){background:#fafcff}
       var r = records[i];
       html += '<tr><td>' + (i+1) + '</td><td><b>' + r.num + '</b></td>'
             + '<td>' + r.ih + '</td><td>' + r.it + '</td><td>' + r.io + '</td><td>' + r.before + '</td>'
-            + '<td>' + r.gh + '</td><td>' + r.gt + '</td><td>' + r.go + '</td><td><b>' + r.after + '</b></td></tr>';
+            + '<td>' + r.gh + '</td><td>' + r.gt + '</td><td>' + r.go + '</td><td><b>' + r.after + '</b></td>'
+            + '<td>' + ((r.gGuess === null || r.gGuess === undefined) ? '—' : r.gGuess) + '</td>'
+            + '<td>' + ((r.gHit === null || r.gHit === undefined) ? '—'
+                : ('<span class="' + (r.gHit ? 'ok' : 'no') + '">' + (r.gHit ? '맞음' : '틀림') + '</span>')) + '</td></tr>';
     }
     tb.innerHTML = html;
   }
@@ -591,6 +611,11 @@ tbody tr:nth-child(even){background:#fafcff}
       document.getElementById('s3p').textContent = '같은 수 ' + dupNums.join(', ') + '을(를) 다른 방법으로 넣어 봤는데, 묶은 뒤 모습은 ' + (dupSame ? '똑같았다.' : '달랐다. 기록을 다시 확인해 보자.');
     }
 
+    var gTried = 0, gHitN = 0;
+    for(var gi=0; gi<records.length; gi++){
+      if(records[gi].gHit === true || records[gi].gHit === false){ gTried++; if(records[gi].gHit) gHitN++; }
+    }
+
     var c = document.getElementById('concl');
     if(matchPlace === records.length && matchSum === records.length){
       c.innerHTML = '<b>정리</b> — 블록을 어떻게 넣든 10개씩 묶고 나면 백·십·일의 개수는 항상 <b>그 수를 쓴 숫자와 똑같아졌다.</b> '
@@ -598,6 +623,10 @@ tbody tr:nth-child(even){background:#fafcff}
                   + '이것이 우리가 <b>344</b>라고 쓰는 이유다. 자릿수 표기는 “가장 적은 블록으로 나타낸 방법”인 셈이다.';
     } else {
       c.innerHTML = '<b>확인 필요</b> — 아직 자릿수와 다른 기록이 있다. 묶기를 끝까지 했는지, 십막대가 10개 이상 남지 않았는지 확인해 보자.';
+    }
+    if(gTried){
+      c.innerHTML += '<br>· <b>내 예측</b>은 ' + gTried + '번 가운데 ' + gHitN + '번 맞았다.'
+        + (gHitN === gTried ? ' 어떻게 미리 알 수 있었는지 말로 적어 보자.' : ' 틀린 기록은 넣은 십·일이 10개를 넘었는지 살펴보자.');
     }
   }
 

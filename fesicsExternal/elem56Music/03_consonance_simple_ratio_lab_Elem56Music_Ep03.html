@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -495,19 +497,25 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
       function rough(f1, f2){ var d = 0; for (var i = 1; i <= 6; i++) for (var j = 1; j <= 6; j++){ var lo = Math.min(f1 * i, f2 * j), hi = Math.max(f1 * i, f2 * j), s = 0.24 / (0.0207 * lo + 18.96), x = s * (hi - lo);
         d += amp(i) * amp(j) * (Math.exp(-3.51 * x) - Math.exp(-5.75 * x)); } return d; }
       var MAXR = rough(C4, C4 * Math.pow(2, 1 / 12));
+      /* 둘째 조작 - 아래 음(기준 음)의 높이. 비율은 그대로인데 높이만 바꿔 본다 */
+      var BS = [{n:'가운데 도', s:'도', off:0}, {n:'솔', s:'솔', off:7}, {n:'높은 도', s:'높은 도', off:12}, {n:'낮은 솔', s:'낮은 솔', off:-5}];
+      function iga(w){ var ch = w.charCodeAt(w.length - 1); return (ch >= 0xAC00 && ch <= 0xD7A3 && (ch - 0xAC00) % 28 !== 0) ? '이' : '가'; }
       function calc(p){
-        var P = PT[p.x], fs = [C4].concat(P.k.map(function(k){ return C4 * Math.pow(2, k / 12); })), d = 0, n = 0;
+        var P = PT[p.x], B = BS[p.b || 0], f0 = C4 * Math.pow(2, B.off / 12);
+        var fs = [f0].concat(P.k.map(function(k){ return f0 * Math.pow(2, k / 12); })), d = 0, n = 0;
         for (var i = 0; i < fs.length; i++) for (var j = i + 1; j < fs.length; j++){ d += rough(fs[i], fs[j]); n++; }
-        var sc = Math.min(100, 100 * (d / n) / MAXR), T = 1000 * P.b / C4;
+        var sc = Math.min(100, 100 * (d / n) / MAXR), T = 1000 * P.b / f0;
         var feel = sc <= 15 ? '아주 맑게 어울림' : sc <= 35 ? '맑은 편' : sc <= 60 ? '조금 부딪침' : '울렁울렁 거침';
-        return {P:P, fs:fs, sc:sc, T:T, feel:feel, ratio:P.a ? P.b + ' : ' + P.a : '4 : 5 : 6'};
+        return {P:P, B:B, bi:(p.b || 0), fs:fs, sc:sc, T:T, feel:feel, ratio:P.a ? P.b + ' : ' + P.a : '4 : 5 : 6'};
       }
       return {
         sceneHeight: 430,
-        idle: '도와 함께 칠 음을 고른 뒤 <b>함께 울려 보기</b>를 누르세요.',
-        shortHint: '도♯, 레, 솔, 높은 도를 꼭 비교하고, 도·미·솔 화음도 들어 보세요.',
+        idle: '아래 음과 함께 칠 음을 고른 뒤 <b>함께 울려 보기</b>를 누르세요.',
+        shortHint: '도♯, 레, 솔, 높은 도를 꼭 비교하고, 같은 짝을 <b>아래 음 높이</b>만 바꿔 다시 울려 보세요.',
         params: [
-          {key:'x', type:'seg', label:'도와 함께 칠 음', cols:4, value:5, options:PT.map(function(x){ return x.n; })}
+          {key:'b', type:'seg', label:'아래 음 (기준 음)', cols:4, value:0, options:BS.map(function(x){ return x.n; }),
+            note:'비율은 그대로 두고 높이만 바꿔 보세요. 간단한 비율이면 높이가 달라도 맑게 들릴까요? (거칢 점수는 귀의 성질을 흉내 낸 교육용 모형값이에요.)'},
+          {key:'x', type:'seg', label:'아래 음과 함께 칠 음', cols:4, value:5, options:PT.map(function(x){ return x.n; })}
         ],
         compute: function(p){
           var r = calc(p), S = session(1.6, 0.18), g = 0.55 / r.fs.length;
@@ -537,23 +545,50 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
           txt(c, '거칢 점수', 16, by + 16, {color:'#4A5868'});
           box(c, 110, by, bw, 22, '#E6EBF1');
           if (r){ c.fillStyle = q.sc <= 35 ? PAL[1] : q.sc <= 60 ? PAL[6] : PAL[4]; c.fillRect(110, by, bw * q.sc / 100 * Math.min(1, tau * 2), 22); txt(c, f(q.sc, 0), 116 + bw, by + 17, {bold:true}); }
-          txtF(c, r ? '도 + ' + q.P.s + ' · 약 ' + q.ratio + ' · ' + q.feel : '예상: 도 + ' + q.P.s + ', 맑을까 거칠까?', 16, H - 14, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 32);
+          txtF(c, r ? q.B.s + ' + ' + q.P.s + ' · 약 ' + q.ratio + ' · ' + q.feel : '예상: ' + q.B.s + ' + ' + q.P.s + ', 맑을까 거칠까?', 16, H - 14, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 32);
         },
         stats: function(p, r){
-          return [['함께 친 음', '도 + ' + r.P.s], ['진동수', r.fs.map(function(x){ return f(x, 0); }).join(' + ') + ' Hz'],
-            ['가까운 정수비', '약 ' + r.ratio, PAL[1]], ['무늬가 다시 맞는 간격', f(r.T, 1) + ' ms (도가 ' + r.P.b + '번 떨릴 때마다)', PAL[3]],
+          return [['함께 친 음', r.B.s + ' + ' + r.P.s], ['아래 음 높이', r.B.n + ' (약 ' + f(r.fs[0], 0) + ' Hz)'],
+            ['진동수', r.fs.map(function(x){ return f(x, 0); }).join(' + ') + ' Hz'],
+            ['가까운 정수비', '약 ' + r.ratio, PAL[1]], ['무늬가 다시 맞는 간격', f(r.T, 1) + ' ms (' + r.B.s + iga(r.B.s) + ' ' + r.P.b + '번 떨릴 때마다)', PAL[3]],
             ['거칢 점수 (0 맑음 ~ 100 거침)', f(r.sc, 0), r.sc <= 35 ? PAL[1] : r.sc <= 60 ? PAL[6] : PAL[4]], ['모형이 예측한 느낌', r.feel, PAL[0]]];
         },
-        columns: ['함께 친 음', '정수비', '다시 맞는 간격', '거칢 점수', '느낌(모형)'],
-        record: function(p, r){ return {x:p.x, sc:r.sc, T:r.T, ratio:r.ratio, feel:r.feel}; },
-        row: function(d){ return ['도 + ' + PT[d.x].s, '약 ' + d.ratio, f(d.T, 1) + ' ms', f(d.sc, 0), d.feel]; },
+        columns: ['아래 음', '함께 친 음', '정수비', '다시 맞는 간격', '거칢 점수', '느낌(모형)'],
+        record: function(p, r){ return {x:p.x, b:r.bi, sc:r.sc, T:r.T, ratio:r.ratio, feel:r.feel}; },
+        row: function(d){ return [BS[d.b || 0].n, BS[d.b || 0].s + ' + ' + PT[d.x].s, '약 ' + d.ratio, f(d.T, 1) + ' ms', f(d.sc, 0), d.feel]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('거칢 점수 순위 (낮을수록 맑음)', '<div id="m3a"></div><p class="ask">가장 맑은 쪽에 놓인 음들은 가까운 음이었나요, 간단한 비율의 음이었나요? 도♯은 어디에 있나요?</p>') +
-            card('비율과 다시 맞는 간격', '<div id="m3b"></div><p class="ask">과제: 건반 앱에서 "도"와 함께 레·미·파·솔·라를 하나씩 쳐 보고, 맑음 1점부터 거칢 5점까지 점수를 매겨 표로 만들어 보세요. 내 점수 순서가 이 실험의 거칢 점수 순서와 비슷한가요?</p>') + '</div>';
-          var g = groupBy(rec, function(d){ return d.x; }), ds = Object.keys(g).map(function(k){ return g[k][0]; }).sort(function(a, b){ return a.sc - b.sc; });
-          $('m3a').innerHTML = hbars(ds.map(function(d){ return {label:'도 + ' + PT[d.x].s, v:d.sc, color:d.sc <= 35 ? PAL[1] : d.sc <= 60 ? PAL[6] : PAL[4], text:f(d.sc, 0)}; }), 100);
-          $('m3b').innerHTML = tableHTML(['함께 친 음', '정수비', '다시 맞는 간격'], ds.map(function(d){ return ['도 + ' + PT[d.x].s, '약 ' + d.ratio, f(d.T, 1) + ' ms']; }));
+            card('비율과 다시 맞는 간격', '<div id="m3b"></div><p class="ask">과제: 건반 앱에서 "도"와 함께 레·미·파·솔·라를 하나씩 쳐 보고, 맑음 1점부터 거칢 5점까지 점수를 매겨 표로 만들어 보세요. 내 점수 순서가 이 실험의 거칢 점수 순서와 비슷한가요?</p>') +
+            card('같은 비율, 높이만 바꾸면?', '<div id="m3c"></div><p id="m3j" class="ask"></p>') + '</div>';
+          var g = groupBy(rec, function(d){ return (d.b || 0) + '_' + d.x; }), ds = Object.keys(g).map(function(k){ return g[k][0]; }).sort(function(a, b){ return a.sc - b.sc; });
+          function lab(d){ return BS[d.b || 0].s + ' + ' + PT[d.x].s; }
+          $('m3a').innerHTML = hbars(ds.map(function(d){ return {label:lab(d), v:d.sc, color:d.sc <= 35 ? PAL[1] : d.sc <= 60 ? PAL[6] : PAL[4], text:f(d.sc, 0)}; }), 100);
+          $('m3b').innerHTML = tableHTML(['함께 친 음', '정수비', '다시 맞는 간격'], ds.map(function(d){ return [lab(d), '약 ' + d.ratio, f(d.T, 1) + ' ms']; }));
+          /* 같은 짝(같은 비율)을 높이만 바꿔 재었는지 본다 */
+          var byX = groupBy(ds, function(d){ return d.x; }), rows3 = [], pairs = 0, keepClear = 0, gotWorse = 0;
+          Object.keys(byX).forEach(function(k){
+            var arr = byX[k];
+            if (arr.length < 2) return;
+            pairs++;
+            var sorted = arr.slice().sort(function(a, b){ return BS[a.b || 0].off - BS[b.b || 0].off; });
+            var lo = sorted[0], hi = sorted[sorted.length - 1];
+            var judge;
+            if (Math.max(lo.sc, hi.sc) <= 35){ judge = '높이가 달라도 맑음'; keepClear++; }
+            else if (Math.abs(hi.sc - lo.sc) >= 15){ judge = '낮은 쪽이 더 거칢'; gotWorse++; }
+            else { judge = '비슷함'; }
+            rows3.push(['약 ' + lo.ratio, sorted.map(function(d){ return BS[d.b || 0].s + ' ' + f(d.sc, 0); }).join(' / '), judge]);
+          });
+          if (!pairs){
+            $('m3c').innerHTML = '<p class="note">같은 짝을 <b>아래 음 높이</b>만 바꿔 두 번 이상 재면 여기에 견줘 보여 줄게요.</p>';
+            $('m3j').innerHTML = '아직 아래 음을 한 가지로만 두었네요. 예를 들어 <b>솔(약 2 : 3)</b>을 \'가운데 도\'와 \'낮은 솔\'에서 각각 울려 보세요. 비율이 같으니 점수도 같을까요?';
+          } else {
+            $('m3c').innerHTML = tableHTML(['짝의 비율', '아래 음별 거칢 점수', '판정'], rows3);
+            $('m3j').innerHTML = '간단한 비율(2 : 3, 1 : 2 같은 것)은 <b>' + keepClear + '</b>개가 높이를 바꿔도 맑았어요. 반면 ' +
+              (gotWorse ? ('<b>' + gotWorse + '</b>개는 음을 낮출수록 더 거칠어졌어요. 비율이 같아도 아주 낮은 음에서는 두 음이 서로 가까이 느껴져 더 부딪치기 때문이에요.')
+                        : '높이 때문에 점수가 크게 달라진 짝은 아직 없었어요 — 비율이 같으면 높이를 바꿔도 느낌이 크게 변하지 않는다는 뜻이에요.') +
+              ' 그러니까 \'어울림\'을 정하는 것은 \'건반에서 가까운가\'가 아니라 <b>비율이 간단한가</b>이고, 거기에 음의 높이도 조금 끼어듭니다.';
+          }
         }
       };
     })();
@@ -562,7 +597,8 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -513,20 +515,24 @@ var LAB = (function anonymous(
         ],
         compute:function(p){ var j = judge(p.e, p.s); return {j:j, sent:sent(p.t, p.s), E:EV[p.e], S:SN[p.s]}; },
         draw:function(c, W, H, p, r, tau){
-          var tw = W - 32, k = r ? ease(tau / 0.8) : 0, E = EV[p.e], S = SN[p.s];
-          rbox(c, 16, 10, tw, 80, '#FFFFFF', '#C9D3DE', 1.5);
+          var tw = W - 32, k = r ? ease(tau / 0.8) : 0, E = EV[p.e], S = SN[p.s], narrow = W < 560;
+          var ns = wrap(c, sent(p.t, p.s), 28, 40, tw - 24, 22, {size:17, bold:true, measure:true});
+          var bh = narrow ? Math.max(80, 40 + (ns - 1) * 22 + 4) : 80;
+          rbox(c, 16, 10, tw, bh, '#FFFFFF', '#C9D3DE', 1.5);
           wrap(c, sent(p.t, p.s), 28, 40, tw - 24, 22, {size:17, bold:true});
-          var y = 150, x0 = 30, x1 = W - 30, X = function(v){ return x0 + (x1 - x0) * (5.3 - v) / 5.6; };
-          var sy = W < 560 ? y - 36 : y - 30; T(c, '강함', x0, sy, {bold:true, size:14, color:PAL[4]}); T(c, '약함', x1, sy, {bold:true, size:14, color:PAL[5], align:'right'});
+          var y = narrow ? 10 + bh + 60 : 150, x0 = 30, x1 = W - 30, X = function(v){ return x0 + (x1 - x0) * (5.3 - v) / 5.6; };
+          var sy = narrow ? y - 36 : y - 30; T(c, '강함', x0, sy, {bold:true, size:14, color:PAL[4]}); T(c, '약함', x1, sy, {bold:true, size:14, color:PAL[5], align:'right'});
           c.fillStyle = '#E9EDF2'; c.fillRect(x0, y - 12, x1 - x0, 24);
           c.globalAlpha = 0.85; c.fillStyle = '#9FD8BE'; c.fillRect(X(E.hi), y - 12, X(E.lo) - X(E.hi), 24); c.globalAlpha = 1;
           var marks = [[5, 'clearly'], [4, 'improves'], [3, 'may'], [2.3, 'associated'], [1, '6겹'], [0.3, 'one case']];
-          marks.forEach(function(m, i){ seg(c, X(m[0]), y + 12, X(m[0]), y + 18, '#8C99A8', 1.5); if (W >= 560 || i % 2 === 0) T(c, m[1], X(m[0]), y + 36, {size:12.5, align:'center', color:'#4A5868'}); if (W < 560 && i % 2 === 1) T(c, m[1], X(m[0]), y + 52, {size:12.5, align:'center', color:'#4A5868'}); });
+          marks.forEach(function(m, i){ seg(c, X(m[0]), y + 12, X(m[0]), y + 18, '#8C99A8', 1.5);
+            if (!narrow || i % 2 === 0) T(c, m[1], X(m[0]), y + 36, {size:12.5, align:'center', color:'#4A5868'});
+            else T(c, m[1], X(m[0]), y + (i === 3 ? 72 : 54), {size:12.5, align:'center', color:'#4A5868'}); });
           T(c, '근거에 맞는 구간: ' + E.s, (X(E.hi) + X(E.lo)) / 2, y - 18, {size:13, bold:true, align:'center', color:PAL[1], max:220});
           var mx = X(5.3) + (X(S.lv) - X(5.3)) * (r ? k : 1);
           c.fillStyle = '#26313D'; c.beginPath(); c.moveTo(mx, y + 14); c.lineTo(mx - 9, y + 30); c.lineTo(mx + 9, y + 30); c.closePath(); c.fill();
           if (r){ c.fillStyle = '#26313D'; c.fillRect(mx - 2, y - 16, 4, 30); }
-          var ty = y + 90;
+          var ty = y + (narrow ? 112 : 90);
           T(c, '동사의 종류: ' + (S.cause ? '원인 (X → Y)' : '관계 / 사례'), 16, ty, {size:15, color:S.cause ? PAL[2] : PAL[5], bold:true});
           T(c, '근거가 허락하는 동사: ' + (p.e === 2 ? '관계 (is associated with)' : p.e === 3 ? '사례 (In one case)' : '원인 가능 (실험)'), 16, ty + 24, {size:15, color:'#4A5868', max:tw});
           if (r && k >= 1){
@@ -559,7 +565,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

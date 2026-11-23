@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -429,30 +431,39 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var NN = [2, 10, 100, 1000], PR = ['n번 중 앞면이 꼭 절반', '절반 근처지만 정확히 절반은 드물다'], TR = 200;
-      function exactHalf(n){ var h = n / 2, l = 0; for (var i = 1; i <= h; i++) l += Math.log((h + i) / i); return Math.exp(l - n * Math.LN2); }
+      /* 앞면 확률 q 일 때 n 번 중 정확히 절반이 앞면일 확률 */
+      function exactHalf(n, q){ q = (q == null ? 0.5 : q); var h = n / 2, l = 0;
+        for (var i = 1; i <= h; i++) l += Math.log((h + i) / i);
+        return Math.exp(l + h * Math.log(q) + h * Math.log(1 - q)); }
       return {
         sceneHeight: 420,
-        idle: 'n과 예측을 고르고 <b>200회 던지기</b>를 누르세요.',
+        idle: 'n·앞면 확률·예측을 고르고 <b>200회 던지기</b>를 누르세요. 앞면 확률을 ½ 이 아닌 값으로도 바꿀 수 있습니다.',
         shortHint: 'n = 2, 10, 100, 1000을 모두 해 보세요. 분포의 폭과 “정확히 절반” 비율이 어떻게 변하나요?',
         params: [
           {key:'n', type:'seg', label:'한 번의 실험에서 던지는 횟수 n', cols:4, value:1, options:NN.map(function(v){ return v + '번'; })},
+          {key:'q', type:'range', label:'앞면이 나올 확률 (치우친 동전)', min:0.1, max:0.9, step:0.05, value:0.5, fmt:function(v){ return f(v, 2); }},
           {key:'g', type:'seg', label:'나의 예측', cols:1, value:0, options:PR}
         ],
         compute: function(p){
-          var n = NN[p.n], heads = [], bins = [], nb = 10, i, k;
+          var n = NN[p.n], q = (p.q == null ? 0.5 : p.q), heads = [], bins = [], nb = 10, i, k;
           for (i = 0; i < nb + 1; i++) bins.push(0);
-          var first = []; for (k = 0; k < TR; k++){ var h = 0; for (i = 0; i < n; i++){ var hd = Math.random() < 0.5; if (hd) h++; if (k === 0 && i < 20) first.push(hd ? 1 : 0); } heads.push(h); bins[Math.round(h / n * nb)]++; }
+          var first = []; for (k = 0; k < TR; k++){ var h = 0; for (i = 0; i < n; i++){ var hd = Math.random() < q; if (hd) h++; if (k === 0 && i < 20) first.push(hd ? 1 : 0); } heads.push(h); bins[Math.round(h / n * nb)]++; }
           var ex = heads.filter(function(h){ return h * 2 === n; }).length, props = heads.map(function(h){ return h / n; });
+          var mn = mean(props);
           /* 첫 실험 = 집계한 200회 중 1회째 */
-          return {n:n, bins:bins, ex:ex, rate:ex / TR, theo:exactHalf(n), mean:mean(props), lo:Math.min.apply(null, props), hi:Math.max.apply(null, props), first:first, ok:p.g === 1};
+          return {n:n, q:q, bins:bins, ex:ex, rate:ex / TR, theo:exactHalf(n, q), mean:mn,
+            lo:Math.min.apply(null, props), hi:Math.max.apply(null, props), first:first, ok:p.g === 1,
+            near:(Math.abs(mn - q) < Math.max(0.01, 1.5 / Math.sqrt(n * TR)) * 3)};
         },
         draw: function(c, W, H, p, r, tau){
           var n = NN[p.n], x0 = 50, x1 = W - 20, y0 = H - 60, top = W < 420 ? 134 : 110;
-          txt(c, '동전 ' + n + '번 × 실험 ' + TR + '회', 20, 30, {bold:true});
+          txt(c, '동전 ' + n + '번 × 실험 ' + TR + '회' + ((p.q != null && Math.abs(p.q - 0.5) > 1e-9) ? '  (앞면 확률 ' + f(p.q, 2) + ' 인 치우친 동전)' : ''), 20, 30, {bold:true, size:16});
           seg(c, x0, y0, x1, y0, '#5C6B7A', 2);
           for (var t = 0; t <= 10; t += 2){ var xx = x0 + (x1 - x0) * t / 10; txt(c, f(t / 10, 1), xx, y0 + 24, {align:'center', color:'#4A5868'}); }
           txt(c, '앞면 비율', (x0 + x1) / 2, y0 + 50, {align:'center', color:'#4A5868'});
-          seg(c, x0 + (x1 - x0) / 2, top - 10, x0 + (x1 - x0) / 2, y0, PAL[4], 2, [6, 4]);
+          var qq = (p.q == null ? 0.5 : p.q), xq = x0 + (x1 - x0) * qq;
+          seg(c, xq, top - 10, xq, y0, PAL[4], 2, [6, 4]);
+          if (Math.abs(qq - 0.5) > 1e-9) seg(c, x0 + (x1 - x0) / 2, top - 10, x0 + (x1 - x0) / 2, y0, '#C9D3E0', 2, [4, 4]);
           if (!r){ txt(c, '정확히 절반이 몇 번 나올까요?', 20, 70, {color:'#4A5868'}); return; }
           r.first.forEach(function(v, i){ c.fillStyle = v ? PAL[6] : PAL[7]; c.beginPath(); c.arc(28 + i * Math.min(20, (W - 50) / 20), 62, 7, 0, Math.PI * 2); c.fill(); });
           var mx = Math.max.apply(null, r.bins), bw = (x1 - x0) / 11;
@@ -468,21 +479,32 @@ var LAB = (function(){
         stats: function(p, r){
           return [['첫 실험의 앞(●주황)·뒤', r.first.map(function(v){ return v ? '앞' : '뒤'; }).join('') + (r.n > 20 ? '…' : '')],
             ['정확히 절반인 실험', r.ex + '회 / ' + TR + '회 = ' + f(r.rate * 100, 1) + '%', PAL[0]], ['이론값', '약 ' + f(r.theo * 100, 1) + '%', PAL[3]],
-            ['앞면 비율 평균', f(r.mean, 3), PAL[1]], ['앞면 비율 범위', f(r.lo, 3) + ' ~ ' + f(r.hi, 3)],
+            ['앞면 비율 평균', f(r.mean, 3) + ' (정한 확률 ' + f(r.q, 2) + ')', PAL[1]], ['앞면 비율 범위', f(r.lo, 3) + ' ~ ' + f(r.hi, 3)],
+            ['비율이 정한 확률에 모였나', r.near ? '네 — 평균이 ' + f(r.q, 2) + ' 에 거의 붙었습니다' : '아직 — ' + f(Math.abs(r.mean - r.q), 3) + ' 만큼 떨어져 있습니다 (n 을 늘려 보세요)', r.near ? PAL[1] : PAL[6]],
+            ['“정확히 절반”의 뜻', Math.abs(r.q - 0.5) < 1e-9 ? '확률이 ½ 일 때의 절반입니다'
+              : '동전이 ' + f(r.q, 2) + ' 로 치우쳤으니 “절반”은 더 이상 기댓값이 아닙니다 — 비율은 ' + f(r.q, 2) + ' 근처에 모입니다', PAL[3]],
             ['나의 예측', PR[p.g] + (r.ok ? ' — 맞았어요' : ' — 정확히 절반이 아닌 실험이 ' + (TR - r.ex) + '회나 있어요'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['n', '정확히 절반', '이론', '비율 평균', '비율 범위'],
-        record: function(p, r){ return {n:r.n, rate:r.rate, theo:r.theo, mean:r.mean, lo:r.lo, hi:r.hi}; },
-        row: function(d){ return [d.n, f(d.rate * 100, 1) + '%', f(d.theo * 100, 1) + '%', f(d.mean, 3), f(d.lo, 2) + ' ~ ' + f(d.hi, 2)]; },
+        columns: ['n', '앞면 확률', '정확히 절반', '이론', '비율 평균'],
+        record: function(p, r){ return {n:r.n, q:r.q, rate:r.rate, theo:r.theo, mean:r.mean, lo:r.lo, hi:r.hi, near:r.near}; },
+        row: function(d){ return [d.n, f(d.q, 2), f(d.rate * 100, 1) + '%', f(d.theo * 100, 1) + '%', f(d.mean, 3)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('“정확히 절반” 비율: 실험 vs 이론', '<div id="pp1"></div><p class="ask">n이 커질수록 정확히 절반이 나오는 비율은 커졌나요, 작아졌나요? 그런데도 “확률 ½”이 틀린 말이 아닌 까닭은?</p>') +
+            card('치우친 동전에서는 어디에 모이나', '<div id="pp3"></div><p class="ask">앞면 확률을 0.3 이나 0.7 로 두면 비율 평균이 어디에 모였나요? “확률 ½”이라는 말이 어떤 뜻이었는지 다시 적어 보세요.</p>') +
             card('앞면 비율이 퍼진 범위', '<div id="pp2"></div><p class="ask">과제: 동전을 10번씩 5세트 직접 던져 앞면 수를 기록하고, “10번 중 꼭 5번”이 몇 세트였는지 이 실험 결과와 비교하세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.n; }), items = [], rows = [];
           Object.keys(g).sort(function(a, b){ return a - b; }).forEach(function(k){ var x = g[k], m = mean(x.map(function(d){ return d.rate * 100; }));
             items.push({label:'n = ' + k + ' · 실험', v:m, color:PAL[0], text:f(m, 1) + '%'}); items.push({label:'n = ' + k + ' · 이론', v:x[0].theo * 100, color:PAL[3], text:f(x[0].theo * 100, 1) + '%'});
             rows.push(['n = ' + k, x.length + '번', f(Math.min.apply(null, x.map(function(d){ return d.lo; })), 3) + ' ~ ' + f(Math.max.apply(null, x.map(function(d){ return d.hi; })), 3)]); });
           $('pp1').innerHTML = hbars(items, 60);
+          var gq = groupBy(rec, function(d){ return f(d.q, 2); }), rows3 = [];
+          Object.keys(gq).sort(function(a, b){ return a - b; }).forEach(function(k){ var x = gq[k];
+            rows3.push([k, x.length + '번', f(mean(x.map(function(d){ return d.mean; })), 3),
+              f(mean(x.map(function(d){ return d.rate * 100; })), 1) + '%',
+              x.filter(function(d){ return d.near; }).length + ' / ' + x.length]); });
+          $('pp3').innerHTML = tableHTML(['앞면 확률', '기록', '앞면 비율 평균', '정확히 절반 비율', '정한 확률에 모인 기록'], rows3) +
+            '<p class="msg">치우친 동전에서도 던지는 횟수를 늘리면 앞면 비율은 <b>정해 둔 확률</b> 에 모여요. 확률은 “절반이 나온다는 약속”이 아니라 “많이 던질수록 비율이 그 값에 모인다”는 뜻이에요.</p>';
           $('pp2').innerHTML = tableHTML(['n', '200회 묶음', '앞면 비율 범위'], rows);
         }
       };
@@ -492,7 +514,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,6 +440,8 @@ var LAB = (function(){
         {name:'소금 결정', v:[0,0,0,0,1,0,0], verdict:1, color:'#3A8FB7', why:'포화 용액에서 결정이 커지지만, 이온이 쌓이는 물리 현상입니다.'}
       ];
       var VER = ['생물', '비생물', '경계(생물·무생물 사이)'];
+      /* 판정은 '어떤 기준을 쓰기로 했는가'에 따라 갈린다 — 같은 대상도 기준을 바꾸면 판정이 뒤집힌다 */
+      var CRIT = ['교과서 관례 (세포·대사·유전을 함께 본다)', '유전 물질로 번식·진화하면 생물', '7가지 중 하나라도 보이면 생물'];
       var MK = ['X', '△', 'O'], MC = ['#C8463D', '#D98E04', '#2E9E78'];
       return {
         sceneHeight: 440,
@@ -446,12 +450,18 @@ var LAB = (function(){
         params: [
           {key:'o', type:'seg', label:'관찰 대상', cols:3, value:2, options:OB.map(function(x){ return x.name; })},
           {key:'g', type:'seg', label:'나의 예측', cols:3, value:0, options:VER,
-            note:'한두 가지 특성만 보고 판단하지 말고, 7가지를 모두 따져 보세요.'}
+            note:'한두 가지 특성만 보고 판단하지 말고, 7가지를 모두 따져 보세요.'},
+          {key:'c', type:'seg', label:'쓸 판정 기준', value:0, options:CRIT,
+            note:'기준을 바꿔 같은 대상을 다시 확인해 보세요. 바이러스와 촛불의 판정이 어떻게 되는지 보세요.'}
         ],
         compute: function(p){
           var o = OB[p.o], nO = 0, nT = 0;
           o.v.forEach(function(x){ if (x === 2) nO++; else if (x === 1) nT++; });
-          return {o:o, nO:nO, nT:nT, verdict:o.verdict, match:p.g === o.verdict};
+          var vd;
+          if (p.c === 1) vd = (o.v[5] >= 1 && o.v[6] >= 1) ? 0 : 1;   /* 번식·진화만 요구 */
+          else if (p.c === 2) vd = (nO + nT >= 1) ? 0 : 1;            /* 한 가지라도 보이면 */
+          else vd = o.verdict;                                        /* 교과서 관례 */
+          return {o:o, nO:nO, nT:nT, verdict:vd, base:o.verdict, crit:p.c, match:p.g === vd};
         },
         draw: function(c, W, H, p, r, tau){
           var o = OB[p.o];
@@ -476,17 +486,21 @@ var LAB = (function(){
           } else txt(c, '나의 예측: ' + VER[p.g], 20, yb, {color:'#4A5868'});
         },
         stats: function(p, r){
-          return [['대상', r.o.name], ['O (완전히 가짐)', r.nO + ' / 7', PAL[1]], ['△ (일부·흉내)', r.nT + ' / 7', PAL[6]],
-            ['판정', VER[r.verdict], r.verdict === 0 ? PAL[1] : PAL[4]], ['나의 예측', VER[p.g] + (r.match ? ' — 일치' : ' — 다름'), r.match ? PAL[1] : PAL[4]],
+          return [['대상', r.o.name], ['쓴 기준', CRIT[r.crit], PAL[3]],
+            ['O (완전히 가짐)', r.nO + ' / 7', PAL[1]], ['△ (일부·흉내)', r.nT + ' / 7', PAL[6]],
+            ['이 기준의 판정', VER[r.verdict], r.verdict === 0 ? PAL[1] : PAL[4]],
+            ['교과서 관례로는', VER[r.base] + (r.crit !== 0 && r.base !== r.verdict ? ' — 기준에 따라 판정이 뒤집혔습니다' : ''), r.base === r.verdict ? PAL[7] : PAL[6]],
+            ['나의 예측', VER[p.g] + (r.match ? ' — 일치' : ' — 다름'), r.match ? PAL[1] : PAL[4]],
             ['핵심 근거', r.o.why]];
         },
-        columns: ['대상', 'O 개수', '△ 개수', '판정', '나의 예측', '일치'],
-        record: function(p, r){ return {o:p.o, g:p.g, nO:r.nO, nT:r.nT, v:r.verdict, m:r.match}; },
-        row: function(d){ return [OB[d.o].name, d.nO, d.nT, VER[d.v], VER[d.g], d.m ? '예' : '아니오']; },
+        columns: ['대상', '기준', 'O 개수', '△ 개수', '판정', '관례 판정', '나의 예측', '일치'],
+        record: function(p, r){ return {o:p.o, g:p.g, nO:r.nO, nT:r.nT, v:r.verdict, base:r.base, c:r.crit, m:r.match}; },
+        row: function(d){ return [OB[d.o].name, ['관례', '번식·진화', '하나라도'][d.c || 0], d.nO, d.nT, VER[d.v], VER[d.base], VER[d.g], d.m ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('대상별 생물 특성 개수', '<div id="lc1"></div><p class="ask">촛불과 소금 결정도 특성 일부를 가집니다. 생물을 판정할 때 "한 가지 특성"이 아니라 "모든 특성"을 따지는 까닭은?</p>') +
-            card('나의 예측 정확도', '<div id="lc2"></div><p class="ask">과제: 바이러스를 생물로 볼지 무생물로 볼지 근거 두 가지씩 들어 짧은 토론문을 써 보세요.</p>') + '</div>';
+            card('나의 예측 정확도', '<div id="lc2"></div><p class="ask">과제: 바이러스를 생물로 볼지 무생물로 볼지 근거 두 가지씩 들어 짧은 토론문을 써 보세요.</p>') +
+            card('기준을 바꾸면 판정이 뒤집히는 대상', '<div id="lc3"></div><p class="ask">같은 대상인데 왜 판정이 갈릴까요? "무엇이 생물인가"는 자연이 정해 준 것일까요, 사람이 기준을 정한 것일까요?</p>') + '</div>';
           var seen = {}, items = [];
           rec.forEach(function(d){ seen[d.o] = d; });
           Object.keys(seen).forEach(function(k){ var d = seen[k]; items.push({label:OB[k].name, v:d.nO + d.nT * 0.5, color:d.v === 0 ? PAL[1] : d.v === 2 ? PAL[3] : PAL[4], text:'O ' + d.nO + ' · △ ' + d.nT}); });
@@ -495,6 +509,20 @@ var LAB = (function(){
           var rows = rec.filter(function(d){ return !d.m; }).map(function(d){ return [OB[d.o].name, VER[d.g], VER[d.v]]; });
           $('lc2').innerHTML = '<p>일치 ' + ok + ' / ' + rec.length + '회 (' + f(ok / rec.length * 100, 0) + '%)</p>' +
             (rows.length ? tableHTML(['대상', '나의 예측', '판정'], rows) : '<p class="msg">모든 예측이 판정과 같았어요.</p>');
+          (function(){
+            var by = {}, out = [];
+            rec.forEach(function(d){ var k = d.o; if (!by[k]) by[k] = {}; by[k][d.c || 0] = d.v; });
+            Object.keys(by).forEach(function(k){
+              var m = by[k], ks = Object.keys(m);
+              if (ks.length < 2) return;
+              var vs = ks.map(function(c){ return m[c]; });
+              var diff = vs.some(function(v){ return v !== vs[0]; });
+              out.push([OB[k].name, ks.map(function(c){ return ['관례', '번식·진화', '하나라도'][c] + ' → ' + VER[m[c]]; }).join(' / '), diff ? '뒤집힘' : '그대로']);
+            });
+            $('lc3').innerHTML = out.length
+              ? tableHTML(['대상', '기준별 판정', '결과'], out) + '<p class="msg">기준을 느슨하게 잡으면 촛불과 소금 결정까지 생물이 됩니다 — 그래서 7가지를 <b>함께</b> 보는 관례가 생겼습니다.</p>'
+              : '<p class="msg">같은 대상을 <b>기준을 바꿔</b> 두 번 이상 확인하면, 판정이 뒤집히는지 여기서 짝지어 보여 줍니다.</p>';
+          })();
         }
       };
     })();
@@ -503,7 +531,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

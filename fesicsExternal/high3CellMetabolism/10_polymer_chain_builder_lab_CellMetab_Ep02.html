@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -289,9 +290,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,13 +438,22 @@ var LAB = (function(){
         params: [
           {key:'t', type:'seg', label:'중합체 종류', cols:3, value:2, options:TY.map(function(x){ return x.name; })},
           {key:'n', type:'range', label:'단위체 수 n', min:2, max:40, step:1, value:10, fmt:function(v){ return v + '개'; }},
-          {key:'gc', type:'range', label:'GC 비율 (DNA만)', min:0, max:100, step:10, value:40, fmt:function(v){ return v + '%'; }}
+          {key:'gc', type:'range', label:'GC 비율 (DNA만)', min:0, max:100, step:10, value:40, fmt:function(v){ return v + '%'; }},
+          {key:'gs', type:'range', label:'먼저 짐작: 서열 가짓수는 10의 몇 제곱?', min:0, max:60, step:1, value:0,
+            fmt:function(v){ return v === 0 ? '짐작 안 함' : '약 10^' + v + ' 가지'; }}
         ],
         compute: function(p){
           var t = TY[p.t], n = Math.round(p.n), strands = p.t === 0 ? 2 : 1;
           var bonds = strands * (n - 1), lg = n * Math.log(t.base) / Math.LN10;
           var hb = p.t === 0 ? n * (2 + p.gc / 100) : null;
-          return {t:t, n:n, bonds:bonds, water:bonds, lg:lg, mw:n * t.mw, hb:hb};
+          var out = {t:t, n:n, bonds:bonds, water:bonds, lg:lg, mw:n * t.mw, hb:hb};
+          if (p.gs > 0){
+            var dg = p.gs - lg, ad = Math.abs(dg);
+            out.gs = p.gs; out.dg = dg;
+            out.grade = ad < 0.5 ? '자릿수 맞음 ✓' : (ad < 1.5 ? '한 자리 빗나감' : (ad < 4 ? '몇 자리 빗나감' : '크게 빗나감 ✕'));
+            out.gmsg = out.grade + ' — 실제 약 10^' + f(lg, 1) + (dg > 0 ? ' (짐작이 ' + f(ad, 1) + '자리 큼)' : (dg < 0 ? ' (짐작이 ' + f(ad, 1) + '자리 작음)' : ''));
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){
           var t = TY[p.t], n = Math.round(p.n), show = Math.min(n, Math.floor((W - 60) / 30)), k = r ? Math.min(tau / 0.85, 1) : 1;
@@ -470,13 +481,20 @@ var LAB = (function(){
           var out = [['종류', r.t.name], ['단위체', r.n + '개 ' + r.t.unit], [r.t.bond, r.bonds + '개', PAL[0]], ['빠져나간 물', r.water + '분자', PAL[5]],
             ['가능한 서열 가짓수', r.t.base + '^' + r.n + ' ≈ 10^' + f(r.lg, 2), PAL[3]], ['대략 분자량', '약 ' + Math.round(r.mw).toLocaleString('ko-KR') + ' g/mol']];
           if (r.hb != null) out.push(['염기쌍 사이 수소 결합', '약 ' + f(r.hb, 0) + '개 (GC ' + p.gc + '%)', PAL[1]]);
+          if (r.gs) out.push(['내 짐작 채점 (자릿수)', '짐작 10^' + r.gs + ' → ' + r.gmsg, Math.abs(r.dg) < 0.5 ? PAL[1] : PAL[4]]);
           return out;
         },
-        columns: ['종류', 'n', '결합 수', '물 분자', 'log₁₀ 가짓수', '분자량'],
-        record: function(p, r){ return {t:p.t, n:r.n, b:r.bonds, lg:r.lg, mw:r.mw}; },
-        row: function(d){ return [TY[d.t].name, d.n, d.b, d.b, f(d.lg, 2), Math.round(d.mw)]; },
+        columns: ['종류', 'n', '결합 수', '물 분자', 'log₁₀ 가짓수', '분자량', '내 짐작(자릿수)'],
+        record: function(p, r){ return {t:p.t, n:r.n, b:r.bonds, lg:r.lg, mw:r.mw, gs:r.gs || 0, grade:r.grade || ''}; },
+        row: function(d){ return [TY[d.t].name, d.n, d.b, d.b, f(d.lg, 2), Math.round(d.mw), d.gs ? '10^' + d.gs + ' · ' + d.grade : '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var gs = rec.filter(function(d){ return d.gs; });
+          var gcard = !gs.length ? '' : card('내 짐작과 실제 자릿수', tableHTML(['종류', 'n', '내 짐작', '실제', '채점'],
+              gs.map(function(d){ return [TY[d.t].name, d.n + '개', '10^' + d.gs, '10^' + f(d.lg, 1), d.grade]; })) +
+            '<p class="ask">맞힌 ' + gs.filter(function(d){ return /맞음/.test(d.grade); }).length + ' / ' + gs.length + '번. ' +
+            'n이 하나 늘 때 자릿수는 얼마씩 늘어나나요? 단백질(20종)과 핵산(4종)에서 그 값이 다른 까닭을 말해 보세요. ' +
+            '짐작이 거의 늘 작게 나오는 까닭은 가짓수가 n에 비례하지 않고 <b>곱으로 늘어나기</b> 때문입니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + gcard +
             card('n과 log₁₀(서열 가짓수)', '<canvas class="chart" id="pc1"></canvas><div id="pc1b"></div><p class="ask">핵산과 단백질의 기울기는 각각 log₁₀4, log₁₀20과 같나요? 단백질이 더 다양한 구조를 만들 수 있는 까닭을 설명하세요.</p>') +
             card('정보와 기능', '<div id="pc2"></div><p class="ask">과제: 아미노산 300개짜리 단백질을 만드는 mRNA에는 코돈이 몇 개 필요한지(종결 코돈 포함) 계산하고, DNA와 단백질 중 어느 쪽이 "설계도"이고 어느 쪽이 "일꾼"인지 근거를 적어 보세요.</p>') + '</div>';
           var ser = TY.map(function(t, i){ return {color:t.color, pts:rec.filter(function(d){ return d.t === i; }).map(function(d){ return {x:d.n, y:d.lg}; })}; });
@@ -493,7 +511,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

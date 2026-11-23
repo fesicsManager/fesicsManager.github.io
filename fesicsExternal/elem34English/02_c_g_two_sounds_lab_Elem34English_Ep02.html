@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,6 +440,14 @@ var LAB = (function(){
         {w:'get', i:0, ex:true}, {w:'girl', i:0, ex:true}, {w:'give', i:0, ex:true}
       ];
       var PRED = ['딱딱한 소리 (c=ㅋ, g=ㄱ)', '부드러운 소리 (c=ㅅ, g=ㅈ)'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
+      var NXT = ['그대로', 'a', 'o', 'u', 'e', 'i', 'y'];
+      /* c·g 바로 뒤 글자를 내가 갈아 끼운다. 소리는 카드에 적힌 것이 아니라 바꾼 글자로 다시 정해진다 */
+      function eff(p){
+        var d = WD[p.w], k = p.nx || 0;
+        if (!k) return {w:d.w, i:d.i, ex:d.ex, made:false, put:'그대로'};
+        var L = NXT[k], w = d.w.slice(0, d.i + 1) + L + d.w.slice(d.i + 2);
+        return {w:w, i:d.i, ex:false, made:true, put:L};
+      }
       function say(t, rate){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = rate || 0.9; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
       function info(d){
         var L = d.w.charAt(d.i), nx = d.w.charAt(d.i + 1), soft = 'eiy'.indexOf(nx) >= 0, real = d.ex ? false : soft;
@@ -447,19 +457,21 @@ var LAB = (function(){
       function big(c, s, x, y, size, color){ c.font = '700 ' + size + 'px ' + FONT; c.fillStyle = color || '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       return {
         sceneHeight: 400,
-        idle: '단어 카드를 고르고 소리를 예측한 뒤 <b>소리 확인하기</b>를 누르세요.',
-        shortHint: 'c 단어와 g 단어를 골고루, 뒤 글자가 a·o·u인 것과 e·i·y인 것을 모두 확인해 보세요.',
+        idle: '단어 카드를 고르고 소리를 예측한 뒤 <b>소리 확인하기</b>를 누르세요. 뒤 글자를 갈아 끼우면 같은 낱말 틀에서 소리가 뒤집힙니다.',
+        shortHint: '한 카드를 고른 뒤 <b>뒤 글자 갈아 끼우기</b>로 a·o·u 와 e·i·y 를 차례로 넣어, 소리가 어디서 뒤집히는지 보세요.',
         params: [
           {key:'w', type:'seg', label:'단어 카드', cols:4, value:5, options:WD.map(function(x){ return x.w; })},
+          {key:'nx', type:'seg', label:'c·g 뒤 글자 갈아 끼우기 (내가 낱말 틀을 바꾼다)', cols:4, value:0, options:NXT,
+            note:'뒤 글자만 바꾼 낱말을 만들어 봅니다. 영어에 실제로 없는 낱말이 될 수도 있어요 — 소리를 정하는 것이 <b>바로 뒤 글자</b>인지 시험하는 칸이에요.'},
           {key:'g', type:'seg', label:'예측: 이 단어의 c(g) 소리는?', cols:2, value:0, options:PRED},
           {key:'s', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
-          var d = WD[p.w], o = info(d), played = p.s === 0 ? say(d.w, 0.75) : false;
-          return {d:d, o:o, hit:(p.g === 1) === o.real, played:played};
+          var d = eff(p), o = info(d), played = (p.s === 0 && !d.made) ? say(d.w, 0.75) : false;
+          return {d:d, o:o, hit:(p.g === 1) === o.real, played:played, made:d.made, base:WD[p.w].w};
         },
         draw: function(c, W, H, p, r, tau){
-          var d = WD[p.w], o = info(d), n = d.w.length, cw = Math.min(54, (W - 40) / n - 6), x0 = (W - n * (cw + 6)) / 2;
+          var d = eff(p), o = info(d), n = d.w.length, cw = Math.min(54, (W - 40) / n - 6), x0 = (W - n * (cw + 6)) / 2;
           var k = r ? Math.min(tau / 0.4, 1) : 0, k2 = r ? Math.max(0, Math.min((tau - 0.4) / 0.5, 1)) : 0;
           for (var i = 0; i < n; i++){
             var x = x0 + i * (cw + 6), hl = i === d.i ? '#FFF1C9' : i === d.i + 1 && r ? '#DCE9F8' : '#F2F5F9';
@@ -469,7 +481,7 @@ var LAB = (function(){
           var xc = x0 + d.i * (cw + 6) + cw / 2, xn = xc + cw + 6;
           if (r && k > 0){ arrow(c, xn, 110, xc + 6, 110, PAL[0], 3); txt(c, '뒤 글자 ' + o.nx + ' 를 봐요', W / 2, 140, {align:'center', color:PAL[0], bold:true}); }
           var bw = (W - 60) / 2, by = 250;
-          [['뒤에 a·o·u', p.w < 10 ? 'c = ㅋ' : 'g = ㄱ'], ['뒤에 e·i·y', p.w < 10 ? 'c = ㅅ' : 'g = ㅈ']].forEach(function(b, j){
+          [['뒤에 a·o·u', o.L === 'c' ? 'c = ㅋ' : 'g = ㄱ'], ['뒤에 e·i·y', o.L === 'c' ? 'c = ㅅ' : 'g = ㅈ']].forEach(function(b, j){
             var bx = 20 + j * (bw + 20);
             c.fillStyle = j === 0 ? '#EEF3FA' : '#EAF6F0'; c.fillRect(bx, by, bw, 100);
             c.strokeStyle = j === 0 ? PAL[0] : PAL[1]; c.lineWidth = 2; c.strokeRect(bx, by, bw, 100);
@@ -488,15 +500,17 @@ var LAB = (function(){
         },
         stats: function(p, r){
           var o = r.o;
-          return [['단어', r.d.w], ['볼 글자', o.L + ' (바로 뒤 글자: ' + o.nx + ')', PAL[0]],
+          return [['단어', r.d.w + (r.made ? ' (내가 만든 낱말 — 원래 ' + r.base + ')' : '')],
+            ['볼 글자', o.L + ' (바로 뒤 글자: ' + o.nx + ')', PAL[0]],
             ['규칙으로 맞히면', o.rule ? '부드러운 소리 (e·i·y 앞)' : '딱딱한 소리 (a·o·u 앞)'],
             ['실제 소리', o.snd + (r.d.ex ? ' — 규칙에 안 맞는 예외' : ' — 규칙과 같아요'), r.d.ex ? PAL[4] : PAL[1]],
             ['나의 예측', PRED[p.g] + (r.hit ? ' — 맞았어요' : ' — 빗나갔어요'), r.hit ? PAL[1] : PAL[6]],
-            ['소리', p.s === 1 ? '끔' : r.played ? '영어 음성으로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']];
+            ['소리', r.made ? '만든 낱말은 들려주지 않아요 — 뒤 글자만 보고 소리를 정해 보세요'
+              : (p.s === 1 ? '끔' : r.played ? '영어 음성으로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)')]];
         },
-        columns: ['단어', '뒤 글자', '소리', '규칙과'],
-        record: function(p, r){ return {w:p.w, nx:r.o.nx, snd:r.o.snd, L:r.o.L, soft:r.o.rule, fits:r.o.fits, hit:r.hit}; },
-        row: function(d){ return [WD[d.w].w, d.nx, d.snd, d.fits ? '맞음' : '예외']; },
+        columns: ['단어', '끼운 글자', '뒤 글자', '소리', '규칙과'],
+        record: function(p, r){ return {wd:r.d.w, base:r.base, put:r.d.put, made:r.made, nx:r.o.nx, snd:r.o.snd, L:r.o.L, soft:r.o.rule, fits:r.o.fits, hit:r.hit}; },
+        row: function(d){ return [d.wd, d.made ? d.put : '그대로', d.nx, d.snd, d.fits ? '맞음' : '예외']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('뒤 글자로 나눈 소리 표', '<div id="cg1"></div><p class="ask">c는 e·i·y 앞에서만 \'ㅅ\'이 되었나요? g에서는 규칙에 안 맞는 단어가 있었나요?</p>') +
@@ -504,16 +518,31 @@ var LAB = (function(){
           var rows = [];
           [['c', false], ['c', true], ['g', false], ['g', true]].forEach(function(gp){
             var a = rec.filter(function(d){ return d.L === gp[0] && d.soft === gp[1]; }); if (!a.length) return;
-            var ws = {}, sn = {}; a.forEach(function(d){ ws[WD[d.w].w] = 1; sn[d.snd] = 1; });
+            var ws = {}, sn = {}; a.forEach(function(d){ ws[d.wd] = 1; sn[d.snd] = 1; });
             rows.push([gp[0] + ' + ' + (gp[1] ? 'e·i·y' : 'a·o·u'), Object.keys(ws).join(', '), Object.keys(sn).join(' / ')]);
           });
-          $('cg1').innerHTML = tableHTML(['c·g 뒤 글자', '단어', '소리'], rows) + (rows.length < 3 ? '<p class="msg">다른 묶음의 단어도 확인해 보세요.</p>' : '');
+          $('cg1').innerHTML = tableHTML(['c·g 뒤 글자', '단어', '소리'], rows) + (rows.length < 3 ? '<p class="msg">다른 묶음의 단어도 확인해 보세요.</p>' : '')
+            + (function(){
+                /* 같은 낱말 틀에서 뒤 글자만 바꿔 본 것을 모아, 소리가 실제로 뒤집혔는지 보여 준다 */
+                var g = {}; rec.forEach(function(d){ (g[d.base] = g[d.base] || []).push(d); });
+                var lines = [];
+                Object.keys(g).forEach(function(b){
+                  var sn = {}; g[b].forEach(function(d){ sn[d.snd] = (sn[d.snd] || []); sn[d.snd].push(d.wd); });
+                  var ks = Object.keys(sn);
+                  if (ks.length < 2) return;
+                  lines.push('<tr><td>' + b + '</td><td>' + ks.map(function(s){ return sn[s].join('/') + ' → ' + s; }).join('<br>') + '</td></tr>');
+                });
+                if (!lines.length) return '<p class="note">한 카드를 고른 뒤 <b>뒤 글자</b>만 a 와 e 로 바꿔 두 번 이상 기록하면, 같은 낱말 틀에서 소리가 뒤집히는지 여기에 모아 보여 줍니다.</p>';
+                return '<p class="note">같은 낱말 틀에서 뒤 글자만 바꿔 본 결과 — 소리를 정한 것은 낱말이 아니라 <b>바로 뒤 글자</b>였습니다.</p>'
+                  + '<table><thead><tr><th>원래 낱말</th><th>내가 만든 낱말과 소리</th></tr></thead><tbody>' + lines.join('') + '</tbody></table>';
+              })();
           var items = [];
           ['c', 'g'].forEach(function(L, i){ var a = rec.filter(function(d){ return d.L === L; }); if (!a.length) return;
             var s = a.filter(function(d){ return d.fits; }).length / a.length * 100;
             items.push({label:L + ' 단어', v:s, color:PAL[i], text:f(s, 0) + '% (' + a.length + '번)'}); });
-          var ex = {}; rec.forEach(function(d){ if (!d.fits) ex[WD[d.w].w] = 1; });
-          $('cg2').innerHTML = hbars(items, 100) + '<p class="note">예외로 나온 단어: ' + (Object.keys(ex).join(', ') || '아직 없음') + '</p>';
+          var ex = {}; rec.forEach(function(d){ if (!d.fits) ex[d.wd] = 1; });
+          $('cg2').innerHTML = hbars(items, 100) + '<p class="note">예외로 나온 단어: ' + (Object.keys(ex).join(', ') || '아직 없음')
+            + '<br>만든 낱말에는 예외가 없어요 — get·girl·give 처럼 <b>규칙을 어기는 낱말은 따로 외워야</b> 합니다.</p>';
         }
       };
     })();
@@ -522,7 +551,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

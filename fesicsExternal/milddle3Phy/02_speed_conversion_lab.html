@@ -257,7 +257,9 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">자동차 속력: <span class="slider-val" id="vVal">60</span> km/h</div>
             <input type="range" id="vSlider" min="10" max="300" step="10" value="60" aria-label="자동차 속력">
-            <button class="btn-main" id="runBtn">딱 1초만 달려보기 ▶</button>
+            <div class="control-label">잰 시간: <span class="slider-val" id="tVal">1</span> 초</div>
+            <input type="range" id="tSlider" min="1" max="10" step="1" value="1" aria-label="잰 시간">
+            <button class="btn-main" id="runBtn">그 시간만큼 달려보기 ▶</button>
             <div class="result-box" id="result">속력을 정하고 달리면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
         </div>
@@ -265,8 +267,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>속력(km/h)</th><th>1초 이동 거리(m)</th><th>km/h ÷ m/s</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>속력(km/h)</th><th>잰 시간(초)</th><th>이동 거리(m)</th><th>거리÷시간(m/s)</th><th>km/h ÷ m/s</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -511,18 +513,28 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 var REFS=[{v:4,n:'걷기'},{v:20,n:'자전거'},{v:60,n:'시내 자동차'},{v:100,n:'고속도로'},{v:300,n:'KTX'}];
 function toMs(kmh){ return kmh/3.6; }
 
-var kmh=60, records=[], busy=false, revealed=false, run=0;
+var kmh=60, secs=1, records=[], busy=false, revealed=false, run=0;
 var canvas=document.getElementById('sCanvas'), ctx=canvas.getContext('2d');
-var RX0=34, RX1=410, RY=230, M_MAX=90;      /* 도로에 90m까지 표시 */
-function xOfM(m){ return RX0+(RX1-RX0)*(m/M_MAX); }
+var RX0=34, RX1=410, RY=230;
+/* 잰 시간을 늘리면 도로에 그 거리까지 보이게 눈금을 늘린다 (1초일 때는 예전처럼 90m) */
+function mMax(){ var need=toMs(kmh)*secs; return need<=90 ? 90 : Math.ceil(need/10)*10; }
+function xOfM(m){ return RX0+(RX1-RX0)*(m/mMax()); }
 
+function resetRun(){
+  run=0; revealed=false;
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='속력과 시간을 정하고 달리면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+}
 document.getElementById('vSlider').addEventListener('input',function(e){
   kmh=parseInt(e.target.value,10);
   document.getElementById('vVal').textContent=kmh;
-  run=0; revealed=false;
-  document.getElementById('result').className='result-box';
-  document.getElementById('result').innerHTML='속력을 정하고 달리면 결과가 표에 자동으로 기록됩니다.';
-  draw();
+  resetRun();
+});
+document.getElementById('tSlider').addEventListener('input',function(e){
+  secs=parseInt(e.target.value,10);
+  document.getElementById('tVal').textContent=secs;
+  resetRun();
 });
 
 function drawCar(x,y,scale){
@@ -591,7 +603,8 @@ function draw(){
   ctx.beginPath(); ctx.moveTo(0,RY+22); ctx.lineTo(440,RY+22); ctx.stroke(); ctx.setLineDash([]);
   /* 거리 눈금 */
   ctx.font="600 15px 'IBM Plex Mono',monospace"; ctx.textAlign='center';
-  for(var m=0;m<=M_MAX;m+=10){
+  var MM=mMax(), mstep=Math.ceil(MM/9/10)*10;
+  for(var m=0;m<=MM+0.001;m+=mstep){
     var x=xOfM(m);
     ctx.strokeStyle='rgba(23,50,56,0.4)'; ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.moveTo(x,RY+44); ctx.lineTo(x,RY+54); ctx.stroke();
@@ -603,7 +616,7 @@ function draw(){
   ctx.beginPath(); ctx.moveTo(RX0,RY-34); ctx.lineTo(RX0,RY+44); ctx.stroke(); ctx.setLineDash([]);
 
   /* 자동차 */
-  var cx=xOfM(Math.min(M_MAX,dist));
+  var cx=xOfM(Math.min(MM,dist));
   drawCar(cx, RY+26, 0.9);
   /* 지나온 자취 */
   if(run>0){
@@ -612,7 +625,7 @@ function draw(){
   }
   /* 1초 후 도달 지점 표시 */
   if(revealed){
-    var tx=xOfM(Math.min(M_MAX,ms));
+    var tx=xOfM(Math.min(MM,ms));
     ctx.strokeStyle='#2f8f9d'; ctx.lineWidth=3;
     ctx.beginPath(); ctx.moveTo(RX0,RY-46); ctx.lineTo(tx,RY-46); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(RX0,RY-52); ctx.lineTo(RX0,RY-40);
@@ -630,13 +643,15 @@ function draw(){
   ctx.fillStyle='#e9f1f0'; ctx.fillRect(0,316,440,84);
   if(revealed){
     ctx.fillStyle='#173238'; ctx.font="700 23px 'Noto Sans KR',sans-serif";
-    ctx.fillText('1초 동안 '+ms.toFixed(2)+'m 이동', 220, 344);
+    ctx.fillText(secs+'초 동안 '+(ms*secs).toFixed(2)+'m 이동', 220, 344);
     ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
-    ctx.fillText(kmh+' ÷ 3.6 = '+ms.toFixed(2)+' m/s', 220, 370);
+    var fs2=(ms*secs).toFixed(2)+' ÷ '+secs+' = '+ms.toFixed(2)+' m/s  (= '+kmh+' ÷ 3.6)', fw2=ctx.measureText(fs2).width;
+    if(fw2>424) ctx.font="600 "+Math.max(11,Math.floor(19*424/fw2))+"px 'IBM Plex Mono',monospace";
+    ctx.fillText(fs2, 220, 370);
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
-    ctx.fillText('"딱 1초만 달려보기"를 눌러보세요', 220, 348);
-    ctx.fillText('설정한 속력: '+kmh+' km/h', 220, 376);
+    ctx.fillText('"그 시간만큼 달려보기"를 눌러보세요', 220, 348);
+    ctx.fillText('속력 '+kmh+' km/h · 시간 '+secs+'초', 220, 376);
   }
   ctx.textAlign='left';
 }
@@ -645,29 +660,29 @@ draw();
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return r.kmh===kmh; })){
-    notify('이미 측정한 속력이에요. 다른 속력을 골라보세요.');
+  if(records.some(function(r){ return r.kmh===kmh && r.secs===secs; })){
+    notify('이미 측정한 조합이에요. 속력이나 시간을 바꿔보세요.');
     return;
   }
   busy=true; revealed=false; run=0;
   var btn=this; btn.disabled=true;
-  lockInputs('#vSlider', true);
-  var dur=1600;                       /* 1초를 1.6배 느리게 재생 */
-  var t0=performance.now();
+  lockInputs('#vSlider,#tSlider', true);
+  var dur=1600*Math.sqrt(secs);       /* 오래 재면 더 길게 재생 */
+  var t0=performance.now(), S=secs;
   function frame(ts){
     var p=Math.min(1,(ts-t0)/dur);
-    run=p; draw();
+    run=S*p; draw();
     if(p<1){ requestAnimationFrame(frame); }
     else{
-      run=1; revealed=true; draw();
+      run=S; revealed=true; draw();
       btn.disabled=false; busy=false;
-      lockInputs('#vSlider', false);
-      records.push({kmh:kmh, ms:toMs(kmh)});
+      lockInputs('#vSlider,#tSlider', false);
+      records.push({kmh:kmh, secs:S, ms:toMs(kmh), dist:toMs(kmh)*S});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
-      box.innerHTML='1초 이동 거리: <span class="big-val">'+toMs(kmh).toFixed(2)+' m</span> → '+toMs(kmh).toFixed(2)+' m/s '
-        +'<span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
+      box.innerHTML=S+'초 동안 <span class="big-val">'+(toMs(kmh)*S).toFixed(2)+' m</span> → 거리÷시간 = '
+        +toMs(kmh).toFixed(2)+' m/s <span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
       maybeToast(records.length);
     }
   }
@@ -677,10 +692,11 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  var s=records.slice().sort(function(a,b){ return a.kmh-b.kmh; });
+  if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  var s=records.slice().sort(function(a,b){ return (a.kmh-b.kmh)||(a.secs-b.secs); });
   tb.innerHTML=s.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.kmh+'</td><td>'+r.ms.toFixed(2)+'</td><td>'+(r.kmh/r.ms).toFixed(2)+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td>'+r.kmh+'</td><td>'+r.secs+'</td><td>'+r.dist.toFixed(2)+'</td><td>'
+      +(r.dist/r.secs).toFixed(2)+'</td><td>'+(r.kmh/r.ms).toFixed(2)+'</td></tr>';
   }).join('');
 }
 
@@ -702,7 +718,7 @@ function renderValidation(){
 
   document.getElementById('listAnalysis').innerHTML =
     s.map(function(r){
-      return '<div class="mini-row"><span>'+r.kmh+' km/h</span><span class="mono">'+r.ms.toFixed(2)+' m/s</span></div>';
+      return '<div class="mini-row"><span>'+r.kmh+' km/h · '+r.secs+'초에 '+r.dist.toFixed(2)+'m</span><span class="mono">'+r.ms.toFixed(2)+' m/s</span></div>';
     }).join('')
     + '<div class="stat-cards">'
     + '<div class="stat-card"><div class="label">기울기</div><div class="val">'+reg.m.toFixed(4)+'</div></div>'
@@ -718,7 +734,20 @@ function renderValidation(){
       return '<div class="mini-row"><span>'+r.kmh+' ÷ '+r.ms.toFixed(2)+'</span><span class="mono">'+ratios[i].toFixed(3)+'</span></div>';
     }).join('')
     + '<div class="insight-box">자동 분석: 속력이 얼마든 <b>km/h ÷ m/s = '+avg.toFixed(2)+'</b>로 항상 같습니다. '
-    + '1km = 1000m, 1시간 = 3600초이므로 <span class="mono">3600 ÷ 1000 = 3.6</span> — 단위를 바꾸는 고정된 환산값이에요.</div>';
+    + '1km = 1000m, 1시간 = 3600초이므로 <span class="mono">3600 ÷ 1000 = 3.6</span> — 단위를 바꾸는 고정된 환산값이에요.</div>'
+    + (function(){
+        var byK={};
+        s.forEach(function(r){ (byK[r.kmh]=byK[r.kmh]||[]).push(r); });
+        var multi=Object.keys(byK).filter(function(k){ return byK[k].length>=2; });
+        var rows=s.map(function(r){
+          return '<div class="mini-row"><span>'+r.dist.toFixed(2)+'m ÷ '+r.secs+'초</span><span class="mono">'+(r.dist/r.secs).toFixed(2)+' m/s</span></div>';
+        }).join('');
+        return rows + '<div class="insight-box">자동 분석: <b>거리와 시간을 따로 정해</b> 직접 구한 속력(거리÷시간)이 '
+          + (multi.length
+              ? '같은 자동차에서는 <b>잰 시간을 바꿔도 똑같습니다</b>. 거리도 시간도 달라졌는데 그 몫만은 변하지 않아요 — 그것이 그 차의 속력이에요.'
+              : '늘 km/h ÷ 3.6 과 같게 나옵니다. <b>같은 속력에서 잰 시간만 바꿔</b> 두 번 재 보면, 거리와 시간이 함께 달라져도 몫은 그대로인 것을 볼 수 있어요.')
+          + ' 같은 운동인데 숫자가 60과 16.67로 달라 보이는 것은 <b>단위가 다르기 때문</b>입니다.</div>';
+      })();
 }
 
 document.getElementById('predictBtn').addEventListener('click', function(){

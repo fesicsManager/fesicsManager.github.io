@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,19 +445,30 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
       var YR = [1990, 1995, 2000, 2005, 2010, 2015, 2019, 2020];
       var PCT = [38, 34, 28, 21, 16, 10, 9, 10], POP = [53, 57, 61, 65, 69, 74, 77, 78];
       var VW = ['뉴스처럼 그해만', '자료 선 전체'], UN = ['비율 (%)', '사람 수 (억 명)'];
+      /* 같은 자료로 만든 두 뉴스 제목 — 어느 쪽이 지금 화면에서 나온 말인지 고른다 */
+      var HL = ['① "세계 빈곤, 작년보다 늘었다"', '② "30년 동안 빈곤율이 크게 줄었다"'];
       function val(i, u){ return u === 0 ? PCT[i] : Math.round(PCT[i] * POP[i] / 10) / 10; }
       return {
         sceneHeight: 400,
-        idle: '해와 보는 방법을 고른 뒤 <b>자료 보기</b>를 누르세요.',
+        idle: '해·보는 방법·뉴스 제목을 고른 뒤 <b>자료 보기</b>를 누르세요. 고른 제목이 이 화면에서 나올 수 있는 말인지 채점해 줍니다.',
         shortHint: '"뉴스처럼 그해만"으로 2020년을 보고, 다음에 "자료 선 전체"로 같은 해를 보세요.',
         params: [
           {key:'y', type:'seg', label:'볼 해', cols:4, value:0, options:YR.map(function(x){ return x + '년'; })},
           {key:'v', type:'seg', label:'보는 방법', cols:2, value:1, options:VW},
-          {key:'u', type:'seg', label:'볼 숫자', cols:2, value:0, options:UN}
+          {key:'u', type:'seg', label:'볼 숫자', cols:2, value:0, options:UN},
+          {key:'hl', type:'seg', label:'이 화면에서 나올 수 있는 뉴스 제목은?', cols:2, value:1, options:HL,
+            note:'두 제목은 모두 같은 자료로 만든 말이에요. 어느 부분을 보았느냐가 다를 뿐이에요.'}
         ],
         compute: function(p){
           var v = val(p.y, p.u), prev = p.y > 0 ? val(p.y - 1, p.u) : null;
-          return {v:v, prev:prev, pct:PCT[p.y], cnt:val(p.y, 1), from90:PCT[p.y] - PCT[0]};
+          /* 그해만 보고 작년보다 늘었으면 ① 이 나오는 화면, 그 밖에는 ② */
+          var rose = (prev != null && v > prev);
+          var sup = (p.v === 0 && rose) ? 0 : 1;
+          var hl = (p.hl == null ? 1 : p.hl);
+          return {v:v, prev:prev, pct:PCT[p.y], cnt:val(p.y, 1), from90:PCT[p.y] - PCT[0],
+            rose:rose, sup:sup, hl:hl, graded:(hl === sup),
+            why: sup === 0 ? '그해만 떼어 보면 작년보다 늘었으니 ① 이 나옵니다'
+                           : '선 전체를 보면 1990년부터 크게 줄었으니 ② 가 나옵니다'};
         },
         draw: function(c, W, H, p, r, tau){
           var hi = p.u === 0 ? 40 : 21, step = p.u === 0 ? 10 : 5;
@@ -468,26 +481,36 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
           if (r && !full){ var x0 = B.X(YR[p.y]); c.fillStyle = 'rgba(210,84,79,.15)'; c.fillRect(x0 - 14, 20, 28, H - 110); disc(c, x0, B.Y(r.v), 7, PAL[4]);
             if (p.y > 0 && r.prev != null && r.v > r.prev) fitT(c, '작년보다 늘었다!', Math.min(x0 + 10, W - 170), B.Y(r.v) - 14, {bold:true, color:PAL[4]}, 160); }
           if (r && full && k >= 1) disc(c, B.X(YR[p.y]), B.Y(r.v), 8, PAL[4]);
-          fitT(c, r ? YR[p.y] + '년: ' + (p.u === 0 ? '약 ' + r.v + '%' : '약 ' + f(r.v, 1) + '억 명') + (full ? ' · 1990년부터 ' + (r.from90 < 0 ? '−' + (-r.from90) : r.from90 > 0 ? '+' + r.from90 : '0') + '%p' : '') : '예상: 1990년부터 선은 어느 쪽으로 갈까요?', 20, H - 12, {bold:true, color:r ? PAL[4] : '#1E2833'}, W - 40);
+          fitT(c, r ? (YR[p.y] + '년: ' + (p.u === 0 ? '약 ' + r.v + '%' : '약 ' + f(r.v, 1) + '억 명') + (full ? ' · 1990년부터 ' + (r.from90 < 0 ? '−' + (-r.from90) : r.from90 > 0 ? '+' + r.from90 : '0') + '%p' : '') + ' · 내 선택 ' + (r.graded ? '맞힘' : '빗나감')) : '예상: 1990년부터 선은 어느 쪽으로 갈까요?', 20, H - 12, {bold:true, color:r ? (r.graded ? PAL[1] : PAL[4]) : '#1E2833'}, W - 40);
         },
         stats: function(p, r){
           return [['해', YR[p.y] + '년'], ['극심한 빈곤 비율 (개략)', '약 ' + r.pct + '%', PAL[0]], ['극심한 빈곤 속 사람 수 (개략)', '약 ' + f(r.cnt, 1) + '억 명', PAL[4]],
             ['1990년과 비교', p.y === 0 ? '기준 해' : '비율 ' + (r.from90 < 0 ? '−' + (-r.from90) : r.from90 > 0 ? '+' + r.from90 : '0') + '%p', PAL[1]],
             ['보는 방법', p.v === 0 ? '그해만 — 갑자기 변한 것만 크게 보여요' : '선 전체 — 천천히 변한 흐름이 보여요', PAL[3]],
+            ['내가 고른 뉴스 제목', HL[r.hl], PAL[3]],
+            ['채점', (r.graded ? '맞혔습니다 — ' : '빗나갔습니다 — 이 화면에서 나오는 말은 ' + HL[r.sup] + ' 입니다. ') + r.why, r.graded ? PAL[1] : PAL[4]],
             ['함께 맞는 두 사실', '비율은 크게 줄었다 + 아직 수억 명이 남아 있다', PAL[6]]];
         },
-        columns: ['해', '보는 방법', '비율', '사람 수'],
-        record: function(p, r){ return {y:p.y, v:p.v, pct:r.pct, cnt:r.cnt}; },
-        row: function(d){ return [YR[d.y] + '년', d.v === 0 ? '그해만' : '선 전체', '약 ' + d.pct + '%', '약 ' + f(d.cnt, 1) + '억']; },
+        columns: ['해', '보는 방법', '비율', '내 제목', '채점'],
+        record: function(p, r){ return {y:p.y, v:p.v, pct:r.pct, cnt:r.cnt, hl:r.hl, sup:r.sup, graded:r.graded}; },
+        row: function(d){ return [YR[d.y] + '년', d.v === 0 ? '그해만' : '선 전체', '약 ' + d.pct + '%',
+          (d.hl === 0 ? '①' : '②'), d.graded ? '맞힘' : '빗나감']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('개략 자료: 극심한 빈곤 비율', '<canvas class="chart" id="pv1"></canvas><p class="ask">예측 게임 ①~④ 가운데 선의 모양과 맞는 것은? 2020년만 보면 어떤 말을 하게 될까요?</p>') +
+            card('같은 자료, 다른 제목', '<div id="pv3"></div><p class="ask">두 제목은 모두 거짓이 아닙니다. 그런데 읽는 사람이 받는 느낌은 아주 다릅니다. 어느 부분을 보여 주느냐가 왜 중요한지 적어 보세요.</p>') +
             card('내가 본 해', '<div id="pv2"></div><p class="ask">과제: 가족에게 오늘의 예측 게임 문제를 내 몇 명이 맞히는지 세어 보세요. "학교에 다니는 아이"나 "깨끗한 물을 마시는 사람" 가운데 하나를 골라 예전과 지금의 숫자를 어른과 함께 찾아 적어요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.y] = 1; });
           drawScatter($('pv1'), {xLabel:'해', yLabel:'비율 %', tightX:true, series:[{color:PAL[0], pts:YR.map(function(y, i){ return {x:y, y:PCT[i]}; })},
             {color:PAL[4], pts:YR.filter(function(y, i){ return seen[i]; }).map(function(y){ return {x:y, y:PCT[YR.indexOf(y)]}; })}]});
           var rows = Object.keys(seen).map(Number).sort(function(a, b){ return a - b; }).map(function(i){ return [YR[i] + '년', '약 ' + PCT[i] + '%', '약 ' + f(val(i, 1), 1) + '억 명']; });
           $('pv2').innerHTML = tableHTML(['해', '비율', '사람 수'], rows) + '<p class="msg">세계은행 자료를 어림한 개략값이에요. 빨간 점 = 내가 본 해.</p>';
+          var g2 = groupBy(rec, function(d){ return d.sup; }), rows3 = [];
+          HL.forEach(function(x, i){ var a = g2[i]; if (!a) return;
+            var hit = a.filter(function(d){ return d.graded; }).length;
+            rows3.push([x, a.length + '판', hit + '판', f(hit / a.length * 100, 0) + '%']); });
+          $('pv3').innerHTML = tableHTML(['이 화면에서 나오는 제목', '해 본 판', '맞힌 판', '맞힌 비율'], rows3) +
+            '<p class="msg">① 이 나오는 화면은 “그해만” 떼어 보고 그해에 비율이 늘었을 때예요(2020년처럼). ② 는 선 전체를 볼 때 나와요. 같은 자료라도 <b>보여 주는 범위</b>에 따라 제목이 달라져요.</p>';
         }
       };
     })();
@@ -496,7 +519,8 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

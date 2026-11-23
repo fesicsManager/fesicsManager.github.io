@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -485,6 +487,12 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         {n:'리듬만', s:'리듬만', keep:[0, 1, 0, 0, 0], same:10, chg:'음높이 전부 변경'},
         {n:'악기 편성·음색만', s:'편성만', keep:[0, 0, 0, 1, 0], same:5, chg:'선율·화성 변경'}];
       var VW = [{n:'유지 관점: 원곡과 똑같을수록 좋다', s:'유지'}, {n:'변화 관점: 원곡과 많이 다를수록 좋다', s:'변화'}, {n:'근거 관점: 무엇을 유지·변경했고 그 효과는?', s:'근거'}];
+      /* 어느 요소를 더 무겁게 볼지. 0번(모두 똑같이)이 기본값이라 예전 점수가 그대로 나온다.
+         무게를 주면 '남은 개수'만으로는 안 나오던 순위가 생긴다. */
+      var WS = ['모두 똑같이'].concat(EL.map(function(e){ return e + '을 세 배로'; }));
+      /* 내가 직접 내리는 판정. 0번(아직 판정 안 함)이 기본값. */
+      var ME = ['아직 판정 안 함', '같은 곡이다', '다른 곡이다'];
+      function wOf(p){ var w = [1, 1, 1, 1, 1]; if (p.wt > 0) w[p.wt - 1] = 3; return w; }
       var T0 = [1, 0.4, 0.15], T1 = 'square';
       function ver(k){
         var P = OP.slice(), U = OU.slice(), C = OC.map(function(x){ return x.slice(); }), tm = 1, tw = T0;
@@ -495,7 +503,9 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         if (!KP[k].keep[4]) tm = 0.8;
         return {P:P, U:U, C:C, tm:tm, tw:tw}; }
       function calc(p){ var K = KP[p.k], kept = K.keep.reduce(function(a, b){ return a + b; }, 0);
-        return {K:K, kept:kept, v:ver(p.k), s1:kept / 5, s2:(5 - kept) / 5}; }
+        var w = wOf(p), tot = w.reduce(function(a, b){ return a + b; }, 0);
+        var kw = 0; K.keep.forEach(function(v, i){ kw += v * w[i]; });
+        return {K:K, kept:kept, v:ver(p.k), s1:kw / tot, s2:(tot - kw) / tot, w:w, totW:tot, kw:kw, me:p.me}; }
       function roll(c, x0, y0, w, h, P, U, col, upto){ var tot = U.reduce(function(a, b){ return a + b; }, 0), uw = w / Math.max(tot, 6), t = 0;
         P.forEach(function(s, i){ var y = y0 + h - (s + 2) / 16 * h; c.fillStyle = t <= upto ? col : '#E1E7EE'; c.fillRect(x0 + t * uw + 1, y - 7, U[i] * uw - 3, 14); t += U[i]; }); }
       return {
@@ -504,7 +514,9 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         shortHint: '다섯 가지를 모두 기록한 뒤, 같은 기록을 유지 관점과 변화 관점으로 바꿔 순위가 어떻게 뒤집히는지 보세요.',
         params: [
           {key:'k', type:'seg', label:'남긴 요소 (나머지는 바꿈)', cols:3, value:0, options:KP.map(function(x){ return x.n; })},
-          {key:'w', type:'seg', label:'평가 관점', cols:1, value:2, options:VW.map(function(x){ return x.n; })}
+          {key:'w', type:'seg', label:'평가 관점', cols:1, value:2, options:VW.map(function(x){ return x.n; })},
+          {key:'wt', type:'seg', label:'어느 요소를 더 무겁게 볼까', cols:3, value:0, options:WS},
+          {key:'me', type:'seg', label:'내 판정 — 원곡과 같은 곡인가?', cols:3, value:0, options:ME, note:'먼저 두 판을 듣고 스스로 판정한 뒤, 아래 20명 결과(수업용 예시)와 견주어 보세요.'}
         ],
         compute: function(p){
           var r = calc(p), S = session(2, 0.18), u = 0.11, t = 0, v = r.v;
@@ -534,24 +546,50 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         stats: function(p, r){
           var s = [['남긴 요소', r.K.n + ' (' + r.kept + '/5)', PAL[1]], ['바꾼 요소', r.K.chg],
             ['"원곡과 같은 곡" 응답 (수업용 예시)', r.K.same + '%', PAL[0]]];
-          if (p.w === 0) s.push(['유지 관점 점수', f(r.s1 * 100, 0) + '점 — 남은 것이 많을수록 높음', PAL[3]]);
-          if (p.w === 1) s.push(['변화 관점 점수', f(r.s2 * 100, 0) + '점 — 바뀐 것이 많을수록 높음', PAL[3]]);
+          s.push(['요소 무게', WS[p.wt] + ' → 무게 합 ' + r.totW + ' 가운데 남은 무게 ' + r.kw]);
+          if (p.w === 0) s.push(['유지 관점 점수', f(r.s1 * 100, 0) + '점 — 남은 것의 무게가 클수록 높음', PAL[3]]);
+          if (p.w === 1) s.push(['변화 관점 점수', f(r.s2 * 100, 0) + '점 — 바뀐 것의 무게가 클수록 높음', PAL[3]]);
+          s.push(['내 판정', r.me === 0 ? '아직 판정하지 않았어요 — 조작에서 골라 보세요.'
+            : ME[r.me] + ' / 20명 중 ' + r.K.same + '% 는 "같은 곡"(수업용 예시)'
+              + ((r.me === 1) === (r.K.same >= 50) ? ' → 다수와 같은 쪽' : ' → 다수와 다른 쪽'),
+            r.me === 0 ? null : ((r.me === 1) === (r.K.same >= 50) ? PAL[1] : PAL[4])]);
           if (p.w === 2) s.push(['근거 관점 근거 질문', '왜 ' + ['윤곽과 리듬을', '윤곽만', '화성만', '리듬만', '편성만'][p.k] + ' 남겼나? 바꾼 요소들(' + r.K.chg + ')은 같은 방향의 효과를 내나? 듣는 사람이 무엇으로 원곡을 알아보나?', PAL[3]]);
           s.push(['참고', '유지 관점과 변화 관점은 정반대 순위를 만들지만 둘 다 "왜"를 묻지 않습니다']);
           return s;
         },
-        columns: ['남긴 요소', '남은 수', '"같은 곡"', '관점', '관점 점수'],
-        record: function(p, r){ return {k:p.k, w:p.w, kept:r.kept, s1:r.s1, s2:r.s2}; },
-        row: function(d){ return [KP[d.k].s, d.kept + '/5', KP[d.k].same + '%', VW[d.w].s, d.w === 0 ? f(d.s1 * 100, 0) : d.w === 1 ? f(d.s2 * 100, 0) : '근거 질문']; },
+        columns: ['남긴 요소', '무게', '내 판정', '"같은 곡"', '관점', '관점 점수'],
+        record: function(p, r){ return {k:p.k, w:p.w, wt:p.wt, kept:r.kept, s1:r.s1, s2:r.s2, me:r.me}; },
+        row: function(d){ return [KP[d.k].s, WS[d.wt || 0], d.me ? ME[d.me] : '—', KP[d.k].same + '%', VW[d.w].s,
+          d.w === 0 ? f(d.s1 * 100, 0) : d.w === 1 ? f(d.s2 * 100, 0) : '근거 질문']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('무엇이 남으면 같은 곡인가 (수업용 예시)', '<div id="h6a"></div><p class="ask">선율 윤곽이 남은 두 판과 그렇지 않은 세 판의 "같은 곡" 비율은 어떻게 갈렸나요?</p>') +
+            card('내 판정과 20명 결과 (내가 고른 것만으로 계산)', '<div id="h6c"></div><p class="ask">내 판정이 다수와 갈린 판은 어느 것이었나요? 요소 무게를 바꾸면 순위가 뒤집히나요 — 그렇다면 "같은 곡"을 정하는 것은 개수일까요, 무게일까요?</p>') +
             card('관점에 따른 순위', '<div id="h6b"></div><p class="ask">과제: 같은 곡(저작권이 만료된 곡이나 전래곡)의 서로 다른 편곡 두 개를 골라 선율·리듬·화성·편성·템포·조성 가운데 유지된 것과 바뀐 것을 표로 나누고, 바뀐 선택들이 어떤 효과를 내는지 근거를 들어 써 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.k; }), items = [], rows = [];
           KP.forEach(function(K, i){ if (!g[i]) return; items.push({label:K.s, v:K.same, color:K.keep[0] ? PAL[1] : PAL[4], text:K.same + '%'});
             var kept = K.keep.reduce(function(a, b){ return a + b; }, 0); rows.push([K.s, f(kept / 5 * 100, 0), f((5 - kept) / 5 * 100, 0), '근거로 평가']); });
           $('h6a').innerHTML = hbars(items, 100) + (items.length < 5 ? '<p class="msg">아직 기록하지 않은 판이 있어요.</p>' : '');
           $('h6b').innerHTML = tableHTML(['판', '유지 관점', '변화 관점', '근거 관점'], rows);
+          var mine = rec.filter(function(x){ return x.me; });
+          var rows3 = KP.map(function(K, i){
+            var a = mine.filter(function(x){ return x.k === i; });
+            if (!a.length) return [K.s, '—', K.same + '%', '—'];
+            var same = a.filter(function(x){ return x.me === 1; }).length;
+            var agree = (same * 2 >= a.length) === (K.same >= 50);
+            return [K.s, same + '/' + a.length + ' 번 "같은 곡"', K.same + '%', agree ? '다수와 같음' : '다수와 갈림'];
+          });
+          /* 무게를 바꾸면 순위가 뒤집히는지 내 기록으로 확인 */
+          var byW = groupBy(rec, function(x){ return x.wt || 0; }), flip = false, ord0 = null;
+          Object.keys(byW).sort().forEach(function(k){
+            var ord = byW[k].slice().sort(function(a, b){ return b.s1 - a.s1; }).map(function(x){ return x.k; }).join(',');
+            if (ord0 === null) ord0 = ord; else if (ord !== ord0) flip = true;
+          });
+          $('h6c').innerHTML = tableHTML(['판', '내 판정', '20명 "같은 곡"(예시)', '견주기'], rows3)
+            + '<p class="msg">' + (!mine.length
+              ? '조작에서 "내 판정"을 골라 다시 들어 보면, 내 판정과 20명 결과를 여기서 견줄 수 있어요.'
+              : (flip ? '요소 무게를 바꾸자 유지 관점 <b>순위가 뒤집혔습니다</b>. 남은 개수가 같아도 무엇이 남았는지에 따라 "같은 곡" 판정이 갈립니다.'
+                : '요소 무게를 여러 가지로 바꿔 기록해 보면, 같은 개수라도 순위가 뒤집히는지 볼 수 있어요.')) + '</p>';
         }
       };
     })();
@@ -560,7 +598,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -486,26 +488,38 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 
       var NM = [{n:'도', base:130.81, k:-12, mid:0}, {n:'라', base:220, k:-3, mid:9}];
       var OC = [{n:'한 옥타브 아래', s:'아래'}, {n:'가운데', s:'가운데'}, {n:'한 옥타브 위', s:'위'}, {n:'두 옥타브 위', s:'두 옥타브 위'}];
-      var TG = ['혼자 울리기', '가운데 음과 함께'];
+      var TG = ['혼자 울리기', '견준 음과 함께'];
+      /* 둘째 조작 - 무엇과 견줄까. 같은 이름(옥타브)이 아니면 2배가 아니다 */
+      var CMP = [{n:'같은 이름', off:0}, {n:'3음 위', off:4}, {n:'4음 위', off:5}, {n:'5음 위', off:7}];
       function calc(p){ var N = NM[p.nm], fq = N.base * Math.pow(2, p.o), mid = N.base * 2;
-        return {N:N, fq:fq, mid:mid, ratio:fq / mid, oct:p.o - 1, key:N.k + 12 * p.o, all:OC.map(function(x, i){ return N.base * Math.pow(2, i); })}; }
-      function ratioTxt(r){ return r === 1 ? '같은 음 (1배)' : r > 1 ? r + '배' : '절반 (1/' + Math.round(1 / r) + ')'; }
+        var cpi = p.cp || 0, off = CMP[cpi].off, cmp = mid * Math.pow(2, off / 12);
+        return {N:N, fq:fq, mid:mid, cmp:cmp, off:off, cpi:cpi, cmpName:CMP[cpi].n, cmpKey:N.mid + off,
+          ratio:fq / cmp, oct:p.o - 1, key:N.k + 12 * p.o, all:OC.map(function(x, i){ return N.base * Math.pow(2, i); })}; }
+      function ratioTxt(r){
+        if (Math.abs(r - 1) < 1e-9) return '같은 음 (1배)';
+        if (r > 1){ var ri = Math.round(r); return (Math.abs(r - ri) < 1e-9 ? ri : f(r, 2)) + '배'; }
+        var iv = 1 / r, ii = Math.round(iv);
+        return (Math.abs(iv - ii) < 1e-9) ? ('절반 (1/' + ii + ')') : (f(r, 2) + '배');
+      }
+      function isOct(r){ var l = Math.log(r) / Math.LN2; return Math.abs(l - Math.round(l)) < 1e-9; }
       return {
         sceneHeight: 430,
         idle: '음 이름과 높이를 고른 뒤 <b>소리 내고 재기</b>를 누르세요.',
-        shortHint: '"도" 네 개를 모두 재고, "라"도 두 개 이상 재 보세요.',
+        shortHint: '"도" 네 개를 모두 재고, 견줄 음을 <b>5음 위</b>로 바꿔서도 재 보세요.',
         params: [
           {key:'nm', type:'seg', label:'음 이름', cols:2, value:0, options:NM.map(function(x){ return x.n; })},
           {key:'o', type:'seg', label:'어느 옥타브', cols:4, value:2, options:OC.map(function(x){ return x.n; })},
+          {key:'cp', type:'seg', label:'무엇과 견줄까 (가운데의…)', cols:4, value:0, options:CMP.map(function(x){ return x.n; }),
+            note:'같은 이름이 아닌 음과 견주면 비가 2배·4배로 딱 떨어지지 않아요. ※ 비 숫자는 표준 조율(라 = 440 Hz)로 계산한 <b>교육용 값</b>이에요. 실제 악기는 조율에 따라 조금 달라요.'},
           {key:'t', type:'seg', label:'울리는 방법', cols:2, value:0, options:TG}
         ],
         compute: function(p){
           var r = calc(p), S = session(1.4, 0.18);
-          if (S){ tone(S, r.fq, 0, 1.3, p.t ? 0.4 : 0.6, 'triangle'); if (p.t) tone(S, r.mid, 0, 1.3, 0.4, 'triangle'); }
+          if (S){ tone(S, r.fq, 0, 1.3, p.t ? 0.4 : 0.6, 'triangle'); if (p.t) tone(S, r.cmp, 0, 1.3, 0.4, 'triangle'); }
           return r;
         },
         draw: function(c, W, H, p, r, tau){
-          var q = r || calc(p), marks = {}; marks[q.N.mid] = '#9CC0EA'; marks[q.key] = PAL[4];
+          var q = r || calc(p), marks = {}; marks[q.cmpKey] = '#9CC0EA'; marks[q.key] = PAL[4];
           keyboard(c, 16, 24, W - 32, 64, -12, 36, marks);
           var gy = 120, gh = 150, gx = 20, gw = W - 40, bw = gw / 4, fmax = q.N.base * 8;
           seg(c, gx, gy + gh, gx + gw, gy + gh, '#8C99A8', 1.5);
@@ -517,30 +531,45 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
             if (r && i > 0 && tau > 0.5) txt(c, '×2', gx + bw * i, gy + 24, {align:'center', bold:true, color:PAL[1]}); });
           var wy = 320, wh = 70;
           box(c, gx, wy, gw, wh, '#F7F9FC', '#E1E7EE');
-          if (r){ var dur = 0.01; [[q.mid, PAL[0]], [q.fq, PAL[4]]].forEach(function(L, li){ if (!p.t && li === 0 && p.o !== 1) return;
+          if (r){ var dur = 0.01; [[q.cmp, PAL[0]], [q.fq, PAL[4]]].forEach(function(L, li){ if (!p.t && li === 0 && !(p.o === 1 && q.off === 0)) return;
               c.strokeStyle = L[1]; c.lineWidth = li ? 2.5 : 2; c.beginPath();
               for (var j = 0; j <= 300; j++){ var t = j / 300, yy = wy + wh / 2 - (wh / 2 - 6) * Math.sin(2 * Math.PI * L[0] * dur * t); if (!j) c.moveTo(gx + gw * t, yy); else c.lineTo(gx + gw * t, yy); }
               c.stroke(); }); }
           else txt(c, '파형은 소리를 내면 나와요', gx + gw / 2, wy + 42, {align:'center', color:'#8C99A8'});
-          txtF(c, r ? q.N.n + ' ' + OC[p.o].s + ': 약 ' + f(q.fq, 0) + ' Hz (가운데의 ' + ratioTxt(q.ratio) + ')' : '예상: 한 옥타브 위 ' + q.N.n + '는 몇 Hz?', 16, H - 12, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 32);
+          txtF(c, r ? q.N.n + ' ' + OC[p.o].s + ': 약 ' + f(q.fq, 0) + ' Hz (견준 음의 ' + ratioTxt(q.ratio) + ')' : '예상: 한 옥타브 위 ' + q.N.n + '는 몇 Hz?', 16, H - 12, {bold:true, color:r ? PAL[0] : '#1E2833'}, W - 32);
         },
         stats: function(p, r){
-          return [['고른 음', r.N.n + ' (' + OC[p.o].n + ')'], ['진동수', '약 ' + f(r.fq, 1) + ' Hz', PAL[4]], ['가운데 ' + r.N.n, '약 ' + f(r.mid, 1) + ' Hz', PAL[0]],
-            ['가운데와 비교', ratioTxt(r.ratio), PAL[1]], ['옥타브 차이', r.oct === 0 ? '같은 음' : (r.oct > 0 ? r.oct + '옥타브 위' : '1옥타브 아래')],
-            ['함께 울리면', p.t ? (r.oct === 0 ? '똑같은 음이 겹침' : '파형이 규칙적으로 딱딱 겹쳐 한 소리처럼 어울림') : '혼자 울림']];
+          var same = r.off === 0;
+          return [['고른 음', r.N.n + ' (' + OC[p.o].n + ')'], ['진동수', '약 ' + f(r.fq, 1) + ' Hz', PAL[4]],
+            ['견준 음: 가운데 ' + (same ? r.N.n : r.cmpName), '약 ' + f(r.cmp, 1) + ' Hz', PAL[0]],
+            ['견준 음과 비', ratioTxt(r.ratio), PAL[1]],
+            ['2배 가족인가', same ? (r.oct === 0 ? '같은 음이에요 (1배)' : '네 — 옥타브마다 딱 2배') : ('아니요 — ' + ratioTxt(r.ratio) + '라서 2배로 떨어지지 않아요'), same ? PAL[1] : PAL[4]],
+            ['옥타브 차이', r.oct === 0 ? '같은 음' : (r.oct > 0 ? r.oct + '옥타브 위' : '1옥타브 아래')],
+            ['함께 울리면', p.t ? (same ? (r.oct === 0 ? '똑같은 음이 겹침' : '파형이 규칙적으로 딱딱 겹쳐 한 소리처럼 어울림') : '파형이 딱 맞게 겹치지 않아 두 소리로 들림') : '혼자 울림']];
         },
-        columns: ['음', '옥타브', '진동수 (Hz)', '가운데와 비'],
-        record: function(p, r){ return {nm:p.nm, o:p.o, fq:r.fq, ratio:r.ratio}; },
-        row: function(d){ return [NM[d.nm].n, OC[d.o].s, f(d.fq, 1), ratioTxt(d.ratio)]; },
+        columns: ['음', '옥타브', '견준 음', '진동수 (Hz)', '견준 음과 비'],
+        record: function(p, r){ return {nm:p.nm, o:p.o, cp:r.cpi, fq:r.fq, cmp:r.cmp, ratio:r.ratio}; },
+        row: function(d){ return [NM[d.nm].n, OC[d.o].s, CMP[d.cp || 0].n, f(d.fq, 1), ratioTxt(d.ratio)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('옥타브가 오를 때 진동수', '<canvas class="chart" id="m1c"></canvas><p class="ask">한 칸 오를 때마다 진동수는 몇 배가 되었나요? 1화 예측 게임의 답(가운데 도 약 262 Hz → 한 옥타브 위?)을 확인해 보세요.</p>') +
-            card('잰 음 정리', '<div id="m1t"></div><p class="ask">과제: 튜너 앱으로 집에 있는 악기나 내 목소리의 "라"를 두 개 찾아 진동수를 재고, 몇 배 차이인지 나눗셈으로 확인해 보세요.</p>') + '</div>';
+            card('잰 음 정리', '<div id="m1t"></div><p class="ask">과제: 튜너 앱으로 집에 있는 악기나 내 목소리의 "라"를 두 개 찾아 진동수를 재고, 몇 배 차이인지 나눗셈으로 확인해 보세요.</p>') +
+            card('2배로 떨어지는 짝은 어느 것?', '<div id="m1u"></div><p id="m1j" class="ask"></p>') + '</div>';
           drawScatter($('m1c'), {series:NM.map(function(N, ni){ return {color:ni ? PAL[1] : PAL[4], pts:rec.filter(function(d){ return d.nm === ni; }).map(function(d){ return {x:d.o - 1, y:d.fq}; })}; }),
             xLabel:'가운데에서 몇 옥타브 (빨강 도, 초록 라)', yLabel:'진동수 (Hz)'});
           var g = groupBy(rec, function(d){ return d.nm + '_' + d.o; }), rows = [];
           Object.keys(g).sort().forEach(function(k){ var d = g[k][0]; rows.push([NM[d.nm].n + ' ' + OC[d.o].s, f(d.fq, 0) + ' Hz', ratioTxt(d.ratio)]); });
-          $('m1t').innerHTML = tableHTML(['음', '진동수', '가운데와 비'], rows);
+          $('m1t').innerHTML = tableHTML(['음', '진동수', '견준 음과 비'], rows);
+          /* 견준 음에 따라 2배로 떨어지는지 갈린다 */
+          var g2 = groupBy(rec, function(d){ return (d.cp || 0) + '_' + d.nm + '_' + d.o; }), rows2 = [];
+          var okN = 0, badN = 0;
+          Object.keys(g2).sort().forEach(function(k){ var d = g2[k][0], ok = isOct(d.ratio);
+            if (ok) okN++; else badN++;
+            rows2.push([NM[d.nm].n + ' ' + OC[d.o].s, CMP[d.cp || 0].n, ratioTxt(d.ratio), ok ? '2배 가족 ✔' : '아니요 ✘']); });
+          $('m1u').innerHTML = tableHTML(['음', '견준 음', '비', '2배로 떨어지나'], rows2);
+          $('m1j').innerHTML = (badN === 0)
+            ? '아직 <b>같은 이름</b>끼리만 견주었네요. \'무엇과 견줄까\'를 <b>5음 위</b>나 <b>3음 위</b>로 바꿔 다시 재 보세요. 그래도 2배일까요?'
+            : ('같은 이름끼리 견준 ' + okN + '개는 1배·2배·4배로 딱 떨어지고, 다른 이름과 견준 ' + badN + '개는 떨어지지 않았어요. 그래서 <b>2배가 되는 것은 \'같은 이름(옥타브)\'일 때뿐</b>이고, 그래서 같은 이름을 붙인 거예요.');
         }
       };
     })();
@@ -549,7 +578,8 @@ function keyboard(c, x, y, w, h, lo, hi, marks){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

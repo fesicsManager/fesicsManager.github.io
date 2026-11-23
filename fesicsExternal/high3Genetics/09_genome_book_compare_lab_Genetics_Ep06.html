@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -290,9 +291,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,13 +442,23 @@ var LAB = (function(){
         shortHint: '여섯 생물을 모두 한 번 이상 펼쳐 보세요. ✅ 데이터 검증 탭에서 크기와 유전자 수의 관계를 봅니다.',
         params: [
           {key:'a', type:'seg', label:'생물 A', cols:3, value:0, options:GN.map(function(x){ return x.name; })},
-          {key:'b', type:'seg', label:'생물 B', cols:3, value:5, options:GN.map(function(x){ return x.name; })}
+          {key:'b', type:'seg', label:'생물 B', cols:3, value:5, options:GN.map(function(x){ return x.name; })},
+          {key:'gu', type:'range', label:'먼저 짐작: 생물 B의 유전자 수', min:0, max:60, step:2, value:0,
+            fmt:function(v){ return v === 0 ? '짐작 안 함' : '약 ' + v + '천 개'; }}
         ],
         compute: function(p){
           if (p.a === p.b) return {fail:'서로 다른 두 생물을 고르세요.'};
           var A = GN[p.a], B = GN[p.b];
           function one(o){ return {o:o, books:o.mb * 1e6 / 1.5e6, dens:o.g / o.mb}; }
-          return {A:one(A), B:one(B), sizeR:B.mb / A.mb, geneR:B.g / A.g};
+          var out = {A:one(A), B:one(B), sizeR:B.mb / A.mb, geneR:B.g / A.g};
+          out.naive = A.g * (B.mb / A.mb);
+          if (p.gu > 0){
+            var gv = p.gu * 1000, rel = Math.abs(gv - B.g) / B.g;
+            out.gu = gv;
+            out.grade = rel < 0.15 ? '맞음 ✓' : (rel < 0.4 ? '가까움' : (rel < 1.5 ? '빗나감' : '크게 빗나감 ✕'));
+            out.gmsg = out.grade + ' — 실제 약 ' + B.g.toLocaleString('ko-KR') + '개' + (gv > B.g ? ' (짐작이 컸어요)' : (gv < B.g ? ' (짐작이 작았어요)' : ''));
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){
           var L = [GN[p.a], GN[p.b]], px = 20, pw = W - 40, k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -474,13 +486,21 @@ var LAB = (function(){
             ['책으로 바꾸면', r.A.o.name + ' 약 ' + f(r.A.books, r.A.books < 10 ? 1 : 0) + '권 · ' + r.B.o.name + ' 약 ' + f(r.B.books, r.B.books < 10 ? 1 : 0) + '권'],
             ['유전자 밀도 (개/Mbp)', f(r.A.dens, r.A.dens < 10 ? 1 : 0) + ' · ' + f(r.B.dens, r.B.dens < 10 ? 1 : 0), PAL[3]],
             ['B ÷ A', '크기 ' + f(r.sizeR, r.sizeR < 10 ? 2 : 0) + '배 · 유전자 수 ' + f(r.geneR, 2) + '배', PAL[6]],
-            ['단백질 암호화 비율', r.A.o.cod + ' · ' + r.B.o.cod]];
+            ['단백질 암호화 비율', r.A.o.cod + ' · ' + r.B.o.cod]].concat(
+            r.gu ? [['내 짐작 채점', '짐작 약 ' + (r.gu / 1000) + '천 개 → ' + r.gmsg, /맞음/.test(r.grade) ? PAL[1] : PAL[4]],
+              ['크기에 비례한다고 보면', '약 ' + Math.round(r.naive).toLocaleString('ko-KR') + '개가 되어야 해요 — 실제 ' + r.B.o.g.toLocaleString('ko-KR') + '개와 ' + f(r.naive / r.B.o.g, r.naive / r.B.o.g < 10 ? 1 : 0) + '배 차이', PAL[4]]] : []);
         },
-        columns: ['생물 A', '생물 B', 'B/A 크기', 'B/A 유전자'],
-        record: function(p, r){ return {a:p.a, b:p.b, sr:r.sizeR, gr:r.geneR}; },
-        row: function(d){ return [GN[d.a].name, GN[d.b].name, f(d.sr, 2) + '배', f(d.gr, 2) + '배']; },
+        columns: ['생물 A', '생물 B', 'B/A 크기', 'B/A 유전자', '내 짐작(B 유전자 수)'],
+        record: function(p, r){ return {a:p.a, b:p.b, sr:r.sizeR, gr:r.geneR, gu:r.gu || 0, grade:r.grade || ''}; },
+        row: function(d){ return [GN[d.a].name, GN[d.b].name, f(d.sr, 2) + '배', f(d.gr, 2) + '배', d.gu ? (d.gu / 1000) + '천 개 · ' + d.grade : '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var gs = rec.filter(function(d){ return d.gu; });
+          var gcard = !gs.length ? '' : card('유전자 수 — 내 짐작과 실제', tableHTML(['생물 B', '유전체 크기', '내 짐작', '실제', '채점'],
+              gs.map(function(d){ var B = GN[d.b]; return [B.name, B.mb >= 1000 ? f(B.mb / 1000, 1) + ' Gbp' : B.mb + ' Mbp', (d.gu / 1000) + '천 개', (B.g / 1000) + '천 개', d.grade]; })) +
+            '<p class="ask">맞힌 ' + gs.filter(function(d){ return /맞음/.test(d.grade); }).length + ' / ' + gs.length + '번. ' +
+            '크기가 큰 쪽을 더 많이 짐작했나요? 애기장대(135 Mbp, 약 27,000개)와 사람(3,100 Mbp, 약 20,000개)을 견주어 보세요. ' +
+            '유전체 크기는 인트론·반복 서열이 얼마나 많은지에 크게 달려 있어 유전자 수와 비례하지 않습니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + gcard +
             card('유전체 크기와 유전자 수', '<canvas class="chart" id="gb1"></canvas><p class="ask">가로축은 log₁₀(Mbp)입니다. 사람은 대장균보다 유전체가 약 670배 크지만 유전자 수는 몇 배인가요? 유전체 크기만으로 생물의 복잡성을 말할 수 없는 까닭은?</p>') +
             card('유전자 밀도', '<div id="gb2"></div><p class="ask">과제: 원핵세포는 유전자가 빽빽하고 진핵세포는 드문드문한 까닭을 인트론·조절 부위·오페론과 연결해 설명하는 글을 써 보세요.</p>') + '</div>';
           var seen = {};
@@ -496,7 +516,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

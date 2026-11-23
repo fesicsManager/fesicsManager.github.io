@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -430,12 +432,15 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var A = [
-        {name:'(가) 공책을 숨기고 고개 숙임', t:['민지는 공책을 ', '#가방 깊숙이 넣고', ' ', '#고개를 푹 숙였다.'], feel:0, cls:17},
-        {name:'(나) 공책을 흔들며 달려감', t:['민지는 공책을 ', '#높이 흔들며', ' 엄마에게 ', '#달려갔다.'], feel:1, cls:18},
-        {name:'“괜찮아.” 작은 목소리', t:['“괜찮아.” 민지가 ', '#작은 목소리로', ' 말했다.'], feel:0, cls:null},
-        {name:'“괜찮아.” 활짝 웃으며', t:['“괜찮아.” 민지가 ', '#활짝 웃으며', ' 말했다.'], feel:2, cls:null}
+        {name:'(가) 공책을 숨기고 고개 숙임', t:['민지는 공책을 ', '#가방 깊숙이 넣고', ' ', '#고개를 푹 숙였다.'], k:['행동', '행동'], feel:0, cls:17},
+        {name:'(나) 공책을 흔들며 달려감', t:['민지는 공책을 ', '#높이 흔들며', ' 엄마에게 ', '#달려갔다.'], k:['행동', '행동'], feel:1, cls:18},
+        {name:'“괜찮아.” 작은 목소리', t:['“괜찮아.” 민지가 ', '#작은 목소리로', ' 말했다.'], k:['말투'], feel:0, cls:null},
+        {name:'“괜찮아.” 활짝 웃으며', t:['“괜찮아.” 민지가 ', '#활짝 웃으며', ' 말했다.'], k:['표정'], feel:2, cls:null}
       ];
       var F = ['속상하다·부끄럽다', '기쁘다·자랑스럽다', '편안하다·괜찮다', '알 수 없다'], FC = [PAL[0], PAL[6], PAL[1], PAL[7]];
+      var VN = ['단서 다 보기', '행동만 보기', '말투·표정만 보기', '단서 다 가리기'], VNS = ['다 보기', '행동만', '말투·표정', '다 가리기'];
+      /* 어떤 단서를 보여 줄지 고른다 — 단서를 뺄수록 마음이 흐려지는 것을 직접 보게 */
+      function visK(k, v){ return v === 0 ? true : v === 1 ? k === '행동' : v === 2 ? (k === '말투' || k === '표정') : false; }
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function face(c, x, y, R, feel, k){
         c.fillStyle = '#FFE3B8'; c.beginPath(); c.arc(x, y, R, 0, Math.PI * 2); c.fill();
@@ -447,65 +452,93 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 400,
-        idle: '문장과 나의 짐작을 고른 뒤 <b>마음 짐작하기</b>를 누르세요.',
-        shortHint: '(가)와 (나)를 모두 해 보세요. 행동만 바꿨는데 마음이 어떻게 달라지나요?',
+        idle: '문장·보여 줄 단서·나의 짐작을 고른 뒤 <b>마음 짐작하기</b>를 누르세요.',
+        shortHint: '같은 문장에서 단서를 하나씩 가려 보세요. 단서를 다 가리면 마음을 알 수 있나요?',
         params: [
           {key:'a', type:'seg', label:'문장', cols:2, value:0, options:A.map(function(x){ return x.name; })},
+          {key:'v', type:'seg', label:'보여 줄 단서', cols:2, value:0, options:VN,
+            note:'가린 단서는 ●●●로 덮여요. 단서를 다 가리면 ‘알 수 없다’가 맞는 답이 됩니다.'},
           {key:'g', type:'seg', label:'나의 짐작', cols:2, value:3, options:F}
         ],
         compute: function(p){
-          var a = A[p.a], clues = a.t.filter(function(s){ return s.charAt(0) === '#'; }).map(function(s){ return s.slice(1); });
-          var verdict = p.g === a.feel ? 0 : p.g === 3 ? 1 : 2;
-          clues = clues.map(function(x){ return String(x).replace(/[.。]+$/, ''); });
-          var why = ['단서와 맞아요. 왜냐하면 ‘' + clues.join('’, ‘') + '’ 때문이에요.', '마음 낱말은 없지만 ‘' + clues.join('’, ‘') + '’라는 단서가 있어요.', '단서 ‘' + clues.join('’, ‘') + '’와 잘 안 맞아요. 다시 읽어 보세요.'][verdict];
-          return {a:a, clues:clues, verdict:verdict, why:why};
+          var a = A[p.a], all = [], ci = -1;
+          a.t.forEach(function(s){ if (s.charAt(0) === '#'){ ci++;
+            all.push({w:String(s.slice(1)).replace(/[.。]+$/, ''), k:a.k[ci], on:visK(a.k[ci], p.v)}); } });
+          var clues = all.filter(function(x){ return x.on; }).map(function(x){ return x.w; });
+          var hid = all.filter(function(x){ return !x.on; }).map(function(x){ return x.w; });
+          var ans = clues.length ? a.feel : 3;
+          var verdict = p.g === ans ? 0 : p.g === 3 ? 1 : 2;
+          var why;
+          if (!clues.length) why = verdict === 0 ? '단서를 다 가렸으니 ‘알 수 없다’가 맞아요. 마음을 알려 주던 것이 바로 그 단서였어요.'
+            : '단서가 하나도 안 보여요. 지금은 ‘알 수 없다’가 맞는 답이에요.';
+          else why = ['보이는 단서 ‘' + clues.join('’, ‘') + '’와 맞아요.',
+            '마음 낱말은 없지만 ‘' + clues.join('’, ‘') + '’라는 단서가 보여요.',
+            '보이는 단서 ‘' + clues.join('’, ‘') + '’와 잘 안 맞아요. 다시 읽어 보세요.'][verdict];
+          var clear = !clues.length ? '알 수 없음' : clues.length >= 2 ? '또렷함' : '조금 흐릿함';
+          return {a:a, all:all, clues:clues, hid:hid, ans:ans, verdict:verdict, why:why, clear:clear};
         },
         draw: function(c, W, H, p, r, tau){
           var a = A[p.a], sz = W < 500 ? 17 : 22, x = 20, y = 50;
           T(c, '마음 낱말이 없는 문장', 20, 26, 15, '#4A5868', 'left', true);
+          var ci = -1;
           a.t.forEach(function(s){
-            var clue = s.charAt(0) === '#', str = clue ? s.slice(1) : s;
+            var clue = s.charAt(0) === '#', str = clue ? s.slice(1) : s, on = true;
+            if (clue){ ci++; on = visK(a.k[ci], p.v); if (!on) str = str.replace(/[^\s.,“”‘’?!]/g, '●'); }
             str.split(' ').forEach(function(wd, wi, arr){
               var piece = wd + (wi < arr.length - 1 ? ' ' : ''); if (!piece) return;
               c.font = (clue ? '700 ' : '') + sz + 'px ' + FONT; var w = c.measureText(piece).width;
               if (x + w > W - 16){ x = 20; y += sz + 14; }
-              if (clue && r){ c.globalAlpha = Math.min(1, tau * 3); c.fillStyle = '#FFE58A'; c.fillRect(x - 2, y - sz + 2, w + 2, sz + 6); c.globalAlpha = 1; }
-              T(c, piece, x, y, sz, '#1E2833', 'left', clue); x += w;
+              if (clue && !on){ c.fillStyle = '#DDE3EA'; c.fillRect(x - 2, y - sz + 2, w + 2, sz + 6); }
+              else if (clue && r){ c.globalAlpha = Math.min(1, tau * 3); c.fillStyle = '#FFE58A'; c.fillRect(x - 2, y - sz + 2, w + 2, sz + 6); c.globalAlpha = 1; }
+              T(c, piece, x, y, sz, (clue && !on) ? '#8C99A8' : '#1E2833', 'left', clue); x += w;
             });
           });
           var fy = y + 110, R = W < 500 ? 46 : 60, k = r ? Math.min(1, Math.max(0, (tau - 0.3) / 0.4)) : 0;
-          face(c, 20 + R, fy, R, r ? a.feel : 3, k);
+          face(c, 20 + R, fy, R, r ? r.ans : 3, k);
           if (r && tau > 0.5){
             T(c, '단서로 짐작한 마음', 40 + R * 2, fy - 18, 15, '#4A5868', 'left', true);
-            T(c, F[a.feel], 40 + R * 2, fy + 12, W < 500 ? 18 : 24, FC[a.feel], 'left', true);
+            T(c, F[r.ans], 40 + R * 2, fy + 12, W < 500 ? 18 : 24, FC[r.ans], 'left', true);
           }
           if (!r || tau < 0.6) return;
           var by = H - 50;
-          if (a.cls){
+          if (a.cls && p.v === 0){
             var bw = W - 40, show = a.cls * Math.min(1, (tau - 0.6) / 0.3);
-            T(c, '반 친구 20명(가상) 중 이 마음을 고른 친구', 20, by - 12, 15, '#4A5868', 'left', true);
+            T(c, '반 친구 20명 가상 조사', 20, by - 12, 15, '#4A5868', 'left', true);
             c.fillStyle = '#E6EBF1'; c.fillRect(20, by, bw, 26); c.fillStyle = FC[a.feel]; c.fillRect(20, by, bw * show / 20, 26);
             T(c, Math.round(show) + '명', 28, by + 19, 15, '#fff', 'left', true);
-          } else T(c, '이 문장은 반 친구 조사가 없어요 — 단서로 직접 짐작해요.', 20, by + 16, W < 500 ? 13 : 16, '#4A5868');
+          } else T(c, p.v === 0 ? '반 친구 조사가 없는 문장' : ('가린 단서 ' + r.hid.length + '개'), 20, by + 16, W < 500 ? 13 : 16, '#4A5868');
         },
         stats: function(p, r){
-          var out = [['찾은 단서', r.clues.join(', '), PAL[6]], ['단서로 짐작한 마음', F[r.a.feel], FC[r.a.feel]], ['나의 짐작', F[p.g] + ' — ' + r.why, [PAL[1], PAL[7], PAL[4]][r.verdict]]];
-          out.push(['반 친구 20명(가상)', r.a.cls ? r.a.cls + '명이 ‘' + F[r.a.feel] + '’ 쪽을 골랐어요' : '조사하지 않은 문장이에요']);
+          var out = [['보여 준 단서', VN[p.v], PAL[3]],
+            ['보이는 단서', r.clues.length ? r.clues.join(', ') : '없음', r.clues.length ? PAL[6] : PAL[4]],
+            ['가린 단서', r.hid.length ? r.hid.join(', ') : '없음'],
+            ['단서로 짐작한 마음', F[r.ans] + ' — ' + r.clear, FC[r.ans]],
+            ['나의 짐작', F[p.g] + ' — ' + r.why, [PAL[1], PAL[7], PAL[4]][r.verdict]]];
+          out.push(['반 친구 20명 가상 조사', p.v !== 0 ? '단서를 가렸으니 조사와 견주지 않아요' : (r.a.cls ? r.a.cls + '명이 ‘' + F[r.a.feel] + '’ 쪽을 골랐어요 (가상 값)' : '조사하지 않은 문장이에요')]);
           return out;
         },
-        columns: ['문장', '단서', '나의 짐작', '맞음'],
-        record: function(p, r){ return {a:p.a, g:p.g, v:r.verdict}; },
-        row: function(d){ return [A[d.a].name, A[d.a].t.filter(function(s){ return s.charAt(0) === '#'; }).map(function(s){ return s.slice(1); }).join(', '), F[d.g], ['○', '△', '✕'][d.v]]; },
+        columns: ['문장', '보여 준 단서', '보이는 단서', '나의 짐작', '맞음'],
+        record: function(p, r){ return {a:p.a, g:p.g, v:r.verdict, fv:p.v, nv:r.clues.length, ans:r.ans}; },
+        row: function(d){ return [A[d.a].name, VNS[d.fv], d.nv + '개', F[d.g], ['○', '△', '✕'][d.v]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('행동만 바꾼 두 문장 — 친구들의 답(가상)', '<div id="af1"></div><p class="ask">마음 낱말이 없는데도 친구들의 답이 거의 같았어요. 무엇을 보고 짐작했을까요?</p>') +
+            card('단서를 가려 보기 — 마음이 흐려지나', '<div id="af1"></div><p class="ask">마음 낱말이 없는데도 친구들의 답이 거의 같았어요. 무엇을 보고 짐작했을까요? 그 단서를 가리면 어떻게 되나요?</p>') +
             card('나의 짐작 정리', '<div id="af2"></div><p class="ask">과제: 읽은 이야기에서 인물의 행동 세 개를 골라 적고, 그때 인물의 마음을 짐작해 ‘왜냐하면 ~했기 때문이다’로 써 보세요.</p>') + '</div>';
-          $('af1').innerHTML = hbars([0, 1].map(function(i){ return {label:A[i].name, v:A[i].cls, color:FC[A[i].feel], text:F[A[i].feel] + ' ' + A[i].cls + '명'}; }), 20);
+          /* 단서를 가릴수록 마음이 흐려지는지, 내 기록으로 맞대어 본다 */
+          var frows = [];
+          VN.forEach(function(vn, i){
+            var g = rec.filter(function(d){ return d.fv === i; }); if (!g.length) return;
+            frows.push([vn, g.length + '번', g.filter(function(d){ return d.nv === 0; }).length + '번', g.filter(function(d){ return d.ans === 3; }).length + '번']);
+          });
+          $('af1').innerHTML = hbars([0, 1].map(function(i){ return {label:A[i].name, v:A[i].cls, color:FC[A[i].feel], text:F[A[i].feel] + ' ' + A[i].cls + '명'}; }), 20) +
+            '<p class="msg">위 막대의 사람 수는 수업에서 쓰는 <b>가상 조사 값</b>이에요.</p>' +
+            (frows.length ? tableHTML(['보여 준 단서', '해 본 횟수', '단서 0개였던 때', '마음을 알 수 없던 때'], frows) : '') +
+            '<p class="msg">단서를 가릴수록 ‘알 수 없다’가 늘어나나요? 마음을 알려 준 것은 마음 낱말이 아니라 <b>행동·말투·표정</b>이었어요.</p>';
           var rows = A.map(function(a, i){
             var g = rec.filter(function(d){ return d.a === i; });
-            return [a.name, F[a.feel], g.length ? F[g[g.length - 1].g] + ' ' + ['○', '△', '✕'][g[g.length - 1].v] : '<span style="color:#8C99A8">아직</span>'];
+            return [a.name, a.k.join(', '), F[a.feel], g.length ? VNS[g[g.length - 1].fv] + ' / ' + F[g[g.length - 1].g] + ' ' + ['○', '△', '✕'][g[g.length - 1].v] : '<span style="color:#8C99A8">아직</span>'];
           });
-          $('af2').innerHTML = tableHTML(['문장', '단서로 본 마음', '나의 마지막 짐작'], rows);
+          $('af2').innerHTML = tableHTML(['문장', '단서 갈래', '단서 다 볼 때의 마음', '나의 마지막 짐작'], rows);
         }
       };
     })();
@@ -514,7 +547,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

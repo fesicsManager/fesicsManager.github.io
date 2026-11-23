@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -475,12 +477,16 @@ var LAB = (function anonymous(
         {n:'눈을 오래 맞추기', ic:'👀', ko:'상황에 따라 부담', ot:'성실함의 표시로도, 도전으로도 읽힘', oc:'사회마다 다름', rk:1}
       ];
       var VW = ['한국에서 흔한 해석으로 읽는 사람', '다르게 읽는 사회의 사람'], CF = ['그냥 몸짓만', '"Is this OK?" 말로 확인'];
+      /* 읽는 사람을 고르기 전에 먼저 짐작하게 하고, 실제 모형 단계와 맞는지 채점한다 */
+      var PG = ['그대로 전해진다', '조금 불편하게 읽힌다', '크게 오해받는다'];
       return {
         sceneHeight: 400,
         idle:'몸짓·읽는 사람·확인 습관을 고른 뒤 <b>이 몸짓 해 보기</b>를 누르세요.',
         shortHint:'몸짓 다섯 개를 "다르게 읽는 사람"에게 해 보고, 같은 몸짓을 말로 확인하며 한 번 더 해 보세요.',
         params:[
           {key:'g', type:'seg', label:'몸짓', cols:3, value:0, options:G.map(function(x){ return x.ic + ' ' + x.n; })},
+          {key:'pg', type:'seg', label:'이 몸짓이 상대에게 어떻게 읽힐까? (먼저 짐작)', cols:3, value:2, options:PG,
+            note:'읽는 사람을 고르기 전에 먼저 짐작해 보세요. 실행하면 짐작이 맞았는지 채점해 줍니다.'},
           {key:'v', type:'seg', label:'읽는 사람', cols:2, value:1, options:VW},
           {key:'cf', type:'seg', label:'확인 습관', cols:2, value:0, options:CF}
         ],
@@ -488,7 +494,7 @@ var LAB = (function anonymous(
           var g = G[p.g], seen = p.v ? g.ot : g.ko, risk = p.v ? g.rk : (g.rk === 1 ? 1 : 0);
           if (p.cf) risk = 0;
           var v = risk === 0 ? (p.cf && p.v ? '말로 확인해서 오해가 풀렸어요' : '뜻이 그대로 전달됐어요') : risk === 1 ? '불편하게 받아들일 수 있어요' : '오해 가능성이 커요 — 상대가 물러설 수도';
-          return {g:g, seen:seen, risk:risk, v:v};
+          return {g:g, seen:seen, risk:risk, v:v, okG:p.pg === risk};
         },
         draw:function(c, W, H, p, r, tau){
           var g = G[p.g], k = r ? ease(tau / 0.8) : 0, lx = W * 0.22, rx = W * 0.78, y = 240;
@@ -501,26 +507,40 @@ var LAB = (function anonymous(
           if (r){ c.globalAlpha = k; T(c, '💭 ' + (p.v ? g.oc + ':' : '한국:'), bx + 12, 52, {size:14, color:'#8C99A8', max:Math.min(300, W - 20) - 24});
             wrap(c, r.seen, bx + 12, 78, Math.min(300, W - 20) - 24, 20, {size:16, bold:true, color:r.risk === 2 ? PAL[4] : '#1E2833'}); c.globalAlpha = 1;
             if (p.cf && tau > 0.5){ rbox(c, 20, 140, 150, 36, '#EEF6F1'); T(c, '💬 Is this OK?', 30, 164, {size:16, bold:true, color:PAL[1]}); }
-            if (tau >= 1){ T(c, r.v, W / 2, H - 22, {align:'center', bold:true, size:17, color:r.risk === 0 ? PAL[1] : r.risk === 1 ? PAL[6] : PAL[4], max:W - 40}); }
+            if (tau >= 1){ T(c, r.v, W / 2, H - 22, {align:'center', bold:true, size:17, color:r.risk === 0 ? PAL[1] : r.risk === 1 ? PAL[6] : PAL[4], max:W - 40});
+              T(c, r.okG ? '짐작 맞음' : '짐작 다름', 20, 18, {size:15, bold:true, color:r.okG ? PAL[1] : PAL[4]}); }
           } else T(c, '?', rx, 76, {align:'center', bold:true, size:28, color:'#B9C6D3'});
         },
         stats:function(p, r){
-          return [['몸짓', r.g.ic + ' ' + r.g.n], ['한국에서 흔한 해석', r.g.ko], ['다르게 읽히는 경우', r.g.oc + ' — ' + r.g.ot, PAL[2]],
+          return [['몸짓', r.g.ic + ' ' + r.g.n], ['나의 먼저 짐작', PG[p.pg] + (r.okG ? ' — 맞음' : ' — 다름. 실제는 ‘' + PG[r.risk] + '’'), r.okG ? PAL[1] : PAL[4]],
+            ['한국에서 흔한 해석', r.g.ko], ['다르게 읽히는 경우', r.g.oc + ' — ' + r.g.ot, PAL[2]],
             ['이번에 읽힌 뜻', r.seen, PAL[3]], ['오해 위험 (모형 단계)', r.risk + ' / 2 — ' + r.v, r.risk === 0 ? PAL[1] : PAL[4]]];
         },
-        columns:['몸짓', '읽는 사람', '확인', '오해 위험'],
-        record:function(p, r){ return {g:p.g, v:p.v, cf:p.cf, risk:r.risk}; },
-        row:function(d){ return [G[d.g].n, d.v ? '다르게 읽는 쪽' : '한국식', d.cf ? '말로 확인' : '안 함', d.risk + '/2']; },
+        columns:['몸짓', '나의 짐작', '읽는 사람', '확인', '오해 위험', '짐작'],
+        record:function(p, r){ return {g:p.g, v:p.v, cf:p.cf, pg:p.pg, risk:r.risk, okG:r.okG}; },
+        row:function(d){ return [G[d.g].n, PG[d.pg], d.v ? '다르게 읽는 쪽' : '한국식', d.cf ? '말로 확인' : '안 함', d.risk + '/2', d.okG ? '○' : '×']; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('확인 습관에 따른 평균 오해 위험 (다르게 읽는 사람에게)', '<div id="sp5a"></div><p class="ask">몸짓을 아예 없애는 것과 말로 한 번 확인하는 것 가운데 무엇이 대화를 덜 굳게 만들까요?</p>') +
+            card('먼저 짐작은 맞았나 · 확인 습관에 따른 평균 오해 위험', '<div id="sp5a"></div><p class="ask">몸짓을 아예 없애는 것과 말로 한 번 확인하는 것 가운데 무엇이 대화를 덜 굳게 만들까요?</p>') +
             card('나의 몸짓 사전 (확인한 것)', '<div id="sp5b"></div><p class="ask">과제: 배울 언어권의 인사 동작·손짓·거리 두기 관습 다섯 가지를 조사하되, 자료 두 곳 이상에서 확인한 것만 "몸짓 사전"에 올리고 한국과 다른 칸에 표시해 보세요.</p>') + '</div>';
           var items = [];
           [0, 1].forEach(function(cf){ var g = rec.filter(function(d){ return d.v === 1 && d.cf === cf; }); if (!g.length) return; var m = mean(g.map(function(d){ return d.risk; }));
             items.push({label:CF[cf], v:m, color:cf ? PAL[1] : PAL[4], text:'평균 ' + f(m, 1) + ' / 2 (' + g.length + '회)'}); });
-          $('sp5a').innerHTML = items.length ? hbars(items, 2) : '<p class="msg">"다르게 읽는 사람"으로 기록해 보세요.</p>';
+          /* 먼저 짐작이 맞았는지 — 읽는 사람별로 모아 본다 */
+          var grows = [];
+          [0, 1].forEach(function(vi){
+            var g = rec.filter(function(d){ return d.v === vi; }); if (!g.length) return;
+            grows.push([VW[vi], g.length + '회', g.filter(function(d){ return d.okG; }).length + '회', f(g.filter(function(d){ return d.okG; }).length / g.length * 100, 0) + '%']);
+          });
+          var allOk = rec.filter(function(d){ return d.okG; }).length;
+          $('sp5a').innerHTML = (items.length ? hbars(items, 2) : '<p class="msg">"다르게 읽는 사람"으로 기록해 보세요.</p>') +
+            (grows.length ? tableHTML(['읽는 사람', '해 본 횟수', '짐작 맞음', '적중률'], grows) : '') +
+            '<p class="msg">먼저 짐작이 맞은 횟수: ' + allOk + ' / ' + rec.length + '회. ‘다르게 읽는 사회의 사람’ 쪽에서 더 많이 틀렸다면, 내 몸짓의 뜻을 <b>내 기준으로</b> 짐작하고 있었다는 뜻이에요.</p>';
           var seen = {}; rec.forEach(function(d){ seen[d.g] = 1; });
-          $('sp5b').innerHTML = tableHTML(['몸짓', '한국에서', '다르게 읽히는 경우'], G.filter(function(g, i){ return seen[i]; }).map(function(g){ return [g.ic + ' ' + g.n, g.ko, g.ot]; }));
+          var grs = {}; rec.forEach(function(d){ (grs[d.g] = grs[d.g] || []).push(d); });
+          $('sp5b').innerHTML = tableHTML(['몸짓', '한국에서', '다르게 읽히는 경우', '내 짐작 적중'],
+            G.filter(function(g, i){ return seen[i]; }).map(function(g){ var i = G.indexOf(g), gg = grs[i] || [];
+              return [g.ic + ' ' + g.n, g.ko, g.ot, gg.filter(function(d){ return d.okG; }).length + ' / ' + gg.length]; }));
         }
       };
     
@@ -530,7 +550,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

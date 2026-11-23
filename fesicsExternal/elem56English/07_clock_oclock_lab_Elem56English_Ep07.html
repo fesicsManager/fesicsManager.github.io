@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -447,23 +449,48 @@ function hbars(items, max){
 var LAB = (function(){
       var ONES = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
       var TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty'];
-      var MD = ['시 + 분 숫자만', 'o\'clock 붙이기'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
+      var MD = ['시 + 분 숫자만', 'o\'clock 붙이기', 'past 로 말하기', 'to 로 말하기'], SND = ['🔊 소리 켜기', '🔇 소리 끄기'];
       function say(t, rate){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = 'en-US'; u.rate = rate || 0.9; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
       function mw(m){ if (m === 0) return ''; if (m < 10) return 'oh ' + ONES[m]; if (m < 20) return ONES[m]; return TENS[Math.floor(m / 10)] + (m % 10 ? '-' + ONES[m % 10] : ''); }
-      function phrase(h, m, md){ var s = "It's " + ONES[h] + (m ? ' ' + mw(m) : ''); return s + (md === 1 ? " o'clock." : '.'); }
-      function judge(m, md){
-        if (m === 0) return md === 1 ? ['○', '정각이라 o\'clock을 붙여요'] : ['△', '말로는 쓰지만, 정각엔 o\'clock을 붙이면 더 분명해요'];
-        return md === 1 ? ['✕', 'o\'clock은 정각에만 붙여요. 분이 있으면 숫자만!'] : ['○', '"시 + 분" 숫자로 말해요'];
+      /* 분을 그냥 수로 읽기 (past·to 뒤에 쓸 때는 oh 를 붙이지 않는다) */
+      function num(n){ if (n < 20) return ONES[n]; return TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : ''); }
+      function nextH(h){ return h % 12 + 1; }
+      function pastP(h, m){ return "It's " + (m === 15 ? 'quarter' : m === 30 ? 'half' : num(m)) + ' past ' + ONES[h] + '.'; }
+      function toP(h, m){ var L = 60 - m; return "It's " + (L === 15 ? 'quarter' : num(L)) + ' to ' + ONES[nextH(h)] + '.'; }
+      function phrase(h, m, md){
+        if (md === 2) return pastP(h, m);
+        if (md === 3) return toP(h, m);
+        var s = "It's " + ONES[h] + (m ? ' ' + mw(m) : ''); return s + (md === 1 ? " o'clock." : '.');
       }
+      /* 네 가지 말하기를 분에 따라 따로 채점한다 — 분과 말하기 방식이 둘 다 결과를 바꾼다 */
+      function judge(m, md){
+        if (md === 0) return m === 0 ? ['△', '말로는 쓰지만, 정각엔 o\'clock을 붙이면 더 분명해요'] : ['○', '"시 + 분" 숫자로 말해요'];
+        if (md === 1) return m === 0 ? ['○', '정각이라 o\'clock을 붙여요'] : ['✕', 'o\'clock은 정각에만 붙여요. 분이 있으면 숫자만!'];
+        if (md === 2){
+          if (m === 0) return ['✕', '정각에는 past를 쓰지 않아요. o\'clock이에요'];
+          if (m === 15) return ['○', '15분은 quarter past로 말해요'];
+          if (m === 30) return ['○', '30분은 half past로 말해요'];
+          if (m < 30) return ['○', '30분까지는 지난 분을 past로 말해요'];
+          return ['△', '30분을 넘으면 past보다 남은 분을 to로 말하는 쪽이 자연스러워요'];
+        }
+        if (m === 0) return ['✕', '정각에는 to를 쓰지 않아요. o\'clock이에요'];
+        if (m === 45) return ['○', '45분은 다음 시의 quarter to로 말해요'];
+        if (m > 30) return ['○', '30분을 넘으면 다음 시까지 남은 분을 to로 말해요'];
+        if (m === 30) return ['△', '30분은 to보다 half past가 보통이에요'];
+        return ['✕', '아직 30분이 안 됐어요. 이때는 past로 말해요'];
+      }
+      /* 네 가지 말하기를 한꺼번에 보여 줄 때 쓴다 */
+      function alts(h, m){ return [0, 1, 2, 3].map(function(md){ var j = judge(m, md); return {nm:MD[md], tx:phrase(h, m, md), v:j[0]}; }); }
       function pad(n){ return (n < 10 ? '0' : '') + n; }
       return {
         sceneHeight: function(w){ return w < 560 ? 440 : 360; },
-        idle: '시와 분, 말하는 방법을 고른 뒤 <b>시각 말하기</b>를 누르세요.',
-        shortHint: '분을 0, 5, 15, 30, 45처럼 바꿔 가며 o\'clock을 붙여 보고, 어느 칸에서 ○가 나오는지 세어 보세요.',
+        idle: '시와 분, 말하는 방법을 고른 뒤 <b>시각 말하기</b>를 누르세요. 네 가지 말하기 가운데 어느 것이 되는지는 <b>분에 따라 달라집니다</b>.',
+        shortHint: '분을 0, 15, 30, 45로 바꿔 가며 <b>네 가지 말하기를 모두</b> 해 보고, 분마다 ○가 나오는 말하기가 어떻게 바뀌는지 보세요.',
         params: [
           {key:'h', type:'range', label:'시', min:1, max:12, step:1, value:7, fmt:function(v){ return v + '시'; }},
           {key:'m', type:'range', label:'분 (5분씩)', min:0, max:55, step:5, value:30, fmt:function(v){ return v + '분'; }},
-          {key:'md', type:'seg', label:'예측: 이렇게 말한다', cols:2, value:1, options:MD},
+          {key:'md', type:'seg', label:'내가 직접 조합해 말하기', cols:2, value:1, options:MD,
+            note:'past는 지난 분을, to는 다음 시까지 남은 분을 말해요. 같은 시각도 말하는 방법에 따라 ○·△·✕ 가 갈립니다.'},
           {key:'s', type:'seg', label:'소리', cols:2, value:0, options:SND}
         ],
         compute: function(p){
@@ -471,7 +498,7 @@ var LAB = (function(){
           var ido = /^(one|seven|eight|nine|ten|eleven)$/.test(ONES[h]) ? '이라고도 해요' : '라고도 해요';
           var extra = m === 30 ? 'half past ' + ONES[h] + ido : m === 15 ? 'quarter past ' + ONES[h] + ido : m === 5 ? '0은 oh로 읽어요' : '';
           var played = p.s === 0 ? say(best, 0.9) : false;
-          return {h:h, m:m, v:j[0], msg:j[1], mine:mine, best:best, extra:extra, played:played};
+          return {h:h, m:m, v:j[0], msg:j[1], mine:mine, best:best, extra:extra, played:played, alts:alts(h, m)};
         },
         draw: function(c, W, H, p, r, tau){
           var h = Math.round(p.h), m = Math.round(p.m / 5) * 5, narrow = W < 560, R = narrow ? Math.min(110, (W - 60) / 2) : 120, cx = narrow ? W / 2 : 40 + R, cy = 30 + R;
@@ -498,6 +525,7 @@ var LAB = (function(){
         stats: function(p, r){
           var col = r.v === '○' ? PAL[1] : r.v === '△' ? PAL[6] : PAL[4];
           var out = [['시각', r.h + ':' + pad(r.m)], ['내가 말한 시각', r.mine], ['판정', r.v + ' ' + r.msg, col], ['바른 말', r.best, PAL[1]]];
+          out.push(['이 시각에 되는 말하기', r.alts.map(function(a){ return a.v + ' ' + a.nm + ' — ' + a.tx; }).join('<br>'), PAL[3]]);
           if (r.extra) out.push(['더 알아보기', r.extra, PAL[3]]);
           out.push(['소리', p.s === 1 ? '끔' : r.played ? '바른 말을 영어 음성으로 들려줬어요' : '이 기기에는 영어 음성이 없어요 (화면으로 확인)']);
           return out;
@@ -505,6 +533,7 @@ var LAB = (function(){
         columns: ['시각', '말하는 방법', '내가 말한 시각', '판정'],
         record: function(p, r){ return {h:r.h, m:r.m, md:p.md, mine:r.mine, v:r.v}; },
         row: function(d){ return [d.h + ':' + pad(d.m), MD[d.md], d.mine, d.v]; },
+        minRec: 4,
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('o\'clock을 붙였을 때 ○가 나온 칸', '<div id="ck1"></div><p class="ask">긴 바늘 12칸 중 o\'clock을 붙여 ○가 나온 칸은 몇 개였나요? 그때 긴 바늘은 어디에 있었나요?</p>') +
@@ -514,8 +543,24 @@ var LAB = (function(){
           var nm = Object.keys(mins).length, no = Object.keys(okm).length;
           $('ck1').innerHTML = nm ? hbars([{label:'o\'clock 붙여 본 분 칸', v:nm, color:PAL[7], text:nm + '칸'}, {label:'그중 ○', v:no, color:PAL[1], text:no + '칸 (' + (Object.keys(okm).map(function(k){ return k + '분'; }).join(', ') || '없음') + ')'}], 12) : '<p class="msg">o\'clock을 붙여 본 기록이 없어요.</p>';
           var by = groupBy(rec, function(d){ return d.m; }), rows = [];
-          Object.keys(by).sort(function(a, b){ return a - b; }).forEach(function(k){ var d = by[k][0]; rows.push([pad(+k) + '분', phrase(d.h, d.m, d.m === 0 ? 1 : 0)]); });
-          $('ck2').innerHTML = tableHTML(['분', '바른 말 (예)'], rows);
+          Object.keys(by).sort(function(a, b){ return a - b; }).forEach(function(k){
+            var d = by[k][0], got = {};
+            by[k].forEach(function(x){ if (x.v === '○') got[MD[x.md]] = 1; });
+            rows.push([pad(+k) + '분', phrase(d.h, d.m, d.m === 0 ? 1 : 0), Object.keys(got).join(', ') || '(아직 ○ 없음)']);
+          });
+          /* 분이 달라지면 ○ 가 나오는 말하기가 바뀌는지 가린다 */
+          var sets = {};
+          Object.keys(by).forEach(function(k){
+            var g = {}; by[k].forEach(function(x){ if (x.v === '○') g[x.md] = 1; });
+            var key = Object.keys(g).sort().join(',');
+            if (key) sets[key] = 1;
+          });
+          var nset = Object.keys(sets).length;
+          $('ck2').innerHTML = tableHTML(['분', '숫자로 말한 예', '내 기록에서 ○ 받은 말하기'], rows)
+            + (nset > 1
+               ? '<p class="note"><b>분에 따라 되는 말하기가 달라졌습니다.</b> 정각에는 o\'clock, 30분까지는 past, 30분을 넘으면 to — '
+                 + '같은 시계라도 <b>긴 바늘이 어디 있느냐</b>에 따라 골라야 하는 말이 바뀝니다. 그러니 "시각 뒤엔 늘 o\'clock"은 맞지 않아요.</p>'
+               : '<p class="note">분을 0분·20분·45분으로 바꿔 가며 <b>네 가지 말하기를 모두</b> 해 보세요. 분마다 ○ 가 나오는 말하기가 달라지는지 여기에서 가려 줍니다.</p>');
         }
       };
     })();
@@ -524,7 +569,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

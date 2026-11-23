@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -430,6 +432,13 @@ var LAB = (function(){
       var MD = [{n:'서서 손 뒤로 뻗고 기다리기', s:'서서 받기', pause:0}, {n:'뒤돌아서서 두 손으로 받기', s:'뒤돌아 받기', pause:0.4}, {n:'표시선에서 먼저 출발해 달리며 받기', s:'달리며 받기', pause:0}];
       var DY = ['첫날', '사흘 연습 뒤'];
       var T = [[4.6, 4.6], [5.0, 5.0], [3.8, 3.6]], MISS = [[0, 0], [0, 0], [3, 1]], vA = 5.5;
+      /* 표시선을 앞으로 당기면 바통이 덜 멈춰 빨라지지만 엇갈림이 늘어난다.
+         아래 숫자는 교육용 모형값이고, 표시선 6 m 는 예전 값(3.8 / 3.6초, 3 / 1번)과 똑같다. */
+      var DROP = 3.0;                       // 바통을 한 번 놓치면 그 판에서 잃는 시간 (초)
+      function tOf(m, d, z){ return m === 2 ? (d ? 4.56 : 4.76) - 0.16 * z : T[m][d]; }
+      function missOf(m, d, z){ return m === 2 ? Math.max(0, Math.min(10, Math.round(0.0833 * z * z * (d ? 0.35 : 1)))) : MISS[m][d]; }
+      function avgOf(m, d, z){ return tOf(m, d, z) + missOf(m, d, z) / 10 * DROP; }
+      function bestZ(m, d){ var k = 1; for (var z = 2; z <= 10; z++){ if (avgOf(m, d, z) < avgOf(m, d, k) - 1e-9) k = z; } return k; }
       function bx(m, T0, t){
         var t1 = 10 / vA;
         if (t <= t1) return -10 + vA * t;
@@ -444,22 +453,30 @@ var LAB = (function(){
         shortHint: '세 가지 방법을 모두 해 보고, 달리며 받기는 첫날과 사흘 연습 뒤를 비교하세요.',
         params: [
           {key:'m', type:'seg', label:'받는 사람의 방법', cols:3, value:0, options:MD.map(function(x){ return x.n; })},
-          {key:'d', type:'seg', label:'연습한 날', cols:2, value:0, options:DY}
+          {key:'d', type:'seg', label:'연습한 날', cols:2, value:0, options:DY},
+          {key:'z', type:'range', label:'표시선 — 받는 사람 앞 몇 m', min:1, max:10, step:1, value:6, fmt:function(v){ return v + ' m'; },
+            note:'※ 표시선은 ‘달리며 받기’에서만 쓰입니다. 표시선을 앞으로 당기면 바통이 덜 멈춰 빨라지지만, 손이 엇갈리는 일이 늘어 열 번 평균은 더 나빠질 수 있어요. 숫자는 교육용 모형값입니다.'}
         ],
-        compute: function(p){ var t = T[p.m][p.d]; return {t:t, v:20 / t, miss:MISS[p.m][p.d], gain:T[0][0] - t, src:p.m === 2 || p.d === 0 ? 1 : 0}; },
+        compute: function(p){
+          var z = p.z, t = tOf(p.m, p.d, z), miss = missOf(p.m, p.d, z), bz = bestZ(p.m, p.d);
+          return {t:t, v:20 / t, miss:miss, z:z, avg:avgOf(p.m, p.d, z), bz:bz, bavg:avgOf(p.m, p.d, bz),
+            useZ:p.m === 2, best:p.m !== 2 || z === bz, gain:T[0][0] - t, src:p.m === 2 || p.d === 0 ? 1 : 0};
+        },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#EAF2E3'; c.fillRect(0, 0, W, H);
           var L = 30, R = W - 30, X = function(m){ return L + (m + 10) / 20 * (R - L); }, gy = H * 0.62;
           c.fillStyle = '#C96B4B'; c.fillRect(0, gy - 6, W, 30);
           c.fillStyle = 'rgba(242,210,58,.55)'; c.fillRect(X(-3), gy - 6, X(3) - X(-3), 30);
           [-10, 10].forEach(function(m){ seg(c, X(m), gy - 30, X(m), gy + 24, '#FFFFFF', 3); });
-          if (p.m === 2) seg(c, X(-6), gy - 6, X(-6), gy + 24, '#1E2833', 2, [4, 3]);
+          if (p.m === 2){ seg(c, X(-p.z), gy - 6, X(-p.z), gy + 24, '#1E2833', 2, [4, 3]);
+            txt(c, '표시선 ' + p.z + 'm', X(-p.z), gy - 14, {align:'center', color:'#1E2833'}); }
           txt(c, '20 m', W / 2, gy + 50, {align:'center', color:'#4A5868'});
           var t = r ? tau * r.t : 0, b = r ? bx(p.m, r.t, t) : -10, t1 = 10 / vA;
           var ax = r ? (t <= t1 ? b : Math.min(b, 1) ) : -10;
           if (r && t > t1) ax = Math.min(1.5, (t - t1) * 2);
           var rx = 0;
-          if (p.m === 2){ var start = t1 - 1.1; rx = t < start ? -2.9 : t <= t1 ? -2.9 + (t - start) * (t - start) * 2.4 : b; }
+          if (p.m === 2){ var start = Math.max(0, (10 - p.z) / vA), r0 = -p.z * 0.483;
+            rx = t < start ? r0 : t <= t1 ? r0 + (t - start) * (t - start) * 2.4 : b; }
           else rx = t <= t1 ? 0 : b;
           man(c, X(ax), gy, PAL[0], r && t < t1 + 0.4);
           man(c, X(rx) + 4, gy, PAL[1], r && (t > t1 || (p.m === 2 && t > t1 - 1.1)));
@@ -468,25 +485,44 @@ var LAB = (function(){
           c.fillStyle = '#F2D23A'; c.fillRect(bxp - 10, gy - 30, 20, 6); c.strokeStyle = '#8C6A00'; c.lineWidth = 1; c.strokeRect(bxp - 10, gy - 30, 20, 6);
           meter(c, 16, 16, Math.min(170, W * 0.45), (r ? Math.min(t, r.t) : 0).toFixed(1) + ' 초');
           if (r && tau >= 0.99) txt(c, '20m ' + r.t.toFixed(1) + '초' + (r.miss ? ' · 엇갈림 10번 중 ' + r.miss + '번' : ''), W - 16, 40, {align:'right', bold:true, color:r.t < 4 ? PAL[1] : PAL[4]});
+          if (r && tau >= 0.99 && r.useZ) txt(c, '열 번 평균 ' + r.avg.toFixed(2) + '초', W - 16, 64, {align:'right', bold:true, color:r.best ? PAL[1] : PAL[6]});
         },
         stats: function(p, r){
-          return [['방법 · 날', MD[p.m].s + ' · ' + DY[p.d]], ['바통이 20m를 지난 시간', '약 ' + r.t.toFixed(1) + '초', r.t < 4 ? PAL[1] : PAL[4]],
+          var out = [['방법 · 날', MD[p.m].s + ' · ' + DY[p.d]], ['바통이 20m를 지난 시간', '약 ' + r.t.toFixed(1) + '초', r.t < 4 ? PAL[1] : PAL[4]],
             ['바통의 평균 빠르기', '1초에 약 ' + f(r.v, 1) + ' m', PAL[0]], ['서서 받기보다', r.gain > 0.05 ? '약 ' + f(r.gain, 1) + '초 빠름' : r.gain < -0.05 ? '약 ' + f(-r.gain, 1) + '초 느림' : '같음', PAL[6]],
-            ['바통 엇갈림', r.miss ? '10번 중 ' + r.miss + '번' : '거의 없음'], ['자료', r.src ? '제로 랩의 가상 결과' : '단순 모형 (연습해도 거의 같다고 둠)', PAL[7]]];
+            ['바통 엇갈림', r.miss ? '10번 중 ' + r.miss + '번' : '거의 없음']];
+          if (r.useZ){
+            out.push(['표시선', '받는 사람 앞 ' + r.z + ' m']);
+            out.push(['열 번 달린 평균 기록', r.avg.toFixed(2) + '초  (한 번 놓치면 ' + DROP.toFixed(1) + '초 손해로 셈)', r.best ? PAL[1] : PAL[6]]);
+            out.push(['가장 좋은 표시선', r.bz + ' m 일 때 ' + r.bavg.toFixed(2) + '초' + (r.best ? ' — 지금이 가장 좋아요' : ' — 표시선을 바꿔 보세요'), r.best ? PAL[1] : PAL[4]]);
+            out.push(['읽기', p.d ? '사흘 연습한 뒤에는 표시선을 더 멀리 두어도 엇갈림이 적어, 가장 좋은 표시선이 뒤로 옮겨가요.' : '첫날에는 표시선을 너무 멀리 두면 바통이 빨라져도 엇갈림 때문에 평균은 더 나빠져요.']);
+          } else out.push(['표시선', '이 방법에서는 쓰지 않아요 (제자리에서 받음)']);
+          out.push(['자료', r.src ? '제로 랩의 가상 결과' : '단순 모형 (연습해도 거의 같다고 둠)', PAL[7]]);
+          return out;
         },
-        columns: ['방법', '날', '20m 시간', '엇갈림'],
-        record: function(p, r){ return {m:p.m, d:p.d, t:r.t, miss:r.miss}; },
-        row: function(d){ return [MD[d.m].s, DY[d.d], d.t.toFixed(1) + '초', d.miss + '/10']; },
+        columns: ['방법', '날', '표시선', '20m 시간', '엇갈림', '열 번 평균'],
+        record: function(p, r){ return {m:p.m, d:p.d, z:r.z, t:r.t, miss:r.miss, avg:r.avg, useZ:r.useZ}; },
+        row: function(d){ return [MD[d.m].s, DY[d.d], d.useZ ? d.z + ' m' : '—', d.t.toFixed(1) + '초', d.miss + '/10', d.avg != null ? d.avg.toFixed(2) + '초' : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('방법별 바통 20m 시간', '<div id="bt1"></div><p class="ask">가장 빠른 방법은 무엇이고, 서서 받기보다 몇 초 빨랐나요? 바통이 거의 멈추는 방법은 무엇이었나요?</p>') +
+            card('표시선을 옮기면 — 빠르기와 엇갈림의 겨룸', '<div id="bt3"></div><p class="ask">표시선을 앞으로 당기면 바통은 빨라지는데 열 번 평균은 왜 나빠질까요? 첫날과 사흘 연습 뒤에 가장 좋은 표시선이 달라진 까닭도 적어 보세요.</p>') +
             card('연습과 엇갈림', '<div id="bt2"></div><p class="ask">과제: 넓은 운동장에서 친구와 짝을 지어 "서서 받기"와 "달리며 받기"로 바통(또는 둘둘 만 종이)이 20m를 지나는 시간을 세 번씩 재어 비교해 보세요. 받는 사람은 앞을 보고, 마주 달리지 않기. 충분히 쉬면서. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.m + '_' + d.d] = d; });
           var items = [];
           Object.keys(seen).sort().forEach(function(k){ var d = seen[k]; items.push({label:MD[d.m].s + ' · ' + DY[d.d], v:d.t, color:d.t < 4 ? PAL[1] : PAL[4], text:d.t.toFixed(1) + '초'}); });
           $('bt1').innerHTML = hbars(items, 5.5);
           var g = [seen['2_0'], seen['2_1']];
-          $('bt2').innerHTML = tableHTML(['달리며 받기', '20m 시간', '엇갈림'], [0, 1].map(function(i){ return [DY[i], g[i] ? g[i].t.toFixed(1) + '초' : '—', g[i] ? g[i].miss + '번 / 10번' : '—']; }));
+          $('bt2').innerHTML = tableHTML(['달리며 받기', '표시선', '20m 시간', '엇갈림'], [0, 1].map(function(i){ return [DY[i], g[i] ? g[i].z + ' m' : '—', g[i] ? g[i].t.toFixed(1) + '초' : '—', g[i] ? g[i].miss + '번 / 10번' : '—']; }));
+          var rows3 = [];
+          for (var z2 = 1; z2 <= 10; z2++){
+            var tried = rec.some(function(d){ return d.m === 2 && d.z === z2; });
+            rows3.push([z2 + ' m', tOf(2, 0, z2).toFixed(2) + '초', missOf(2, 0, z2) + '번', '<b>' + avgOf(2, 0, z2).toFixed(2) + '초</b>',
+              tOf(2, 1, z2).toFixed(2) + '초', missOf(2, 1, z2) + '번', '<b>' + avgOf(2, 1, z2).toFixed(2) + '초</b>', tried ? '해 봄' : '—']);
+          }
+          $('bt3').innerHTML = tableHTML(['표시선', '첫날 20m', '첫날 엇갈림', '첫날 열 번 평균', '사흘 뒤 20m', '사흘 뒤 엇갈림', '사흘 뒤 열 번 평균', '내 기록'], rows3) +
+            '<p class="msg">첫날에는 표시선 ' + bestZ(2, 0) + ' m, 사흘 연습 뒤에는 ' + bestZ(2, 1) + ' m 일 때 열 번 평균이 가장 좋았어요. ' +
+            '※ 숫자는 교육용 모형값이고, 바통을 한 번 놓치면 ' + DROP.toFixed(1) + '초를 잃는다고 셈했습니다.</p>';
         }
       };
     })();
@@ -495,7 +531,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

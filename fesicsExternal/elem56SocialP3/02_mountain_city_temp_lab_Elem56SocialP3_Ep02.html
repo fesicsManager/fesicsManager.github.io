@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,8 +438,10 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var PG = ['바닷가보다 덥다', '바닷가와 비슷하다', '바닷가보다 선선하다'], TOP = 4000;
+      /* 위도별 바닷가 한낮 기온은 견주기 위한 교육용 모형값 */
+      var LAT = [{n:'적도 근처 (바닷가 약 30℃)', s:'적도 근처', base:30}, {n:'서울쯤 (바닷가 약 25℃)', s:'서울쯤', base:25}, {n:'더 북쪽 (바닷가 약 15℃)', s:'북쪽', base:15}];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
-      function temp(h){ return 30 - 6 * h / 1000; }
+      function temp(h, b){ return (b == null ? 30 : b) - 6 * h / 1000; }
       function feel(t){ return t >= 27 ? '무덥다' : t >= 21 ? '덥다' : t >= 13 ? '선선하다' : t >= 7 ? '쌀쌀하다' : '춥다'; }
       function hs(h){ return h >= 1000 ? Math.floor(h / 1000) + ',' + ('00' + (h % 1000)).slice(-3) + 'm' : h + 'm'; }
       return {
@@ -447,11 +451,16 @@ var LAB = (function(){
         params: [
           {key:'h', type:'range', label:'오를 높이', min:0, max:4000, step:100, value:0, fmt:function(v){ return v >= 1000 ? Math.floor(v / 1000) + ',' + ('00' + (v % 1000)).slice(-3) + 'm' : v + 'm'; }},
           {key:'g', type:'seg', label:'예측: 이 높이의 한낮 기온은?', cols:3, value:0, options:PG,
-            note:'산은 높을수록 살기 힘들다고만 생각하면, 적도 근처 높은 곳은 어떨까요?'}
+            note:'산은 높을수록 살기 힘들다고만 생각하면, 적도 근처 높은 곳은 어떨까요?'},
+          {key:'lat', type:'seg', label:'어디쯤인가 (위도)', cols:3, value:0, options:LAT.map(function(x){ return x.n; }),
+            note:'같은 높이라도 위도가 다르면 기온이 달라져요. 높이와 위도 가운데 어느 쪽이 더 센지 겨뤄 보세요.'}
         ],
         compute: function(p){
-          var t = temp(p.h), lk = 30 - t < 2 ? 1 : 2;
-          return {h:p.h, t:t, feel:feel(t), lk:lk, ok:p.g === lk, quito:Math.abs(p.h - 2800) <= 100};
+          var la = LAT[p.lat], t = temp(p.h, la.base), lk = la.base - t < 2 ? 1 : 2;
+          /* 한 해 내내 봄 같은 기온(약 20℃)이 되는 높이 — 위도에 따라 달라진다 */
+          var goodH = Math.max(0, Math.round((la.base - 20) / 6 * 10) * 100);
+          return {h:p.h, la:la, base:la.base, t:t, feel:feel(t), lk:lk, ok:p.g === lk,
+            livable:(t >= 13 && t <= 27), freeze:(t <= 0), goodH:goodH, quito:Math.abs(p.h - 2800) <= 100};
         },
         draw: function(c, W, H, p, r, tau){
           var narrow = W < 560, base = H - 50, topY = 72, ax = 62, thx = W - 46;
@@ -463,11 +472,12 @@ var LAB = (function(){
           c.fillStyle = '#F4F7FA'; c.beginPath(); c.moveTo(px, Y(TOP)); c.lineTo(px - (px - ax) * 0.12, Y(TOP * 0.88)); c.lineTo(px + (thx - 50 - px) * 0.12, Y(TOP * 0.88)); c.closePath(); c.fill();
           for (var k = 0; k <= TOP; k += 1000){ seg(c, ax - 6, Y(k), ax, Y(k), '#5C6B7A', 1.5); T(c, k ? (k / 1000) + ',000m' : '0m', ax - 8, Y(k) + 4, 11, '#4A5868', 'right'); }
           seg(c, ax, Y(2800), thx - 60, Y(2800), PAL[3], 1.5, [5, 4]);
-          T(c, '키토 높이 약 2,800m', thx - 62, Y(2800) - 6, narrow ? 11 : 13, PAL[3], 'right', true);
+          if (narrow) T(c, '키토 높이 약 2,800m', ax + 2, Y(2800) - 6, 10, PAL[3], 'left', true);
+          else T(c, '키토 높이 약 2,800m', thx - 62, Y(2800) - 6, narrow ? 11 : 13, PAL[3], 'right', true);
           var hh = r ? p.h * Math.min(1, tau / 0.7) : 0, cx = ax + (px - ax) * hh / TOP, cy = Y(hh);
           c.fillStyle = PAL[4]; c.beginPath(); c.arc(cx, cy - 10, 7, 0, Math.PI * 2); c.fill();
           seg(c, cx, cy - 3, cx, cy + 6, PAL[4], 3);
-          var t = temp(hh), tb = base - 10, tt = topY + 10;
+          var t = temp(hh, LAT[p.lat].base), tb = base - 10, tt = topY + 10;
           c.fillStyle = '#E6EBF1'; c.fillRect(thx - 6, tt, 12, tb - tt);
           c.fillStyle = PAL[4]; c.fillRect(thx - 6, tb - (tb - tt) * Math.max(0, t) / 35, 12, (tb - tt) * Math.max(0, t) / 35);
           c.beginPath(); c.arc(thx, tb + 8, 11, 0, Math.PI * 2); c.fill();
@@ -481,25 +491,33 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['높이', hs(r.h)], ['한낮 기온 (가상)', '약 ' + f(r.t, 0) + '℃', PAL[4]], ['느낌', r.feel],
-            ['바닷가(약 30℃)보다', r.h ? '약 ' + f(30 - r.t, 0) + '℃ 낮아요' : '같은 높이예요', PAL[0]],
+          return [['어디쯤인가 (위도)', r.la.n], ['높이', hs(r.h)], ['한낮 기온 (가상)', '약 ' + f(r.t, 0) + '℃', PAL[4]], ['느낌', r.feel],
+            ['바닷가(약 ' + r.base + '℃)보다', r.h ? '약 ' + f(r.base - r.t, 0) + '℃ 낮아요' : '같은 높이예요', PAL[0]],
+            ['지내기 좋은 기온(13~27℃)인가', r.livable ? '✅ 좋아요' : (r.freeze ? '❌ 0℃ 아래 — 얼어요' : '❌ 벗어났어요'), r.livable ? PAL[1] : PAL[4]],
+            ['여기서 20℃ 가 되는 높이', r.goodH ? '약 ' + hs(r.goodH) : '0m — 바닷가가 이미 20℃ 아래예요'],
             ['키토', r.quito ? '키토와 비슷한 높이예요 (약 2,800m)' : '키토는 약 2,800m 높이에 있어요', PAL[3]],
             ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['높이', '한낮 기온', '느낌', '내 예측'],
-        record: function(p, r){ return {h:r.h, t:r.t, ok:r.ok}; },
-        row: function(d){ return [hs(d.h), '약 ' + f(d.t, 0) + '℃', feel(d.t), d.ok ? '○' : '✕']; },
+        columns: ['어디쯤', '높이', '한낮 기온', '느낌', '지내기 좋은가', '내 예측'],
+        record: function(p, r){ return {h:r.h, t:r.t, ok:r.ok, lat:p.lat, base:r.base, livable:r.livable, goodH:r.goodH}; },
+        row: function(d){ return [LAT[d.lat].s, hs(d.h), '약 ' + f(d.t, 0) + '℃', feel(d.t), d.livable ? '✅' : '❌', d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('높이와 한낮 기온', '<canvas class="chart" id="mc1"></canvas><div id="mc2"></div><p class="ask">1,000m 오를 때마다 기온이 몇 ℃씩 내려갔나요? 적도 근처인데도 선선한 높이는 어디쯤인가요?</p>') +
             card('지형에 맞춰 사는 방법', '<div id="mc3"></div><p class="ask">과제: 세계 지도에서 높은 산지, 넓은 평야, 사막에 있는 도시를 하나씩 찾고, 그곳 사람들이 지형에 맞춰 어떻게 사는지 한 가지씩 조사해 보세요.</p>') + '</div>';
-          var pts = rec.map(function(d){ return {x:d.h, y:d.t}; }), hsx = distinct(rec.map(function(d){ return d.h; }));
+          var la0 = rec[rec.length - 1].lat, sel = rec.filter(function(d){ return d.lat === la0; });
+          var pts = sel.map(function(d){ return {x:d.h, y:d.t}; }), hsx = distinct(sel.map(function(d){ return d.h; }));
           var lines = [], msg;
           if (hsx >= 2){ var L = linfit(pts); lines.push({k:L.k, b:L.b, color:PAL[4], dash:true}); msg = '기록으로 구한 값: 1,000m 오를 때마다 약 ' + f(-L.k * 1000, 1) + '℃ 내려가요.'; }
           else msg = '높이를 두 가지 이상 재면 1,000m마다 몇 ℃ 내려가는지 계산해 줘요.';
+          msg += ' (' + LAT[la0].s + ' 기록 ' + sel.length + '개로 그렸어요 — 위도를 바꾼 기록은 따로 모여요.)';
           drawScatter($('mc1'), {series:[{color:PAL[4], pts:pts}], lines:lines, xLabel:'높이 (m)', yLabel:'한낮 기온 (℃)', xHi:4000, xStep:1000});
           $('mc2').innerHTML = '<p class="msg">' + msg + '</p>';
-          $('mc3').innerHTML = tableHTML(['지형', '예', '사는 방법'], [['높은 산지', '키토 (약 2,800m)', '계단 모양 밭에 감자, 라마·알파카 기르기'], ['적도 근처 낮은 바닷가', '가상 산의 0m', '1년 내내 더워요(약 30℃)'], ['사막', '물이 나는 곳', '물 둘레에 마을이 모여요']]);
+          $('mc3').innerHTML = tableHTML(['지형', '예', '사는 방법'], [['높은 산지', '키토 (약 2,800m)', '계단 모양 밭에 감자, 라마·알파카 기르기'], ['적도 근처 낮은 바닷가', '가상 산의 0m', '1년 내내 더워요(약 30℃)'], ['사막', '물이 나는 곳', '물 둘레에 마을이 모여요']])
+            + (function(){ var byL = {}; rec.forEach(function(d){ (byL[d.lat] = byL[d.lat] || []).push(d); });
+              var ks = Object.keys(byL).map(Number); if (ks.length < 2) return '<p class="msg">위도를 바꿔 <b>같은 높이</b>를 다시 재 보세요. 적도 근처 2,800m 는 선선하지만, 더 북쪽 2,800m 는 0℃ 아래로 내려갑니다 — 높이만으로는 판정이 안 됩니다.</p>';
+              var liv = rec.filter(function(d){ return d.livable; }), no = rec.filter(function(d){ return !d.livable; });
+              return '<p class="msg">위도별 기록: ' + ks.map(function(k){ return LAT[k].s + ' ' + byL[k].length + '개 (20℃ 가 되는 높이 약 ' + (byL[k][0].goodH ? hs(byL[k][0].goodH) : '0m') + ')'; }).join(' · ') + '. 지내기 좋은 기온이었던 기록 ' + liv.length + '개 · 벗어난 기록 ' + no.length + '개 — <b>높이와 위도가 함께</b> 기온을 정합니다. (기온은 교육용 모형값)</p>'; })();
         }
       };
     })();
@@ -508,7 +526,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

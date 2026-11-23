@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,6 +440,10 @@ var LAB = (function(){
         {name:'헥세인 C₆H₁₄', short:'헥세인', M:86.18, c:2.26, g:18.4, bp:68.7, rho:0.655, fl:false, hb:'무극성 · 분산력만', col:'#D5C2E8'}
       ];
       var TS = ['같은 열로 가열 (비열)', '1 mL 방울 수 (표면 장력)', '고체 조각 넣기 (밀도)', '끓는점 재기'], Q = 3000;
+      /* 분자량만 보고 끓는점 순위를 먼저 매겨 보게 하고, 실제 값과 어긋나는 곳을 짚게 한다 */
+      var byM = L.map(function(x, i){ return i; }).sort(function(a, b){ return L[b].M - L[a].M; });   // 분자량 큰 순
+      var byB = L.map(function(x, i){ return i; }).sort(function(a, b){ return L[b].bp - L[a].bp; }); // 끓는점 높은 순
+      function ord(ix){ return ix.map(function(i){ return L[i].short; }).join(' > '); }
       return {
         sceneHeight: 400,
         idle: '액체와 시험을 고른 뒤 <b>시험하기</b>를 누르세요.',
@@ -445,12 +451,16 @@ var LAB = (function(){
         params: [
           {key:'l', type:'seg', label:'액체', cols:4, value:0, options:L.map(function(x){ return x.name; })},
           {key:'t', type:'seg', label:'시험', cols:2, value:0, options:TS},
-          {key:'m', type:'range', label:'액체 질량 (가열 시험에만 쓰임)', min:50, max:200, step:50, value:100, fmt:function(v){ return v + ' g'; }}
+          {key:'m', type:'range', label:'액체 질량 (가열 시험에만 쓰임)', min:50, max:200, step:50, value:100, fmt:function(v){ return v + ' g'; }},
+          {key:'g', type:'seg', label:'먼저 찍기 — 분자량만 보고, 끓는점이 가장 높을 액체는?', cols:4, value:3,
+            options:L.map(function(x){ return x.short + ' (' + f(x.M, 0) + ')'; }),
+            note:'분자량은 괄호 안 값입니다. 분자량만 보고 끓는점 순위를 매긴 뒤, 실제 값과 어긋나는 곳을 찾아보세요.'}
         ],
         compute: function(p){
           var l = L[p.l], dT = Q / (p.m * l.c), drops = 20 * (l.rho / 0.998) * (72.8 / l.g);
           var val = [f(dT, 1) + ' ℃ 상승 (20 → ' + f(20 + dT, 1) + ' ℃)', f(drops, 0) + '방울', l.fl ? '뜸 (고체가 액체보다 가벼움)' : '가라앉음 (고체가 더 조밀)', f(l.bp, 1) + ' ℃'][p.t];
-          return {l:l, dT:dT, drops:drops, val:val};
+          var gok = p.g === byB[0], heavy = p.g === byM[0];
+          return {l:l, dT:dT, drops:drops, val:val, g:p.g, gok:gok, heavy:heavy};
         },
         draw: function(c, W, H, p, r, tau){
           var l = L[p.l], k = r ? Math.min(tau / 0.8, 1) : 0, cx = W < 600 ? W / 2 : W * 0.3, by = H - 60;
@@ -488,15 +498,20 @@ var LAB = (function(){
         stats: function(p, r){
           return [['액체', r.l.name + ' (' + f(r.l.M, 1) + ' g/mol)'], ['시험 결과', r.val, PAL[0]],
             ['비열', f(r.l.c, 2) + ' J/(g·℃)'], ['표면 장력', f(r.l.g, 1) + ' mN/m'], ['끓는점', f(r.l.bp, 1) + ' ℃'],
-            ['분자 사이 힘', r.l.hb, PAL[3]]];
+            ['분자 사이 힘', r.l.hb, PAL[3]],
+            ['나의 예측 (분자량만 보고)', L[r.g].short + ' — ' + (r.gok ? '맞았어요' : '빗나갔어요, 실제로는 ' + L[byB[0]].short + '이 가장 높아요'), r.gok ? PAL[1] : PAL[6]],
+            ['분자량 큰 순', ord(byM) + ' (' + L.map(function(x){ return f(x.M, 0); }).join(' · ') + ')'],
+            ['끓는점 높은 순', ord(byB) + ' (' + byB.map(function(i){ return f(L[i].bp, 1); }).join(' · ') + ' ℃)', PAL[4]],
+            ['어긋나는 곳', '분자량이 가장 큰 ' + L[byM[0]].short + '(' + f(L[byM[0]].M, 0) + ')이 아니라 가장 작은 ' + L[byB[0]].short + '(' + f(L[byB[0]].M, 0) + ')의 끓는점이 가장 높아요 — 분자량만으로는 순서를 못 맞힙니다']];
         },
-        columns: ['액체', '시험', '질량 (g)', '결과'],
-        record: function(p, r){ return {l:p.l, t:p.t, m:p.m, dT:r.dT, drops:r.drops, val:r.val}; },
-        row: function(d){ return [L[d.l].short, TS[d.t].replace(/ \(.*\)/, ''), d.t === 0 ? d.m : '—', d.val.replace(/ \(.*\)/, '')]; },
+        columns: ['액체', '시험', '질량 (g)', '결과', '내 예측'],
+        record: function(p, r){ return {l:p.l, t:p.t, m:p.m, dT:r.dT, drops:r.drops, val:r.val, g:p.g, gok:r.gok}; },
+        row: function(d){ return [L[d.l].short, TS[d.t].replace(/ \(.*\)/, ''), d.t === 0 ? d.m : '—', d.val.replace(/ \(.*\)/, ''), d.g != null ? L[d.g].short + (d.gok ? ' ○' : ' ×') : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('가열 시험: 온도 상승 vs 1/질량', '<canvas class="chart" id="me5a"></canvas>' + legend(L.map(function(x, i){ return {color:[PAL[0], PAL[1], PAL[6], PAL[3]][i], label:x.short}; })) + '<div id="me5c"></div><p class="ask">기울기는 Q ÷ c 입니다. 기울기가 가장 작은 액체는 무엇이고, 까닭은 무엇인가요?</p>') +
-            card('물만 튀는 성질표', '<div id="me5b"></div><p class="ask">과제: 물 분자량(18)은 헥세인(86)의 약 1/5인데 끓는점은 더 높아요. 네 시험 결과를 수소 결합 개수로 한 문장씩 설명해 보세요.</p>') + '</div>';
+            card('물만 튀는 성질표', '<div id="me5b"></div><p class="ask">과제: 물 분자량(18)은 헥세인(86)의 약 1/5인데 끓는점은 더 높아요. 네 시험 결과를 수소 결합 개수로 한 문장씩 설명해 보세요.</p>') +
+            card('분자량으로 매긴 순위 vs 실제 끓는점 순위', '<div id="me5d"></div><p class="ask">분자량 순위와 끓는점 순위가 어긋난 액체는 무엇이었나요? 네 액체 가운데 수소 결합을 줄 수 있는 쪽을 골라 그 까닭과 이어 보세요.</p>') + '</div>';
           var ser = L.map(function(x, i){ return {color:[PAL[0], PAL[1], PAL[6], PAL[3]][i], pts:rec.filter(function(d){ return d.t === 0 && d.l === i; }).map(function(d){ return {x:1000 / d.m, y:d.dT}; })}; });
           drawScatter($('me5a'), {series:ser, xLabel:'1000 ÷ 질량 (1/kg)', yLabel:'온도 상승 (℃)'});
           var rows = [];
@@ -505,6 +520,12 @@ var LAB = (function(){
           var g = groupBy(rec, function(d){ return d.l; }), tr = [];
           L.forEach(function(x, i){ var gs = g[i]; if (!gs) return; var cell = [0, 1, 2, 3].map(function(t){ var h = gs.filter(function(d){ return d.t === t; }); return h.length ? h[h.length - 1].val.replace(/ \(.*\)/, '') : '·'; }); tr.push([x.short].concat(cell)); });
           $('me5b').innerHTML = tr.length ? tableHTML(['액체', '가열', '방울', '고체', '끓는점'], tr) : '<p class="msg">기록이 필요해요.</p>';
+          var r4 = L.map(function(x, i){ return [x.short, f(x.M, 0), (byM.indexOf(i) + 1) + '위', f(x.bp, 1), (byB.indexOf(i) + 1) + '위',
+            byM.indexOf(i) === byB.indexOf(i) ? '같음' : '어긋남', x.hb]; });
+          var gh = rec.filter(function(d){ return d.g != null; });
+          $('me5d').innerHTML = tableHTML(['액체', '분자량', '분자량 순위', '끓는점 (℃)', '끓는점 순위', '순위 비교', '분자 사이 힘'], r4) +
+            '<p class="msg">분자량 순위: ' + ord(byM) + ' · 실제 끓는점 순위: ' + ord(byB) +
+            (gh.length ? ' · 내 예측이 맞은 기록 ' + gh.filter(function(d){ return d.gok; }).length + ' / ' + gh.length + '회' : '') + '</p>';
         }
       };
     })();
@@ -513,7 +534,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

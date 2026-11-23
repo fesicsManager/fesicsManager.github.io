@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -450,45 +452,77 @@ var JOB = [{name:'그래프 그리기', own:40, lib:2, std:'turtle·tkinter (표
   {name:'CSV·엑셀 읽기', own:35, lib:2, std:'csv (표준)', stdLic:'PSF (파이썬 표준)', ext:'pandas', extLic:'BSD (자유 사용)', learn:1.5}];
 var WAY = [{name:'직접 구현'}, {name:'표준 라이브러리'}, {name:'외부 라이브러리'}];
 var BUG = 0.015, MIN_PER_LINE = 5;
-function calc(j, w, n){
-  var J = JOB[j], lines = w === 0 ? n * J.own : w === 1 ? n * (J.lib + 1) : n * J.lib;
-  var bugs = lines * BUG, hours = lines * MIN_PER_LINE / 60 + (w === 0 ? 0 : w === 1 ? J.learn * 0.5 : J.learn);
-  return {jn:J.name, wn:WAY[w].name, n:n, lines:lines, bugs:bugs, hours:hours, libName:w === 0 ? '없음' : w === 1 ? J.std : J.ext, lic:w === 0 ? '−' : w === 1 ? J.stdLic : J.extLic};
+/* 라이브러리로 안 되는 기능은 직접 짜야 하고, 붙이는 코드와 의존성 관리 비용도 든다 (비교용 가정값) */
+function calc(j, w, n, miss){
+  var J = JOB[j], mm = Math.min(miss || 0, n), easy = n - mm;
+  var lines = w === 0 ? n * J.own
+    : (w === 1 ? easy * (J.lib + 1) : easy * J.lib) + mm * J.own + (mm ? 5 : 0);
+  var bugs = lines * BUG;
+  var hours = lines * MIN_PER_LINE / 60 + (w === 0 ? 0 : w === 1 ? J.learn * 0.5 : J.learn) + (w === 0 ? 0 : mm * 0.3);
+  return {jn:J.name, wn:WAY[w].name, n:n, miss:mm, lines:lines, bugs:bugs, hours:hours, libName:w === 0 ? '없음' : w === 1 ? J.std : J.ext, lic:w === 0 ? '−' : w === 1 ? J.stdLic : J.extLic};
+}
+/* 안 되는 기능이 몇 개부터 직접 구현이 나아지나 */
+function flipAt(j, n){
+  for (var m = 0; m <= n; m++){
+    var own = calc(j, 0, n, m), lib = calc(j, 2, n, m);
+    if (own.hours <= lib.hours) return m;
+  }
+  return null;
 }
 return {
-  sceneHeight: function(w){ return w < 480 ? 490 : 430; },
+  sceneHeight: function(w){ return w < 480 ? 580 : 470; },
   idle: '작업·방식·요구 기능 수를 정한 뒤 <b>개발해 보기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 기능 수를 바꿔 가며 직접 구현과 라이브러리를 모두 기록하세요.',
   params: [
     {key:'j', type:'seg', label:'작업', cols:3, value:0, options:JOB.map(function(x){ return x.name; })},
     {key:'w', type:'seg', label:'방식', cols:3, value:0, options:WAY.map(function(x){ return x.name; })},
     {key:'n', type:'range', label:'요구 기능 수 (눈금·한글·범례·저장…)', min:1, max:10, step:1, value:4, fmt:function(v){ return v + '개'; },
-      note:'직접 구현은 기능당 30~40줄, 라이브러리는 기능당 1~2줄로 둡니다. 버그 100줄당 1.5개, 코딩 줄당 5분은 비교용 가정값입니다.'}
+      note:'직접 구현은 기능당 30~40줄, 라이브러리는 기능당 1~2줄로 둡니다. 버그 100줄당 1.5개, 코딩 줄당 5분은 비교용 가정값입니다.'},
+    {key:'miss', type:'range', label:'라이브러리로는 안 되는 기능 수', min:0, max:10, step:1, value:0, fmt:function(v){ return v + '개'; },
+      note:'이 기능은 라이브러리를 써도 직접 짜야 하고, 붙이는 코드와 의존성 관리 시간(기능당 0.3시간)이 더 듭니다.'}
   ],
-  compute: function(p){ return calc(p.j, p.w, p.n); },
+  compute: function(p){
+    var r = calc(p.j, p.w, p.n, p.miss);
+    var all = WAY.map(function(x, i){ return calc(p.j, i, p.n, p.miss); });
+    var best = 0; all.forEach(function(x, i){ if (x.hours < all[best].hours) best = i; });
+    var fa = flipAt(p.j, p.n);
+    r.all = all; r.best = best; r.bestName = WAY[best].name; r.flipAt = fa;
+    r.cmp = all.map(function(x, i){ return WAY[i].name + ' ' + x.lines + '줄·' + f(x.hours, 1) + '시간'; }).join(' · ');
+    r.verdict = fa === null ? '요구 기능 ' + p.n + '개에서는 안 되는 기능이 몇 개여도 라이브러리 쪽이 빨라요'
+      : fa === 0 ? '이 조건에서는 처음부터 직접 구현이 빨라요'
+      : '안 되는 기능이 ' + fa + '개부터는 직접 구현이 더 빨라져요 (지금 ' + r.miss + '개 → ' + r.bestName + '이 가장 빠름)';
+    return r;
+  },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, all = WAY.map(function(x, i){ return calc(p.j, i, p.n); }), mx = Math.max.apply(null, all.map(function(x){ return x.lines; }));
+    var k = r ? Math.min(tau / 0.9, 1) : 0, all = WAY.map(function(x, i){ return calc(p.j, i, p.n, p.miss); }), mx = Math.max.apply(null, all.map(function(x){ return x.lines; }));
     var nar = W < 480, px = nar ? 62 : 70, py = 40, pw = W - px - (nar ? 12 : 20), ph = 200;
     var ax = plotBox(c, px, py, pw, ph, [0, 3, 1], [0, Math.max(20, Math.ceil(mx / 50) * 50), Math.max(5, Math.ceil(mx / 200) * 50)], '', '코드 줄 수');
     all.forEach(function(x, i){ var bw = pw / 3 * 0.5, kk = i === p.w ? k : 1, xx = ax.X(i + 0.5);
       c.fillStyle = i === p.w ? PAL[i] : '#C9D2DC'; c.fillRect(xx - bw / 2, ax.Y(x.lines * kk), bw, ax.Y(0) - ax.Y(x.lines * kk));
       if (nar){ c.font = '12px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; WAY[i].name.split(' ').forEach(function(s, j){ c.fillText(s, xx, py + ph + 22 + j * 15); }); }
       else txt(c, WAY[i].name, xx, py + ph + 24, {align:'center', color:'#4A5868'});
-      var nb = Math.round(x.bugs * kk); txt(c, (nb ? '🐛'.repeat(Math.min(nb, 8)) + (nb > 8 ? '×' + nb : '') : '✓') , xx, ax.Y(x.lines * kk) - 8, {align:'center'}); });
+      var nb = Math.round(x.bugs * kk); txt(c, (nb ? (nb > 3 ? '🐛×' + nb : '🐛'.repeat(nb)) : '✓') , xx, ax.Y(x.lines * kk) - 8, {align:'center'}); });
     var by = py + ph + (nar ? 72 : 60);
     /* 좁은 화면: 띄어쓰기에서 나누고 아래 줄을 내림 */
-    var n1 = txtW(c, JOB[p.j].name + ' · 기능 ' + p.n + '개 · ' + WAY[p.w].name, 12, by, {bold:true}, W - 24, 22);
+    var n1 = txtW(c, JOB[p.j].name + ' · 기능 ' + p.n + '개 (안 되는 기능 ' + Math.min(p.miss, p.n) + '개) · ' + WAY[p.w].name, 12, by, {bold:true}, W - 24, 22);
     if (r){ var n2 = txtW(c, r.lines + '줄 · 예상 버그 ' + f(r.bugs, 1) + '개 · 약 ' + f(r.hours, 1) + '시간', 12, by + 26 + (n1 - 1) * 22, {color:'#4A5868'}, W - 24, 22); txtW(c, '라이브러리: ' + r.libName + ' · 라이선스: ' + r.lic, 12, by + 52 + (n1 + n2 - 2) * 22, {color:'#4A5868'}, W - 24, 22); }
   },
   stats: function(p, r){
-    return [['작업', r.jn], ['방식', r.wn], ['요구 기능', r.n + '개'], ['코드 줄 수', r.lines + '줄', PAL[0]], ['예상 버그 수', f(r.bugs, 2) + '개', r.bugs > 1 ? PAL[4] : PAL[1]], ['개발 시간 (학습 포함)', f(r.hours, 1) + '시간', PAL[3]], ['라이브러리 · 라이선스', r.libName + ' · ' + r.lic]];
+    return [['작업', r.jn], ['방식', r.wn], ['요구 기능', r.n + '개 (라이브러리로 안 되는 기능 ' + r.miss + '개)'],
+      ['코드 줄 수', r.lines + '줄', PAL[0]], ['예상 버그 수', f(r.bugs, 2) + '개', r.bugs > 1 ? PAL[4] : PAL[1]],
+      ['개발 시간 (학습·의존성 포함)', f(r.hours, 1) + '시간', PAL[3]],
+      ['세 방식 비교', r.cmp, PAL[6]],
+      ['지금 가장 빠른 방식', r.bestName, r.best === 0 ? PAL[4] : PAL[1]],
+      ['뒤집히는 지점', r.verdict, r.flipAt === null ? '#4A5868' : PAL[6]],
+      ['라이브러리 · 라이선스', r.libName + ' · ' + r.lic],
+      ['※', '줄 수·버그·시간은 비교를 위해 정한 교육용 가정값입니다 — 실제 개발 생산성 통계가 아닙니다.']];
   },
-  columns: ['작업', '방식', '기능', '줄 수', '버그', '시간 (h)'],
-  record: function(p, r){ return {j:p.j, w:p.w, n:r.n, lines:r.lines, bugs:r.bugs, hours:r.hours}; },
-  row: function(d){ return [JOB[d.j].name, WAY[d.w].name, d.n, d.lines, f(d.bugs, 2), f(d.hours, 1)]; },
+  columns: ['작업', '방식', '기능', '안 되는 기능', '줄 수', '버그', '시간 (h)', '가장 빠른 방식'],
+  record: function(p, r){ return {j:p.j, w:p.w, n:r.n, miss:r.miss, lines:r.lines, bugs:r.bugs, hours:r.hours, best:r.best}; },
+  row: function(d){ return [JOB[d.j].name, WAY[d.w].name, d.n, (d.miss || 0) + '개', d.lines, f(d.bugs, 2), f(d.hours, 1), d.best == null ? '—' : WAY[d.best].name]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
-      card('기능 수와 코드 줄 수', '<canvas class="chart" id="ch1" role="img" aria-label="기능 수에 따른 코드 줄 수"></canvas><ul class="readout" id="ro1"></ul><p class="ask">기능이 1개일 때와 10개일 때 직접 구현과 라이브러리의 차이는 각각 몇 배인가요? 언제 직접 짜는 것이 나을까요?</p>') +
+      card('기능 수와 코드 줄 수', '<canvas class="chart" id="ch1" role="img" aria-label="기능 수에 따른 코드 줄 수"></canvas><ul class="readout" id="ro1"></ul><p class="ask">라이브러리로 안 되는 기능 수를 늘리면 어느 지점에서 직접 구현이 더 빨라졌나요? 그 지점은 작업마다 같았나요?</p>') +
       card('라이선스 확인', '<div id="ro2"></div><p class="ask">MIT·BSD·Apache와 GPL의 차이는 무엇인가요? 내 앱을 팔 계획이라면 어떤 라이선스를 피해야 하나요?</p>') + '</div>';
     var byW = groupBy(rec, function(d){ return d.w; }), s1 = [], r1 = [];
     Object.keys(byW).forEach(function(k){ var g = byW[k]; s1.push({color:PAL[+k], pts:g.map(function(d){ return {x:d.n, y:d.lines}; })}); r1.push('<li>' + dot(PAL[+k]) + WAY[k].name + ': 평균 버그 ' + f(mean(g.map(function(d){ return d.bugs; })), 2) + '개, 평균 ' + f(mean(g.map(function(d){ return d.hours; })), 1) + '시간</li>'); });
@@ -503,7 +537,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

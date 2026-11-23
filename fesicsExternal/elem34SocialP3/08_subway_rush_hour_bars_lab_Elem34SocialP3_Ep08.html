@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>도시는 하루 종일 붐비나</h1>
-    <p>가상 도시의 지하철역 한 곳에서 <b>한 시간 동안 탄 사람 수</b>를 시간대별로 막대그래프로 그려 보세요. 가장 붐비는 때를 예측하고, 시간대를 하나씩 골라 <b>막대 그리기</b>를 누르세요.<br><span style="font-size:.9em;color:#a86825">※ 시간대별 승객 수(약 300·1,800·600·1,500·200명)는 제로 랩의 <b>가상 조사</b>예요.</span></p>
+    <p>가상 도시의 지하철역 한 곳에서 <b>한 시간 동안 탄 사람 수</b>를 시간대별로 막대그래프로 그려 보세요. 가장 붐비는 때를 예측하고, 시간대를 하나씩 골라 <b>막대 그리기</b>를 누르세요.<br><span style="font-size:.9em;color:#a86825">※ 시간대별 승객 수(약 300·1,800·600·1,500·200명)는 제로 랩의 <b>가상 조사</b>예요.</span><br><span style="font-size:.9em;color:#a86825">※ <b>도시를 내가 만들어 보기</b>를 켜면 일터 수와 출근 시각으로 시간대별 승객을 셈해 줘요. 교육용 모형값이에요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -301,9 +302,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -448,19 +450,43 @@ var LAB = (function(){
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function num(v){ return v >= 1000 ? Math.floor(v / 1000) + ',' + ('00' + (v % 1000)).slice(-3) : '' + v; }
       function cmp(v){ if (v === 1800) return '가장 많아요'; var x = 1800 / v; return x === Math.round(x) ? '아침 8시가 이때의 ' + x + '배' : '아침 8시가 이때의 ' + f(x, 1) + '배'; }
+      var HRS = [6, 8, 12, 18, 23];
+      /* 일터 수와 출근 시각으로 시간대별 승객을 셈하는 교육용 모형.
+         출근 때 한 번, 그 열 시간 뒤 퇴근 때 또 한 번 솟고, 낮에는 오가는 사람이 조금 있다. */
+      function myCity(W, st){
+        function G(h, cc, sd){ var d = h - cc; return Math.exp(-d * d / (2 * sd * sd)); }
+        return HRS.map(function(h){
+          return Math.round(60 + W * (G(h, st, 1.1) + 0.85 * G(h, st + 10, 1.1)) + W * 0.3 * G(h, 13, 3) + W * 0.10);
+        });
+      }
+      function cmpTo(v, mx, mi){ if (v === mx) return '가장 많아요'; var x = mx / v; return '가장 많은 때(' + TM[mi].s + ')가 이때의 ' + (x === Math.round(x) ? x : f(x, 1)) + '배'; }
       function person(c, x, y, s, col){ c.fillStyle = col; c.beginPath(); c.arc(x, y - s * 0.7, s * 0.28, 0, Math.PI * 2); c.fill(); c.fillRect(x - s * 0.25, y - s * 0.4, s * 0.5, s * 0.6); }
       return {
-        sceneHeight: 420,
+        sceneHeight: function(w){ return w < 560 ? 450 : 420; },
         idle: '시간대와 예측을 고른 뒤 <b>막대 그리기</b>를 누르세요.',
         shortHint: '다섯 시간대를 모두 그려 보세요. 막대가 몇 번 솟나요?',
         params: [
           {key:'t', type:'seg', label:'시간대', cols:3, value:2, options:TM.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'예측: 한 시간 동안 탄 사람이 가장 많은 때는?', cols:2, value:3, options:PG,
-            note:'뭉치는 "도시는 늘 꽉 차 있으니까 ④"라고 했어요.'}
+            note:'뭉치는 "도시는 늘 꽉 차 있으니까 ④"라고 했어요.'},
+          {key:'c', type:'seg', label:'도시를 내가 만들어 보기', cols:1, value:0, options:['안 함(가상 도시 자료 그대로)', '아래 두 눈금으로 내 도시 만들기'],
+            note:'켜면 일터 수와 출근 시각을 내가 정해요. 막대가 솟는 자리가 달라지는지 보세요.'},
+          {key:'jb', type:'range', label:'역 근처 일터에 다니는 사람', min:400, max:1600, step:400, value:1600, fmt:function(v){ return num(v) + '명쯤'; }},
+          {key:'st', type:'range', label:'출근 시각 (퇴근은 열 시간 뒤)', min:6, max:10, step:1, value:8, fmt:function(v){ return '아침 ' + v + '시 (퇴근 ' + (v + 10 > 12 ? '저녁 ' + (v + 10 - 12) : v + 10) + '시)'; }}
         ],
         compute: function(p){
+          if (p.c === 1){
+            var vs = myCity(p.jb, p.st), mi = 0;
+            vs.forEach(function(v, i){ if (v > vs[mi]) mi = i; });
+            var mxv = vs[mi], mnv = Math.min.apply(null, vs), flat = (mxv - mnv) / mxv < 0.15;
+            var want = [2, 1, 4][p.g], ok = p.g === 3 ? flat : (mi === want);
+            return {mine:true, vs:vs, tm:TM[p.t], v:vs[p.t], n:Math.round(vs[p.t] / 100), t:p.t, mi:mi, jb:p.jb, st:p.st,
+              cmp:cmpTo(vs[p.t], mxv, mi), ok:ok,
+              msg:(ok ? '○ ' : '✕ ') + '막대가 가장 높은 때는 ' + TM[mi].s + (flat ? ' — 하루 내내 비슷해요' : ' — 아침저녁에 솟아요')};
+          }
           var tm = TM[p.t];
-          return {tm:tm, v:tm.v, n:Math.round(tm.v / 100), ok:p.g === 1, cmp:cmp(tm.v), t:p.t};
+          return {tm:tm, v:tm.v, n:Math.round(tm.v / 100), ok:p.g === 1, cmp:cmp(tm.v), t:p.t,
+            msg:(p.g === 1 ? '○ 예측이 맞았어요' : '✕ 예측과 달라요') + ' — 아침 8시가 가장 많아요'};
         },
         draw: function(c, W, H, p, r, tau){
           var narrow = W < 560, a = r ? Math.min(1, tau / 0.7) : 0;
@@ -474,24 +500,34 @@ var LAB = (function(){
           seg(c, gx, gy, gx, gy + gh, '#5C6B7A', 1.5); seg(c, gx, gy + gh, gx + gw, gy + gh, '#5C6B7A', 1.5);
           [0, 500, 1000, 1500, 2000].forEach(function(v){ var y = gy + gh - gh * v / 2000; seg(c, gx - 4, y, gx + gw, y, '#E6EBF1', 1); T(c, num(v), gx - 6, y + 4, 10, '#4A5868', 'right'); });
           TM.forEach(function(tm, i){
-            var x = gx + i * bw + bw * 0.18, w = bw * 0.64, on = r && i === r.t, h = gh * tm.v / 2000;
-                        if (on){ c.fillStyle = PAL[0]; c.fillRect(x, gy + gh - h * a, w, h * a); if (a >= 1) T(c, num(tm.v), x + w / 2, gy + gh - h - 6, narrow ? 11 : 13, PAL[0], 'center', true); }
-            T(c, tm.s, x + w / 2, gy + gh + 16, narrow ? 10 : 12, '#4A5868', 'center');
+            var vv = (r && r.vs) ? r.vs[i] : tm.v;
+            var x = gx + i * bw + bw * 0.18, w = bw * 0.64, on = r && i === r.t, h = gh * Math.min(vv, 2000) / 2000;
+                        if (on){ c.fillStyle = PAL[0]; c.fillRect(x, gy + gh - h * a, w, h * a); if (a >= 1) T(c, num(vv), x + w / 2, gy + gh - h - 6, narrow ? 11 : 13, PAL[0], 'center', true); }
+            T(c, tm.s, x + w / 2, gy + gh + 16 + (narrow && (i % 2) ? 15 : 0), narrow ? 10 : 12, '#4A5868', 'center');
           });
           if (r && tau >= 0.85){
-            T(c, narrow ? r.tm.s + ' 약 ' + num(r.v) + '명' : r.tm.n + ' 약 ' + num(r.v) + '명 · ' + r.cmp, 20, gy + gh + 44, narrow ? 13 : 15, '#1E2833', 'left', true);
-            T(c, r.ok ? '○ 예측이 맞았어요 — 아침 8시가 가장 많아요' : '✕ 예측과 달라요 — 아침 8시가 가장 많아요', 20, gy + gh + 68, narrow ? 12 : 14, r.ok ? PAL[1] : PAL[4], 'left', true);
+            T(c, narrow ? r.tm.s + ' 약 ' + num(r.v) + '명' : r.tm.n + ' 약 ' + num(r.v) + '명 · ' + r.cmp, 20, gy + gh + (narrow ? 58 : 44), narrow ? 13 : 15, '#1E2833', 'left', true);
+            T(c, r.msg, 20, gy + gh + (narrow ? 82 : 68), narrow ? 12 : 14, r.ok ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
+          if (r.mine) return [['내 도시', '일터 ' + num(r.jb) + '명쯤 · 출근 아침 ' + r.st + '시', PAL[3]],
+            ['시간대', r.tm.n], ['한 시간 동안 탄 사람', '약 ' + num(r.v) + '명', PAL[0]],
+            ['막대가 가장 높은 때', TM[r.mi].n, PAL[4]], ['가장 많은 때와 견주면', r.cmp],
+            ['내 예측', PG[p.g] + ' → ' + r.msg, r.ok ? PAL[1] : PAL[4]],
+            ['자료', '교육용 모형값 (출근 때 한 번, 열 시간 뒤 퇴근 때 또 한 번 솟음)', PAL[7]]];
           return [['시간대', r.tm.n], ['한 시간 동안 탄 사람 (가상)', '약 ' + num(r.v) + '명', PAL[0]], ['사람 그림', r.n + '개 (1개 = 약 100명)'],
             ['아침 8시와 견주면', r.cmp], ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕ (아침 8시가 가장 많아요)'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['시간대', '탄 사람', '아침 8시와 견주면', '내 예측'],
-        record: function(p, r){ return {t:p.t, g:p.g}; },
-        row: function(d){ var tm = TM[d.t]; return [tm.n, '약 ' + num(tm.v) + '명', cmp(tm.v), PG[d.g].slice(0, 1)]; },
+        columns: ['시간대 (도시)', '탄 사람', '가장 많은 때와 견주면', '내 예측'],
+        record: function(p, r){ if (r.mine) return {mine:true, t:r.t, g:p.g, v:r.v, jb:r.jb, st:r.st, mi:r.mi, cmp:r.cmp}; return {t:p.t, g:p.g}; },
+        row: function(d){ if (d.mine) return [TM[d.t].s + ' (일터 ' + num(d.jb) + ' · 출근 ' + d.st + '시)', '약 ' + num(d.v) + '명', d.cmp, PG[d.g].slice(0, 1)]; var tm = TM[d.t]; return [tm.n, '약 ' + num(tm.v) + '명', cmp(tm.v), PG[d.g].slice(0, 1)]; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = rec.filter(function(d){ return d.mine; });
+          var mcard = !ms.length ? '' : card('내가 만든 도시', tableHTML(['일터', '출근 시각', '본 시간대', '탄 사람', '가장 높은 때'],
+              ms.map(function(d){ return [num(d.jb) + '명쯤', '아침 ' + d.st + '시', TM[d.t].s, '약 ' + num(d.v) + '명', TM[d.mi].s]; })) +
+            '<p class="ask">출근 시각을 아침 6시로 옮기면 막대가 솟는 자리도 함께 옮겨 가나요? 일터에 다니는 사람을 400명쯤으로 줄이면 아침과 낮의 차이가 어떻게 되나요?</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('시간대별 승객 막대그래프', '<div id="sr1"></div><p class="ask">막대가 높이 솟은 때는 언제와 언제인가요? 왜 그때 사람이 몰릴까요? 낮 12시와 밤 11시는 아침 8시의 몇 분의 1인가요?</p>') +
             card('아침 8시와 견주기', '<div id="sr2"></div><p class="ask">과제: 우리 동네 버스 정류장이나 큰길을 아침 등교 때와 낮(주말)에 한 번씩 보고, 5분 동안 지나가는 버스나 사람 수를 세어 비교해 보세요. 길가에서는 꼭 어른과 함께, 안전한 곳에 서서 세세요.</p>') + '</div>';
           var done = {}; rec.forEach(function(d){ done[d.t] = 1; });
@@ -508,7 +544,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

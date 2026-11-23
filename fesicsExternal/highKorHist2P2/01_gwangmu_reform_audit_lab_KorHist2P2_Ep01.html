@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>대한제국은 이름만 바꾼 나라였나</h1>
-    <p>광무개혁 항목 하나를 골라 <b>시행됨 · 일부 시행 · 계획만</b> 가운데 나의 판정을 정하면, 사료에 근거한 판정이 나옵니다. 아래에서는 <b>대한국 국제</b>와 <b>헌의 6조</b>를 바꿔 가며 "누가 정하는가"를 권력 도식으로 비교하세요.<br><span style="font-size:.9em;color:#a86825">※ 조문은 원문 대신 요지로 옮겼고, 권력 도식은 두 문서의 핵심 조항만 단순화한 것입니다.</span></p>
+    <p>광무개혁 항목 하나를 골라 <b>시행됨 · 일부 시행 · 계획만</b> 가운데 나의 판정을 정하면, 사료에 근거한 판정이 나옵니다. 아래에서는 <b>대한국 국제</b>와 <b>헌의 6조</b>를 바꿔 가며 "누가 정하는가"를 권력 도식으로 비교하세요.<br><span style="font-size:.9em;color:#a86825">※ 조문은 원문 대신 요지로 옮겼고, 권력 도식은 두 문서의 핵심 조항만 단순화한 것입니다. 아래의 "갖췄다고 셀 기준"·"근대 국가로 볼 기준(분야 수)"·"권력 나눔 점수"는 사료에 적힌 숫자가 아니라 세어 보기 위한 <b>교육용 모형 기준</b>이에요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -478,25 +480,45 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         {n:'의회식 중추원 (헌의 6조의 요구)', s:'의회식 중추원', f:'정치', ref:2, ev:'독립 협회가 요구 — 1898년 말 독립 협회 해산으로 무산, 의회는 없었음'}
       ];
       var JD = ['시행됨', '일부 시행', '계획만'], JC = [PAL[1], PAL[6], PAL[4]];
-      var DOCS = ['대한국 국제 (1899)', '헌의 6조 (1898)'];
-      function model(p){ var it = IT[p.it]; return {it:it, ok:p.my === it.ref}; }
+      var DOCS = ['대한국 국제 (1899)', '헌의 6조 (1898)', '내가 섞은 도식'];
+      var ACC = ['시행됨만', '일부 시행까지', '계획까지'];
+      var FLD = ['정치', '군사', '경제', '교통', '교육'];
+      var SHR = [['황제 단독', '대신·중추원 합동 서명'], ['황실 재정', '탁지부로 일원화·예산 공개']];
+      /* 분야별로 모아 세기 — 어디까지 '갖췄다'고 셀지는 학생이 정한다(교육용 모형 기준) */
+      function fieldsOf(acc){ var o = []; FLD.forEach(function(f){ if (IT.some(function(it){ return it.f === f && it.ref <= acc; })) o.push(f); }); return o; }
+      /* 권력 도식: 0=대한국 국제대로, 1=헌의 6조대로, 2=두 문서 조항을 내가 섞기 */
+      function flagsOf(p){ return p.doc === 0 ? {tre:0, fin:0} : p.doc === 1 ? {tre:1, fin:1} : {tre:p.tre, fin:p.fin}; }
+      function model(p){
+        var it = IT[p.it], fl = flagsOf(p), fs = fieldsOf(p.acc), share = fl.tre + fl.fin;
+        var instOk = fs.length >= p.need, powOk = share >= 1;
+        var verdict = instOk && powOk ? '제도도 권력 나눔도 내 기준을 넘음 — 근대 국가 꼴에 가깝다' :
+          instOk && !powOk ? '제도는 기준을 넘었지만 결정은 모두 황제 한 사람 — 이름만 바뀐 쪽에 가깝다' :
+          !instOk && powOk ? '권력은 나눠 적혔지만 갖춘 분야가 내 기준에 못 미침' :
+          '갖춘 분야도 기준 아래, 결정도 황제 단독';
+        return {it:it, ok:p.my === it.ref, fl:fl, fs:fs, got:fs.length, share:share, instOk:instOk, powOk:powOk, verdict:verdict};
+      }
       return {
         sceneHeight: 450,
-        idle: '항목과 나의 판정, 볼 문서를 고른 뒤 <b>판정 확인</b>을 누르세요.',
-        shortHint: '여섯 항목을 모두 판정해 보고, 두 문서를 번갈아 골라 "누가 정하는가"를 비교해 보세요.',
+        idle: '항목과 나의 판정, 셀 기준과 볼 문서를 고른 뒤 <b>판정 확인</b>을 누르세요.',
+        shortHint: '여섯 항목을 모두 판정해 보고, 셀 기준·기준 분야 수·섞은 도식을 바꿔 가며 판정이 어떻게 갈리는지 보세요.',
         params: [
           {key:'it', type:'seg', label:'광무개혁 항목', cols:3, value:0, options:IT.map(function(x){ return x.n; })},
           {key:'my', type:'seg', label:'나의 판정', cols:3, value:0, options:JD},
-          {key:'doc', type:'seg', label:'권력 도식으로 볼 문서', cols:2, value:0, options:DOCS}
+          {key:'acc', type:'seg', label:'분야를 "갖췄다"고 셀 기준', cols:3, value:0, options:ACC},
+          {key:'need', type:'range', label:'근대 국가로 볼 기준 (분야 몇 개 이상)', min:2, max:5, step:1, value:3, fmt:function(v){ return v + '개 이상'; }},
+          {key:'doc', type:'seg', label:'권력 도식으로 볼 문서', cols:3, value:0, options:DOCS},
+          {key:'tre', type:'seg', label:'섞은 도식 — 이권·조약은 누가 정하나', cols:2, value:0, options:SHR[0]},
+          {key:'fin', type:'seg', label:'섞은 도식 — 재정은 누가 맡나', cols:2, value:0, options:SHR[1]}
         ],
         compute: function(p){ return model(p); },
         draw: function(c, W, H, p, r, tau){
-          var m = r || model(p), sz = fz(W), k = r ? ease(tau / 0.7) : 0, cols = W < 560 ? 2 : 3, cw = (W - 20) / cols, ch = 50;
+          var m = r || model(p), sz = fz(W), k = r ? ease(tau / 0.7) : 0, cols = W < 560 ? 2 : 3, cw = (W - 20) / cols, ch = W < 560 ? 62 : 50;
           IT.forEach(function(it, i){ var x = 10 + (i % cols) * cw, y = 10 + Math.floor(i / cols) * (ch + 8), sel = i === p.it, done = r && sel && k > 0.6;
             rrect(c, x + 3, y, cw - 6, ch, 8, done ? JC[it.ref] : sel ? '#DCE7F5' : '#F1F3F6', sel ? PAL[0] : null, 2.5);
             tx(c, it.f, x + 12, y + 18, {size:sz - 5, color:done ? '#fff' : '#7A8794'});
             tx(c, it.s, x + 12, y + 39, {size:sz - 2, bold:true, color:done ? '#fff' : '#1E2833'});
-            if (done) tx(c, JD[it.ref], x + cw - 12, y + 39, {align:'right', size:sz - 3, bold:true, color:'#fff'}); });
+            // 좁은 화면: 판정 글을 아래 줄에
+            if (done) tx(c, JD[it.ref], W < 560 ? x + 12 : x + cw - 12, y + (W < 560 ? 56 : 39), {align:W < 560 ? 'left' : 'right', size:sz - 3, bold:true, color:'#fff'}); });
           var gy = 10 + Math.ceil(IT.length / cols) * (ch + 8) + 14, gh = H - gy - 54, cx = W / 2;
           rrect(c, 10, gy, W - 20, gh, 10, '#F7F9FC', '#D5DCE4', 1);
           tx(c, DOCS[p.doc], 22, gy + 22, {bold:true, size:sz - 1, color:PAL[3]});
@@ -506,27 +528,38 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           tasks.forEach(function(t, i){ var x = 20 + i * (W - 40) / 4 + (W - 40) / 8;
             rrect(c, x - bw / 2 + 4, ty - 22, bw - 8, bh, 8, '#EAF2F8', '#B8C4D2', 1.2); tx(c, t, x, ty, {align:'center', size:sz - 3, bold:true});
             if (k > 0) arrow(c, cx, ky + 14, lerp(cx, x, k), lerp(ky + 14, ty - 24, k), PAL[2], 2);
-            if (p.doc === 1 && (i === 2 || i === 3) && k > 0.4){ var sx = i === 2 ? (W < 560 ? 40 : 70) : W - (W < 560 ? 40 : 70);
+            if ((i === 2 ? m.fl.tre : i === 3 ? m.fl.fin : 0) && k > 0.4){ var sx = i === 2 ? (W < 560 ? 40 : 70) : W - (W < 560 ? 40 : 70);
               rrect(c, sx - 34, ky - 4, 68, 30, 8, '#E3F2EA', PAL[1], 1.5); tx(c, i === 2 ? '대신·중추원' : '탁지부', sx, ky + 16, {align:'center', size:sz - 5, bold:true, color:PAL[1]});
               arrow(c, sx, ky + 26, lerp(sx, x, k), lerp(ky + 26, ty - 24, k), PAL[1], 2.5); } });
-          tx(c, p.doc === 0 ? '모든 화살표가 황제에게서 — 의회 없음' : '이권·재정에 다른 기관의 서명·관리를 요구', 22, gy + gh - 6, {size:sz - 3, color:'#4A5868'});
+          tx(c, m.share === 0 ? '모든 화살표가 황제에게서 — 의회 없음' : m.share === 2 ? '이권·재정에 다른 기관의 서명·관리를 요구' : '둘 가운데 하나만 다른 기관과 나눔', 22, gy + gh - 6, {size:sz - 3, color:'#4A5868'});
           tx(c, r ? '나의 판정 ' + JD[p.my] + ' → 사료 ' + JD[m.it.ref] + (m.ok ? ' ✓' : ' ✕') : '판정 전', 14, H - 16, {bold:true, size:sz, color:r ? (m.ok ? PAL[1] : PAL[4]) : '#4A5868'});
         },
         stats: function(p, r){
           return [['항목', r.it.n + ' (' + r.it.f + ')'], ['사료 판정', JD[r.it.ref], JC[r.it.ref]], ['근거', r.it.ev], ['나의 판정', JD[p.my] + (r.ok ? ' — 같음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
-            ['권력 도식 (' + DOCS[p.doc] + ')', p.doc === 0 ? '군대·법률·조약 모두 황제 — 밖으로는 자주, 안으로는 황제 중심' : '이권 계약은 대신·중추원 의장 합동 서명, 재정은 탁지부 일원화·예산 공개', PAL[3]]];
+            ['권력 도식 (' + DOCS[p.doc] + ')', r.share === 0 ? '군대·법률·조약 모두 황제 — 밖으로는 자주, 안으로는 황제 중심' : r.share === 2 ? '이권 계약은 대신·중추원 의장 합동 서명, 재정은 탁지부 일원화·예산 공개' : '이권·조약 ' + SHR[0][r.fl.tre] + ' · 재정 ' + SHR[1][r.fl.fin], PAL[3]],
+            ['갖춘 분야 (' + ACC[p.acc] + '으로 셀 때)', r.got + '개 / 5개 — ' + r.fs.join('·'), PAL[0]],
+            ['내 기준', p.need + '개 이상 → ' + (r.instOk ? '넘음' : '못 넘음'), r.instOk ? PAL[1] : PAL[6]],
+            ['권력 나눔 점수', r.share + '/2 — 황제가 혼자 정하지 않는 일의 수', r.powOk ? PAL[1] : PAL[4]],
+            ['세어 본 판정 (교육용 모형 기준)', r.verdict, r.instOk && r.powOk ? PAL[1] : PAL[4]]];
         },
-        columns: ['항목', '분야', '나의 판정', '사료'],
-        record: function(p, r){ return {it:p.it, my:p.my, ok:r.ok, doc:p.doc}; },
-        row: function(d){ return [IT[d.it].s, IT[d.it].f, JD[d.my], JD[IT[d.it].ref] + (d.ok ? ' ✓' : '')]; },
+        columns: ['항목', '분야', '나의 판정', '사료', '갖춘 분야', '권력 나눔', '세어 본 판정'],
+        record: function(p, r){ return {it:p.it, my:p.my, ok:r.ok, doc:p.doc, acc:p.acc, need:p.need, got:r.got, share:r.share, io:r.instOk, po:r.powOk}; },
+        row: function(d){ return [IT[d.it].s, IT[d.it].f, JD[d.my], JD[IT[d.it].ref] + (d.ok ? ' ✓' : ''), d.got + '/5 (기준 ' + d.need + ')', d.share + '/2', (d.io ? '제도 ✓' : '제도 ✕') + ' · ' + (d.po ? '나눔 ✓' : '나눔 ✕')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('광무개혁 판정표', '<div id="gw1"></div><p class="ask">과제: 광무개혁 항목을 "정치·군사·경제·교통·교육"으로 나눠 표를 만들고, 각 항목에 "시행됨 / 일부 시행 / 계획만"을 사료 근거와 함께 표시해 보세요.</p>') +
-            card('바뀐 것과 안 바뀐 것', '<div id="gw2"></div><p class="ask">헌의 6조와 대한국 국제를 나란히 놓고, 권력을 누가 갖는지 비교하는 문장을 써 보세요.</p>') + '</div>';
+            card('바뀐 것과 안 바뀐 것', '<div id="gw2"></div><p class="ask">헌의 6조와 대한국 국제를 나란히 놓고, 권력을 누가 갖는지 비교하는 문장을 써 보세요.</p>') +
+            card('세어 보기 — 기준을 바꾸면 판정이 갈린다', '<div id="gw3"></div><p class="ask">같은 사료인데도 "어디까지 갖춘 것으로 셀까"와 "몇 분야 이상이면 근대 국가로 볼까"를 바꾸면 판정이 달라집니다. 내가 고른 기준과 그 까닭을 한 문장으로 써 보세요.</p>') + '</div>';
           var last = {}; rec.forEach(function(d){ last[d.it] = d; });
           $('gw1').innerHTML = tableHTML(['분야', '항목', '나', '사료', '근거'], IT.map(function(it, i){ var d = last[i]; return [it.f, it.s, d ? JD[d.my] + (d.ok ? ' ✓' : ' ✕') : '—', JD[it.ref], it.ev.split(' — ')[0]]; }));
           var cnt = [0, 0, 0]; IT.forEach(function(it){ cnt[it.ref]++; });
           $('gw2').innerHTML = hbars(JD.map(function(j, i){ return {label:j, v:cnt[i], color:JC[i], text:cnt[i] + '개 항목'}; }), 6) + '<p class="msg">간판 뒤에 공사판이 있었습니다. 다만 의회라는 방 하나는 열리지 않았어요.</p>';
+          var NE = [2, 3, 4, 5];
+          var grows = ACC.map(function(a, i){ var g = fieldsOf(i).length;
+            return [a + ' — ' + g + '개 분야'].concat(NE.map(function(n){ return g >= n ? '✓ 근대 국가 쪽' : '✕ 기준 미달'; })); });
+          var shared = rec.filter(function(d){ return d.share >= 1; }).length;
+          $('gw3').innerHTML = tableHTML(['갖췄다고 셀 기준', '2개 이상', '3개 이상', '4개 이상', '5개 이상'], grows) +
+            '<p class="msg">내 기록 ' + rec.length + '건 가운데 황제가 혼자 정하지 않는 도식으로 본 것이 ' + shared + '건입니다. 제도를 많이 세웠어도 결정이 모두 한 사람에게 모이면 "근대 국가"라고 말하기 어렵다는 것이 두 번째 축이에요. (표의 기준 수는 사료의 숫자가 아니라 <b>교육용 모형 기준</b>입니다.)</p>';
         }
       };
     
@@ -536,7 +569,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

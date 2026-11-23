@@ -233,16 +233,24 @@ button:active:not(:disabled){transform:translateY(1px) scale(.985);}
         <label>철가루 양(g) <b id="xVal">20</b></label>
         <input type="range" id="xSlider" min="0" max="50" step="2" value="20" aria-label="철가루 양(g)">
       </div>
+      <div class="control-row">
+        <label>주머니 공기 구멍 <b id="airVal">활짝</b></label>
+        <div class="btn-row" id="airOptions">
+          <button class="action" data-a="0">활짝</button>
+          <button class="action btn-ghost" data-a="1">반쯤</button>
+          <button class="action btn-ghost" data-a="2">조금</button>
+        </div>
+      </div>
       <div class="readout"><span>온도 상승폭</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 흔들고 측정하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
-      <div class="hint">💡 철가루의 양을 슬라이더로 정한 뒤 [흔들고 측정하기]를 눌러 보세요.</div>
+      <div class="hint">💡 철가루의 양과 <b>공기 구멍</b>을 정한 뒤 [흔들고 측정하기]를 눌러 보세요. 구멍을 줄이면 들어오는 산소가 적어서 <b>어느 양 이상에서는 더 뜨거워지지 않습니다</b>.<br><span style="color:#a86825">※ 구멍별로 반응할 수 있는 철가루의 한계(활짝 50 g·반쯤 30 g·조금 14 g)는 <b>교육용 모형값</b>이에요.</span></div>
     </div>
     <div class="card">
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>철가루 양(g)</th><th>온도 상승폭(℃)</th></tr></thead>
+          <thead><tr><th>#</th><th>철가루 양(g)</th><th>공기 구멍</th><th>온도 상승폭(℃)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -259,13 +267,13 @@ button:active:not(:disabled){transform:translateY(1px) scale(.985);}
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>철가루 양(g)</th><th>온도 상승폭(℃)</th><th>철가루 1g당 온도 상승(상승폭÷양)</th></tr></thead>
+        <thead><tr><th>#</th><th>철가루 양(g)</th><th>공기 구멍</th><th>온도 상승폭(℃)</th><th>철가루 1g당 온도 상승(상승폭÷양)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
     <canvas id="verifyChart" class="chart" width="1000" height="460" role="img" aria-label="손난로 발열 반응 실험 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
     <div style="margin-top:24px;">
-      <p class="qtext">Q. 철가루 양이 40g이면, 온도는 약 몇 ℃ 상승할까요?</p>
+      <p class="qtext">Q. 공기 구멍을 <b>활짝</b> 열어 둔 채 철가루 40g을 넣으면, 온도는 약 몇 ℃ 상승할까요?</p>
       <div class="predict-row">
         <input type="number" step="0.1" id="predictInput" aria-label="예측값 입력">
         <span style="color:var(--ink-soft);">℃</span>
@@ -523,7 +531,16 @@ function frameStart(){ const n=performance.now(); _dt=Math.min(50, n-_t0); _t0=n
 /* 철가루가 산소와 반응(산화)하며 열을 내놓는다.
 교육용 직선 모형: 철가루 1 g 당 손난로 속 온도가 약 0.6℃ 올라간다 (열용량·산소 공급·열손실 고정 가정) */
 const DEG_PER_G=0.6, T0=20;
-function riseOf(x){ return DEG_PER_G*x; }
+/* 공기 구멍 조작 — 들어오는 산소가 반응할 수 있는 철가루의 한계를 정한다(교육용 모형값).
+   한계를 넘는 철가루는 산소를 못 만나 반응하지 못하므로 온도가 더 오르지 않는다. */
+const AIR=[
+  {name:'활짝', feMax:50},      /* 기본값 — 슬라이더 최대(50 g)까지 모두 반응 = 원래의 정비례 모형 */
+  {name:'반쯤', feMax:30},
+  {name:'조금', feMax:14}
+];
+let air=0;
+function feUsedOf(x, a){ return Math.min(x, AIR[(a===undefined? air : a)].feMax); }
+function riseOf(x, a){ return DEG_PER_G*feUsedOf(x, a); }
 let heat=[], o2=[];
 const PK={x:150, y:150, rx:92, ry:60};
 
@@ -562,10 +579,11 @@ function drawDevice(){
     dctx.fillStyle= prog>0 ? 'rgb('+Math.round(150+hot*70)+','+Math.round(90-hot*40)+',40)' : '#6d767c';
     dctx.beginPath(); dctx.arc(gx,gy,3.2,0,Math.PI*2); dctx.fill();
   }
-  CAP(PK.x, PK.y+PK.ry+22, '철가루 '+curX+' g', 'rgba(23,50,56,0.9)', '#fff', 18);
+  CAP(PK.x, PK.y+PK.ry+22, (curX>feUsedOf(curX)+0.01 ? ('철가루 '+curX+'g·반응 '+feUsedOf(curX).toFixed(0)+'g') : ('철가루 '+curX+' g')), 'rgba(23,50,56,0.9)', '#fff', 18);
 
   /* 산소가 주머니 속으로 들어간다 */
-  while(o2.length<6) o2.push({t:Math.random(), y:PK.y-70+Math.random()*140});
+  while(o2.length < (air===0?6:(air===1?4:2))) o2.push({t:Math.random(), y:PK.y-70+Math.random()*140});
+  while(o2.length > (air===0?6:(air===1?4:2))) o2.pop();
   o2.forEach(m=>{
     m.t += (0.06+prog*0.24)*_dt/1000;
     if(m.t>1) m.t=0;
@@ -601,11 +619,16 @@ function drawDevice(){
   BAR(330, 240, DW-340, 16, rise/35, '#c1443c');
   CAP(px, 274, '+'+rise.toFixed(1)+' ℃', 'rgba(193,68,60,0.95)', '#fff', 18);
 
+  const feLim = curX > feUsedOf(curX)+0.01;
   NOTE(reacting
       ? '철가루가 산소와 반응하며 열을 내놓는 중입니다. 온도계가 올라갑니다.'
       : (prog>0
-         ? '온도가 '+riseOf(curX).toFixed(1)+'℃ 올랐습니다. <b>철가루가 많을수록 더 많은 열이 나옵니다.</b>'
-         : '손난로 속에 철가루를 넣었습니다. 실행 버튼을 눌러 반응시키세요.'));
+         ? (feLim
+            ? '온도가 '+riseOf(curX).toFixed(1)+'℃ 올랐습니다. 공기 구멍이 <b>'+AIR[air].name+'</b>이라 산소가 모자라 철가루 '+feUsedOf(curX).toFixed(0)+'g 만 반응했습니다. <b>철가루를 더 넣어도 더 뜨거워지지 않습니다.</b>'
+            : '온도가 '+riseOf(curX).toFixed(1)+'℃ 올랐습니다. <b>철가루가 많을수록 더 많은 열이 나옵니다.</b> (아직 산소가 넉넉해 넣은 철가루가 모두 반응했어요.)')
+         : (AIR[air].feMax < curX
+            ? '손난로 속에 철가루를 넣었습니다. 공기 구멍이 <b>'+AIR[air].name+'</b>이라 철가루 '+AIR[air].feMax+'g 까지만 반응할 수 있습니다. 실행 버튼을 눌러 반응시키세요.'
+            : '손난로 속에 철가루를 넣었습니다. 실행 버튼을 눌러 반응시키세요.')));
   requestAnimationFrame(drawDevice);
 }
 requestAnimationFrame(drawDevice);
@@ -614,19 +637,32 @@ const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('
 let curX=20;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; heat=[]; resetReaction(); });
 document.getElementById('measureBtn').addEventListener('click', startReaction);
+/* 공기 구멍 — 기본 '활짝'(원래 동작) */
+const airOptions=document.getElementById('airOptions'), airValEl=document.getElementById('airVal');
+airOptions.addEventListener('click',(e)=>{
+  const b=e.target.closest ? e.target.closest('button[data-a]') : null;
+  if(!b) return;
+  air=parseInt(b.dataset.a,10);
+  airValEl.textContent=AIR[air].name;
+  [].forEach.call(airOptions.querySelectorAll('button[data-a]'), bb=>{
+    bb.classList.toggle('btn-ghost', parseInt(bb.dataset.a,10)!==air);
+  });
+  heat=[]; resetReaction(); yVal.textContent='-';
+});
+
 function finishReaction(){
   const y=Math.max(0, riseOf(curX)*(1+(Math.random()*0.1-0.05)));   /* 측정 오차 ±5 % — 철가루 0 g 이면 0 ℃ */
   yVal.textContent=y.toFixed(1)+' ℃';
-  recordPoint(curX,y);
+  recordPoint(curX,y,air);
 }
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,a){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,a:(a===undefined?0:a)});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -637,7 +673,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + AIR[p.a].name + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -688,8 +724,9 @@ function drawAxes(c, ctxc, xMin, xMax, yMin, yMax, xLabel, yLabel, pad){
 function drawExploreChart(){
   const c = document.getElementById('chartCanvas'), cc = c.getContext('2d');
   const toPx = drawAxes(c,cc,CFG.chartXMin,CFG.chartXMax,CFG.chartYMin,CFG.chartYMax,CFG.xLabel,CFG.yLabel,56);
-  points.forEach(p => { const xy = toPx(p.x,p.y); cc.fillStyle = '#c1443c'; cc.beginPath(); cc.arc(xy[0],xy[1],5,0,Math.PI*2); cc.fill(); });
+  points.forEach(p => { const xy = toPx(p.x,p.y); cc.fillStyle = AIRCOL[p.a]; cc.beginPath(); cc.arc(xy[0],xy[1],5,0,Math.PI*2); cc.fill(); });
 }
+const AIRCOL=['#c1443c','#d98e3b','#2f8f9d'];   /* 활짝·반쯤·조금 점 색 */
 drawExploreChart();
 
 /* ===== 탭 전환 ===== */
@@ -719,14 +756,16 @@ function renderVerify(){
   notEnough.classList.add('hidden'); content.classList.remove('hidden');
 
   const sorted = [...points].sort((a,b)=>a.x-b.x);
-  regResult = linregress(sorted);
+  /* 추세선은 산소가 넉넉했던(반응이 멈추지 않은) 기록만으로 — 조건이 섞이면 추세가 엉킨다 */
+  const freePts = sorted.filter(p => p.x <= AIR[p.a].feMax + 0.01);
+  regResult = (freePts.length >= 2) ? linregress(freePts) : null;
 
   const body = document.getElementById('verifyBody'); body.innerHTML = '';
   sorted.forEach((p,i) => {
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + AIR[p.a].name + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + (p.x > AIR[p.a].feMax+0.01 ? ' (산소 한계)' : '') + '</td>';
     body.appendChild(tr);
   });
 
@@ -736,24 +775,41 @@ function renderVerify(){
 function drawVerifyChart(sorted){
   const c = document.getElementById('verifyChart'), cc = c.getContext('2d');
   const toPx = drawAxes(c,cc,CFG.chartXMin,CFG.chartXMax,CFG.chartYMin,CFG.chartYMax,CFG.xLabel,CFG.yLabel,60);
-  const slope = regResult.slope, intercept = regResult.intercept;
-  cc.strokeStyle = '#2f8f9d'; cc.setLineDash([6,5]); cc.lineWidth = 2;
-  cc.beginPath();
   const steps = 60, span = (CFG.chartXMax-CFG.chartXMin)/steps;
-  for (let i=0;i<=steps;i++){
-    const x = CFG.chartXMin+i*span;
-    let y = Math.max(CFG.chartYMin, Math.min(CFG.chartYMax, slope*x+intercept));
-    const xy = toPx(x,y);
-    if (i===0) cc.moveTo(xy[0],xy[1]); else cc.lineTo(xy[0],xy[1]);
+  if (regResult){
+    const slope = regResult.slope, intercept = regResult.intercept;
+    cc.strokeStyle = '#2f8f9d'; cc.setLineDash([6,5]); cc.lineWidth = 2;
+    cc.beginPath();
+    for (let i=0;i<=steps;i++){
+      const x = CFG.chartXMin+i*span;
+      let y = Math.max(CFG.chartYMin, Math.min(CFG.chartYMax, slope*x+intercept));
+      const xy = toPx(x,y);
+      if (i===0) cc.moveTo(xy[0],xy[1]); else cc.lineTo(xy[0],xy[1]);
+    }
+    cc.stroke(); cc.setLineDash([]);
   }
-  cc.stroke(); cc.setLineDash([]);
-  sorted.forEach(p => { const xy = toPx(p.x,p.y); cc.fillStyle = '#c1443c'; cc.beginPath(); cc.arc(xy[0],xy[1],5,0,Math.PI*2); cc.fill(); });
+  sorted.forEach(p => { const xy = toPx(p.x,p.y); cc.fillStyle = AIRCOL[p.a]; cc.beginPath(); cc.arc(xy[0],xy[1],5,0,Math.PI*2); cc.fill(); });
 }
 
 
 
 document.getElementById('checkBtn').addEventListener('click', () => {
-  if (!regResult) return;
+  const result0 = document.getElementById('verifyResult');
+  if (!regResult) {
+    result0.className = 'show';
+    result0.innerHTML = '추세선을 구하려면 <b>산소가 넉넉했던</b> 기록(공기 구멍 한계에 걸리지 않은 기록)이 2개 이상 필요해요. 공기 구멍을 <b>활짝</b>으로 두고 몇 번 더 재어 보세요.';
+    return;
+  }
+  const capped = points.filter(p => p.x > AIR[p.a].feMax+0.01);
+  let extra = '';
+  if (capped.length > 0) {
+    const w = capped[0];
+    extra = '<br><br>🔎 <b>산소 공급이 결론을 가릅니다.</b> 공기 구멍 ' + AIR[w.a].name + '에서 철가루 ' + w.x.toFixed(0)
+          + ' g 을 넣었을 때는 ' + AIR[w.a].feMax + ' g 만 반응해 온도가 ' + (0.6*AIR[w.a].feMax).toFixed(1)
+          + ' ℃ 선에서 <b>멈췄습니다</b>. 그 구간에서는 1 g 당 온도 상승 칸도 점점 작아집니다 — 발열량은 반응한 양이 정하고, 반응한 양은 <b>적은 쪽(산소)</b>이 정합니다.';
+  } else {
+    extra = '<br><br>🔎 <b>공기 구멍</b>을 조금으로 줄이고 철가루를 많이 넣어 보세요. 어느 양부터는 온도가 더 오르지 않는 구간이 생깁니다.';
+  }
   const predicted = regResult.slope*CFG.predictX + regResult.intercept;
   const input = parseFloat(document.getElementById('predictInput').value);
   const tol = Math.max(Math.abs(predicted*CFG.predictTolFrac), CFG.predictTolMin);
@@ -763,9 +819,9 @@ document.getElementById('checkBtn').addEventListener('click', () => {
   if (isNaN(input)) {
     result.innerHTML = '값을 입력해 주세요.';
   } else if (ok) {
-    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '정답에 가깝습니다! 👏 (산소가 넉넉했던 기록의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + extra;
   } else {
-    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '추세선을 다시 살펴보세요. (산소가 넉넉했던 기록의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + extra;
   }
 });
 

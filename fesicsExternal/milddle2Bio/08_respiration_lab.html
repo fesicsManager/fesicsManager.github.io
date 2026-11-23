@@ -250,6 +250,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>폐포 수(임의단위) <b id="xVal">50</b></label>
         <input type="range" id="xSlider" min="5" max="100" step="1" value="50" aria-label="폐포 수(임의단위)">
       </div>
+      <div class="control-row">
+        <label for="zSel">숨을 얼마나 들이쉬나요(환기량)</label>
+        <select id="zSel" aria-label="숨을 얼마나 들이쉬나요(환기량)" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">충분히 깊게 (기본)</option><option value="1">보통</option><option value="2">얕게 숨쉼</option></select>
+      </div>
       <div class="readout"><span>산소 흡수량</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -259,7 +263,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>폐포 수(임의단위)</th><th>산소 흡수량(mL/분)</th></tr></thead>
+          <thead><tr><th>#</th><th>폐포 수(임의단위)</th><th>환기량</th><th>산소 흡수량(mL/분)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -276,7 +280,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>폐포 수(임의단위)</th><th>산소 흡수량(mL/분)</th><th>폐포 수 대비 흡수 효율(흡수량÷폐포수)</th></tr></thead>
+        <thead><tr><th>#</th><th>폐포 수(임의단위)</th><th>환기량</th><th>산소 흡수량(mL/분)</th><th>폐포 수 대비 흡수 효율(흡수량÷폐포수)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -401,7 +405,10 @@ function BAR(x,y,w,h,frac,col){
 let _t0=performance.now(), _dt=16;
 
 /* 산소 흡수량 = 2 × 폐포 수 (mL/분) — 표면적이 넓을수록 많이 흡수한다 */
-function o2Of(x){ return 2*x; }   /* 교육용 직선 모형: 표면적 효과만 반영. 실제는 환기·관류·농도차·막 두께도 제한 요인 */
+/* 들이쉰 공기가 모자라면 폐포를 더 늘려도 산소를 더 받을 수 없다(천장이 생긴다).
+   '충분히 깊게'는 천장이 사실상 없어 예전 식과 같다. ※ 숫자는 교육용 모형값. */
+var ZOPT=[{n:'충분히 깊게 숨쉼', s:'충분', cap:1e9},{n:'보통으로 숨쉼', s:'보통', cap:60},{n:'얕게 숨쉼', s:'얕게', cap:25}];
+function o2Of(x){ return Math.min(ZOPT[curZ].cap, 2*x); }   /* 교육용 직선 모형: 표면적 효과만 반영. 실제는 환기·관류·농도차·막 두께도 제한 요인 */
 let o2p=[];
 
 function alveolus(cx,cy,r,br){
@@ -485,27 +492,42 @@ function drawDevice(){
   CAP(70, 30, '폐포 수 '+x, 'rgba(23,50,56,0.9)', '#fff', 19);
   CAP(360, 30, spots.length+'개 표시', 'rgba(255,255,255,0.96)', '#4a636a', 18);
   CAP(220, DH-52, '산소 흡수량 '+o2.toFixed(0)+' mL/분', 'rgba(217,142,59,0.95)', '#fff', 19);
-  CAP(220, DH-8, '폐포가 많을수록 표면적이 넓어져 산소를 더 많이 받아들인다', 'rgba(255,255,255,0.96)', '#173238', 17);
+  CAP(220, DH-17, '폐포가 많을수록 표면적이 넓어져 산소를 더 많이 받아들인다', 'rgba(255,255,255,0.96)', '#173238', 17);
   requestAnimationFrame(drawDevice);
 }
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>환기량을 바꿔 보면 (내 기록으로 계산)</b> 보통·얕게 숨쉬는 경우로도 몇 개 더 재 보면, 표면적만으로 결론이 나는지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>환기량을 바꿔 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'환기량을 줄이면 폐포를 더 늘려도 산소 흡수량이 <b>더는 늘지 않는 천장</b>이 생겼습니다. 그래서 "표면적이 넓으면 많아진다"는 말만으로는 끝나지 않아요 — 숨을 들이쉬는 양과 피가 실어 가는 양이 함께 정합니다.';
+}
 let curX=50;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   const y=Math.max(0, o2Of(curX)+(Math.random()*10-5));
   yVal.textContent=y.toFixed(0)+' mL/분';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -516,7 +538,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -605,7 +627,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -637,7 +659,7 @@ document.getElementById('interpretOptions').addEventListener('click', (e) => {
   const ok = sel === CFG.correctOpt;
   const result = document.getElementById('verifyResult');
   result.className = 'show';
-  result.innerHTML = (ok ? '정답입니다! 👏' : '다시 생각해 보세요.') + '<br><br>' + CFG.finalExplain;
+  result.innerHTML = (ok ? '정답입니다! 👏' : '다시 생각해 보세요.') + '<br><br>' + CFG.finalExplain + zNote();
 });
 
 

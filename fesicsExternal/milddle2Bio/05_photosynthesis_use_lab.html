@@ -249,6 +249,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>하루 중 빛을 받는 시간(시간) <b id="xVal">12</b></label>
         <input type="range" id="xSlider" min="0" max="24" step="1" value="12" aria-label="하루 중 빛을 받는 시간(시간)">
       </div>
+      <div class="control-row">
+        <label for="zSel">그날의 온도(하루 호흡량)</label>
+        <select id="zSel" aria-label="그날의 온도(하루 호흡량)" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">보통 — 하루 48단위 소비 (기본)</option><option value="1">따뜻함 — 하루 72단위</option><option value="2">더움 — 하루 96단위</option></select>
+      </div>
       <div class="readout"><span>하루 순양분량</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -258,7 +262,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>하루 중 빛을 받는 시간(시간)</th><th>하루 순양분량(단위)</th></tr></thead>
+          <thead><tr><th>#</th><th>하루 중 빛을 받는 시간(시간)</th><th>호흡량</th><th>하루 순양분량(단위)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -275,7 +279,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>하루 중 빛을 받는 시간(시간)</th><th>하루 순양분량(단위)</th><th>순양분 부호(자동 판정)</th></tr></thead>
+        <thead><tr><th>#</th><th>하루 중 빛을 받는 시간(시간)</th><th>호흡량</th><th>하루 순양분량(단위)</th><th>순양분 부호(자동 판정)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -410,7 +414,11 @@ let _t0=performance.now(), _dt=16;
 실제로는 빛 세기·온도·CO₂에 따라 생산·소비가 모두 변함 */
 const MAKE_PER_H=5, USE_PER_DAY=48;
 function makeOf(x){ return MAKE_PER_H*x; }
-function netOf(x){ return makeOf(x)-USE_PER_DAY; }
+/* 온도가 높으면 호흡으로 쓰는 양이 늘어난다. '보통'은 48단위라 예전 결과가 그대로 나온다.
+   ※ 숫자는 교육용 모형값. */
+var ZOPT=[{n:'보통 (하루 48단위 소비)', s:'보통 48', use:48},{n:'따뜻함 (하루 72단위)', s:'따뜻 72', use:72},{n:'더움 (하루 96단위)', s:'더움 96', use:96}];
+function useOf(){ return ZOPT[curZ].use; }
+function netOf(x){ return makeOf(x)-useOf(); }   /* 호흡량이 커지면 양분이 남기 시작하는 시간(광보상점)도 뒤로 밀린다 */
 let grains=[];   /* 잎에서 만들어져 뿌리로 내려가는 양분 알갱이 */
 
 function drawDevice(){
@@ -447,7 +455,7 @@ function drawDevice(){
   /* 만들어진 양분(초록)이 잎에서 뿌리로 내려간다 */
   if(x>0 && Math.random() < make/260) grains.push({x:px+(Math.random()-0.5)*40, y:158, kind:'make'});
   /* 호흡으로 쓰이는 양분(회색)은 사라진다 */
-  if(Math.random() < USE_PER_DAY/260) grains.push({x:px+(Math.random()-0.5)*40, y:groundY+18, kind:'use'});
+  if(Math.random() < useOf()/260) grains.push({x:px+(Math.random()-0.5)*40, y:groundY+18, kind:'use'});
   for(let i=grains.length-1;i>=0;i--){
     const g=grains[i];
     if(g.kind==='make'){
@@ -466,7 +474,7 @@ function drawDevice(){
   const gx=232, gy0=96, gh=132, maxV=120;
   dctx.strokeStyle='#c9d6d2'; dctx.lineWidth=1.4;
   dctx.beginPath(); dctx.moveTo(gx-12, gy0+gh); dctx.lineTo(DW-18, gy0+gh); dctx.stroke();
-  const mh=make/maxV*gh, uh=USE_PER_DAY/maxV*gh;
+  const mh=make/maxV*gh, uh=useOf()/maxV*gh;
   dctx.fillStyle='#3f9b5b'; dctx.fillRect(gx, gy0+gh-mh, 44, mh);
   dctx.fillStyle='#9aa4a4'; dctx.fillRect(gx+64, gy0+gh-uh, 44, uh);
   dctx.fillStyle='#4a636a'; dctx.font="600 16px 'Noto Sans KR', sans-serif"; dctx.textAlign='center';
@@ -497,21 +505,36 @@ function drawDevice(){
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>호흡량을 바꿔 보면 (내 기록으로 계산)</b> 따뜻한 경우·더운 경우로도 몇 개 더 기록하면, 균형점이 어디로 움직이는지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>호흡량을 바꿔 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'호흡으로 쓰는 양이 늘면 양분이 남기 시작하는 시간(광보상점)이 <b>뒤로 밀렸습니다</b>(48단위 약 9.6시간 → 72단위 약 14.4시간 → 96단위 약 19.2시간). 더운 날에는 같은 햇빛으로도 양분이 남지 않을 수 있어요.';
+}
 let curX=12;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   const y=netOf(curX)+(Math.random()*6-3);
   yVal.textContent=y.toFixed(1)+' 단위';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -522,7 +545,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -612,7 +635,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -649,9 +672,9 @@ document.getElementById('checkBtn').addEventListener('click', () => {
   if (isNaN(input)) {
     result.innerHTML = '값을 입력해 주세요.';
   } else if (ok) {
-    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   } else {
-    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   }
 });
 

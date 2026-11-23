@@ -259,6 +259,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">빗면의 마찰계수 μ: <span class="slider-val" id="uVal">0.20</span></div>
             <input type="range" id="uSlider" min="0" max="50" step="5" value="20" aria-label="빗면의 마찰계수 μ">
+            <div class="control-label">빗면의 각도: <span class="slider-val" id="aVal">30</span> °</div>
+            <input type="range" id="aSlider" min="15" max="60" step="5" value="30" aria-label="빗면의 각도">
             <button class="btn-main" id="runBtn">수레를 미끄러뜨리기 ▶</button>
             <div class="result-box" id="result">마찰계수를 정하고 미끄러뜨리면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -267,8 +269,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">측정 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>μ</th><th>도착 속력(m/s)</th><th>운동 에너지(J)</th><th>열에너지(J)</th><th>손실률(%)</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>μ</th><th>각도(°)</th><th>빗면 길이(m)</th><th>도착 속력(m/s)</th><th>운동 에너지(J)</th><th>열에너지(J)</th><th>손실률(%)</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="8" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
@@ -510,24 +512,39 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 }
 /* ================= 실험 ================= */
 
-var G=9.8, M=1.0, Hh=2.0, THETA=30*Math.PI/180, LEN=Hh/Math.sin(THETA);  /* 4m */
-var E0=M*G*Hh;                                    /* 19.6 J */
-function heat(mu){ return mu*M*G*Math.cos(THETA)*LEN; }
+var G=9.8, M=1.0, Hh=2.0, ANG=30, THETA=30*Math.PI/180, LEN=Hh/Math.sin(THETA);  /* 30°일 때 4m */
+var E0=M*G*Hh;                                    /* 19.6 J — 높이가 2m 로 고정이라 각도를 바꿔도 그대로 */
+/* 마찰이 하는 일 = μ·m·g·cosθ·(빗면 길이) = μ·m·g·h ÷ tanθ → 같은 μ라도 각도에 따라 달라진다 */
+function heat(mu){ return Math.min(E0, mu*M*G*Math.cos(THETA)*LEN); }
 function kinetic(mu){ return Math.max(0, E0-heat(mu)); }
 function speed(mu){ return Math.sqrt(2*kinetic(mu)/M); }
 function lossPct(mu){ return heat(mu)/E0*100; }
+function slides(mu){ return mu < Math.tan(THETA)-1e-9; }   /* μ가 tanθ 보다 크면 아예 미끄러지지 않는다 */
 
 var mu=0.20, records=[], busy=false, revealed=false, run=0, sparks=[];
 var canvas=document.getElementById('fCanvas'), ctx=canvas.getContext('2d');
 var AX=52, AY=88, BX=330, BY=272;                 /* 빗면 위끝 → 아래끝 */
+/* 각도를 바꾸면 그림의 기울기도 바뀐다 (30°일 때 예전과 똑같은 모양) */
+function layout(){ AY = Math.round(BY - Math.max(60, Math.min(230, 278*Math.tan(THETA)*1.146))); }
+layout();
 
+function resetRun(){
+  run=0; revealed=false; sparks=[];
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='마찰계수와 각도를 정하고 미끄러뜨리면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+}
 document.getElementById('uSlider').addEventListener('input',function(e){
   mu=parseInt(e.target.value,10)/100;
   document.getElementById('uVal').textContent=mu.toFixed(2);
-  run=0; revealed=false; sparks=[];
-  document.getElementById('result').className='result-box';
-  document.getElementById('result').innerHTML='마찰계수를 정하고 미끄러뜨리면 결과가 표에 자동으로 기록됩니다.';
-  draw();
+  resetRun();
+});
+document.getElementById('aSlider').addEventListener('input',function(e){
+  ANG=parseInt(e.target.value,10);
+  THETA=ANG*Math.PI/180; LEN=Hh/Math.sin(THETA);
+  document.getElementById('aVal').textContent=ANG;
+  layout();
+  resetRun();
 });
 
 function draw(){
@@ -560,7 +577,7 @@ function draw(){
   ctx.fillStyle='#c1443c'; ctx.font="700 17px 'Noto Sans KR',sans-serif"; ctx.textAlign='right';
   ctx.fillText('2m', AX-20, (AY+BY)/2);
   ctx.fillStyle='#4a636a'; ctx.font="600 16px 'Noto Sans KR',sans-serif"; ctx.textAlign='left';
-  ctx.fillText('30° · 빗면 4m', AX+40, BY-12);
+  ctx.fillText(ANG+'° · 빗면 '+LEN.toFixed(2)+'m', AX+40, BY-12);
 
   /* 마찰 열 자국 */
   sparks.forEach(function(s){
@@ -607,16 +624,18 @@ function draw(){
   ctx.fillStyle='#e9f1f0'; ctx.fillRect(0,336,440,84);
   ctx.textAlign='center';
   if(revealed){
-    ctx.fillStyle='#173238'; ctx.font="700 22px 'Noto Sans KR',sans-serif";
-    ctx.fillText('도착 속력 '+v.toFixed(2)+' m/s · 손실률 '+lossPct(mu).toFixed(0)+'%', 220, 364);
+    ctx.fillStyle='#173238'; ctx.font="700 21px 'Noto Sans KR',sans-serif";
+    ctx.fillText('도착 속력 '+v.toFixed(2)+' m/s · 손실률 '+lossPct(mu).toFixed(0)+'%', 220, 360);
     ctx.fillStyle='#4a636a'; ctx.font="600 18px 'IBM Plex Mono',monospace";
-    ctx.fillText('운동 '+Ek.toFixed(1)+'J + 열 '+Q.toFixed(1)+'J = '+E0.toFixed(1)+'J', 220, 390);
-    ctx.font="600 17px 'Noto Sans KR',sans-serif";
-    ctx.fillText('사라진 게 아니라 열로 바뀐 것입니다', 220, 412);
+    ctx.fillText('운동 '+Ek.toFixed(1)+'J + 열 '+Q.toFixed(1)+'J = '+E0.toFixed(1)+'J', 220, 386);
+    ctx.font="600 16px 'Noto Sans KR',sans-serif";
+    ctx.fillStyle = slides(mu) ? '#4a636a' : '#c1443c';
+    ctx.fillText(slides(mu) ? 'μ '+mu.toFixed(2)+' · '+ANG+'° — 사라진 게 아니라 열로 바뀐 것입니다'
+                            : 'μ가 tan'+ANG+'°('+Math.tan(THETA).toFixed(2)+')보다 커서 아예 미끄러지지 않아요', 220, 410);
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
-    ctx.fillText('"수레를 미끄러뜨리기"를 눌러보세요', 220, 368);
-    ctx.fillText('마찰계수 μ = '+mu.toFixed(2), 220, 396);
+    ctx.fillText('"수레를 미끄러뜨리기"를 눌러보세요', 220, 364);
+    ctx.fillText('마찰계수 μ = '+mu.toFixed(2)+' · 각도 '+ANG+'°', 220, 392);
   }
   ctx.textAlign='left';
 }
@@ -625,13 +644,13 @@ draw();
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return Math.abs(r.mu-mu)<1e-6; })){
-    notify('이미 측정한 마찰계수예요. 다른 값을 골라보세요.');
+  if(records.some(function(r){ return Math.abs(r.mu-mu)<1e-6 && r.ang===ANG; })){
+    notify('이미 측정한 조합이에요. 마찰계수나 각도를 바꿔보세요.');
     return;
   }
   busy=true; revealed=false; run=0; sparks=[];
   var btn=this; btn.disabled=true;
-  lockInputs('#uSlider', true);
+  lockInputs('#uSlider,#aSlider', true);
   /* 마찰이 클수록 느리게 내려온다 */
   var dur=900+2000*(mu/0.5);
   var t0=performance.now();
@@ -652,8 +671,8 @@ document.getElementById('runBtn').addEventListener('click', function(){
     else{
       run=1; revealed=true; draw();
       btn.disabled=false; busy=false;
-      lockInputs('#uSlider', false);
-      records.push({mu:mu, v:speed(mu), Ek:kinetic(mu), Q:heat(mu), loss:lossPct(mu)});
+      lockInputs('#uSlider,#aSlider', false);
+      records.push({mu:mu, ang:ANG, len:LEN, v:speed(mu), Ek:kinetic(mu), Q:heat(mu), loss:lossPct(mu), slid:slides(mu)});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
@@ -668,10 +687,10 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  var s=records.slice().sort(function(a,b){ return a.mu-b.mu; });
+  if(!records.length){ tb.innerHTML='<tr><td colspan="8" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  var s=records.slice().sort(function(a,b){ return (a.ang-b.ang)||(a.mu-b.mu); });
   tb.innerHTML=s.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.mu.toFixed(2)+'</td><td>'+r.v.toFixed(2)+'</td><td>'+r.Ek.toFixed(1)+'</td>'
+    return '<tr><td>'+(i+1)+'</td><td>'+r.mu.toFixed(2)+'</td><td>'+r.ang+'</td><td>'+r.len.toFixed(2)+'</td><td>'+r.v.toFixed(2)+'</td><td>'+r.Ek.toFixed(1)+'</td>'
       +'<td>'+r.Q.toFixed(1)+'</td><td>'+r.loss.toFixed(0)+'</td></tr>';
   }).join('');
 }
@@ -687,31 +706,58 @@ function renderValidation(){
   document.getElementById('lockedMsg').style.display='none';
   document.getElementById('validationContent').style.display='block';
 
-  var s=records.slice().sort(function(a,b){ return a.mu-b.mu; });
+  var all=records.slice().sort(function(a,b){ return a.mu-b.mu; });
+  var byA={};
+  all.forEach(function(r){ (byA[r.ang]=byA[r.ang]||[]).push(r); });
+  var Ak=Object.keys(byA).map(Number).sort(function(a,b){ return a-b; });
+  var curA=records[records.length-1].ang;
+  var s=(byA[curA] && byA[curA].length>=2) ? byA[curA] : all;
   var pts=s.map(function(r){ return {x:r.mu, y:r.loss}; });
   var reg=linreg(pts.map(function(p){return p.x;}), pts.map(function(p){return p.y;}));
-  drawScatter(document.getElementById('lChart'), pts, '마찰계수 μ', '에너지 손실률 (%)', reg);
+  drawScatter(document.getElementById('lChart'), all.map(function(r){ return {x:r.mu, y:r.loss}; }),
+    '마찰계수 μ', '에너지 손실률 (%)', Ak.length===1?reg:null);
   renderValidation._reg=reg;
 
   document.getElementById('listAnalysis').innerHTML =
-    s.map(function(r){
-      return '<div class="mini-row"><span>μ = '+r.mu.toFixed(2)+'</span><span class="mono">속력 '+r.v.toFixed(2)
+    all.map(function(r){
+      return '<div class="mini-row"><span>μ = '+r.mu.toFixed(2)+' · '+r.ang+'°</span><span class="mono">속력 '+r.v.toFixed(2)
         +' m/s · 손실 '+r.loss.toFixed(0)+'%</span></div>';
     }).join('')
-    + '<div class="insight-box">자동 분석: 손실률은 μ에 <b>정비례</b>하고 기울기가 <span class="mono">'+reg.m.toFixed(0)
-    + '</span>입니다. μ가 커질수록 도착 속력이 뚝뚝 떨어졌죠. '
-    + '거친 면일수록 같은 거리를 미끄러지는 동안 마찰이 더 많은 일을 하기 때문입니다.</div>';
+    + '<div class="insight-box">자동 분석: 같은 각도에서는 손실률이 μ에 <b>정비례</b>하고 기울기가 <span class="mono">'+reg.m.toFixed(0)
+    + '</span>입니다. 거친 면일수록 같은 거리를 미끄러지는 동안 마찰이 더 많은 일을 하기 때문이에요.</div>'
+    + (function(){
+        /* 같은 μ, 다른 각도 묶음을 찾아 '각도도 손실률을 가른다'를 보인다 */
+        var byMu={};
+        all.forEach(function(r){ var k=r.mu.toFixed(2); (byMu[k]=byMu[k]||[]).push(r); });
+        var same=null;
+        Object.keys(byMu).forEach(function(k){ if(!same && byMu[k].length>=2){ var as={}; byMu[k].forEach(function(r){ as[r.ang]=1; }); if(Object.keys(as).length>=2) same=byMu[k]; } });
+        var rows=Ak.map(function(a){
+          var th=a*Math.PI/180;
+          return '<div class="mini-row"><span>'+a+'° (빗면 '+(Hh/Math.sin(th)).toFixed(2)+'m · tan = '+Math.tan(th).toFixed(2)+')</span>'
+            + '<span class="mono">μ 1당 손실 '+(100/Math.tan(th)).toFixed(0)+'%p</span></div>';
+        }).join('');
+        if(same){
+          var g=same.slice().sort(function(a,b){ return a.ang-b.ang; });
+          return rows+'<div class="insight-box">자동 분석: <b>같은 μ = '+g[0].mu.toFixed(2)+'</b>인데 각도를 '
+            + g.map(function(r){ return r.ang+'°'; }).join(' · ')+' 로 바꾸니 손실률이 '
+            + g.map(function(r){ return r.loss.toFixed(0)+'%'; }).join(' → ')+' 로 <b>달라졌습니다</b>. '
+            + '같은 높이를 내려오더라도 <b>완만한 빗면은 그만큼 길어서</b> 마찰이 일하는 거리가 길어지기 때문이에요 — '
+            + '손실률 = μ ÷ tan(각도) 입니다. 그래서 ‘μ만 보고’ 손실을 말할 수 없어요.</div>';
+        }
+        return rows+'<div class="insight-box wait">같은 μ 를 그대로 두고 <b>각도만</b> 바꿔 한 번 더 재 보세요. '
+          + '같은 마찰계수에서도 손실률이 달라지는 것을 볼 수 있어요 (손실률 = μ ÷ tan(각도)).</div>';
+      })();
 
-  var sums=records.map(function(r){ return r.Ek+r.Q; });
+  var sums=all.map(function(r){ return r.Ek+r.Q; });
   var avg=sums.reduce(function(a,b){return a+b;},0)/sums.length;
   var spread=Math.max.apply(null,sums)-Math.min.apply(null,sums);
   document.getElementById('invariantAnalysis').innerHTML =
-    s.map(function(r){
-      return '<div class="mini-row"><span>운동 '+r.Ek.toFixed(1)+' + 열 '+r.Q.toFixed(1)+'</span><span class="mono">'
+    all.map(function(r){
+      return '<div class="mini-row"><span>'+r.ang+'° · 운동 '+r.Ek.toFixed(1)+' + 열 '+r.Q.toFixed(1)+'</span><span class="mono">'
         +(r.Ek+r.Q).toFixed(2)+' J</span></div>';
     }).join('')
     + '<div class="insight-box">자동 분석: 마찰이 아무리 커져도 <b>운동 에너지 + 열에너지 = '+avg.toFixed(1)
-    + ' J</b>로 항상 같습니다 (차이 '+spread.toFixed(3)+'J). 처음 위치 에너지 19.6J 그대로예요. '
+    + ' J</b>로 항상 같습니다 (차이 '+spread.toFixed(3)+'J). 각도를 바꿔도 높이가 2m 로 같으니 처음 위치 에너지 19.6J 그대로예요. '
     + '<b>역학적 에너지</b>만 보면 줄어든 것 같지만, 열까지 세면 <b>에너지 총량은 보존</b>됩니다.</div>';
 }
 

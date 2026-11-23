@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -442,8 +444,26 @@ var LAB = (function(){
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function neg(v){ return [-v[0], -v[1], -v[2]]; }
       function fid(v){ for (var i = 0; i < 6; i++) if (FV[i][0] === v[0] && FV[i][1] === v[1] && FV[i][2] === v[2]) return i; return -1; }
-      function fold(k){
-        var C = NETS[k].c, key = function(x, y){ return x + ',' + y; }, idx = {}, face = [], order = [], q = [0], fr = [];
+      var MV = ['그대로', '마지막 칸 왼쪽으로', '마지막 칸 오른쪽으로', '마지막 칸 위로', '마지막 칸 아래로'];
+      var MD = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]];
+      /* 마지막 칸을 내가 옮겨 새 모양을 만든다 (겹치거나 떨어지면 옮기지 않는다) */
+      function netOf(k, mv){
+        var C = NETS[k].c.map(function(q){ return [q[0], q[1]]; });
+        if (!mv) return C;
+        var last = C.length - 1, nx = C[last][0] + MD[mv][0], ny = C[last][1] + MD[mv][1];
+        var taken = false, touch = false, i;
+        for (i = 0; i < C.length; i++){ if (i === last) continue;
+          if (C[i][0] === nx && C[i][1] === ny) taken = true;
+          if (Math.abs(C[i][0] - nx) + Math.abs(C[i][1] - ny) === 1) touch = true; }
+        if (taken || !touch) return NETS[k].c.map(function(q){ return [q[0], q[1]]; });
+        C[last] = [nx, ny];
+        var mnx = 99, mny = 99;
+        C.forEach(function(q){ if (q[0] < mnx) mnx = q[0]; if (q[1] < mny) mny = q[1]; });
+        return C.map(function(q){ return [q[0] - mnx, q[1] - mny]; });
+      }
+      function moved(k, mv){ var a = NETS[k].c, b = netOf(k, mv); for (var i = 0; i < a.length; i++) if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return true; return false; }
+      function fold(k, mv){
+        var C = netOf(k, mv), key = function(x, y){ return x + ',' + y; }, idx = {}, face = [], order = [], q = [0], fr = [];
         C.forEach(function(p, i){ idx[key(p[0], p[1])] = i; });
         fr[0] = {n:FV[0], u:FV[1], v:FV[5]}; face[0] = 0; order.push(0);
         while (q.length){
@@ -473,24 +493,34 @@ var LAB = (function(){
         params: [
           {key:'k', type:'seg', label:'정사각형 6장을 이어 붙인 모양', cols:3, value:1, options:NETS.map(function(N){ return N.n + ' — ' + N.d; })},
           {key:'g', type:'seg', label:'예측: 정사각형 6개를 변끼리 이어 붙인 모양은 언제나 접어서 정육면체를 만들 수 있을까?', cols:2, value:0, options:PG,
-            note:'뭉치는 "6개면 무조건 주사위! ①"이라고 했어요.'}
+            note:'뭉치는 "6개면 무조건 주사위! ①"이라고 했어요.'},
+          {key:'mv', type:'seg', label:'내가 붙여 만들기 — 마지막 칸 옮기기', cols:3, value:0, options:MV,
+            note:'마지막 칸을 옮겨 내 모양을 만들어 보세요. 다른 칸과 겹치거나 떨어지는 자리로는 옮겨지지 않아요. 옮긴 모양도 접히는지 직접 확인해 보세요.'}
         ],
-        compute: function(p){ var F = fold(p.k); F.k = p.k; F.res = res(F); F.right = p.g === 1; return F; },
+        compute: function(p){
+          var F = fold(p.k, p.mv); F.k = p.k; F.mv = p.mv; F.res = res(F); F.right = p.g === 1;
+          F.mvd = moved(p.k, p.mv);
+          F.vd = !p.mv ? (F.ok ? '준비된 모양 ' + NETS[p.k].n + '은 접혀요' : '준비된 모양 ' + NETS[p.k].n + '은 접히지 않아요')
+            : !F.mvd ? '그 자리로는 옮길 수 없어요 (겹치거나 떨어져요)'
+            : F.ok ? '내가 옮긴 모양도 접혀요' : '내가 옮긴 모양은 접히지 않아요';
+          return F;
+        },
         draw: function(c, W, H, p, r, tau){
-          var nar = W < 560, N = NETS[p.k], gx = 20, gy = 40, F = fold(p.k);
-          var cols = 1 + Math.max.apply(null, N.c.map(function(q){ return q[0]; }));   /* 한 줄로 6칸('나')도 좁은 화면 안에 들어가게 칸 크기를 폭에 맞춘다 */
+          var nar = W < 560, N = NETS[p.k], gx = 20, gy = 40, F = fold(p.k, p.mv), CC2 = netOf(p.k, p.mv);
+          var cols = 1 + Math.max.apply(null, CC2.map(function(q){ return q[0]; }));   /* 한 줄로 6칸('나')도 좁은 화면 안에 들어가게 칸 크기를 폭에 맞춘다 */
+          var rowsN = 1 + Math.max.apply(null, CC2.map(function(q){ return q[1]; }));
           var s = nar ? Math.min(40, Math.floor((W - gx - 14) / cols)) : 46;
-          T(c, '모양 ' + N.n, gx, 24, nar ? 15 : 17, '#1E2833', 'left', true);
+          T(c, '모양 ' + N.n + (p.mv && moved(p.k, p.mv) ? ' (내가 옮김)' : ''), gx, 24, nar ? 15 : 17, '#1E2833', 'left', true);
           var e = r ? Math.min(1, tau * 1.25) : 0, shown = r ? Math.floor(e * 6 + 1e-9) : 0, vis = {};
           F.order.slice(0, shown).forEach(function(i){ vis[i] = 1; });
-          N.c.forEach(function(pt, i){
+          CC2.forEach(function(pt, i){
             var x = gx + pt[0] * s, y = gy + pt[1] * s, f = F.face[i], bad = F.cnt[f] > 1;
             c.fillStyle = vis[i] ? (bad && tau >= 0.95 ? '#F9D9D6' : '#DDF1E8') : '#F3F6F9'; c.fillRect(x, y, s, s);
             c.strokeStyle = '#1E2833'; c.lineWidth = i === 0 ? 3.5 : 1.5; c.strokeRect(x, y, s, s);
             if (vis[i]){ T(c, FN[f], x + s / 2, y + s / 2 + (F.ok && tau >= 0.95 ? -2 : 5), nar ? Math.min(12, Math.round(s * 0.42)) : 13, bad ? PAL[4] : PAL[1], 'center', true);
               if (F.ok && tau >= 0.95) T(c, '●' + DICE[f], x + s / 2, y + s / 2 + 16, 11, PAL[3], 'center', true); }
           });
-          var bx = nar ? 20 : gx + 6 * s + 50, by = nar ? gy + 3 * s + 34 : 40, bw = nar ? (W - 50) / 3 : Math.min(110, (W - bx - 30) / 3), bh = 46;
+          var bx = nar ? 20 : gx + 6 * s + 50, by = nar ? gy + rowsN * s + 34 : 40, bw = nar ? (W - 50) / 3 : Math.min(110, (W - bx - 30) / 3), bh = 46;
           T(c, '정육면체의 면 자리', bx, by - 10, 13, '#5C6B7A', 'left', true);
           for (var f = 0; f < 6; f++){
             var x = bx + (f % 3) * (bw + 6), y = by + Math.floor(f / 3) * (bh + 8), n = 0;
@@ -509,23 +539,25 @@ var LAB = (function(){
         },
         stats: function(p, r){
           var N = NETS[r.k];
-          return [['모양', N.n + ' — ' + N.d], ['접어 보면', r.res, r.ok ? PAL[1] : PAL[4]], ['정육면체 전개도인가', r.ok ? '그렇다' : '아니다', r.ok ? PAL[1] : PAL[4]],
-            ['면 자리별 장 수', FN.map(function(f, i){ return f + ' ' + r.cnt[i]; }).join(' · ')], ['내 예측', PG[p.g] + (r.right ? ' — ○' : ' — ✕'), r.right ? PAL[1] : PAL[4]]];
+          return [['모양', N.n + ' — ' + N.d], ['내가 옮긴 칸', MV[r.mv] + (r.mv && !r.mvd ? ' (옮기지 못함)' : '')],
+            ['접어 보면', r.res, r.ok ? PAL[1] : PAL[4]], ['정육면체 전개도인가', r.ok ? '그렇다' : '아니다', r.ok ? PAL[1] : PAL[4]],
+            ['면 자리별 장 수', FN.map(function(f, i){ return f + ' ' + r.cnt[i]; }).join(' · ')], ['내 예측', PG[p.g] + (r.right ? ' — ○' : ' — ✕'), r.right ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['모양', '이은 방법', '접어 보면', '전개도인가'],
-        record: function(p, r){ return {k:p.k, g:p.g}; },
-        row: function(d){ var N = NETS[d.k], F = fold(d.k); return [N.n, N.d, res(F), F.ok ? '그렇다' : '아니다']; },
+        columns: ['모양', '옮긴 칸', '이은 방법', '접어 보면', '전개도인가'],
+        record: function(p, r){ return {k:p.k, mv:r.mv, g:p.g}; },
+        row: function(d){ var N = NETS[d.k], F = fold(d.k, d.mv); return [N.n, d.mv ? MV[d.mv].replace('마지막 칸 ', '') : '그대로', N.d, res(F), F.ok ? '그렇다' : '아니다']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('접어 본 모양', '<div id="cn1"></div><p class="ask">닫힌 모양은 몇 개였나요? 십자 모양이 아닌데도 닫힌 모양이 있었나요?</p>') +
             card('닫힌 모양의 주사위 눈', '<div id="cn2"></div><p class="ask">과제: 모눈종이에 정육면체 전개도를 가·라 말고 하나 더 그려 오려서 접어 보세요. 접기 전에 마주 보는 면에 같은 색을 칠해 예상해 보고, 접은 뒤 맞았는지 확인해 보세요. 가위는 조심해서 쓰세요.</p>') + '</div>';
           var seen = {};
-          rec.forEach(function(d){ seen[d.k] = 1; });
-          var ks = Object.keys(seen).map(Number).sort();
-          var okN = ks.filter(function(k){ return fold(k).ok; });
-          $('cn1').innerHTML = tableHTML(['모양', '이은 방법', '접어 보면', '전개도인가'], ks.map(function(k){ var F = fold(k); return [NETS[k].n, NETS[k].d, res(F), F.ok ? '그렇다' : '아니다']; })) +
-            '<p class="msg">해 본 ' + ks.length + '가지 가운데 닫힌 것은 ' + okN.length + '가지예요. 정사각형 6개를 아무렇게나 이은 모양이 다 전개도가 되는 것은 아니에요.</p>';
-          $('cn2').innerHTML = okN.length ? tableHTML(['모양', '마주 보는 면 짝 (눈의 수)'], okN.map(function(k){ var F = fold(k), pos = {};
+          rec.forEach(function(d){ seen[d.k + '|' + (d.mv || 0)] = {k:d.k, mv:d.mv || 0}; });
+          var ks = Object.keys(seen).map(function(q){ return seen[q]; }).sort(function(a, b){ return a.k - b.k || a.mv - b.mv; });
+          var okN = ks.filter(function(q){ return fold(q.k, q.mv).ok; });
+          $('cn1').innerHTML = tableHTML(['모양', '옮긴 칸', '이은 방법', '접어 보면', '전개도인가'], ks.map(function(q){ var F = fold(q.k, q.mv); return [NETS[q.k].n, q.mv ? MV[q.mv].replace('마지막 칸 ', '') : '그대로', NETS[q.k].d, res(F), F.ok ? '그렇다' : '아니다']; })) +
+            '<p class="msg">해 본 ' + ks.length + '가지 가운데 닫힌 것은 ' + okN.length + '가지예요. 칸을 한 장만 옮겨도 접히던 모양이 접히지 않을 수 있어요.</p>';
+          $('cn2').innerHTML = okN.length ? tableHTML(['모양', '마주 보는 면 짝 (눈의 수)'], okN.map(function(q){ var k = q.k, F = fold(q.k, q.mv), pos = {};
               F.face.forEach(function(f, i){ pos[f] = i + 1; });
               return [NETS[k].n, '앞(' + DICE[0] + ')↔뒤(' + DICE[2] + ') · 오른쪽(' + DICE[1] + ')↔왼쪽(' + DICE[3] + ') · 위(' + DICE[4] + ')↔아래(' + DICE[5] + ')']; })) +
               '<p class="msg">한 줄 4개에 1, 2, 6, 5, 위·아래에 3, 4를 쓰면 마주 보는 면의 합이 모두 7이에요.</p>'
@@ -538,7 +570,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

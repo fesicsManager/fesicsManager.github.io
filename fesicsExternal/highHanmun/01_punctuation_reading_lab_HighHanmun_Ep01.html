@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -484,13 +486,21 @@ var LAB = (function anonymous(
       var VJ = ['타당', '논쟁 가능', '어색'];
       return {
         sceneHeight: 400,
-        idle: '원문과 끊기 안을 고른 뒤 <b>이 자리에서 끊어 읽기</b>를 누르세요. 끊는 자리는 장면에 미리 보여요.',
+        idle: '원문과 끊기 안을 고른 뒤 <b>이 자리에서 끊어 읽기</b>를 누르세요. 끊는 자리는 장면에 미리 보여요. 번역은 실행 뒤에 나오니, 먼저 아래 <b>예측</b>을 찍어 두면 맞혔는지 세어 줍니다.',
         shortHint: '한 원문의 끊기 안 세 가지를 모두 해 보세요. 특히 民可使由之不可使知之의 두 읽기를 비교해 보세요.',
         params: [
           {key:'t', type:'seg', label:'원문 (구두점 없음)', cols:1, value:0, options:TX.map(function(x){ return '<b>' + x.h + '</b>'; })},
-          {key:'k', type:'seg', label:'끊기 안', cols:3, value:0, options:['(가)', '(나)', '(다)']}
+          {key:'k', type:'seg', label:'끊기 안', cols:3, value:0, options:['(가)', '(나)', '(다)']},
+          {key:'pv', type:'seg', label:'① 먼저 예측 — 이 끊기로 읽으면 뜻이 어떻게 될까?', value:0, options:['예측 안 함', '타당', '논쟁 가능', '어색'], note:'번역을 보지 않은 채 찍어 보세요. 찍으면 기록 표에 맞혔는지 쌓입니다.'},
+          {key:'pn', type:'seg', label:'② 먼저 예측 — 네 근거 가운데 ○는 몇 개?', cols:3, value:0, options:['예측 안 함', '1개', '2개', '3개', '4개'], note:'허사의 위치·대구·문법 관계·주석 전통 넷 가운데 ○(만족)가 몇 개일지. –(해당 없음)·△는 ○로 세지 않아요.'}
         ],
-        compute: function(p){ var t = TX[p.t], s = t.seg[p.k]; return {t:t, s:s, j:joined(t, s)}; },
+        compute: function(p){
+          var t = TX[p.t], s = t.seg[p.k];
+          var okn = 0; s.ck.forEach(function(x){ if (x === 0) okn++; });
+          return {t:t, s:s, j:joined(t, s), okn:okn,
+            pvOK:(p.pv === 0 ? null : (p.pv - 1) === s.v),
+            pnOK:(p.pn === 0 ? null : p.pn === okn)};
+        },
         draw: function(c, W, H, p, r, tau){
           var t = TX[p.t], s = t.seg[p.k], a = t.h.split(''), n = a.length, cw = Math.min(46, (W - 30) / n), x0 = (W - cw * n) / 2, y = 90;
           T(c, t.src, W / 2, 36, {size:15, align:'center', color:'#4A5868'});
@@ -519,22 +529,45 @@ var LAB = (function anonymous(
           }
         },
         stats: function(p, r){
-          return [['원문', r.t.h + ' — ' + r.t.src], ['끊어 읽기', r.j, PAL[0]], ['번역', r.s.tr, PAL[3]],
-            ['근거 점검', CK.map(function(x, i){ return x + ' ' + OK[r.s.ck[i]]; }).join(' · ')],
+          var a = [['원문', r.t.h + ' — ' + r.t.src], ['끊어 읽기', r.j, PAL[0]], ['번역', r.s.tr, PAL[3]],
+            ['근거 점검', CK.map(function(x, i){ return x + ' ' + OK[r.s.ck[i]]; }).join(' · ') + ' (○ ' + r.okn + '개)'],
             ['판정', r.s.vt, [PAL[1], PAL[6], PAL[4]][r.s.v]]];
+          if (r.pvOK !== null) a.push(['① 뜻 예측', VJ[p.pv - 1] + ' → ' + (r.pvOK ? '맞음' : '틀림 (실제 ' + VJ[r.s.v] + ')'), r.pvOK ? PAL[1] : PAL[4]]);
+          if (r.pnOK !== null) a.push(['② ○ 개수 예측', p.pn + '개 → ' + (r.pnOK ? '맞음' : '틀림 (실제 ' + r.okn + '개)'), r.pnOK ? PAL[1] : PAL[4]]);
+          if (r.pvOK === null && r.pnOK === null) a.push(['예측', '예측을 찍지 않았어요 — 다음에는 번역을 보기 전에 찍어 보세요', '#8C99A8']);
+          return a;
         },
-        columns: ['원문', '끊기', '판정'],
-        record: function(p, r){ return {t:p.t, k:p.k, v:r.s.v}; },
-        row: function(d){ return [TX[d.t].h, joined(TX[d.t], TX[d.t].seg[d.k]), VJ[d.v]]; },
+        columns: ['원문', '끊기', '판정', '① 뜻 예측', '② ○ 예측'],
+        record: function(p, r){ return {t:p.t, k:p.k, v:r.s.v, pv:p.pv, pn:p.pn, okn:r.okn, a1:r.pvOK, a2:r.pnOK}; },
+        row: function(d){
+          return [TX[d.t].h, joined(TX[d.t], TX[d.t].seg[d.k]), VJ[d.v],
+            d.pv === 0 ? '–' : (VJ[d.pv - 1] + (d.a1 ? ' ○' : ' ✕')),
+            d.pn === 0 ? '–' : (d.pn + '개' + (d.a2 ? ' ○' : ' ✕'))];
+        },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('원문별 끊기 결과', '<div id="hh1a"></div><p class="ask">"타당"이 둘 이상 나온 원문이 있나요? 그때는 무엇을 근거로 한쪽을 고를 수 있을까요?</p>') +
-            card('판정 분포', '<div id="hh1b"></div><p class="ask">과제: 구두점 없는 짧은 원문을 받아 두 가지로 끊어 읽고, 각각의 해석과 근거를 제시한 뒤 어느 쪽이 더 타당한지 논해 보세요.</p>') + '</div>';
+            card('판정 분포', '<div id="hh1b"></div><p class="ask">과제: 구두점 없는 짧은 원문을 받아 두 가지로 끊어 읽고, 각각의 해석과 근거를 제시한 뒤 어느 쪽이 더 타당한지 논해 보세요.</p>') +
+            card('예측 맞힌 수', '<div id="hh1c"></div><p class="ask">어떤 원문에서 예측이 많이 틀렸나요? 끊는 자리를 보고도 뜻이 뒤집힐지 가늠하기 어려운 까닭을 적어 보세요.</p>') + '</div>';
           var rows = [], seen = {};
           rec.forEach(function(d){ var key = d.t + ',' + d.k; if (seen[key]) return; seen[key] = 1; rows.push([TX[d.t].h, joined(TX[d.t], TX[d.t].seg[d.k]), VJ[d.v]]); });
           $('hh1a').innerHTML = tableHTML(['원문', '끊기', '판정'], rows);
           var n = [0, 0, 0]; rec.forEach(function(d){ n[d.v]++; });
           $('hh1b').innerHTML = hbars(VJ.map(function(v, i){ return {label:v, v:n[i], color:[PAL[1], PAL[6], PAL[4]][i], text:n[i] + '회'}; }), rec.length);
+          var t1 = 0, c1 = 0, t2 = 0, c2 = 0;
+          rec.forEach(function(d){ if (d.pv){ t1++; if (d.a1) c1++; } if (d.pn){ t2++; if (d.a2) c2++; } });
+          if (!t1 && !t2){
+            $('hh1c').innerHTML = '<p class="msg">아직 예측을 찍은 기록이 없어요. 번역을 보기 전에 ①·②를 찍고 실행하면 맞힌 수가 여기에 쌓입니다.</p>';
+          } else {
+            $('hh1c').innerHTML = hbars([
+              {label:'① 뜻 예측', v:c1, color:PAL[0], text:c1 + ' / ' + t1 + '회'},
+              {label:'② ○ 개수 예측', v:c2, color:PAL[3], text:c2 + ' / ' + t2 + '회'}
+            ], Math.max(1, t1, t2)) + tableHTML(['원문', '끊기', '① 예측', '② 예측'], rec.filter(function(d){ return d.pv || d.pn; }).map(function(d){
+              return [TX[d.t].h, joined(TX[d.t], TX[d.t].seg[d.k]),
+                d.pv === 0 ? '–' : (VJ[d.pv - 1] + (d.a1 ? ' ○' : ' ✕ (실제 ' + VJ[d.v] + ')')),
+                d.pn === 0 ? '–' : (d.pn + '개' + (d.a2 ? ' ○' : ' ✕ (실제 ' + d.okn + '개)'))];
+            }), 'wrap');
+          }
         }
       };
     
@@ -544,7 +577,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

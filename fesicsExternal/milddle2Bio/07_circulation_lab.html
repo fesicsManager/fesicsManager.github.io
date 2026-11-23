@@ -250,6 +250,10 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
         <label>운동 강도 <b id="xVal">30</b></label>
         <input type="range" id="xSlider" min="0" max="100" step="1" value="30" aria-label="운동 강도">
       </div>
+      <div class="control-row">
+        <label for="zSel">누구를 재고 있나요</label>
+        <select id="zSel" aria-label="누구를 재고 있나요" style="width:100%;padding:12px;border:2px solid var(--grid);border-radius:10px;font-size:18px;font-family:inherit;background:#fff;color:var(--ink);"><option value="0">중학생 · 보통 (기본)</option><option value="1">운동선수 (안정 심박이 낮음)</option><option value="2">60세 어른 (최대 심박이 낮음)</option></select>
+      </div>
       <div class="readout"><span>심장 박동수</span><b id="yVal">-</b></div>
       <button class="action" id="measureBtn">📍 측정하고 기록하기</button>
       <button class="action btn-ghost" id="resetBtn">초기화</button>
@@ -259,7 +263,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
       <h2>측정 데이터 &amp; 그래프</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>심장 박동수(회/분)</th></tr></thead>
+          <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>누구인가</th><th>심장 박동수(회/분)</th></tr></thead>
           <tbody id="dataBody"></tbody>
         </table>
       </div>
@@ -276,7 +280,7 @@ button:active:not(:disabled),.tissue-btn:active{transform:translateY(1px) scale(
   <div id="verifyContent" class="hidden">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>심장 박동수(회/분)</th><th>박동수 증가량(측정값-70)</th></tr></thead>
+        <thead><tr><th>#</th><th>운동 강도(임의단위)</th><th>누구인가</th><th>심장 박동수(회/분)</th><th>박동수 증가량(측정값-70)</th></tr></thead>
         <tbody id="verifyBody"></tbody>
       </table>
     </div>
@@ -402,7 +406,10 @@ let _t0=performance.now(), _dt=16;
 
 /* 심장 박동수 = 70 + 0.6 × 운동 강도 (회/분).
    심장이 '실제 그 빠르기로' 뛰고, 맥박 파형과 혈액 흐름도 함께 빨라진다 */
-function bpmOf(x){ return 70+125*(1-Math.exp(-x/90)); }   /* 교육용 모형: 안정 70 → 최대 약 195에 완만하게 접근. 실제는 개인·연령·훈련도에 따라 다름 */
+/* 안정 심박과 최대 심박은 사람마다 다르다. '중학생 · 보통'은 70~195 라서 예전 식과 같다.
+   ※ 숫자는 교육용 모형값. */
+var ZOPT=[{n:'중학생 · 보통', s:'중학생', rest:70, max:195},{n:'운동선수', s:'운동선수', rest:50, max:195},{n:'60세 어른', s:'60세', rest:70, max:160}];
+function bpmOf(x){ const Z=ZOPT[curZ]; return Z.rest+(Z.max-Z.rest)*(1-Math.exp(-x/90)); }   /* 교육용 모형: 안정 70 → 최대 약 195에 완만하게 접근. 실제는 개인·연령·훈련도에 따라 다름 */
 let ecg=[], beatCount=0, lastBeat=-1, winStart=performance.now();
 const ECG_LEN=190;
 
@@ -502,22 +509,37 @@ function drawDevice(){
 requestAnimationFrame(drawDevice);
 
 const xSlider=document.getElementById('xSlider'), xVal=document.getElementById('xVal'), yVal=document.getElementById('yVal');
+const zSel=document.getElementById('zSel');
+let curZ=0;
+zSel.addEventListener('change',()=>{ curZ=parseInt(zSel.value,10); yVal.textContent='-'; });
+/* 둘째 조작마다 내가 잰 값의 평균을 내어, 결론이 갈리는지 내 기록으로 보여 준다 */
+function zNote(){
+  const g={};
+  points.forEach(p=>{ const k=p.z||0; (g[k]=g[k]||[]).push(p); });
+  const ks=Object.keys(g);
+  if(ks.length<2) return '<br><br><b>사람을 바꿔 보면 (내 기록으로 계산)</b> 운동선수와 60세 어른으로도 몇 개 더 재 보면, 같은 강도에서 무엇이 달라지는지 여기서 견줄 수 있어요.';
+  const rows=ks.map(k=>{
+    const a=g[k], av=a.reduce((s,p)=>s+p.y,0)/a.length, mx=Math.max.apply(null,a.map(p=>p.x)), mn=Math.min.apply(null,a.map(p=>p.x));
+    return '· '+ZOPT[k].n+' — 기록 '+a.length+'개('+CFG.xLabel+' '+mn+'~'+mx+'), 평균 '+av.toFixed(2)+' '+CFG.yUnit;
+  });
+  return '<br><br><b>사람을 바꿔 보면 (내 기록으로 계산)</b><br>'+rows.join('<br>')+'<br><br>'+'같은 운동 강도에서도 사람에 따라 박동수가 달랐고, <b>최대까지 남은 여유</b>도 달랐습니다. 그래서 운동 강도는 절대 숫자보다 "내 최대 심박의 몇 %"로 재야 해요.';
+}
 let curX=30;
 xSlider.addEventListener('input',()=>{ curX=parseFloat(xSlider.value); xVal.textContent=curX; });
 document.getElementById('measureBtn').addEventListener('click',()=>{
   if(window.fxSound&&fxSound.heart){ const ib=60000/bpmOf(curX), pw=0.4+0.5*curX/100; for(let i=0;i<3;i++) setTimeout(()=>fxSound.heart(pw), i*ib); }   /* 잴 때 심장 세 번 쿵쿵: 운동 강도가 셀수록 빠르고 크게 */
   const y=Math.max(60, bpmOf(curX)+(Math.random()*6-3));
   yVal.textContent=y.toFixed(0)+' 회/분';
-  recordPoint(curX,y);
+  recordPoint(curX,y,curZ);
 });
 
 
 /* ===== 공통 엔진 ===== */
 let points = [];
 
-function recordPoint(x,y){
+function recordPoint(x,y,z){
   if (points.length >= 10) { notify('최대 10개까지 기록할 수 있어요. 초기화 후 다시 기록해 주세요.'); return; }
-  points.push({x:x,y:y});
+  points.push({x:x,y:y,z:z||0});
   renderExploreTable(); drawExploreChart(); updateCount();
 }
 function resetPoints(){ points = []; renderExploreTable(); drawExploreChart(); updateCount(); }
@@ -528,7 +550,7 @@ function renderExploreTable(){
   const body = document.getElementById('dataBody'); body.innerHTML = '';
   points.forEach((p,i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td>';
     body.appendChild(tr);
   });
 }
@@ -617,7 +639,7 @@ function renderVerify(){
     const comp = CFG.computedFn(p.x,p.y);
     const compStr = (typeof comp === 'number') ? comp.toFixed(2) : comp;
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
+    tr.innerHTML = '<td><span class="dot"></span>' + (i+1) + '</td><td>' + p.x.toFixed(2) + '</td><td>' + ZOPT[p.z||0].s + '</td><td>' + p.y.toFixed(2) + '</td><td>' + compStr + '</td>';
     body.appendChild(tr);
   });
 
@@ -654,9 +676,9 @@ document.getElementById('checkBtn').addEventListener('click', () => {
   if (isNaN(input)) {
     result.innerHTML = '값을 입력해 주세요.';
   } else if (ok) {
-    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '정답에 가깝습니다! 👏 (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   } else {
-    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain;
+    result.innerHTML = '추세선을 다시 살펴보세요. (내 데이터의 추세선 예측값: ' + predicted.toFixed(1) + ' ' + CFG.yUnit + ')<br><br>' + CFG.finalExplain + zNote();
   }
 });
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -492,6 +494,7 @@ var SITES = [
 ];
 function fos(n){ for (var i = 0; i < FOS.length; i++) if (FOS[i].n === n) return FOS[i]; }
 function fMa(x){ return x > 0 && x < 0.05 ? String(x) : f(x, 1); }   /* 매머드 0.004 Ma 가 '0.0' 으로 보이지 않게 */
+var ERA3 = ['고생대', '중생대', '신생대'];   /* 살펴보기 전에 찍어 보는 대(代) 칸 */
 function range(list){ var s = 4600, e = 0; list.forEach(function(n){ var F = fos(n); s = Math.min(s, F.s); e = Math.max(e, F.e); }); return {s:s, e:e}; }
 function eraOf(s, e){ var mid = (s + e) / 2, out = []; ERAS.forEach(function(E){ if (s > E.e && e < E.s) out.push(E); }); return out; }
 return {
@@ -501,12 +504,17 @@ return {
   params: [
     {key:'st', type:'seg', label:'지역', cols:3, value:0, options:SITES.map(function(x){ return x.name; })},
     {key:'b', type:'seg', label:'지층 (①이 가장 위)', cols:4, value:3, options:['① 맨 위', '②', '③', '④ 맨 아래'],
-      note:'화석이 살았던 기간은 실제 산출 범위를 기(紀) 수준으로 단순화한 값입니다. 여러 화석이 함께 나오면 모두가 살아 있던 기간이 그 층이 쌓인 시기입니다.'}
+      note:'화석이 살았던 기간은 실제 산출 범위를 기(紀) 수준으로 단순화한 값입니다. 여러 화석이 함께 나오면 모두가 살아 있던 기간이 그 층이 쌓인 시기입니다.'},
+    {key:'pe', type:'seg', label:'살펴보기 전에 찍어 보기 — 이 층은 어느 대(代)일까', cols:4, value:0, options:['찍지 않음'].concat(ERA3),
+      note:'찍지 않음이 기본값입니다. 단면에 적힌 화석 이름만 보고 먼저 찍어 두면, 화석이 함께 살았던 겹침 구간으로 채점해 측정 결과와 기록 표에 남습니다.'}
   ],
   compute: function(p){
     var S = SITES[p.st], B = S.beds[p.b], R = range(B.f), es = eraOf(R.s, R.e);
     var envs = B.f.map(function(n){ return fos(n).env; });
-    return {S:S, B:B, R:R, es:es, env:envs.sort(function(a, b){ return b.length - a.length; })[0], eraName:es.map(function(E){ return E.era; }).filter(function(v, i, a2){ return a2.indexOf(v) === i; }).join('~') || '−'};
+    var eraName = es.map(function(E){ return E.era; }).filter(function(v, i, a2){ return a2.indexOf(v) === i; }).join('~') || '−';
+    var pe = p.pe || 0;
+    return {S:S, B:B, R:R, es:es, env:envs.sort(function(a, b){ return b.length - a.length; })[0], eraName:eraName,
+      pe:pe, hit:pe ? eraName.split('~').indexOf(ERA3[pe - 1]) >= 0 : null, narrow:es.length === 1};
   },
   draw: function(c, W, H, p, r, tau){
     /* 좁은 화면(nr): 지층을 넓게 그리고 화석 결과는 지층 아래에 (장면 높이도 키움) */
@@ -542,12 +550,17 @@ return {
     if (r && tau >= 1){ c.fillStyle = 'rgba(200,70,61,.35)'; c.fillRect(X(r.R.s), gy - 8, X(r.R.e) - X(r.R.s), 50); c.strokeStyle = '#C8463D'; c.lineWidth = 2.5; c.strokeRect(X(r.R.s), gy - 8, X(r.R.e) - X(r.R.s), 50); }
   },
   stats: function(p, r){
-    return [['나온 화석', r.B.f.join(', ')], ['화석이 함께 살았던 기간', f(r.R.s, 0) + ' ~ ' + fMa(r.R.e) + ' Ma', '#C8463D'],
-      ['해당하는 지질시대', r.es.map(function(E){ return E.name; }).join(', ') || '−'], ['대(代)', r.eraName, PAL[0]], ['쌓일 때 환경', r.env + ' (' + r.B.r + ')']];
+    var out = [['나온 화석', r.B.f.join(', ')], ['화석이 함께 살았던 기간', f(r.R.s, 0) + ' ~ ' + fMa(r.R.e) + ' Ma', '#C8463D'],
+      ['해당하는 지질시대', r.es.map(function(E){ return E.name; }).join(', ') || '−'], ['대(代)', r.eraName, PAL[0]], ['쌓일 때 환경', r.env + ' (' + r.B.r + ')'],
+      ['얼마나 좁혀졌나', r.narrow ? '기(紀) 하나로 좁혀짐' : r.es.length + '개의 기에 걸쳐 있음 — 더 좁히려면 산 기간이 짧은 화석이 필요',
+        r.narrow ? PAL[1] : PAL[6]]];
+    if (r.pe) out.push(['찍은 대 ' + ERA3[r.pe - 1] + ' → 겹침 구간은 ' + r.eraName, r.hit ? '맞음' : '빗나감', r.hit ? PAL[1] : '#C8463D']);
+    return out;
   },
-  columns: ['지역', '지층', '암석', '화석', '시기 (Ma)', '지질시대', '환경'],
-  record: function(p, r){ return {st:p.st, b:p.b, rock:r.B.r, f:r.B.f.join(', '), s:r.R.s, e:r.R.e, era:r.eraName, ep:r.es.map(function(E){ return E.name; }).join(', '), env:r.env}; },
-  row: function(d){ return [SITES[d.st].name, '①②③④'[d.b], d.rock, '<span style="white-space:normal">' + d.f + '</span>', f(d.s, 0) + '~' + fMa(d.e), d.era, d.env]; },
+  columns: ['지역', '지층', '암석', '화석', '시기 (Ma)', '지질시대', '환경', '찍은 대 → 판정'],
+  record: function(p, r){ return {st:p.st, b:p.b, rock:r.B.r, f:r.B.f.join(', '), s:r.R.s, e:r.R.e, era:r.eraName, ep:r.es.map(function(E){ return E.name; }).join(', '), env:r.env, pe:r.pe, hit:r.hit}; },
+  row: function(d){ return [SITES[d.st].name, '①②③④'[d.b], d.rock, '<span style="white-space:normal">' + d.f + '</span>', f(d.s, 0) + '~' + fMa(d.e), d.era, d.env,
+    d.pe ? ERA3[d.pe - 1] + ' → ' + (d.hit ? '맞음' : '빗나감') : '—']; },
   minRec: 3,
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
@@ -555,7 +568,10 @@ return {
       card('세 지역의 지층 대비', '<div id="ro2"></div><p class="ask">서로 떨어진 지역의 지층을 같은 시기라고 이어 붙일 수 있는 근거는 무엇인가요? 어떤 화석이 지층 대비에 더 쓸모 있을까요?</p>') +
       card('표준 화석의 조건', '<div id="ro3"></div><p class="ask">삼엽충, 방추충, 공룡, 화폐석처럼 표준 화석으로 쓰이는 화석의 공통점은 무엇인가요? 산호처럼 오래 산 생물은 무엇을 알려 주는 데 쓸모가 있을까요?</p>') + '</div>';
     var by = groupBy(rec, function(d){ return d.st; });
-    $('ro1').innerHTML = Object.keys(by).map(function(st){
+    var tried = rec.filter(function(d){ return d.pe; }), hits = tried.filter(function(d){ return d.hit; }).length;
+    $('ro1').innerHTML = (tried.length ? '<p class="msg">화석 이름만 보고 대(代)를 먼저 찍은 것: ' + tried.length + '번 가운데 <b>' + hits + '번</b> 맞음</p>'
+      : '<p class="msg">살펴보기 전에 「어느 대(代)일까」를 찍어 두면 맞힌 수가 여기에 쌓입니다.</p>')
+      + Object.keys(by).map(function(st){
       var g = by[st].slice().sort(function(a, b){ return a.b - b.b; }), seen = {};
       g = g.filter(function(d){ if (seen[d.b]) return false; seen[d.b] = 1; return true; });
       return '<p class="gap-top"><b>' + SITES[st].name + '</b></p>' + tableHTML(['지층', '시기 (Ma)', '지질시대', '환경'], g.map(function(d){ return ['①②③④'[d.b], f(d.s, 0) + '~' + fMa(d.e), d.ep || d.era, d.env]; }));
@@ -572,7 +588,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

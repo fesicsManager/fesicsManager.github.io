@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,8 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>결론이 같으면 같은 탐구인가 — 평가 기준표로 보고서 채점하기</h1>
-    <p>결론은 똑같이 "원 위 n개 점의 영역 수 = C(n, 4) + C(n, 2) + 1"인 탐구 보고서를 여섯 가지 요소(조건, 과정 기록, 근거, 출처·방법, 한계, 표현)로 직접 구성하고, <b>평가 기준표</b>(각 3점, 18점 만점)로 채점합니다. 뭉치의 보고서 A와 제로의 보고서 B를 만들어 점수를 비교해 보세요.</p>
+    <p>결론은 똑같이 "원 위 n개 점의 영역 수 = C(n, 4) + C(n, 2) + 1"인 탐구 보고서를 여섯 가지 요소(조건, 과정 기록, 근거, 출처·방법, 한계, 표현)로 직접 구성합니다. <b>채점 전에 몇 점일지 먼저 예측</b>하고, 평가 기준표(각 3점, 18점 만점)로 채점해 예측을 맞혀 보세요.<br>
+       그리고 점수와 따로, <b>"이 보고서를 믿을 수 있는가"</b> 를 판정합니다. 이 판정은 점수의 합이 아니라 두 가지 <b>관문</b>으로 정해집니다 — <b>남이 다시 확인할 수 있는가</b>(근거·출처), <b>언제 결론이 깨지는지 알 수 있는가</b>(조건·한계). 그래서 <b>점수가 높아도 믿을 수 없는 보고서</b>와 <b>점수가 낮아도 믿을 수 있는 보고서</b>가 함께 나옵니다 — 직접 만들어 보세요.</p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -305,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -451,10 +454,33 @@ var LAB = (function(){
         co:[['글만', 1], ['그림 있음·표 정리 부족', 2], ['그림·표·식 깔끔', 3]]
       };
       var KEYS = ['d', 'pr', 'ev', 're', 'li', 'co'];
+      /* "믿을 수 있는가" 는 점수의 합이 아니라 두 관문으로 정한다.
+         ① 다시 확인 가능: 스스로 유도했거나(ev = 2), 그림으로 확인하고 절차·출처를 남겼을 때(ev ≥ 1 이고 re = 1)
+         ② 반증 가능: 어떤 조건에서 성립하는지 밝히고(d = 1) 언제 깨지는지 적었을 때(li = 1)
+         두 관문은 점수 합과 따로 움직이므로, 15점이지만 조건부이고 10점이지만 믿을 수 있는 보고서가 생긴다. */
+      function gates(p){
+        var verif = p.ev === 2 || (p.ev >= 1 && p.re === 1);
+        var falsif = p.d === 1 && p.li === 1;
+        var rank = (verif ? 1 : 0) + (falsif ? 1 : 0);
+        return {verif:verif, falsif:falsif, rank:rank,
+          t:rank === 2 ? '믿을 수 있다' : rank === 1 ? '조건부로만 믿는다' : '믿을 수 없다'};
+      }
+      function gateWhy(p, G){
+        var out = [];
+        if (!G.verif) out.push(p.ev === 0
+          ? '근거가 없어(인터넷에서 봄) 남이 다시 확인할 길이 없습니다'
+          : '그림으로만 확인했는데 절차·출처도 없어 남이 다시 해 볼 수 없습니다');
+        else out.push(p.ev === 2 ? '직접 유도했으므로 남이 다시 확인할 수 있습니다' : '그림 확인에 절차·출처가 붙어 다시 해 볼 수 있습니다');
+        if (!G.falsif) out.push((p.d === 0 && p.li === 0) ? '조건도 한계도 없어 언제 깨지는지 알 수 없습니다'
+          : p.d === 0 ? '한계는 적었지만 어떤 조건에서 성립하는지가 빠져 적용 범위를 알 수 없습니다'
+          : '조건은 밝혔지만 한계가 없어 언제 깨지는지 알 수 없습니다');
+        else out.push('조건과 한계가 모두 있어 언제 깨지는지 알 수 있습니다');
+        return out.join(' · ');
+      }
       return {
         sceneHeight: 420,
-        idle: '여섯 요소를 골라 보고서를 구성한 뒤 <b>평가 기준표로 채점하기</b>를 누르세요. 처음 값은 뭉치의 보고서 A입니다.',
-        shortHint: '처음 값(보고서 A)을 그대로 채점하고, 제로의 보고서 B(조건 명시·반례까지·유도·절차 기록·한계 있음·그림 있음)를 만들어 채점하세요. 그다음 한 칸씩만 바꿔 보세요.',
+        idle: '여섯 요소를 골라 보고서를 구성하고 <b>몇 점일지 먼저 예측</b>한 뒤 <b>평가 기준표로 채점하기</b>를 누르세요. 처음 값은 뭉치의 보고서 A입니다.',
+        shortHint: '보고서 A 와 제로의 보고서 B 를 채점한 뒤, 근거만 ‘없음’ 으로 바꾼 15점 보고서(조건부)와 근거·조건·한계만 켠 10점 보고서(믿을 수 있다)를 만들어 보세요. 점수 순서와 신뢰 순서가 뒤집힙니다.',
         params: [
           {key:'d', type:'seg', label:'문제 정의 — 조건', cols:2, value:0, options:OP.d.map(function(x){ return x[0]; })},
           {key:'pr', type:'seg', label:'과정 기록', cols:3, value:0, options:OP.pr.map(function(x){ return x[0]; })},
@@ -462,7 +488,8 @@ var LAB = (function(){
           {key:'re', type:'seg', label:'재현 가능성 — 출처·방법', cols:2, value:0, options:OP.re.map(function(x){ return x[0]; })},
           {key:'li', type:'seg', label:'한계 서술', cols:2, value:0, options:OP.li.map(function(x){ return x[0]; })},
           {key:'co', type:'seg', label:'의사소통 — 표·그림·식', cols:3, value:1, options:OP.co.map(function(x){ return x[0]; }),
-            note:'결론 식은 모든 보고서에서 똑같습니다: C(n, 4) + C(n, 2) + 1.'}
+            note:'결론 식은 모든 보고서에서 똑같습니다: C(n, 4) + C(n, 2) + 1.'},
+          {key:'pd', type:'range', label:'채점 전 내 예측 점수 (18점 만점)', min:0, max:18, step:1, value:9, fmt:function(v){ return v + '점'; }}
         ],
         compute: function(p){
           var sc = KEYS.map(function(k){ return OP[k][p[k]][1]; }), tot = sc.reduce(function(s, x){ return s + x; }, 0);
@@ -470,7 +497,10 @@ var LAB = (function(){
           sc.forEach(function(v, i){ if (v === minV && v < 3) low.push(CR[i]); });
           var isA = p.d === 0 && p.pr === 0 && p.ev === 0 && p.re === 0 && p.li === 0 && p.co === 1;
           var isB = p.d === 1 && p.pr === 2 && p.ev === 2 && p.re === 1 && p.li === 1 && p.co === 1;
-          return {sc:sc, tot:tot, low:low, tag:isA ? '보고서 A (뭉치)' : isB ? '보고서 B (제로)' : '직접 구성'};
+          var G = gates(p), gap = p.pd - tot;
+          return {sc:sc, tot:tot, low:low, tag:isA ? '보고서 A (뭉치)' : isB ? '보고서 B (제로)' : '직접 구성',
+            pd:p.pd, gap:gap, hit:Math.abs(gap) <= 1,
+            verif:G.verif, falsif:G.falsif, rank:G.rank, trust:G.t, why:gateWhy(p, G)};
         },
         draw: function(c, W, H, p, r, tau){
           var lw = W >= 560 ? 150 : 104, x0 = lw + 14, bw = W - x0 - 60, bh = Math.min(34, (H - 90) / 6 - 12), k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -489,20 +519,52 @@ var LAB = (function(){
           if (r && tau >= 1) txt(c, r.tag + ' — 합계 ' + r.tot + ' / 18점', 12, H - 16, {bold:true, color:r.tot >= 12 ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
+          var pdTxt = r.pd + '점으로 보았고 실제는 ' + r.tot + '점 — ' +
+            (r.hit ? '거의 맞혔습니다' : (r.gap > 0 ? r.gap + '점 높게 보았습니다' : (-r.gap) + '점 낮게 보았습니다'));
+          var note = r.rank === 2
+            ? (r.tot < 12 ? '합계는 ' + r.tot + '점(12점 미만)인데도 두 관문을 다 넘었습니다 — 점수가 낮아도 믿을 수 있습니다.' : '두 관문을 다 넘었습니다.')
+            : (r.tot >= 12 ? '합계는 ' + r.tot + '점으로 높은데 관문을 ' + (2 - r.rank) + '개 못 넘었습니다 — 점수가 높아도 믿을 수 없습니다.'
+                           : '합계도 낮고 관문도 ' + (2 - r.rank) + '개 못 넘었습니다.');
           return [['보고서', r.tag], ['결론', 'C(n, 4) + C(n, 2) + 1 — 정답 (모든 보고서 동일)', PAL[7]],
             ['기준별 점수', CR.map(function(n, i){ return n + ' ' + r.sc[i]; }).join(' · ')],
             ['합계', r.tot + ' / 18점', r.tot >= 12 ? PAL[1] : PAL[4]],
+            ['내 예측 채점', pdTxt, r.hit ? PAL[1] : PAL[4]],
+            ['관문 ① 남이 다시 확인할 수 있는가', r.verif ? '넘었다' : '못 넘었다', r.verif ? PAL[1] : PAL[4]],
+            ['관문 ② 언제 깨지는지 알 수 있는가', r.falsif ? '넘었다' : '못 넘었다', r.falsif ? PAL[1] : PAL[4]],
+            ['판정 — 이 보고서를 믿을 수 있는가', r.trust, r.rank === 2 ? PAL[1] : r.rank === 1 ? PAL[6] : PAL[4]],
+            ['그 까닭', r.why],
+            ['점수와 신뢰의 관계', note, PAL[3]],
             ['가장 먼저 보완할 칸', r.low.length ? r.low.join(', ') : '모든 칸 만점', PAL[3]]];
         },
-        columns: ['보고서', '정의', '과정', '근거', '재현', '한계', '소통', '합계'],
-        record: function(p, r){ return {tag:r.tag, sc:r.sc, tot:r.tot}; },
-        row: function(d){ return [d.tag].concat(d.sc).concat([d.tot]); },
+        columns: ['보고서', '정의', '과정', '근거', '재현', '한계', '소통', '합계', '내 예측', '믿을 수 있나'],
+        record: function(p, r){ return {tag:r.tag, sc:r.sc, tot:r.tot, pd:r.pd, hit:r.hit, rank:r.rank, trust:r.trust, verif:r.verif, falsif:r.falsif}; },
+        row: function(d){ return [d.tag].concat(d.sc).concat([d.tot, d.pd + (d.hit ? ' ○' : ' ✕'), d.trust]); },
         verify: function(rec, box){
+          /* 점수는 더 높은데 신뢰 등급은 더 낮은 짝을 찾는다 — 있으면 "점수 ≠ 신뢰" 가 기록으로 증명된다 */
+          var flip = null, i, j;
+          for (i = 0; i < rec.length && !flip; i++)
+            for (j = 0; j < rec.length; j++)
+              if (rec[i].tot > rec[j].tot && rec[i].rank < rec[j].rank){ flip = {hi:rec[i], lo:rec[j]}; break; }
+          var hits = rec.filter(function(d){ return d.hit; }).length;
+          var msg = flip
+            ? '기록 안에서 <b>점수와 신뢰가 서로 어긋나는 짝</b>을 찾았습니다. ' +
+              '“' + flip.hi.tag + '” 은 <b>' + flip.hi.tot + '점</b>이지만 판정은 <b>' + flip.hi.trust + '</b>이고, ' +
+              '“' + flip.lo.tag + '” 은 <b>' + flip.lo.tot + '점</b>밖에 안 되는데 판정은 <b>' + flip.lo.trust + '</b>입니다. ' +
+              '합계는 여섯 칸을 더한 값이라 표현·과정 기록처럼 <b>남이 확인하는 일과 상관없는 칸</b>으로도 올라갑니다. ' +
+              '믿을 수 있는지는 더하기가 아니라 <b>근거·출처</b>와 <b>조건·한계</b> 두 관문이 정합니다.'
+            : '아직 점수와 신뢰가 어긋나는 짝이 없습니다. ' +
+              '<b>조건 명시 · 한계 있음 · 절차 기록 · 그림·표·식 깔끔 · 반례까지 기록</b> 으로 두고 <b>근거만 ‘없음(인터넷에서 봄)’</b> 으로 바꿔 보세요(15점인데 조건부). ' +
+              '그다음 <b>조건 명시 · 한계 있음 · 근거 유도</b> 만 켜고 나머지를 가장 낮게 두어 보세요(10점인데 믿을 수 있다). 두 기록을 모으면 짝이 만들어집니다.';
           box.innerHTML = '<div class="vgrid">' +
             card('같은 결론, 다른 점수', '<div id="rb1"></div><p class="ask">결론 칸이 모두 같았는데도 합계가 달라진 까닭은 무엇인가요? 점수를 가장 크게 바꾼 기준 두 개를 골라 보세요.</p>') +
-            card('기준별 평균 점수', '<div id="rb2"></div><p class="ask">과제: 이 세트 1~7화 중 하나를 골라 탐구 보고서를 쓰세요. 평가 기준표 여섯 칸을 스스로 채점하고, 가장 낮은 칸을 올리기 위해 무엇을 더 할지 적으세요.</p>') + '</div>';
+            card('점수와 신뢰는 같이 가는가', '<div id="rb3"></div><p class="msg">' + msg + '</p><p class="ask">예측은 ' + rec.length + '번 가운데 ' + hits + '번 맞혔습니다. 점수를 잘 맞히게 되는 것과 보고서를 믿을 만하게 쓰는 것은 같은 일인가요?</p>') +
+            card('기준별 평균 점수', '<div id="rb2"></div><p class="ask">과제: 이 세트 1~7화 중 하나를 골라 탐구 보고서를 쓰세요. 평가 기준표 여섯 칸을 스스로 채점하고, 믿을 수 있는 보고서가 되려면 어느 칸이 꼭 필요한지 적으세요.</p>') + '</div>';
           $('rb1').innerHTML = hbars(rec.slice(-10).map(function(d){ return {label:d.tag, v:d.tot, color:d.tot >= 12 ? PAL[1] : PAL[4], text:d.tot + ' / 18'}; }), 18);
           $('rb2').innerHTML = tableHTML(['기준', '평균 점수', '만점 비율'], CR.map(function(n, i){ var m = mean(rec.map(function(d){ return d.sc[i]; })); return [n, f(m, 1), f(m / 3 * 100, 0) + '%']; }));
+          $('rb3').innerHTML = tableHTML(['보고서', '합계', '관문 ① 다시 확인', '관문 ② 깨지는 조건', '판정'],
+            rec.slice(-10).map(function(d){
+              return [d.tag, d.tot + '점', d.verif ? '○' : '✕', d.falsif ? '○' : '✕', d.trust];
+            }));
         }
       };
     })();
@@ -511,7 +573,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -467,27 +469,36 @@ var LAB = (function anonymous(
 
 
       var IT = [
-        {m:'너희 (친한 사이)', A:['스페인', 'vosotros'], B:['중남미', 'ustedes'], u:'알아들음'},
-        {m:'너는 ~이다', A:['많은 지역', 'tú eres'], B:['아르헨티나 등', 'vos sos'], u:'알아들음'},
-        {m:'컴퓨터', A:['스페인', 'el ordenador'], B:['중남미 여러 나라', 'la computadora'], u:'알아들음'},
-        {m:'70', A:['프랑스', 'soixante-dix'], B:['벨기에·스위스', 'septante'], u:'알아들음 (처음엔 낯섦)'},
-        {m:'90', A:['프랑스', 'quatre-vingt-dix'], B:['벨기에·스위스', 'nonante'], u:'알아들음'},
-        {m:'중국어 (라는 말)', A:['중국 대륙', '汉语 (간체자)'], B:['타이완', '漢語 (번체자)'], u:'소리는 같음 (hànyǔ), 글자 모양이 다름'}
+        {m:'너희 (친한 사이)', A:['스페인', 'vosotros'], B:['중남미', 'ustedes'], u:'알아들음', kind:'gram'},
+        {m:'너는 ~이다', A:['많은 지역', 'tú eres'], B:['아르헨티나 등', 'vos sos'], u:'알아들음', kind:'gram'},
+        {m:'컴퓨터', A:['스페인', 'el ordenador'], B:['중남미 여러 나라', 'la computadora'], u:'알아들음', kind:'lex'},
+        {m:'70', A:['프랑스', 'soixante-dix'], B:['벨기에·스위스', 'septante'], u:'알아들음 (처음엔 낯섦)', kind:'lex'},
+        {m:'90', A:['프랑스', 'quatre-vingt-dix'], B:['벨기에·스위스', 'nonante'], u:'알아들음', kind:'lex'},
+        {m:'중국어 (라는 말)', A:['중국 대륙', '汉语 (간체자)'], B:['타이완', '漢語 (번체자)'], u:'소리는 같음 (hànyǔ), 글자 모양이 다름', kind:'script'}
       ];
       var RG = ['지역 A', '지역 B'], RE = ['"교과서와 다르다"며 고친다', '"여기서는 이렇게 말하는구나" 하고 적어 둔다'];
+      var KN = {lex:'낱말이 다름', gram:'문법 꼴이 다름', script:'글자 모양만 다름'};
+      var GB = ['거의 못 알아듣는다 (50% 아래)', '절반쯤 알아듣는다', '거의 알아듣는다 (80% 위)'];
+      /* 알아듣는 정도 — 교육용 모형값: 차이의 종류마다 처음 이해도가 다르고, 들을수록 올라간다 */
+      var UBASE = {lex:40, gram:60, script:85};
+      function undOf(kind, n){ var b = UBASE[kind] || 50; return Math.round(Math.min(99, b + (100 - b) * (1 - Math.exp(-n / 6)))); }
+      function bandOf(u){ return u < 50 ? 0 : u <= 80 ? 1 : 2; }
       return {
         sceneHeight: 380,
-        idle:'뜻·지역·나의 반응을 고른 뒤 <b>이 지역의 말 듣기</b>를 누르세요.',
-        shortHint:'뜻 여섯 개를 지역 A·B 모두로 들어 보고, 두 가지 반응을 각각 한 번 이상 해 보세요.',
+        idle:'뜻 · 지역 · 들어 본 횟수 · 나의 짐작 · 나의 반응을 고른 뒤 <b>이 지역의 말 듣기</b>를 누르세요.',
+        shortHint:'뜻 여섯 개를 들어 보고, 들어 본 횟수를 0회부터 20회까지 올려 보세요. 낱말이 다른 경우와 글자만 다른 경우 가운데 어느 쪽이 처음부터 잘 들리나요?',
         params:[
           {key:'i', type:'seg', label:'뜻', cols:3, value:0, options:IT.map(function(x){ return x.m; })},
           {key:'g', type:'seg', label:'지역', cols:2, value:1, options:RG},
+          {key:'n', type:'range', label:'이 표현을 들어 본 횟수', min:0, max:20, step:2, value:0, fmt:function(v){ return v + '회'; }},
+          {key:'gs', type:'seg', label:'나의 짐작 — 교과서 표현만 알 때 처음 들으면', cols:1, value:0, options:GB},
           {key:'re', type:'seg', label:'내 교과서와 다른 표현을 만나면', cols:2, value:0, options:RE}
         ],
         compute:function(p){
           var it = IT[p.i], here = p.g ? it.B : it.A, other = p.g ? it.A : it.B;
           var v = p.re === 0 ? '틀린 걸 고친 게 아니라 다른 걸 틀렸다고 한 셈이에요 — ' + here[1] + '도 ' + here[0] + '의 바른 말' : '좋아요 — 변이를 기록하면 낯선 표현이 "아는 표현"이 됩니다';
-          return {it:it, here:here, other:other, v:v, good:p.re === 1};
+          var u0 = undOf(it.kind, 0), un = undOf(it.kind, +p.n);
+          return {it:it, here:here, other:other, v:v, good:p.re === 1, u0:u0, un:un, right:p.gs === bandOf(u0)};
         },
         draw:function(c, W, H, p, r, tau){
           var it = IT[p.i], k = r ? ease(tau / 0.8) : 0, bw = Math.min(260, (W - 80) / 2), y = 70, bh = 120;
@@ -499,15 +510,20 @@ var LAB = (function anonymous(
           var bx1 = 20 + bw, bx2 = W - 20 - bw, by = y + bh / 2;
           c.strokeStyle = PAL[1]; c.lineWidth = 4; c.beginPath(); c.moveTo(bx1, by); c.quadraticCurveTo(W / 2, by - 40 * (r ? k : 0.4), bx2, by); c.stroke();
           T(c, '(개략 도식)', W / 2, y + bh + 22, {align:'center', size:13, color:'#9AA5B1'});
-          if (r && tau >= 0.9){ T(c, '서로 알아듣나: ' + it.u, W / 2, y + bh + 56, {align:'center', bold:true, size:16, color:PAL[1], max:W - 40});
+          if (r && tau >= 0.9){ T(c, '알아듣기 ' + r.un + '% (처음 ' + r.u0 + '%)', W / 2, y + bh + 56, {align:'center', bold:true, size:16, color:PAL[1], max:W - 40});
             wrap(c, '나의 반응 → ' + r.v, 20, y + bh + 92, W - 40, 22, {size:16, bold:true, color:r.good ? PAL[1] : PAL[4]}); }
         },
         stats:function(p, r){
-          return [['뜻', r.it.m], ['이 지역 (' + r.here[0] + ')', r.here[1], PAL[0]], ['다른 지역 (' + r.other[0] + ')', r.other[1]], ['서로 알아듣나', r.it.u, PAL[1]], ['나의 반응', r.v, r.good ? PAL[1] : PAL[4]]];
+          return [['뜻', r.it.m], ['이 지역 (' + r.here[0] + ')', r.here[1], PAL[0]], ['다른 지역 (' + r.other[0] + ')', r.other[1]], ['서로 알아듣나', r.it.u, PAL[1]],
+            ['차이의 종류', KN[r.it.kind], PAL[3]],
+            ['교과서 표현만 알 때 (0회)', r.u0 + '% 알아들음 (교육용 모형값)', PAL[6]],
+            [p.n + '회 들어 본 뒤', r.un + '% 알아들음 — ' + (r.un - r.u0) + '%p 올랐어요', PAL[1]],
+            ['나의 짐작', GB[p.gs] + (r.right ? ' — 맞았어요' : ' — 빗나갔어요. 처음 이해도는 ' + r.u0 + '%'), r.right ? PAL[1] : PAL[6]],
+            ['나의 반응', r.v, r.good ? PAL[1] : PAL[4]]];
         },
-        columns:['뜻', '지역', '표현', '나의 반응'],
-        record:function(p, r){ return {i:p.i, g:p.g, re:p.re}; },
-        row:function(d){ var it = IT[d.i], a = d.g ? it.B : it.A; return [it.m, a[0], a[1], d.re ? '적어 둠' : '고침']; },
+        columns:['뜻', '지역', '차이', '처음', '들은 뒤', '짐작'],
+        record:function(p, r){ return {i:p.i, g:p.g, re:p.re, n:+p.n, u0:r.u0, un:r.un, right:r.right}; },
+        row:function(d){ var it = IT[d.i], a = d.g ? it.B : it.A; return [it.m, a[0], KN[it.kind], d.u0 + '%', d.n + '회 → ' + d.un + '%', d.right ? '맞음' : '빗나감']; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('지역 변이 대조표 (내가 들어 본 칸)', '<div id="sp8a"></div><p class="ask">맨 오른쪽 칸에 "못 알아들음"이 하나라도 있었나요? 4화의 quatre-vingt-dix와 nonante 가운데 어느 쪽이 더 규칙적인가요?</p>') +
@@ -516,7 +532,11 @@ var LAB = (function anonymous(
             return [it.m, a ? it.A[0] + ': ' + it.A[1] : '·', b ? it.B[0] + ': ' + it.B[1] : '·', it.u]; }).filter(function(x){ return x; });
           $('sp8a').innerHTML = tableHTML(['뜻', '지역 A', '지역 B', '서로 알아듣나'], rows);
           var a = rec.filter(function(d){ return d.re === 0; }).length, b = rec.length - a;
-          $('sp8b').innerHTML = hbars([{label:'고친다', v:a, color:PAL[4], text:a + '회'}, {label:'적어 둔다', v:b, color:PAL[1], text:b + '회'}], Math.max(1, rec.length));
+          $('sp8b').innerHTML = hbars([{label:'고친다', v:a, color:PAL[4], text:a + '회'}, {label:'적어 둔다', v:b, color:PAL[1], text:b + '회'}], Math.max(1, rec.length)) +
+            tableHTML(['차이의 종류', '교과서만 알 때', '6회 들은 뒤', '20회 들은 뒤'], ['lex', 'gram', 'script'].map(function(k){
+              return [KN[k], undOf(k, 0) + '%', undOf(k, 6) + '%', undOf(k, 20) + '%'];
+            })) +
+            '<p class="msg">알아듣는 정도는 교육용 모형값이에요. 글자 모양만 다를 때는 소리가 같아 처음부터 잘 들리고, 낱말이 다를 때가 가장 낯설어요. 짐작이 맞은 기록: ' + rec.filter(function(d){ return d.right; }).length + ' / ' + rec.length + '회.</p>';
         }
       };
     
@@ -526,7 +546,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

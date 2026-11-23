@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,20 +436,35 @@ var LAB = (function(){
       var TR = [{n:'달리기', s:'달리기', v:[80, 5, 20, 20, 3]}, {n:'근력: 무겁게 적게', s:'근력(무겁게)', v:[10, 70, 40, 40, 8]}, {n:'근력: 가볍게 많이', s:'근력(많이)', v:[15, 35, 70, 30, 12]},
         {n:'근력: 빠르게', s:'근력(빠르게)', v:[10, 40, 35, 65, 8]}, {n:'유연성 운동', s:'유연성', v:[2, 3, 3, 5, 75]}, {n:'세 가지를 섞어서', s:'섞음', v:[40, 30, 35, 30, 35]}];
       function word(v){ return v >= 60 ? '큼' : v >= 30 ? '보통' : v >= 10 ? '작음' : '거의 없음'; }
+      var WORDS = ['거의 없음', '작음', '보통', '큼'];
+      var INT = ['가볍게', '보통', '세게'];
+      /* 운동량(주당 횟수 × 강도)과 강도에 따른 쏠림 — 모두 교육용 모형값이다.
+         가볍게 여러 번은 근지구력·심폐로, 세게 적게는 근력·순발력으로 쏠린다. */
+      var DOSE = [0.7, 1, 1.3];
+      var SHIFT = [[1.08, 0.9, 1.12, 0.95, 1.0], [1, 1, 1, 1, 1], [0.9, 1.15, 0.88, 1.15, 1.0]];
       return {
         sceneHeight: 400,
         idle: '훈련 종류와 목표 체력 요소를 고른 뒤 <b>8주 훈련 결과 보기</b>를 누르세요.',
         shortHint: '목표를 "근력"(턱걸이)으로 두고 훈련 여섯 가지를 모두 비교해 보세요. 표의 "대각선"이 보이나요?',
         params: [
           {key:'t', type:'seg', label:'8주 동안 한 훈련', cols:3, value:0, options:TR.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'내 목표 체력 요소', cols:5, value:1, options:EL}
+          {key:'g', type:'seg', label:'내 목표 체력 요소', cols:5, value:1, options:EL},
+          {key:'f', type:'range', label:'주당 훈련 횟수', min:1, max:6, step:1, value:3, fmt:function(v){ return v + '회'; }},
+          {key:'i', type:'seg', label:'훈련 강도', cols:3, value:1, options:INT,
+            note:'같은 훈련이라도 횟수와 강도를 바꾸면 어느 칸이 가장 크게 느는지 달라집니다.'},
+          {key:'gp', type:'seg', label:'짐작 — 8주 뒤 목표 칸의 향상은', cols:4, value:1, options:WORDS}
         ],
         compute: function(p){
-          var v = TR[p.t].v, gv = v[p.g], best = 0; for (var i = 1; i < 5; i++) if (v[i] > v[best]) best = i;
-          return {v:v, gv:gv, best:best, match:best === p.g};
+          var base = TR[p.t].v, dose = (p.f / 3) * DOSE[p.i], sh = SHIFT[p.i];
+          var v = base.map(function(x, i2){ return Math.max(0, Math.min(100, Math.round(x * dose * sh[i2]))); });
+          var gv = v[p.g], best = 0; for (var i = 1; i < 5; i++) if (v[i] > v[best]) best = i;
+          var baseBest = 0; for (var j = 1; j < 5; j++) if (base[j] > base[baseBest]) baseBest = j;
+          var gw = word(gv);
+          return {v:v, base:base, gv:gv, best:best, match:best === p.g, dose:dose, f:p.f, i:p.i,
+            baseBest:baseBest, moved:(best !== baseBest), gp:p.gp, gw:gw, gpHit:(WORDS[p.gp] === gw)};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var v = TR[p.t].v, k = r ? Math.min(1, tau / 0.85) : 0, nar = W < 520, lw = nar ? 20 : Math.min(220, W * 0.42), bw = nar ? W - 40 : W - lw - 40, rh = (H - 80) / 5, bt = nar ? 0.4 : 0.2, bh = nar ? 0.45 : 0.5, ty = nar ? 0.3 : 0.55, vy = nar ? 0.4 + 0.45 / 2 + 0.1 : 0.55;
+          var v = r ? r.v : TR[p.t].v, k = r ? Math.min(1, tau / 0.85) : 0, nar = W < 520, lw = nar ? 20 : Math.min(220, W * 0.42), bw = nar ? W - 40 : W - lw - 40, rh = (H - 80) / 5, bt = nar ? 0.4 : 0.2, bh = nar ? 0.45 : 0.5, ty = nar ? 0.3 : 0.55, vy = nar ? 0.4 + 0.45 / 2 + 0.1 : 0.55;
           for (var i = 0; i < 5; i++){
             var y = 20 + i * rh;
             tfit(c, TE[i], 20, y + rh * ty, {bold:i === p.g});
@@ -462,18 +479,41 @@ var LAB = (function(){
           return [['훈련 · 목표', TR[p.t].n + ' · ' + EL[p.g]], ['목표 측정(' + TE[p.g] + ') 향상', word(r.gv) + ' (' + r.gv + ')', r.gv >= 60 ? PAL[1] : PAL[4]],
             ['가장 크게 는 측정', TE[r.best] + ' (' + r.v[r.best] + ')'],
             ['특이성 확인', r.match ? '훈련한 칸 = 목표 칸' : '훈련과 목표가 다른 칸 — 목표와 닮은 자극이 필요해요', r.match ? PAL[1] : PAL[4]],
-            ['해석', p.t === 5 ? '섞으면 여러 칸이 고르게 조금씩 늘어요. 목표가 하나라면 그 칸의 비중을 높여요' : '겹치는 효과는 조금씩 있지만 가장 큰 변화는 훈련한 요소에서 일어나요', PAL[3]]];
+            ['해석', p.t === 5 ? '섞으면 여러 칸이 고르게 조금씩 늘어요. 목표가 하나라면 그 칸의 비중을 높여요' : '겹치는 효과는 조금씩 있지만 가장 큰 변화는 훈련한 요소에서 일어나요', PAL[3]],
+            ['운동량', '주 ' + r.f + '회 · ' + INT[r.i] + ' (기준의 ' + f(r.dose, 2) + '배)'],
+            ['강도를 바꾸니', r.moved ? '가장 크게 는 칸이 ' + TE[r.baseBest] + ' → ' + TE[r.best] + ' 로 바뀌었습니다' : '가장 크게 는 칸은 그대로 ' + TE[r.best] + ' 입니다', r.moved ? PAL[6] : PAL[7]],
+            ['짐작 → 실제', WORDS[r.gp] + ' → ' + r.gw + (r.gpHit ? ' · 맞힘' : ' · 빗나감'), r.gpHit ? PAL[1] : PAL[4]],
+            ['※ 쓴 값', '향상 폭과 횟수·강도의 효과는 모두 교육용 모형값입니다']];
         },
-        columns: ['훈련', '목표', '목표 측정 향상', '가장 큰 향상'],
-        record: function(p, r){ return {t:p.t, g:p.g, gv:r.gv, best:r.best}; },
-        row: function(d){ return [TR[d.t].s, EL[d.g], word(d.gv), TE[d.best]]; },
+        columns: ['훈련', '목표', '주당 횟수', '강도', '목표 측정 향상', '짐작', '맞힘', '가장 큰 향상'],
+        record: function(p, r){ return {t:p.t, g:p.g, gv:r.gv, best:r.best, f:r.f, i:r.i, gp:r.gp, hit:r.gpHit, moved:r.moved, bb:r.baseBest}; },
+        row: function(d){ return [TR[d.t].s, EL[d.g], d.f == null ? '−' : d.f + '회', d.i == null ? '−' : INT[d.i],
+          word(d.gv), d.gp == null ? '−' : WORDS[d.gp], d.gp == null ? '−' : (d.hit ? '○' : '×'), TE[d.best]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('웹툰 #4 표 재현', '<div id="e1a"></div><p class="ask">표에서 진한 칸이 대각선에 모였나요? 뭉치가 두 달 달리고도 턱걸이를 못 한 까닭을 특이성으로 설명해 보세요.</p>') +
+            card('운동량과 강도를 바꾼 기록', '<div id="e1b"></div><p class="ask">같은 훈련인데 가장 크게 는 칸이 바뀐 기록이 있나요? 그렇다면 처방에서 정해야 할 것은 "무엇을 하느냐" 말고 또 무엇인가요?</p>') +
             card('과제', '<p class="ask">과제: 자신의 목표 하나를 체력 요소 두세 가지로 번역하고, 각 요소를 늘릴 운동과 그 효과를 확인할 측정 종목을 짝지어 4주 계획표를 만드세요. 시작 강도는 지금 할 수 있는 수준보다 낮게 잡으세요. 운동 중 통증·어지럼이 있으면 즉시 중단하고 보호자·교사에게 알리세요. 강도·시간을 한꺼번에 늘리지 말고, 기저 질환이나 운동 제한이 있으면 실습 전에 의료인과 상담하세요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.t] = 1; });
           var rows = [0, 2, 4, 3].map(function(ti){ return [TE[ti]].concat([0, 2, 4].map(function(t){ return seen[t] ? word(TR[t].v[ti]) : '—'; })); });
           $('e1a').innerHTML = tableHTML(['측정', '달리기 집단', '근력 집단(가볍게 많이)', '유연성 집단'], rows) + '<p class="msg">— 칸은 아직 실행하지 않은 훈련이에요. 웹툰의 "근력 집단" 열은 "근력: 가볍게 많이" 훈련(팔굽혀펴기처럼 여러 번 반복)과 같아요.</p>';
+          (function(){
+            var gr = rec.filter(function(d){ return d.f != null; });
+            if (!gr.length){ $('e1b').innerHTML = '<p class="msg">주당 횟수와 강도를 바꿔 기록하면 여기에서 짝지어 보여 줍니다.</p>'; return; }
+            var hit = gr.filter(function(d){ return d.hit; }).length;
+            var mv = gr.filter(function(d){ return d.moved; });
+            var by = groupBy(gr, function(d){ return d.t; });
+            var lines = [];
+            Object.keys(by).forEach(function(k){
+              var g = by[k];
+              if (g.length < 2) return;
+              lines.push([TR[k].s, g.map(function(d){ return '주 ' + d.f + '회·' + INT[d.i] + ' → ' + TE[d.best]; }).join(' / ')]);
+            });
+            $('e1b').innerHTML = '<p>짐작 채점 <b>' + hit + ' / ' + gr.length + '</b> 맞혔습니다.</p>' +
+              (lines.length ? tableHTML(['훈련', '운동량별 가장 큰 향상'], lines, 'wrap') : '<p class="msg">같은 훈련에서 횟수·강도만 바꿔 두 번 이상 기록해 보세요.</p>') +
+              (mv.length ? '<p class="msg">가장 크게 는 칸이 바뀐 기록이 <b>' + mv.length + '개</b> 있습니다 — 같은 운동도 <b>얼마나, 얼마나 세게</b> 하느냐에 따라 느는 칸이 달라집니다.</p>'
+                         : '<p class="msg">강도를 <b>세게</b>나 <b>가볍게</b>로 바꿔 보세요. 가장 크게 는 칸이 옮겨 갈 수 있습니다.</p>');
+          })();
         }
       };
     })();
@@ -482,7 +522,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

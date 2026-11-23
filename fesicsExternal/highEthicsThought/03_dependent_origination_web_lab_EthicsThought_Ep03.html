@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,9 +438,11 @@ var LAB = (function(){
       var ED = [[0, 1], [0, 2], [0, 4], [1, 4], [2, 1], [3, 4], [3, 7], [5, 6], [5, 7], [0, 5], [6, 4], [6, 2]];
       var EV = [{n:'가뭄 (하늘·비에서 시작)', s:'가뭄', st:7}, {n:'공장 폐쇄 (공장에서 시작)', s:'공장 폐쇄', st:5}, {n:'친구의 큰 슬픔 (친구에서 시작)', s:'친구의 슬픔', st:2}];
       var RS = [{n:'무관심 — 나와는 상관없다', s:'무관심'}, {n:'자비 — 이어진 이의 고통을 덜어 준다', s:'자비'}, {n:'집착 — 내 뜻대로 되어야 한다', s:'집착'}];
-      function spread(st, rs){
+      /* kk = 한 칸 건널 때 남는 정도(둘째 변수, 기본 0.6). 크면 멀리까지 번지고 작으면 몇 칸 안에서 멎는다 — 교육용 모형값. */
+      function spread(st, rs, kk){
+        if (kk == null) kk = 0.6;
         var lv = ND.map(function(){ return 0; }), hop = ND.map(function(){ return -1; }), q = [st]; lv[st] = 1; hop[st] = 0;
-        while (q.length){ var u = q.shift(); ED.forEach(function(e){ var v = e[0] === u ? e[1] : e[1] === u ? e[0] : -1; if (v < 0 || hop[v] >= 0) return; hop[v] = hop[u] + 1; lv[v] = lv[u] * 0.6; q.push(v); }); }
+        while (q.length){ var u = q.shift(); ED.forEach(function(e){ var v = e[0] === u ? e[1] : e[1] === u ? e[0] : -1; if (v < 0 || hop[v] >= 0) return; hop[v] = hop[u] + 1; lv[v] = lv[u] * kk; q.push(v); }); }
         var me = lv[0];
         if (rs === 1) ED.forEach(function(e){ var v = e[0] === 0 ? e[1] : e[1] === 0 ? e[0] : -1; if (v >= 0 && v !== st) lv[v] *= 0.5; });
         if (rs === 2) me = Math.min(1, me * 1.8);
@@ -451,12 +455,18 @@ var LAB = (function(){
         shortHint: '같은 사건에 세 가지 반응을 모두 해 보고, 사건도 바꿔 보세요.',
         params: [
           {key:'e', type:'seg', label:'사건', cols:3, value:0, options:EV.map(function(x){ return x.n; })},
+          {key:'k', type:'range', label:'이어짐의 세기 — 한 칸 건널 때 남는 정도 (모형값)', min:0.2, max:0.9, step:0.05, value:0.6, fmt:function(x){ return f(x, 2); }},
+          {key:'g', type:'seg', label:'예측: \'무관심\'일 때에 비해 내게 돌아오는 괴로움은?', cols:3, value:0, options:['늘어난다', '거의 같다', '줄어든다'],
+            note:'반응을 고르기 전에 먼저 찍어 보세요. 맞히는 것은 "이 모형이 그렇게 움직이는가"일 뿐, 불교의 주장이 참인지가 아니에요.'},
           {key:'r', type:'seg', label:'나의 반응', cols:1, value:0, options:RS.map(function(x){ return x.n; })}
         ],
         compute: function(p){
-          var s = spread(EV[p.e].st, p.r), others = 0, reached = 0;
+          var s = spread(EV[p.e].st, p.r, p.k), others = 0, reached = 0;
           s.lv.forEach(function(v, i){ if (i) others += v; if (v > 0.02) reached++; });
-          return {lv:s.lv, hop:s.hop, me:s.lv[0], others:others, reached:reached, hopMe:s.hop[0]};
+          var base = spread(EV[p.e].st, 0, p.k).lv[0];     /* 같은 사건·같은 세기에서 '무관심'일 때 내게 돌아오는 값 = 비교 기준 */
+          var dm = (s.lv[0] - base) * 100, act = dm > 0.5 ? 0 : dm < -0.5 ? 2 : 1;
+          return {lv:s.lv, hop:s.hop, me:s.lv[0], others:others, reached:reached, hopMe:s.hop[0],
+            base:base, dm:dm, act:act, ok:p.r === 0 ? null : p.g === act};
         },
         draw: function(c, W, H, p, r, tau){
           var top = 40, h = 320, X = function(n){ return 30 + n.x * (W - 60); }, Y = function(n){ return top + n.y * h; };
@@ -475,19 +485,29 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['사건 · 반응', EV[p.e].s + ' · ' + RS[p.r].s],
-            ['고통이 닿은 존재', r.reached + ' / 8 — 연결된 모두에게 번짐 (어떤 반응을 골라도 닿는 범위는 같고, 반응은 세기를 바꿔요)', PAL[4]],
+            ['이어짐의 세기 (모형값)', f(p.k, 2) + (p.k === 0.6 ? ' — 기본값' : '')],
+            ['고통이 닿은 존재', r.reached + ' / 8 — 이어짐의 세기가 작으면 몇 칸 안에서 멎어요', PAL[4]],
             ['나에게 닿기까지', r.hopMe === 0 ? '내가 출발점' : r.hopMe + '단계를 건너 돌아옴', PAL[3]],
-            ['나에게 돌아온 괴로움 (모형)', f(r.me * 100, 0), p.r === 2 ? PAL[4] : PAL[0]],
+            ['\'무관심\'일 때 내 괴로움 (기준, 모형)', f(r.base * 100, 0), PAL[7]],
+            ['나에게 돌아온 괴로움 (모형)', f(r.me * 100, 0) + ' (기준과 ' + sgn(r.dm, 0) + ')', p.r === 2 ? PAL[4] : PAL[0]],
+            ['내 예측 / 모형 결과', r.ok == null ? '지금 고른 \'무관심\'이 비교 기준이에요 — 다른 반응을 골라 예측을 채점해 보세요.'
+              : ['늘어난다', '거의 같다', '줄어든다'][p.g] + ' / ' + ['늘어났다', '거의 같다', '줄어들었다'][r.act] + ' → ' + (r.ok ? '맞음' : '다름'), r.ok == null ? PAL[7] : r.ok ? PAL[1] : PAL[4]],
             ['다른 존재들의 고통 합 (모형)', f(r.others * 100, 0), p.r === 1 ? PAL[1] : PAL[6]],
-            ['불교의 주장으로 읽으면', p.r === 0 ? '연결돼 있는 한 무관심은 불가능하다는 것이 연기의 결론이에요.' : p.r === 1 ? '나와 남이 분리돼 있지 않으니 남의 고통을 덜어 주는 것이 곧 자비예요.' : '"내 뜻대로"라는 붙듦이 사건보다 반응에서 괴로움을 키운다고 봐요.']];
+            ['불교의 주장으로 읽으면', p.r === 0 ? '연결돼 있는 한 무관심은 불가능하다는 것이 연기의 결론이에요.' : p.r === 1 ? '나와 남이 분리돼 있지 않으니 남의 고통을 덜어 주는 것이 곧 자비예요 — 이 모형에서 내게 돌아오는 값은 그대로인데 남의 고통이 줄어든 까닭을 설명해 보세요.' : '"내 뜻대로"라는 붙듦이 사건보다 반응에서 괴로움을 키운다고 봐요.']];
         },
-        columns: ['사건', '반응', '나의 괴로움', '다른 존재 고통 합'],
-        record: function(p, r){ return {e:p.e, r:p.r, me:r.me * 100, ot:r.others * 100}; },
-        row: function(d){ return [EV[d.e].s, RS[d.r].s, f(d.me, 0), f(d.ot, 0)]; },
+        columns: ['사건', '세기', '반응', '나의 괴로움', '기준과 차이', '예측', '다른 존재 고통 합'],
+        record: function(p, r){ return {e:p.e, k:p.k, r:p.r, g:p.g, me:r.me * 100, ot:r.others * 100, dm:r.dm, act:r.act, ok:r.ok}; },
+        row: function(d){ return [EV[d.e].s, f(d.k, 2), RS[d.r].s, f(d.me, 0), sgn(d.dm, 0), d.ok == null ? '기준' : d.ok ? '맞음' : '다름', f(d.ot, 0)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('반응별 결과 (모형 평균)', '<div id="bv1"></div><p class="ask">"집착을 내려놓는 것"과 "무관심"은 이 그물에서 어떻게 다르게 나타났나요?</p>') +
+            card('내 예측과 모형 결과', '<div id="bv3"></div><p class="ask">어느 반응에서 예측이 틀렸나요? 자비를 골랐을 때 내게 돌아오는 값과 남의 고통 합이 서로 다르게 움직인 까닭을 적어 보세요.</p>') +
             card('역사 속 불교의 사회적 실천 (웹툰 표)', '<div id="bv2"></div><p class="ask">과제: 연기 개념을 사용해 현대 사회 문제 하나(환경·불평등·차별 중 택1)를 서술하고, 그 서술이 기존 설명과 무엇이 다른지 밝혀 보세요.</p>') + '</div>';
+          var scored = rec.filter(function(d){ return d.ok != null; }), hit = scored.filter(function(d){ return d.ok; }).length;
+          $('bv3').innerHTML = tableHTML(['사건 · 세기', '반응', '내 예측', '모형 결과', '맞음?'],
+            rec.slice(-8).map(function(d){ return [EV[d.e].s + ' · ' + f(d.k, 2), RS[d.r].s, ['늘어난다', '거의 같다', '줄어든다'][d.g],
+              d.ok == null ? '(기준)' : ['늘어났다', '거의 같다', '줄어들었다'][d.act] + ' (' + sgn(d.dm, 0) + ')', d.ok == null ? '—' : d.ok ? '맞음' : '다름']; }), 'wrap') +
+            '<p class="msg">예측 적중 ' + hit + ' / ' + scored.length + '회 (\'무관심\'은 비교 기준이라 채점하지 않아요). 차이가 ±0.5 안이면 "거의 같다"로 본 교육용 기준이에요.</p>';
           var it = [];
           RS.forEach(function(rs, i){ var a = rec.filter(function(d){ return d.r === i; }); if (!a.length) return;
             it.push({label:rs.s + ' · 나', v:mean(a.map(function(d){ return d.me; })), color:PAL[0], text:f(mean(a.map(function(d){ return d.me; })), 0)});
@@ -502,7 +522,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

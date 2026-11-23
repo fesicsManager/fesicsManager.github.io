@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -461,21 +463,31 @@ var K = 1000;
 return {
   sceneHeight: function(w){ return w < 520 ? 545 : 470; },
   minRec: 4,
-  idle: '대멸종 사건과 회복 조건, 기다릴 시간을 정하고 <b>멸종 뒤 기다리기</b>를 누르세요.',
+  get idle(){
+    var E = (typeof p.e === 'number') ? EVT[p.e] : null, R = (typeof p.r === 'number') ? RATE[p.r] : null;
+    return '대멸종 사건과 회복 조건, 기다릴 시간을 정하고 <b>멸종 뒤 기다리기</b>를 누르세요.<br><br>' +
+      '🔎 <b>먼저 짐작하기</b> — ' + (E ? E.n + '처럼 과(科)가 <b>' + E.fam + ' %</b> 사라지고' : '') +
+      (R ? ' 회복 조건이 <b>' + R.n + '</b>(r = ' + f(R.r, 2) + ')' : '') + '일 때, 90 % 수준(과 900개)까지 몇 백만 년이 걸릴까요?<br>' +
+      '조작 칸의 <b>내 짐작</b>을 먼저 맞춰 둔 뒤 기다려 보세요. 답은 기다린 뒤에 보여 주고, 짐작과 함께 채점해요.';
+  },
   shortHint: '자유 탐구 탭에서 사건과 기다리는 시간을 바꿔 가며 기록하세요.',
   params: [
     {key:'e', type:'seg', label:'대멸종 사건 (5대 대멸종)', cols:2, value:2, options:EVT.map(function(x){ return x.n + '<small>' + x.t + ' Ma · 종 ' + x.sp + ' % 멸종</small>'; })},
     {key:'r', type:'seg', label:'회복 조건(환경 안정도)', cols:3, value:1, options:RATE.map(function(x){ return x.n + '<small>r = ' + f(x.r, 2) + '</small>'; })},
     {key:'t', type:'range', label:'기다릴 시간', min:1, max:40, step:1, value:10, fmt:function(v){ return v + ' 백만 년'; },
-      note:'멸종 전 과의 수 1 000과 회복률 r은 사건끼리 견주기 위한 <b>가상값</b>입니다. 멸종률은 화석 기록에서 추정한 값이고, 과 수준 멸종률이 종 수준보다 작게 나타납니다.'}
+      note:'멸종 전 과의 수 1 000과 회복률 r은 사건끼리 견주기 위한 <b>가상값(교육용 모형값)</b>입니다. 멸종률은 화석 기록에서 추정한 값이고, 과 수준 멸종률이 종 수준보다 작게 나타납니다.'},
+    {key:'q', type:'range', label:'내 짐작 — 90 % 회복까지', min:1, max:30, step:1, value:10, fmt:function(v){ return v + ' 백만 년'; },
+      note:'기다리기를 누르기 <b>전에</b> 맞춰 두세요. 실제 값의 20 % 안(또는 2 백만 년 안)에 들면 맞음으로 봅니다. 사건과 회복 조건을 바꾸면 정답이 크게 달라져요.'}
   ],
   compute: function(p){
     var E = EVT[p.e], R = RATE[p.r], t = p.t;
     var N0 = K * (1 - E.fam / 100);
     var N = K / (1 + (K / N0 - 1) * Math.exp(-R.r * t));
     var t90 = Math.log(9 * (K / N0 - 1)) / R.r;
+    var tol = Math.max(2, t90 * 0.2);
     return {E:E, R:R, t:t, N0:N0, N:N, lost:K - N0, t90:t90, frac:N / K,
-      done:t >= t90, back:(N - N0) / Math.max(K - N0, 1)};
+      done:t >= t90, back:(N - N0) / Math.max(K - N0, 1),
+      q:p.q, tol:tol, qOk:Math.abs(p.q - t90) <= tol, qSide:(p.q < t90 ? -1 : 1)};
   },
   draw: function(c, W, H, p, r, tau){
     var E = EVT[p.e], padL = 90, padR = 40, top = 80, hgt = 230, nar = W < 520;
@@ -495,7 +507,8 @@ return {
     // 멸종 순간
     c.strokeStyle = '#C8463D'; c.lineWidth = 2.5;
     c.beginPath(); c.moveTo(X(-8), Y(K)); c.lineTo(X(-2), Y(K)); c.lineTo(X(0), Y(r.N0)); c.stroke();
-    txt(c, '멸종', X(-5), Y(K) - 12, {align:'center', color:'#C8463D', bold:true});
+    /* 좁은 화면에서는 '멸종 전 1 000' 과 같은 줄에 놓여 겹치므로 점선 아래에 쓴다 */
+    txt(c, '멸종', X(-5), Y(K) + (nar ? 24 : -12), {align:'center', color:'#C8463D', bold:true});
     // 회복 곡선
     var tt = r.t * tau;
     c.strokeStyle = '#2E9E78'; c.lineWidth = 2.5; c.beginPath();
@@ -529,18 +542,25 @@ return {
       ['회복 조건', r.R.n + ' (r = ' + f(r.R.r, 2) + ')'], ['기다린 시간', r.t + ' 백만 년'],
       ['그때 과의 수', Math.round(r.N) + '개 (' + f(r.frac * 100, 1) + ' %)', PAL[1]],
       ['잃은 몫 중 되찾은 비율', f(r.back * 100, 1) + ' %'],
-      ['90 % 회복까지', f(r.t90, 1) + ' 백만 년', PAL[0]], ['원인(추정)', r.E.cause]];
+      ['90 % 회복까지', f(r.t90, 1) + ' 백만 년', PAL[0]],
+      ['내 짐작', r.q + ' 백만 년', PAL[3]],
+      ['채점', r.qOk ? '맞음 ✔ (차이 ' + f(Math.abs(r.q - r.t90), 1) + ' 백만 년)' : (r.qSide < 0 ? '너무 짧게 봤어요 ✘' : '너무 길게 봤어요 ✘') + ' (차이 ' + f(Math.abs(r.q - r.t90), 1) + ' 백만 년)',
+        r.qOk ? PAL[1] : PAL[4]],
+      ['원인(추정)', r.E.cause]];
   },
-  columns: ['사건', '종 멸종률 (%)', '과 멸종률 (%)', '회복 조건', '기다린 시간 (Myr)', '과의 수', '회복률 (%)', '90 % 회복 (Myr)'],
+  columns: ['사건', '종 멸종률 (%)', '과 멸종률 (%)', '회복 조건', '기다린 시간 (Myr)', '과의 수', '회복률 (%)', '90 % 회복 (Myr)', '내 짐작 (Myr)', '채점'],
   record: function(p, r){
-    return {ei:p.e, ev:r.E.n, sp:r.E.sp, fam:r.E.fam, rn:r.R.n, rr:r.R.r, t:r.t, N0:r.N0, N:r.N, frac:r.frac, t90:r.t90};
+    return {ei:p.e, ev:r.E.n, sp:r.E.sp, fam:r.E.fam, rn:r.R.n, rr:r.R.r, t:r.t, N0:r.N0, N:r.N, frac:r.frac, t90:r.t90,
+      q:r.q, qOk:r.qOk, qSide:r.qSide};
   },
-  row: function(d){ return [d.ev, d.sp, d.fam, d.rn, d.t, Math.round(d.N), f(d.frac * 100, 1), f(d.t90, 1)]; },
+  row: function(d){ return [d.ev, d.sp, d.fam, d.rn, d.t, Math.round(d.N), f(d.frac * 100, 1), f(d.t90, 1),
+    d.q == null ? '—' : d.q, d.q == null ? '—' : (d.qOk ? '맞음' : (d.qSide < 0 ? '짧게 봄' : '길게 봄'))]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('시간에 따른 회복', '<canvas class="chart" id="ch1" role="img" aria-label="기다린 시간과 과의 수 산점도"></canvas><ul class="readout" id="ro1"></ul><p class="ask">회복 곡선은 처음에 천천히, 그다음 빠르게, 마지막에 다시 천천히 올라갑니다. 마지막이 느린 까닭은 무엇일까요?</p>') +
       card('많이 사라질수록 오래 걸린다', '<canvas class="chart" id="ch2" role="img" aria-label="멸종률과 90 % 회복 시간 산점도"></canvas><ul class="readout" id="ro2"></ul><p class="ask">페름기 말과 백악기 말의 회복 시간을 비교해 보세요. 지금의 멸종에 어떤 뜻이 있을까요?</p>') +
-      card('다섯 번의 대멸종', '<div id="ro3"></div><p class="ask">대멸종은 나쁘기만 할까요? 빈 생태적 지위가 생긴 뒤 어떤 일이 일어났는지 말해 보세요.</p>') + '</div>';
+      card('다섯 번의 대멸종', '<div id="ro3"></div><p class="ask">대멸종은 나쁘기만 할까요? 빈 생태적 지위가 생긴 뒤 어떤 일이 일어났는지 말해 보세요.</p>') +
+      card('내 짐작은 맞았을까 — 사건별 채점', '<div id="ro4"></div><p class="ask">짐작이 자꾸 짧았다면, 회복이 느려지는 까닭을 떠올려 보세요. 사라진 몫이 클수록 다시 시작할 밑천이 적고, 마지막 10 %는 빈 자리가 없어 더 느려집니다.</p>') + '</div>';
     var bg = groupBy(rec, function(d){ return d.ei + '-' + d.rn; }), s1 = [], r1 = [], ci = 0;
     Object.keys(bg).forEach(function(k){
       var g = bg[k], col = PAL[ci++ % PAL.length];
@@ -568,6 +588,23 @@ return {
     });
     $('ro3').innerHTML = tableHTML(['사건', '시기', '종 멸종률', '과 멸종률', '원인(추정)', '내 기록'], rows, 'wrap') +
       '<p class="note">멸종 뒤에는 빈 생태적 지위를 차지한 무리가 크게 퍼졌어요. 공룡이 사라진 뒤의 포유류가 대표적이에요. 다만 그 자리에 우리가 있으리란 보장은 없어요.</p>';
+    var qr = rec.filter(function(d){ return d.q != null; });
+    if (!qr.length){
+      $('ro4').innerHTML = '<p class="note">조작 칸의 <b>내 짐작</b>을 맞춰 두고 기다리면 여기에 사건별 채점표가 쌓여요.</p>';
+    } else {
+      var hit = qr.filter(function(d){ return d.qOk; }).length;
+      var shortN = qr.filter(function(d){ return !d.qOk && d.qSide < 0; }).length;
+      var longN = qr.filter(function(d){ return !d.qOk && d.qSide > 0; }).length;
+      var lo = qr.slice().sort(function(a, b){ return a.t90 - b.t90; })[0];
+      var hi = qr.slice().sort(function(a, b){ return b.t90 - a.t90; })[0];
+      $('ro4').innerHTML = tableHTML(['사건', '회복 조건', '내 짐작 (Myr)', '실제 (Myr)', '채점'],
+        qr.map(function(d){ return [d.ev, d.rn, String(d.q), f(d.t90, 1), d.qOk ? '맞음 ✔' : (d.qSide < 0 ? '짧게 봄 ✘' : '길게 봄 ✘')]; }), 'wrap') +
+        '<p class="note"><b>' + hit + ' / ' + qr.length + '</b> 번 맞혔어요' +
+        (shortN || longN ? ' (짧게 본 것 ' + shortN + '번, 길게 본 것 ' + longN + '번).' : '.') + '</p>' +
+        '<p class="note">내 기록에서 가장 빨리 회복한 경우는 ' + lo.ev + ' · ' + lo.rn + '의 <b>' + f(lo.t90, 1) + ' 백만 년</b>, 가장 느린 경우는 ' +
+        hi.ev + ' · ' + hi.rn + '의 <b>' + f(hi.t90, 1) + ' 백만 년</b>이었어요' +
+        (hi.t90 / Math.max(lo.t90, 0.01) >= 1.5 ? ' — <b>' + f(hi.t90 / lo.t90, 1) + '배</b> 차이예요. 그러니 "오래 걸린다"로 끝낼 수 없고, 얼마나 사라졌는지와 환경이 얼마나 빨리 안정되는지에 따라 크게 갈려요.' : '. 사건과 회복 조건을 더 바꿔 보면 차이가 훨씬 크게 벌어져요.') + '</p>';
+    }
   }
 };
 })();
@@ -576,7 +613,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

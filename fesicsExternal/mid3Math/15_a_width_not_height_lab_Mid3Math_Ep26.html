@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -288,9 +289,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -300,6 +302,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -427,42 +436,52 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var A = [0.25, 0.5, 1, 2, 3, 4], AL = ['¼', '½', '1', '2', '3', '4'], PR = ['a가 크면 위로 올라간다', 'a가 크면 폭이 좁아진다'];
+      /* 위아래로 옮기는 값 q 를 따로 열어, '올라간다'와 '좁아진다'를 학생이 갈라 보게 한다 */
+      var Q = [-2, 0, 2, 4], QL = ['−2', '0', '+2', '+4'];
+      var qstr = function(q){ return q === 0 ? '' : (q > 0 ? ' + ' + q : ' − ' + (-q)); };
       return {
         sceneHeight: 440,
-        idle: 'a와 예상을 고른 뒤 <b>그래프 그리기</b>를 누르세요.',
-        shortHint: 'a를 ¼부터 4까지 차례로 바꿔 보세요. 꼭짓점의 y좌표는 변했나요?',
+        idle: 'a와 q, 예상을 고른 뒤 <b>그래프 그리기</b>를 누르세요.',
+        shortHint: '먼저 q = 0 으로 두고 a를 ¼부터 4까지 바꿔 보세요. 그다음 a는 그대로 두고 q만 바꿔 보세요. 그래프를 올리는 것은 어느 쪽인가요?',
         params: [
-          {key:'a', type:'seg', label:'a (y = ax²)', cols:6, value:3, options:AL},
+          {key:'a', type:'seg', label:'a (y = ax² + q)', cols:6, value:3, options:AL},
+          {key:'q', type:'seg', label:'q — 위아래로 옮기는 값', cols:4, value:1, options:QL},
           {key:'pr', type:'seg', label:'나의 예상', cols:2, value:0, options:PR}
         ],
-        compute: function(p){ var a = A[p.a]; return {a:a, w:4 / Math.sqrt(a), y1:a, right:p.pr === 1}; },
+        compute: function(p){ var a = A[p.a], q = Q[p.q];
+          return {a:a, q:q, w:4 / Math.sqrt(a), y1:a + q, right:p.pr === 1,
+            moved:q === 0 ? '꼭짓점은 (0, 0) 제자리 — a는 폭만 바꿨어요'
+              : q > 0 ? '꼭짓점이 ' + q + ' 만큼 올라갔어요 — 올린 것은 q이고, a는 폭만 바꿔요'
+              : '꼭짓점이 ' + (-q) + ' 만큼 내려갔어요 — a를 키워도 q가 음수면 아래로 가요'}; },
         draw: function(c, W, H, p, r, tau){
-          var a = A[p.a], bx = W >= 620 ? 80 : 62, bw = W - bx - 24, bh = H - 90, P = plotBox(c, bx, 20, bw, bh, [-5, 5, 1], [-1, 9, 1], 'x', 'y');
+          var a = A[p.a], q = Q[p.q], bx = W >= 620 ? 80 : 62, bw = W - bx - 24, bh = H - 90, P = plotBox(c, bx, 20, bw, bh, [-5, 5, 1], [Math.min(-1, q - 2), Math.max(9, q + 6), 1], 'x', 'y');
           var line = function(fn, col, w, dash, k){ c.save(); c.beginPath(); c.rect(bx, 20, bw, bh); c.clip(); c.strokeStyle = col; c.lineWidth = w; c.setLineDash(dash || []); c.beginPath();
-            for (var i = 0; i <= 200; i++){ var x = -5 + i / 20, y = Math.min(12, fn(x) * k); if (i) c.lineTo(P.X(x), P.Y(y)); else c.moveTo(P.X(x), P.Y(y)); } c.stroke(); c.restore(); };
+            for (var i = 0; i <= 200; i++){ var x = -5 + i / 20, y = Math.min(12 + q, fn(x) * k); if (i) c.lineTo(P.X(x), P.Y(y)); else c.moveTo(P.X(x), P.Y(y)); } c.stroke(); c.restore(); };
           line(function(x){ return x * x; }, '#8C99A8', 2, [6, 5], 1);
           if (!r) return;
           var k = Math.min(tau / 0.6, 1);
-          if (p.pr === 0) line(function(x){ return x * x + (a - 1); }, PAL[4], 2, [3, 4], 1);
-          line(function(x){ return a * x * x; }, PAL[0], 3.5, null, 1 - (1 - k) * (1 - 1 / Math.max(a, 1)));
-          if (tau > 0.6){ var hx = r.w / 2; seg(c, P.X(-hx), P.Y(4), P.X(hx), P.Y(4), PAL[6], 5); txt(c, '폭 ' + f(r.w, 2), P.X(0), P.Y(4) - 10, {align:'center', bold:true, color:PAL[6]});
-            c.fillStyle = PAL[1]; c.beginPath(); c.arc(P.X(0), P.Y(0), 8, 0, Math.PI * 2); c.fill(); txt(c, '꼭짓점 (0, 0)', P.X(0) + 12, P.Y(0) - 10, {bold:true, color:PAL[1]}); }
-          txt(c, 'y = ' + AL[p.a] + 'x²', bx + 8, 44, {bold:true, color:PAL[0]});
+          if (p.pr === 0) line(function(x){ return x * x + (a - 1) + q; }, PAL[4], 2, [3, 4], 1);
+          line(function(x){ return a * x * x + q; }, PAL[0], 3.5, null, 1 - (1 - k) * (1 - 1 / Math.max(a, 1)));
+          if (tau > 0.6){ var hx = r.w / 2, yl = q + 4; seg(c, P.X(-hx), P.Y(yl), P.X(hx), P.Y(yl), PAL[6], 5); txt(c, '폭 ' + f(r.w, 2), P.X(0), P.Y(yl) - 10, {align:'center', bold:true, color:PAL[6]});
+            c.fillStyle = PAL[1]; c.beginPath(); c.arc(P.X(0), P.Y(q), 8, 0, Math.PI * 2); c.fill(); txtFit(c, '꼭짓점 (0, ' + f(q, 0) + ')', P.X(0) + 12, P.Y(q) - 10, {bold:true, color:PAL[1]}, bx + bw - P.X(0) - 14); }
+          txtFit(c, 'y = ' + AL[p.a] + 'x²' + qstr(q), bx + 8, 44, {bold:true, color:PAL[0]}, bw - 16);
         },
         stats: function(p, r){
-          return [['그래프', 'y = ' + AL[p.a] + 'x²'], ['꼭짓점', '(0, 0) — a와 상관없이 제자리', PAL[1]], ['y = 4 에서의 폭', f(r.w, 2) + ' (y = x² 은 4)', PAL[6]],
-            ['x = 1 에서의 y', AL[p.a] + ' — 같은 x에서 y만 a배'], ['나의 예상', PR[p.pr] + (r.right ? ' — 맞음' : ' — 꼭짓점이 그대로라서 틀림'), r.right ? PAL[1] : PAL[4]]];
+          return [['그래프', 'y = ' + AL[p.a] + 'x²' + qstr(r.q)], ['꼭짓점', '(0, ' + f(r.q, 0) + ') — a가 아니라 q가 정해요', PAL[1]], ['꼭짓점이 움직였나', r.moved, r.q === 0 ? PAL[1] : PAL[6]],
+            ['꼭짓점에서 4 올라간 높이의 폭', f(r.w, 2) + ' (a = 1 이면 4) — q와 무관', PAL[6]],
+            ['x = 1 에서의 y', f(r.y1, 2) + ' = ' + AL[p.a] + ' + (' + f(r.q, 0) + ')'],
+            ['나의 예상', PR[p.pr] + (r.right ? ' — 맞음' : ' — 폭이 아니라 높이를 말했어요. 높이는 q가 정해요'), r.right ? PAL[1] : PAL[4]]];
         },
-        columns: ['a', '꼭짓점 y', 'y=4에서 폭', '예상'],
-        record: function(p, r){ return {a:r.a, w:r.w, pr:p.pr, ai:p.a}; },
-        row: function(d){ return [AL[d.ai], '0', f(d.w, 2), d.pr === 0 ? '위로' : '좁아짐']; },
+        columns: ['a', 'q', '꼭짓점 y', '폭', '예상'],
+        record: function(p, r){ return {a:r.a, q:r.q, w:r.w, pr:p.pr, ai:p.a, qi:p.q}; },
+        row: function(d){ return [AL[d.ai], QL[d.qi || 0], f(d.q || 0, 0), f(d.w, 2), d.pr === 0 ? '위로' : '좁아짐']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('a와 폭 (y = 4 에서)', '<canvas class="chart" id="aw1"></canvas><p class="ask">a가 4배가 되면 폭은 몇 배가 되나요? (a = 1 → 4, a = 4 → 2 를 비교해 보세요.)</p>') +
-            card('a별 꼭짓점과 폭', '<div id="aw2"></div><p class="ask">과제: y = 3x² 과 y = ⅓x² 을 같은 좌표평면에 그린다고 할 때, 두 그래프의 폭과 꼭짓점을 비교해 설명해 보세요.</p>') + '</div>';
+            card('a·q별 꼭짓점과 폭', '<div id="aw2"></div><p class="ask">과제: 폭을 바꾼 것은 a인가요 q인가요? 꼭짓점을 올린 것은 어느 쪽인가요? 표에서 짝지어 찾아보세요.</p>') + '</div>';
           drawScatter($('aw1'), {series:[{color:PAL[0], pts:rec.map(function(d){ return {x:d.a, y:d.w}; })}], xLabel:'a', yLabel:'폭'});
-          var by = groupBy(rec, function(d){ return d.ai; });
-          $('aw2').innerHTML = tableHTML(['a', '꼭짓점', '폭'], Object.keys(by).sort().map(function(k){ return [AL[k], '(0, 0)', f(by[k][0].w, 2)]; }));
+          var by = groupBy(rec, function(d){ return d.ai + '|' + (d.qi || 0); });
+          $('aw2').innerHTML = tableHTML(['a', 'q', '꼭짓점', '폭'], Object.keys(by).sort().map(function(k){ var d = by[k][0]; return [AL[d.ai], QL[d.qi || 0], '(0, ' + f(d.q || 0, 0) + ')', f(d.w, 2)]; }));
         }
       };
     })();
@@ -471,7 +490,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>교류 회로와 공명 | 고3 과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -230,9 +231,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -380,7 +382,7 @@ function circuit(R, L, C, f){
   return {XL:XL, XC:XC, Z:Z, I:I, phi:phi, f0:f0, P:I * I * R};
 }
 return {
-  sceneHeight: 470,
+  sceneHeight: function(w){ return w < 560 ? 530 : 470; },
   idle: '저항·코일·축전기와 진동수를 정한 뒤 <b>전류 재기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 진동수를 바꿔 가며 전류가 가장 커지는 지점을 찾으세요.',
   params: [
@@ -431,7 +433,8 @@ return {
     }
     txt(c, RES[p.r] + ' Ω · ' + (IND[p.l] * 1000) + ' mH · ' + (CAP[p.c] * 1e6) + ' µF · ' + FREQ[p.f].toLocaleString() + ' Hz', 12, 34, {bold:true});
     // 전류-진동수 그래프
-    var P = plotBox(c, 76, 200, W - 106, H - 290, [1, 4.2, 0.5], [0, 1.1, 0.25], 'log(진동수 / Hz)', '전류 (A)');
+    var nr = W < 560;
+    var P = plotBox(c, 76, 200, W - 106, nr ? H - 350 : H - 290, [1, 4.2, 0.5], [0, 1.1, 0.25], 'log(진동수 / Hz)', '전류 (A)');
     var R2 = RES[p.r], L2 = IND[p.l], C2 = CAP[p.c];
     c.strokeStyle = '#2E9E78'; c.lineWidth = 3; c.beginPath();
     for (var lf = 1; lf <= 4.2; lf += 0.01){ var ff = Math.pow(10, lf), Q2 = circuit(R2, L2, C2, ff);
@@ -444,8 +447,15 @@ return {
         txt(c, '공명 ' + f(r.f0res, 0) + ' Hz', P.X(lf0) + 6, P.Y(1.0), {color:'#C8463D', bold:true}); }
       c.fillStyle = '#1E2833'; c.beginPath(); c.arc(P.X(Math.log10(r.f)), P.Y(Math.min(1.1, r.I)), 7, 0, Math.PI * 2); c.fill();
     }
-    var by2 = H - 60;
+    var by2 = nr ? H - 74 : H - 60;
     if (!r) return;
+    if (nr){
+      txt(c, 'X_L ' + f(r.XL, 1) + ' Ω', 12, by2, {});
+      txt(c, 'X_C ' + f(r.XC, 1) + ' Ω · Z ' + f(r.Z, 1) + ' Ω', 12, by2 + 22, {});
+      txt(c, '전류 ' + f(r.I, 3) + ' A · 위상차 ' + sgn(r.phi, 1) + '°', 12, by2 + 44, {bold:true, color:r.near ? '#2E9E78' : '#4A5868'});
+      txt(c, r.kind, 12, by2 + 66, {bold:true, color:r.near ? '#2E9E78' : '#4A5868'});
+      return;
+    }
     txt(c, 'X_L ' + f(r.XL, 1) + ' Ω · X_C ' + f(r.XC, 1) + ' Ω · Z ' + f(r.Z, 1) + ' Ω', 12, by2, {});
     txt(c, '전류 ' + f(r.I, 3) + ' A · 위상차 ' + sgn(r.phi, 1) + '° · ' + r.kind, 12, by2 + 28,
       {bold:true, color:r.near ? '#2E9E78' : '#4A5868'});
@@ -489,7 +499,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

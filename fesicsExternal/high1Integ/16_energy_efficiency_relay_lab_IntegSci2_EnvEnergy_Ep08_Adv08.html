@@ -142,7 +142,8 @@ b.hl{color:var(--teal-dark)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 #sim{aspect-ratio:1/1}
-@media (max-width:520px){#sim{aspect-ratio:3/4}}
+/* 240px 안팎에서는 3/4 로도 막대와 숫자가 붙어 더 길게 (261122) */
+@media (max-width:520px){#sim{aspect-ratio:1/2}}
 </style>
 <style id="fxPrincipleCss">
 .fx-principle{display:none}
@@ -247,8 +248,17 @@ b.hl{color:var(--teal-dark)}
 <button data-val="40" class="on" aria-pressed="true">LED</button>
 </div>
 </div>
+<div class="ctrl">
+<div class="lbl"><span>한 단계만 10 %p 올릴 수 있다면? (먼저 고르기)</span></div>
+<div class="seg" data-name="fix">
+<button data-val="eb" aria-pressed="false">보일러</button>
+<button data-val="et" class="on" aria-pressed="true">터빈</button>
+<button data-val="tx" aria-pressed="false">송전</button>
+<button data-val="lamp" aria-pressed="false">전구</button>
+</div>
+</div>
 <div class="btn-row"><button class="btn" id="run">에너지 보내기</button></div>
-<p class="note">발전기 효율은 98 %로 고정했습니다. 각 단계에서 다음 단계로 넘어가지 못한 에너지는 모두 주위로 흩어지는 열이 됩니다. 효율 값은 실제 화력 발전소와 조명의 대략적인 범위입니다.</p>
+<p class="note">발전기 효율은 98 %로 고정했습니다. 각 단계에서 다음 단계로 넘어가지 못한 에너지는 모두 주위로 흩어지는 열이 됩니다. 효율 값은 실제 화력 발전소와 조명의 대략적인 범위입니다.<br>※ 고를 단계를 <b>돌리기 전에</b> 정해 두세요. 돌리고 나면 네 단계를 각각 10 %p 올렸을 때의 전체 효율을 모두 계산해, 내 고름이 가장 좋은 선택이었는지 채점합니다. 올릴 수 있는 한도는 보일러 95 %, 터빈 60 %, 송전 98 %, 전구 50 %로 두었어요(<b>교육용 모형값</b>).</p>
 </div>
 </div>
 <div class="col-data">
@@ -258,13 +268,16 @@ b.hl{color:var(--teal-dark)}
 <div class="ro"><span>열로 흩어진 에너지</span><b id="rH">—</b></div>
 <div class="ro"><span>가장 많이 잃은 단계</span><b id="rW">—</b></div>
 <div class="ro"><span>빛 + 열 합계</span><b id="rSum">—</b></div>
+<div class="ro"><span>내가 고른 단계를 고치면</span><b id="rPick">—</b></div>
+<div class="ro"><span>가장 효과가 큰 단계</span><b id="rBest">—</b></div>
+<div class="ro"><span>채점</span><b id="rScore">—</b></div>
 </div>
 <div class="rec-bar">
 <span class="table-title">측정 기록 (<span id="recCount">0</span>개)</span>
 <button id="btnClear" class="btn ghost">기록 지우기</button>
 </div>
 <div class="table-wrap">
-<table id="recTable"><thead><tr><th>#</th><th>보일러 (%)</th><th>터빈 (%)</th><th>송전 (%)</th><th>전구</th><th>빛 (J)</th><th>열 (J)</th><th>전체 효율 (%)</th><th>최대 손실</th></tr></thead><tbody></tbody></table>
+<table id="recTable"><thead><tr><th>#</th><th>보일러 (%)</th><th>터빈 (%)</th><th>송전 (%)</th><th>전구</th><th>빛 (J)</th><th>열 (J)</th><th>전체 효율 (%)</th><th>최대 손실</th><th>내가 고른 단계</th><th>고치면 (%)</th><th>가장 좋은 단계</th><th>채점</th></tr></thead><tbody></tbody></table>
 </div>
 </div>
 </div>
@@ -279,6 +292,7 @@ b.hl{color:var(--teal-dark)}
 <div class="vcard" id="vA"></div>
 <div class="vcard" id="vB"></div>
 <div class="vcard" id="vC"></div>
+<div class="vcard" id="vD"></div>
 </div>
 </div>
 </section>
@@ -393,13 +407,24 @@ window.addEventListener('resize',()=>{if($('#sim').getBoundingClientRect().width
 (function(){
 const cv=$('#sim'),E0=1000,EG=98;
 const LN={'5':'백열등','20':'형광등','40':'LED'},TXN={'98':'가까움','94':'보통','88':'멂'};
-let tx=94,lamp=40,prog=null,res=null;
+let tx=94,lamp=40,prog=null,res=null,pick='et';
+/* 한 단계만 10 %p 올릴 때의 한도 — 교육용 모형값 */
+const FIXES=[{k:'eb',n:'보일러',cap:95},{k:'et',n:'터빈',cap:60},{k:'tx',n:'송전',cap:98},{k:'lamp',n:'전구',cap:50}];
+const FIXN=k=>{const f=FIXES.filter(x=>x.k===k)[0];return f?f.n:k;};
 bindSeg('tx',v=>{tx=+v;$('#txOut').textContent='송전 효율 '+tx+' %';});
 bindSeg('lamp',v=>{lamp=+v;$('#lampOut').textContent='전기 → 빛 '+lamp+' %';});
+bindSeg('fix',v=>{pick=v;});
 $('#txOut').textContent='송전 효율 '+tx+' %';$('#lampOut').textContent='전기 → 빛 '+lamp+' %';
 const STAGES=['연료','보일러','터빈','발전기','송전','전구'];
 const calc=(eb,et,etx,el)=>{const effs=[eb,et,EG,etx,el].map(x=>x/100);const E=[E0];const loss=[];effs.forEach(e=>{const prev=E[E.length-1];E.push(prev*e);loss.push(prev*(1-e));});const total=E[E.length-1]/E0*100;let wi=0;loss.forEach((l,i)=>{if(l>loss[wi])wi=i;});return{E,loss,total,light:E[E.length-1],heat:E0-E[E.length-1],worst:STAGES[wi+1]};};
-function clearOut(){setReadout({rL:'—',rE:'—',rH:'—',rW:'—',rSum:'—'});}
+/* 네 단계를 각각 10 %p(한도까지) 올렸을 때의 전체 효율을 모두 계산한다 */
+function gainList(eb,et,etx,el){
+ const v={eb:eb,et:et,tx:etx,lamp:el};
+ return FIXES.map(f=>{const to=Math.min(f.cap,v[f.k]+10);
+  const w={eb:v.eb,et:v.et,tx:v.tx,lamp:v.lamp};w[f.k]=to;
+  return{k:f.k,n:f.n,from:v[f.k],to:to,total:calc(w.eb,w.et,w.tx,w.lamp).total};});
+}
+function clearOut(){setReadout({rL:'—',rE:'—',rH:'—',rW:'—',rSum:'—',rPick:'—',rBest:'—',rScore:'—'});const s=$('#rScore');if(s)s.className='';}
 LAB.onInput=()=>{prog=null;res=null;setPending(null);clearOut();LAB.draw();};
 const SC=['#d98e3b','#c1443c','#6a5a9c','#2f8f9d','#5d7f3a','#f2c94c'];
 LAB.draw=()=>{
@@ -429,12 +454,21 @@ $('#run').addEventListener('click',()=>{
  animate(2400,p=>{prog=p;LAB.draw();},()=>{
   if(!res){prog=null;lockControls(false);LAB.draw();return;}
   prog=1;LAB.draw();
-  setReadout({rL:fmt(res.light,1)+' J',rE:fmt(res.total,2)+' %',rH:fmt(res.heat,1)+' J',rW:res.worst,rSum:fmt(res.light+res.heat,0)+' J'});
-  setPending({eb,et,tx,lamp,light:+res.light.toFixed(2),heat:+res.heat.toFixed(2),total:+res.total.toFixed(2),worst:res.worst,loss:res.loss.map(x=>+x.toFixed(1))});
+  const gl=gainList(eb,et,tx,lamp);
+  const bestG=gl.reduce((p,q)=>q.total>p.total?q:p);
+  const mine=gl.filter(g=>g.k===pick)[0]||gl[0];
+  const okPick=mine.total>=bestG.total-0.01;
+  setReadout({rL:fmt(res.light,1)+' J',rE:fmt(res.total,2)+' %',rH:fmt(res.heat,1)+' J',rW:res.worst,rSum:fmt(res.light+res.heat,0)+' J',
+   rPick:mine.n+' '+mine.from+'→'+mine.to+'% · 전체 '+fmt(mine.total,2)+'%',
+   rBest:bestG.n+' (전체 '+fmt(bestG.total,2)+'%)',
+   rScore:okPick?'맞음 ✔':'아쉬움 ✘ ('+fmt(bestG.total-mine.total,2)+'%p 차이)'});
+  $('#rScore').className=okPick?'good':'bad';
+  setPending({eb,et,tx,lamp,light:+res.light.toFixed(2),heat:+res.heat.toFixed(2),total:+res.total.toFixed(2),worst:res.worst,loss:res.loss.map(x=>+x.toFixed(1)),
+   pick:pick,pickTotal:+mine.total.toFixed(2),best:bestG.k,bestTotal:+bestG.total.toFixed(2),ok:okPick});
   lockControls(false);
  });
 });
-LAB.row=(r,i)=>[i,r.eb,r.et,r.tx,{t:LN[String(r.lamp)]},fmt(r.light,1),fmt(r.heat,1),fmt(r.total,2),{t:r.worst}];
+LAB.row=(r,i)=>[i,r.eb,r.et,r.tx,{t:LN[String(r.lamp)]},fmt(r.light,1),fmt(r.heat,1),fmt(r.total,2),{t:r.worst},{t:FIXN(r.pick)},fmt(r.pickTotal||0,2),{t:FIXN(r.best)},{t:r.ok?'맞음':'아쉬움'}];
 function bars(cv,list,yLabel){const n=list.length;const yMax=niceMax(Math.max(...list.map(b=>b.v))*1.15);const c=chart(cv,{xMin:0,xMax:n,yMax,xLabel:'기록 번호',yLabel,xTicks:false});const {ctx,X,Y}=c;const w=Math.max(4,(X(1)-X(0))*0.62);const every=Math.ceil(n/10);
  list.forEach((b,i)=>{const x=X(i+0.5);ctx.fillStyle=b.c;ctx.fillRect(x-w/2,Y(b.v),w,Y(0)-Y(b.v));ctx.strokeStyle='#1f2d33';ctx.lineWidth=2;ctx.strokeRect(x-w/2,Y(b.v),w,Y(0)-Y(b.v));if(i%every===0){ctx.fillStyle='#4f6168';ctx.font='18px "IBM Plex Mono",monospace';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(String(i+1),x,Y(0)+8);}});}
 const LC={'5':'#c1443c','20':'#d98e3b','40':'#2f8f9d'};
@@ -457,6 +491,21 @@ LAB.verify=(R)=>{
   if(inc&&led)c+='<p>같은 발전소에서 백열등을 LED로 바꾸자 빛이 '+fmt(inc.light,1)+' J → '+fmt(led.light,1)+' J, <b class="hl">'+fmt(led.light/inc.light,0)+'배</b>가 됐어요.</p>';
   c+='<p>마지막 단계의 효율을 8배 올리면 전체도 8배가 돼요. 발전소 터빈을 몇 % 개선하는 것보다 집 안 전구를 바꾸는 쪽이 훨씬 큰 차이를 만드는 셈이에요. 최종 소비 단계의 효율이 그래서 중요해요.</p>';}
  $('#vC').innerHTML=c;
+ /* 내 고름 채점 모아 보기 */
+ const scored=R.filter(r=>r.pick);
+ let d='<h3>한 단계만 고친다면 — 내 고름 채점</h3>';
+ if(!scored.length){
+  d+='<p>조작 칸에서 고칠 단계를 먼저 고른 뒤 돌려 보세요. 네 단계를 각각 10 %p 올렸을 때를 모두 계산해 채점해 드려요.</p>';
+ }else{
+  const hit=scored.filter(r=>r.ok).length;
+  d+='<table><thead><tr><th>#</th><th>내 고름</th><th>고치면 (%)</th><th>가장 좋은 단계</th><th>그때 (%)</th><th>채점</th></tr></thead><tbody>'
+   +scored.map((r,i)=>'<tr><td>'+(i+1)+'</td><td class="t">'+FIXN(r.pick)+'</td><td>'+fmt(r.pickTotal,2)+'</td><td class="t">'+FIXN(r.best)+'</td><td>'+fmt(r.bestTotal,2)+'</td><td class="t">'+(r.ok?'맞음 ✔':'아쉬움')+'</td></tr>').join('')
+   +'</tbody></table><p><b class="hl">'+hit+' / '+scored.length+'</b> 번 맞혔어요.</p>';
+  const bs=[...new Set(scored.map(r=>r.best))];
+  d+='<p>정답 단계가 '+(bs.length>=2?'기록마다 <b>달라졌지요</b>('+bs.map(FIXN).join(', ')+'). ':'아직 한 가지('+FIXN(bs[0])+')로만 나왔어요. 다른 조합으로도 돌려 보세요. ')
+   +'효율은 곱셈이라, 10 %p를 더해서 <b>몇 배가 되는지</b>가 중요해요. 40 %에 10 %p를 더하면 1.25배지만, 30 %에 더하면 1.33배, 5 %에 더하면 3배예요. 그래서 <b class="hl">가장 낮은 단계를 고치는 것이 보통 가장 이득</b>이고, 이미 한도에 닿은 단계를 고르면 효과가 거의 없어요.</p>';
+ }
+ $('#vD').innerHTML=d;
 };
 boot();
 })();

@@ -245,20 +245,27 @@ tbody tr:nth-child(even){background:#f7faf9;}
       <div class="explore-grid">
         <div class="canvas-panel">
           <canvas id="drillCanvas" width="400" height="340" role="img" aria-label="땅속 탐사선 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
-          <div class="note" id="n2">깊이를 정하고 드릴을 내려보내세요.</div>
+          <div class="note" id="n2">땅 위 환경과 깊이를 정하고 드릴을 내려보내세요.</div>
           <div class="control-block">
             <div class="control-label">파 내려갈 깊이: <span class="slider-val" id="dv">2</span> m</div>
             <input type="range" id="ds" min="0" max="15" step="1" value="2" aria-label="파 내려갈 깊이">
+            <div class="control-label">땅 위는 어떤 곳인가요?</div>
+            <div class="btn-row" id="eRow">
+              <button class="btn-choice" data-e="0">숲</button>
+              <button class="btn-choice active" data-e="1">들판</button>
+              <button class="btn-choice" data-e="2">강가</button>
+              <button class="btn-choice" data-e="3">사막</button>
+            </div>
             <button class="btn-main" id="go2">드릴 내려보내기 ▶</button>
-            <div class="result-box" id="r2">깊이를 정하고 실험 버튼을 눌러보세요.</div>
+            <div class="result-box" id="r2">땅 위 환경과 깊이를 정하고 실험 버튼을 눌러보세요.</div>
           </div>
         </div>
         <div class="data-panel">
           <div class="table-title">탐사 기록 (<span class="mono" id="c2">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>깊이(m)</th><th>그곳의 층</th><th>단단함</th></tr></thead>
-              <tbody id="t2"><tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>땅 위</th><th>깊이(m)</th><th>그곳의 층</th><th>단단함</th></tr></thead>
+              <tbody id="t2"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box warm" style="margin-top:14px;">
@@ -659,7 +666,17 @@ const LAYERS=[
  {to:99, name:'암석층',      hard:4, base:'#7a7264', grain:0,   gap:0,
   note:'맨 아래 <b>암석층</b>입니다. 통째로 된 커다란 바위라 드릴이 잘 안 들어갑니다.'}
 ];
-function layerAt(d){ for(const L of LAYERS) if(d<=L.to) return L; return LAYERS[3]; }
+/* 땅 위 환경에 따라 층 두께가 다르다 — 두께는 교육용 모형값 */
+const ENVN=['숲','들판','강가','사막'];
+const ENVTO=[
+ [2, 5, 9, 99],      /* 숲: 썩은 잎이 쌓여 표토가 두껍다 */
+ [1, 3, 8, 99],      /* 들판 */
+ [0.4, 1.4, 12, 99], /* 강가: 물이 실어 온 모래·자갈이 두껍다 */
+ [0.2, 0.6, 10, 99]  /* 사막: 썩은 잎이 거의 없어 표토가 아주 얇다 */
+];
+let eIdx=1;
+function toOf(i){ return ENVTO[eIdx][i]; }
+function layerAt(d){ for(let i=0;i<LAYERS.length;i++) if(d<=toOf(i)) return LAYERS[i]; return LAYERS[3]; }
 let depth=2, records=[], chips=[];
 const canvas=document.getElementById('drillCanvas'), ctx=canvas.getContext('2d');
 const W=400,H=340, GX0=96, GX1=304, GY0=54, GY1=300, MAXD=15;
@@ -672,7 +689,8 @@ function scene(p){
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#eaf3f6'; ctx.fillRect(0,0,W,H);
   LAYERS.forEach((Ly,i)=>{
-    const y0=yOf(i===0?0:LAYERS[i-1].to), y1=yOf(Math.min(MAXD,Ly.to));
+    const y0=yOf(i===0?0:Math.min(MAXD,toOf(i-1))), y1=yOf(Math.min(MAXD,toOf(i)));
+    if(y1-y0<0.5) return;
     if(Ly.grain>0) soilPatch(ctx, GX0, y0, GX1-GX0, y1-y0, Ly.base, Ly.grain, Ly.gap, i+3);
     else{
       ctx.fillStyle=Ly.base; ctx.fillRect(GX0,y0,GX1-GX0,y1-y0);
@@ -721,7 +739,7 @@ function scene(p){
   ctx.fillStyle='#a86825'; ctx.fillRect(324,294-234*(L.hard/4),22,234*(L.hard/4));
   ctx.strokeStyle='#8fa2a8'; ctx.lineWidth=1.4; ctx.strokeRect(324,60,22,234);
   label(ctx, 335, 46, '단단함', '#4a636a', 18);
-  capsule(ctx, 190, 22, d.toFixed(1)+' m · '+L.name, 'rgba(23,50,56,0.9)', '#fff', 20);
+  capsule(ctx, 190, 22, ENVN[eIdx]+' · '+d.toFixed(1)+' m · '+L.name, 'rgba(23,50,56,0.9)', '#fff', 20);
   capsule(ctx, 50, 322, '단단함 '+L.hard+'/4', 'rgba(168,104,37,0.95)', '#fff', 19);
 }
 function loop(){ if(!running) scene(shown); requestAnimationFrame(loop); }
@@ -733,23 +751,32 @@ document.getElementById('ds').addEventListener('input',e=>{
   const r=document.getElementById('r2'); r.className='result-box'; r.innerHTML='깊이를 정하고 실험 버튼을 눌러보세요.';
   NOTE('n2','깊이를 정하고 드릴을 내려보내세요.');
 });
+document.querySelectorAll('#eRow .btn-choice').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('#eRow .btn-choice').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); eIdx=parseInt(b.dataset.e); shown=0; chips=[];
+    const r=document.getElementById('r2'); r.className='result-box'; r.innerHTML='땅 위 환경과 깊이를 정하고 실험 버튼을 눌러보세요.';
+    NOTE('n2','땅 위 환경과 깊이를 정하고 드릴을 내려보내세요.');
+  });
+});
 document.getElementById('go2').addEventListener('click',()=>{
   const btn=document.getElementById('go2'); running=true;
   NOTE('n2','드릴이 파 내려가는 중입니다. 층이 바뀔 때 색과 알갱이가 어떻게 달라지는지 보세요.');
   runAnim(btn, canvas, 700+depth*160, (p)=>{ shown=p; scene(p); }, ()=>{
     running=false;
-    const L=layerAt(depth);
-    records.push({d:depth,name:L.name,hard:L.hard}); renderTable();
+    const L=layerAt(depth), en=ENVN[eIdx], soil=toOf(1);
+    records.push({d:depth,name:L.name,hard:L.hard,env:en,ei:eIdx,soil:soil}); renderTable();
     const r=document.getElementById('r2'); r.className='result-box ok';
-    r.innerHTML='깊이 '+depth+'m — <span class="big-val">'+L.name+'</span> (단단함 '+L.hard+'/4)';
-    NOTE('n2', L.note); afterRecord();
+    r.innerHTML=en+' · 깊이 '+depth+'m — <span class="big-val">'+L.name+'</span> (단단함 '+L.hard+'/4)<br>'+
+      '이곳의 토양(표토+심토) 두께: 약 '+soil+'m <span style="font-size:.85em;color:#a86825">(교육용 모형값)</span>';
+    NOTE('n2', L.note+(eIdx===0?' 숲은 썩은 잎이 계속 쌓여 <b>표토가 두껍습니다.</b>':eIdx===2?' 강가는 물이 실어 온 <b>모래와 자갈</b>이 두껍게 쌓여 있습니다.':eIdx===3?' 사막은 썩은 잎이 거의 없어 <b>표토가 아주 얇습니다.</b>':'')); afterRecord();
   });
 });
 function renderTable(){
   document.getElementById('c2').textContent=records.length;
   const tb=document.getElementById('t2');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+r.d+'</td><td class="kr">'+r.name+'</td><td>'+r.hard+'/4</td></tr>').join('');
+  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td class="kr">'+r.env+'</td><td>'+r.d+'</td><td class="kr">'+r.name+'</td><td>'+r.hard+'/4</td></tr>').join('');
 }
 countFn=()=>records.length;
 function renderVerify(){
@@ -765,7 +792,15 @@ function renderVerify(){
     order.filter(k=>seen[k]!==undefined).map(k=>({label:k,value:seen[k],text:seen[k]+'/4',color:cols[k]})), '', '#2f8f9d');
   const missing=order.filter(k=>seen[k]===undefined);
   document.getElementById('ins2').innerHTML='<div class="insight-box">이 장소에서는 위에서 아래로 갈수록 <b>눌려서 점점 단단해지고</b>, 맨 아래는 통째로 된 바위(기반암)예요. 표토와 심토를 합쳐 <b>토양</b>이라고 하고, 그 아래는 토양의 재료가 된 <b>모재</b>입니다. (다른 장소는 층의 순서와 두께가 다를 수 있어요.)'+
-    (missing.length?'<br><span style="color:var(--ink-soft);">※ 아직 못 만난 층: '+missing.join(', ')+'</span>':'<br>네 층을 모두 확인했습니다!')+'</div>';
+    (missing.length?'<br><span style="color:var(--ink-soft);">※ 아직 못 만난 층: '+missing.join(', ')+'</span>':'<br>네 층을 모두 확인했습니다!')+'</div>'+
+    (function(){
+      const byE={}; records.forEach(r=>{ byE[r.env]=r.soil; });
+      const ks=Object.keys(byE);
+      return '<div class="insight-box warm">땅 위 환경에 따른 <b>토양(표토+심토) 두께</b> (교육용 모형값)<br>'+
+        ks.map(k=>k+' → 약 '+byE[k]+'m').join(' · ')+
+        (ks.length<2 ? '<br><span style="font-size:.92rem;">다른 환경에서도 파 보면 같은 깊이에서 다른 층이 나오는 것을 볼 수 있어요.</span>'
+                     : '<br>같은 깊이를 파도 <b>땅 위가 다르면 만나는 층이 달라집니다.</b>')+'</div>';
+    })();
 }
 document.querySelectorAll('[data-q="rel"]').forEach(b=>{
   b.addEventListener('click',()=>{

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -447,19 +449,38 @@ var LAB = (function(){
         {n:'짜 맞추기 (구성·조립)', s:'짜 맞추기', mat:'철사·종이', v:['부품만 바꾼다', '자투리 조금', '어렵다', '쉽다']}];
       var CK = ['실수했을 때', '버려지는 재료', '같은 고양이 여러 점', '가는 꼬리·다리'];
       var VW = [{n:'환조 (둘레를 돌며 봄)', s:'환조'}, {n:'부조 (판에서 한쪽 면만)', s:'부조'}];
-      function inCat(u, v){
+      /* t = 꼬리·다리·귀 굵기 배수 (1 = 웹툰의 고양이) */
+      function inCat(u, v, t){
+        t = t || 1;
         function el(cx, cy, rx, ry){ var a = (u - cx) / rx, b = (v - cy) / ry; return a * a + b * b <= 1; }
         if (el(0.45, 0.62, 0.3, 0.22)) return true;
         if (el(0.76, 0.36, 0.15, 0.14)) return true;
-        if (v > 0.12 && v < 0.27){ if (Math.abs(u - 0.67) < (v - 0.12) * 0.5 || Math.abs(u - 0.85) < (v - 0.12) * 0.5) return true; }
-        if (u > 0.06 && u < 0.2 && v > 0.25 && v < 0.62 && Math.abs(u - (0.13 - (v - 0.45) * 0.1)) < 0.025) return true;
-        if (v > 0.75 && v < 0.92 && ((u > 0.25 && u < 0.32) || (u > 0.55 && u < 0.62))) return true;
+        if (v > 0.12 && v < 0.27){ if (Math.abs(u - 0.67) < (v - 0.12) * 0.5 * t || Math.abs(u - 0.85) < (v - 0.12) * 0.5 * t) return true; }
+        if (u > 0.02 && u < 0.26 && v > 0.25 && v < 0.62 && Math.abs(u - (0.13 - (v - 0.45) * 0.1)) < 0.025 * t) return true;
+        if (v > 0.75 && v < 0.92 && (Math.abs(u - 0.285) < 0.035 * t || Math.abs(u - 0.585) < 0.035 * t)) return true;
         return false; }
-      var FR = (function(){ var n = 0, N = 80; for (var i = 0; i < N; i++) for (var j = 0; j < N; j++) if (inCat((i + 0.5) / N, (j + 0.5) / N)) n++; return n / (N * N); })();
-      function cat(c, x, y, s, col, alpha){ c.globalAlpha = alpha == null ? 1 : alpha; c.fillStyle = col;
-        var N = 48; for (var i = 0; i < N; i++) for (var j = 0; j < N; j++){ var u = (i + 0.5) / N, v = (j + 0.5) / N; if (inCat(u, v)) c.fillRect(x + u * s - s / N / 2, y + v * s - s / N / 2, s / N + 0.6, s / N + 0.6); }
+      var FRC = {};
+      function frOf(t){
+        var key = String(t);
+        if (FRC[key] != null) return FRC[key];
+        var n = 0, N = 80; for (var i = 0; i < N; i++) for (var j = 0; j < N; j++) if (inCat((i + 0.5) / N, (j + 0.5) / N, t)) n++;
+        FRC[key] = n / (N * N); return FRC[key];
+      }
+      var FR = frOf(1);
+      function cat(c, x, y, s, col, alpha, t){ c.globalAlpha = alpha == null ? 1 : alpha; c.fillStyle = col;
+        var N = 48; for (var i = 0; i < N; i++) for (var j = 0; j < N; j++){ var u = (i + 0.5) / N, v = (j + 0.5) / N; if (inCat(u, v, t)) c.fillRect(x + u * s - s / N / 2, y + v * s - s / N / 2, s / N + 0.6, s / N + 0.6); }
         c.globalAlpha = 1; }
-      function calc(p){ var M = ME[p.m]; return {M:M, res:M.v[p.k], waste:p.m === 0 ? (1 - FR) * 100 : null, fr:FR}; }
+      /* 부러질 위험 — 무게는 크기의 세제곱, 버티는 힘은 굵기의 제곱에 견준 교육용 모형 */
+      var BRK = [1, 0.5, 0.4, 0.3];   /* 깎기 · 붙이기(심) · 뜨기 · 짜 맞추기 */
+      function calc(p){
+        var M = ME[p.m], t = (p.th || 10) / 10, sz = p.sz || 15, fr = frOf(t);
+        var risk = Math.min(100, 100 * (sz / 15) / (t * t) * 0.6 * BRK[p.m]);
+        var block = sz * sz * sz, keep = block * fr, cut = block - keep;
+        return {M:M, res:M.v[p.k], t:t, sz:sz, fr:fr, risk:risk,
+          block:block, keep:keep, cut:cut,
+          waste:p.m === 0 ? (1 - fr) * 100 : null,
+          tail:f(2.5 * t * (sz / 15), 1)};
+      }
       return {
         sceneHeight: 420,
         idle: '방법·확인할 것·보는 방식을 고른 뒤 <b>이 방법으로 만들기</b>를 누르세요.',
@@ -467,44 +488,51 @@ var LAB = (function(){
         params: [
           {key:'m', type:'seg', label:'만드는 방법', cols:4, value:0, options:ME.map(function(x){ return x.n + '<br><small>' + x.mat + '</small>'; })},
           {key:'k', type:'seg', label:'확인할 것', cols:4, value:0, options:CK},
-          {key:'v', type:'seg', label:'보는 방식', cols:2, value:0, options:VW.map(function(x){ return x.n; })}
+          {key:'v', type:'seg', label:'보는 방식', cols:2, value:0, options:VW.map(function(x){ return x.n; })},
+          {key:'sz', type:'range', label:'고양이 크기', min:5, max:30, step:1, value:15, fmt:function(v){ return f(v, 0) + 'cm'; }},
+          {key:'th', type:'range', label:'꼬리·다리·귀 굵기', min:5, max:20, step:1, value:10, fmt:function(v){ return f(v / 10, 1) + '배'; },
+            note:'굵기를 줄이면 깎아 내는 재료가 늘고 부러질 위험도 커집니다. 무게는 크기의 세제곱, 버티는 힘은 굵기의 제곱에 견준 교육용 모형값입니다.'}
         ],
         compute: function(p){ return calc(p); },
         draw: function(c, W, H, p, r, tau){
-          var q = r || calc(p), k = r ? tau : 1, s = Math.min(240, W * 0.5, 300), x = 24, y = 40;
+          var q = r || calc(p), k = r ? tau : 1, s = Math.min(240, W * 0.5, 300), x = 24, y = 40, TT = q.t;
           txt(c, ME[p.m].n + ' · ' + VW[p.v].s, 24, 26, {bold:true});
           if (p.v === 1){ c.fillStyle = '#D9CDB8'; c.fillRect(x - 10, y - 10, s + 20, s + 20); }
-          if (p.m === 0){ c.fillStyle = '#E8DCC4'; c.globalAlpha = 1 - 0.85 * k; c.fillRect(x, y, s, s); c.globalAlpha = 1; cat(c, x, y, s, '#B08A4A');
+          if (p.m === 0){ c.fillStyle = '#E8DCC4'; c.globalAlpha = 1 - 0.85 * k; c.fillRect(x, y, s, s); c.globalAlpha = 1; cat(c, x, y, s, '#B08A4A', 1, TT);
             for (var i = 0; i < 14 * k; i++){ var a = i * 2.4; c.fillStyle = '#E8DCC4'; c.fillRect(x + s / 2 + Math.cos(a) * (s * 0.5 + i * 4), y + s + 10 - (i % 4) * 4, 7, 5); } }
-          if (p.m === 1){ var N = Math.floor(10 + 60 * k); for (var j = 0; j < N; j++){ var u = ((j * 37) % 97) / 97, v = ((j * 53) % 89) / 89; if (inCat(u, v)){ c.fillStyle = '#9C6B4A'; c.beginPath(); c.arc(x + u * s, y + v * s, s * 0.06, 0, Math.PI * 2); c.fill(); } }
-            if (k > 0.6) cat(c, x, y, s, '#9C6B4A', (k - 0.6) / 0.4); }
+          if (p.m === 1){ var N = Math.floor(10 + 60 * k); for (var j = 0; j < N; j++){ var u = ((j * 37) % 97) / 97, v = ((j * 53) % 89) / 89; if (inCat(u, v, TT)){ c.fillStyle = '#9C6B4A'; c.beginPath(); c.arc(x + u * s, y + v * s, s * 0.06, 0, Math.PI * 2); c.fill(); } }
+            if (k > 0.6) cat(c, x, y, s, '#9C6B4A', (k - 0.6) / 0.4, TT); }
           if (p.m === 2){ var open = k < 0.7 ? 0 : (k - 0.7) / 0.3, fill = Math.min(1, k / 0.6);
             var n = p.k === 2 && r ? 3 : 1, ss = s / (n === 3 ? 1.9 : 1);
             for (var t = 0; t < n; t++){ var xx = x + t * ss * 0.62, yy = y + (n === 3 ? s - ss : 0);
-              cat(c, xx, yy, ss, '#C8CCD2', open > 0 ? 1 : 0.25 + 0.75 * fill);
+              cat(c, xx, yy, ss, '#C8CCD2', open > 0 ? 1 : 0.25 + 0.75 * fill, TT);
               c.fillStyle = '#8C7B66'; c.fillRect(xx - 12 - open * 30, yy - 8, ss / 2 + 12, ss + 16); c.fillRect(xx + ss / 2 + open * 30, yy - 8, ss / 2 + 12, ss + 16); }
             if (!open) txt(c, '틀에 붓는 중 ' + f(fill * 100, 0) + '%', x, y + s + 26, {color:'#4A5868'}); }
           if (p.m === 3){ var M2 = 40; c.fillStyle = '#5C6B7A'; var cnt = 0, lim = M2 * M2 * k;
-            for (var a2 = 0; a2 < M2; a2++) for (var b2 = 0; b2 < M2; b2++){ var u2 = (a2 + 0.5) / M2, v2 = (b2 + 0.5) / M2; if (!inCat(u2, v2)) continue;
-              var edge = !inCat(u2 + 1 / M2, v2) || !inCat(u2 - 1 / M2, v2) || !inCat(u2, v2 + 1 / M2) || !inCat(u2, v2 - 1 / M2); if (!edge) continue; cnt++; if (cnt > lim / 6) continue;
+            for (var a2 = 0; a2 < M2; a2++) for (var b2 = 0; b2 < M2; b2++){ var u2 = (a2 + 0.5) / M2, v2 = (b2 + 0.5) / M2; if (!inCat(u2, v2, TT)) continue;
+              var edge = !inCat(u2 + 1 / M2, v2, TT) || !inCat(u2 - 1 / M2, v2, TT) || !inCat(u2, v2 + 1 / M2, TT) || !inCat(u2, v2 - 1 / M2, TT); if (!edge) continue; cnt++; if (cnt > lim / 6) continue;
               c.fillRect(x + u2 * s - 2, y + v2 * s - 2, 4, 4); } }
           if (p.v === 0 && r){ c.strokeStyle = PAL[3]; c.lineWidth = 2; c.beginPath(); c.ellipse(x + s / 2, y + s + 22, s * 0.45, 10, 0, 0.2, Math.PI * 1.8); c.stroke(); txt(c, '돌려 가며 확인', x + s / 2, y + s + 50, {align:'center', color:PAL[3]}); }
           var rx = W > 640 ? x + s + 40 : 24, ry = W > 640 ? 60 : y + s + 70;
           if (W > 640){ CK.forEach(function(ck, i){ var on = i === p.k; txt(c, ck, rx, ry + i * 56, {bold:on, color:on ? PAL[0] : '#6F7E8E'}); txt(c, r || !on ? ME[p.m].v[i] : '?', rx + 10, ry + i * 56 + 24, {bold:on, color:on ? '#1E2833' : '#8C99A8'}); });
-            if (q.waste != null) txt(c, '덩어리의 약 ' + f(q.waste, 0) + '%를 깎아 냄', rx, ry + 4 * 56 + 10, {bold:true, color:PAL[4]}); }
+            if (q.waste != null) txt(c, '덩어리의 약 ' + f(q.waste, 0) + '%를 깎아 냄', rx, ry + 4 * 56 + 10, {bold:true, color:PAL[4]});
+            txt(c, '부러질 위험 ' + f(q.risk, 0) + '%', rx, ry + 4 * 56 + 36, {bold:true, color:q.risk >= 60 ? PAL[4] : q.risk >= 30 ? PAL[6] : PAL[1]}); }
           var es = r ? CK[p.k] + ': ' + q.res : '예상: ' + CK[p.k] + ' — 어떻게 될까요?', en = wtxt(c, es, 24, 0, {bold:true, dry:true}, W - 36, 22); // 폭을 넘으면 아래쪽 맞춰 줄바꿈
           wtxt(c, es, 24, H - 14 - (en - 1) * 22, {bold:true, color:r ? PAL[0] : '#4A5868'}, W - 36, 22);
         },
         stats: function(p, r){
-          var s = [['방법', r.M.n + ' — 재료 예: ' + r.M.mat, PAL[0]], [CK[p.k], r.res, PAL[3]]];
+          var s = [['방법', r.M.n + ' — 재료 예: ' + r.M.mat, PAL[0]], [CK[p.k], r.res, PAL[3]],
+            ['고양이 크기 · 굵기', f(r.sz, 0) + 'cm · 굵기 ' + f(r.t, 1) + '배 (꼬리 약 ' + r.tail + 'cm 굵기)'],
+            ['고양이가 덩어리에서 차지하는 몫', '약 ' + f(r.fr * 100, 0) + '%' + (r.t < 1 ? ' — 가늘게 할수록 줄어요' : '')],
+            ['깎아 내는 재료 (교육용 모형)', '덩어리 약 ' + f(r.block, 0) + 'cm³ 가운데 약 ' + f(r.cut, 0) + 'cm³' + (p.m === 0 ? '' : ' (깎기로 만든다면)'), PAL[4]],
+            ['부러질 위험 (교육용 모형)', f(r.risk, 0) + '% — ' + (r.risk >= 60 ? '가늘고 큰 쪽이라 부러지기 쉬워요' : r.risk >= 30 ? '조심해서 다뤄야 해요' : '비교적 튼튼해요'), r.risk >= 60 ? PAL[4] : r.risk >= 30 ? PAL[6] : PAL[1]]];
           CK.forEach(function(ck, i){ if (i !== p.k) s.push([ck, r.M.v[i]]); });
-          if (r.waste != null) s.push(['깎아 내는 비율 (옆모습 계산)', '약 ' + f(r.waste, 0) + '% — 고양이가 덩어리의 ' + f(r.fr * 100, 0) + '%', PAL[4]]);
           s.push(['보는 방식', p.v ? '부조 — 판에서 한쪽 면만 도드라지게' : '환조 — 어느 쪽에서 봐도 형태가 맞아야 해 계속 돌려 가며 확인', PAL[5]]);
           return s;
         },
-        columns: ['방법', '확인한 것', '결과', '보는 방식'],
-        record: function(p, r){ return {m:p.m, k:p.k, v:p.v}; },
-        row: function(d){ return [ME[d.m].s, CK[d.k], ME[d.m].v[d.k], VW[d.v].s]; },
+        columns: ['방법', '확인한 것', '크기·굵기', '깎아 낼 양', '부러질 위험'],
+        record: function(p, r){ return {m:p.m, k:p.k, v:p.v, sz:r.sz, t:r.t, cut:r.cut, risk:r.risk, fr:r.fr}; },
+        row: function(d){ return [ME[d.m].s, CK[d.k], f(d.sz, 0) + 'cm · ' + f(d.t, 1) + '배', f(d.cut, 0) + 'cm³', f(d.risk, 0) + '%']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 채운 비교표', '<div id="a1a"></div><p class="ask">"깎기는 계획을 먼저 세워야 하고, 붙이기는 만들면서 고칠 수 있다"는 말을 표의 어느 칸이 뒷받침하나요? 청동상에는 어떤 두 방법이 들어 있나요?</p>') +
@@ -512,7 +540,13 @@ var LAB = (function(){
           var have = {}, rows = []; rec.forEach(function(d){ have[d.m + '_' + d.k] = 1; });
           CK.forEach(function(ck, i){ rows.push([ck].concat(ME.map(function(M, m){ return have[m + '_' + i] ? M.v[i] : '·'; }))); });
           $('a1a').innerHTML = tableHTML(['확인할 것'].concat(ME.map(function(M){ return M.s; })), rows) + '<p class="msg">채운 칸 ' + Object.keys(have).length + ' / 16</p>';
-          $('a1b').innerHTML = '<p>방법은 하나가 아닙니다. <b>재료의 성질</b>(단단한 돌·말랑한 흙·녹는 금속·가는 철사)이 알맞은 방법을 정하고, 방법이 작업 순서와 실수했을 때의 대처까지 정해요.</p>';
+          var ts = {}, trows = [];
+          rec.forEach(function(d){ var kk = d.m + '_' + d.sz + '_' + d.t; if (ts[kk]) return; ts[kk] = 1;
+            trows.push([ME[d.m].s, f(d.sz, 0) + 'cm', f(d.t, 1) + '배', f(d.fr * 100, 0) + '%', f(d.cut, 0) + 'cm³', f(d.risk, 0) + '%']); });
+          $('a1b').innerHTML = '<p>방법은 하나가 아닙니다. <b>재료의 성질</b>(단단한 돌·말랑한 흙·녹는 금속·가는 철사)이 알맞은 방법을 정하고, 방법이 작업 순서와 실수했을 때의 대처까지 정해요.</p>' +
+            (trows.length ? '<p class="msg">크기·굵기를 바꿔 본 결과 (교육용 모형값)</p>' +
+              tableHTML(['방법', '크기', '굵기', '덩어리 중 몫', '깎아 낼 양', '부러질 위험'], trows) +
+              '<p class="msg">가늘게 할수록 깎아 낼 재료가 늘고 부러질 위험도 커집니다. 심을 넣는 붙이기나 뜨기는 같은 굵기에서도 위험이 낮아요.</p>' : '');
         }
       };
     })();
@@ -521,7 +555,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

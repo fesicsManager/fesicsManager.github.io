@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -466,14 +468,15 @@ var LAB = (function anonymous(
   }
   function ease(t){ return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); }
   // 낱말 단위로 줄바꿈하며 그리기. hl(낱말, 번호) → 배경색 또는 null. 줄 수를 돌려준다.
-  function toks(c, s, x, y, maxW, lh, sz, hl, bold, color){
+  function toks(c, s, x, y, maxW, lh, sz, hl, bold, color, meas){
     var ws = s.split(' '), cx = x, n = 1; c.font = (bold ? '700 ' : '') + sz + 'px ' + FONT;
     ws.forEach(function(w, i){
       var ww = c.measureText(w).width, sp = c.measureText(' ').width;
       if (cx + ww > x + maxW && cx > x){ cx = x; y += lh; n++; }
-      var bg = hl ? hl(w, i) : null;
+      var bg = meas ? null : (hl ? hl(w, i) : null);
       if (bg){ c.fillStyle = bg; c.fillRect(cx - 2, y - sz + 1, ww + 4, sz + 5); }
-      c.font = (bold ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = color || '#1E2833'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(w, cx, y);
+      c.font = (bold ? '700 ' : '') + sz + 'px ' + FONT;
+      if (!meas){ c.fillStyle = color || '#1E2833'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText(w, cx, y); }
       cx += ww + sp;
     });
     return n;
@@ -510,7 +513,7 @@ var LAB = (function anonymous(
           boxes.G = {y:y, h:gh}; y += gh + 10;
           o.split('').forEach(function(key, i){
             var pp = P[key], s = hooks ? pp.s : pp.x;
-            var h = toks(c, '(' + key + ') ' + s, 0, -999, W - 90, lh, sz, null) * lh + 14;
+            var h = toks(c, '(' + key + ') ' + s, 0, 0, W - 90, lh, sz, null, false, null, true) * lh + 14;
             var show = !r || k > i * 0.25;
             rbox(c, 50, y, W - 64, h, show ? '#FFFFFF' : '#F7F9FC', '#C9D3DF', 1.5);
             if (show){
@@ -559,7 +562,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

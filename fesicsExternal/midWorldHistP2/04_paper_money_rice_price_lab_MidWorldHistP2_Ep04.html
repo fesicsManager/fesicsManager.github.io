@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -473,9 +475,17 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         shortHint: '쌀 생산량을 그대로 두고 발행량 1·2·4배를 모두 해 본 뒤, 흉년도 한 번 해 보세요.',
         params: [
           {key:'m', type:'seg', label:'지폐 발행량', cols:4, value:0, options:['1배', '2배', '4배', '8배']},
-          {key:'q', type:'seg', label:'쌀', cols:2, value:0, options:OUT.map(function(x){ return x.n; })}
+          {key:'q', type:'seg', label:'쌀', cols:2, value:0, options:OUT.map(function(x){ return x.n; })},
+          {key:'bk', type:'range', label:'맡긴 철전으로 바로 바꿔 줄 수 있는 비율', min:10, max:100, step:10, value:100, fmt:function(v){ return v + '%'; },
+            note:'교자는 처음에 “맡긴 철전을 돌려받는 보관증”이었어요. 바꿔 줄 수 있는 비율을 내리면 보관증이 돈처럼 돌아갑니다. 믿음이 무너지는 지점을 찾아보세요. (단순한 교육용 모형)'}
         ],
-        compute: function(p){ var m = ISS[p.m], q = OUT[p.q].v, price = 10 * m / q; return {m:m, q:q, price:price, buy:1 / price * 10, trust:m / q >= 4}; },
+        compute: function(p){
+          var m = ISS[p.m], q = OUT[p.q].v, price = 10 * m / q, bk = p.bk;
+          /* 믿음 지표 = 바꿔 줄 수 있는 비율 ÷ (발행량 ÷ 쌀) — 0.3 아래면 사람들이 지폐를 피한다고 본다 */
+          var conf = (bk / 100) / (m / q);
+          var runM = (bk / 100) / 0.3 * q;   /* 지금 준비율에서 믿음이 무너지기 시작하는 발행량(배) */
+          return {m:m, q:q, bk:bk, price:price, buy:1 / price * 10, conf:conf, runM:runM, trust:(conf < 0.3), store:(bk >= 100)};
+        },
         draw: function(c, W, H, p, r, tau){
           var s = fz(W), m = ISS[p.m], q = OUT[p.q].v, k = r ? ease(tau) : 0, price = 10 * m / q;
           c.fillStyle = '#F7F9FC'; c.fillRect(0, 0, W, H);
@@ -498,14 +508,18 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           if (r){ c.globalAlpha = k; seg(c, X(1024), ty + 34, X(1661), ty + 34, PAL[6], 2); tx(c, '약 640년 (정확히 ' + (1661 - 1024) + '년)', (X(1024) + X(1661)) / 2, ty + 52, {align:'center', bold:true, size:s - 2, color:PAL[6]}); c.globalAlpha = 1; }
         },
         stats: function(p, r){
-          return [['지폐 발행량', r.m + '배'], ['쌀', OUT[p.q].n], ['쌀 한 가마 값', '지폐 ' + f(r.price, 0) + '장 (처음 10장)', r.price >= 40 ? PAL[0] : PAL[1]],
+          return [['지폐 발행량', r.m + '배'], ['쌀', OUT[p.q].n],
+            ['바꿔 줄 수 있는 비율', r.bk + '% — ' + (r.store ? '맡긴 철전을 모두 돌려줄 수 있는 <b>보관증</b>' : '맡긴 것보다 많이 발행한 <b>돈</b>')],
+            ['믿음 지표', f(r.conf, 2) + ' (0.3 아래면 흔들림)', r.trust ? PAL[0] : PAL[2]],
+            ['지금 준비율에서 무너지는 지점', '발행량 약 ' + f(r.runM, 1) + '배를 넘을 때', PAL[6]],
+            ['쌀 한 가마 값', '지폐 ' + f(r.price, 0) + '장 (처음 10장)', r.price >= 40 ? PAL[0] : PAL[1]],
             ['지폐 10장으로 살 수 있는 쌀', f(r.buy, 2) + '가마', PAL[6]],
             ['시장의 반응', r.trust ? '같은 종이인데 값이 계속 떨어짐 → 사람들이 지폐를 피하고 은·물건으로 거래 (원 말기처럼)' : '아직 지폐를 받아 줌', r.trust ? PAL[0] : PAL[2]],
             ['연표', '1024년 송 교자 ↔ 1661년 스톡홀름 은행권: 약 640년 차이 (정확히 637년)', PAL[3]]];
         },
-        columns: ['발행량', '쌀', '쌀값(장)', '10장으로 사는 쌀', '믿음'],
-        record: function(p, r){ return {m:r.m, q:p.q, price:r.price, buy:r.buy, trust:r.trust}; },
-        row: function(d){ return [d.m + '배', d.q ? '흉년' : '그대로', f(d.price, 0), f(d.buy, 2) + '가마', d.trust ? '흔들림' : '유지']; },
+        columns: ['발행량', '쌀', '바꿔 줌', '믿음 지표', '무너지는 지점', '쌀값(장)', '10장으로 사는 쌀', '믿음'],
+        record: function(p, r){ return {m:r.m, q:p.q, price:r.price, buy:r.buy, trust:r.trust, bk:r.bk, conf:r.conf, runM:r.runM, store:r.store}; },
+        row: function(d){ return [d.m + '배', d.q ? '흉년' : '그대로', d.bk + '%', f(d.conf, 2), '약 ' + f(d.runM, 1) + '배', f(d.price, 0), f(d.buy, 2) + '가마', d.trust ? '흔들림' : '유지']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('발행량과 쌀값 (파랑 = 쌀 그대로, 주황 = 흉년)', '<canvas class="chart" id="m4a"></canvas><p class="ask">쌀 생산량이 그대로일 때 지폐를 2배 찍으면 쌀값은 몇 배가 되나요? 지폐로 품삯을 받던 사람에게는 어떤 일이 생길까요?</p>') +
@@ -513,7 +527,11 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           drawScatter($('m4a'), {series:[{color:PAL[1], pts:rec.filter(function(d){ return d.q === 0; }).map(function(d){ return {x:d.m, y:d.price}; })}, {color:PAL[6], pts:rec.filter(function(d){ return d.q === 1; }).map(function(d){ return {x:d.m, y:d.price}; })}],
             lines:[{k:10, b:0, color:PAL[1], dash:true}], xLabel:'발행량 (배)', yLabel:'쌀값 (지폐 장)'});
           var u = uniq(rec.filter(function(d){ return d.q === 0 && d.m <= 4; }), function(d){ return d.m; });
-          $('m4b').innerHTML = u.length ? tableHTML(['발행량', '쌀값', '처음과 비교'], u.map(function(d){ return [d.m + '배', '지폐 ' + f(d.price, 0) + '장', d.m + '배']; })) : '<p class="msg">쌀 그대로에서 1·2·4배를 해 보세요.</p>';
+          $('m4b').innerHTML = (u.length ? tableHTML(['발행량', '쌀값', '처음과 비교'], u.map(function(d){ return [d.m + '배', '지폐 ' + f(d.price, 0) + '장', d.m + '배']; })) : '<p class="msg">쌀 그대로에서 1·2·4배를 해 보세요.</p>')
+            + (function(){ var bs = {}; rec.forEach(function(d){ bs[d.bk] = d; }); var ks = Object.keys(bs).map(Number).sort(function(a, b){ return b - a; });
+              if (ks.length < 2) return '<p class="msg">발행량을 1배로 둔 채 <b>바꿔 줄 수 있는 비율</b>만 100% → 50% → 20% 로 내려 보세요. 발행량을 늘리지 않아도 믿음이 무너지는 자리가 있습니다.</p>';
+              var brk = rec.filter(function(d){ return d.trust; });
+              return '<p class="msg">바꿔 줄 수 있는 비율별 “무너지는 지점” — ' + ks.map(function(k){ return k + '% → 발행량 약 ' + f(bs[k].runM, 1) + '배'; }).join(' · ') + '. 믿음이 흔들린 기록은 ' + brk.length + '개였습니다. 교자가 돈이 된 것은 <b>맡긴 철전보다 많이 발행해도 사람들이 받아 주었기</b> 때문이고, 무너진 것은 <b>바꿔 줄 수 없게 되었기</b> 때문입니다 — 종이 자체가 아니라 믿음이 값을 받쳤습니다. (단순한 교육용 모형)</p>'; })();
         }
       };
     
@@ -523,7 +541,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

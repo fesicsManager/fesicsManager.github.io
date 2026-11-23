@@ -244,7 +244,13 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">관측 풍선을 보낼 고도: <span class="slider-val" id="altVal">10</span> km</div>
             <input type="range" id="altSlider" min="0" max="120" step="2" value="10" aria-label="관측 풍선을 보낼 고도">
-            <button class="btn-main" id="launchBtn">관측 풍선 띄우기 ▶</button>
+            <div class="control-label" style="margin-top:12px;">성층권의 오존 양</div>
+            <select id="ozoneSel" aria-label="성층권의 오존 양" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+              <option value="0">지금 지구와 같음 (기본)</option>
+              <option value="1">절반으로 줄어든 지구</option>
+              <option value="2">오존이 거의 없는 지구</option>
+            </select>
+            <button class="btn-main" id="launchBtn" style="margin-top:12px;">관측 풍선 띄우기 ▶</button>
             <div class="result-box" id="launchResult">고도를 정하고 띄우면 그 높이의 기온이 자동으로 기록됩니다.</div>
           </div>
         </div>
@@ -252,8 +258,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">고도별 기온 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>고도(km)</th><th>기온(°C)</th><th>층</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>고도(km)</th><th>오존</th><th>기온(°C)</th><th>층</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box warm" style="margin-top:14px;">
@@ -561,16 +567,24 @@ function label(ctx,x,y,text,color,size,align){
 }
 
 
-/* 국제표준대기(ISA) 기온 분포 */
+/* 성층권에서 기온이 오르는 까닭은 오존이 자외선을 흡수하기 때문이다.
+   오존을 줄이면 그 오름이 그만큼 작아지고, 거의 없으면 오름이 사라진다.
+   '지금 지구와 같음'(배수 1)이면 국제표준대기(ISA) 값이 그대로 나온다.
+   ※ 오존을 줄인 경우의 값은 교육용 모형값이에요. */
+var OZ=[{n:'지금 지구와 같음', s:'지금과 같음', f:1},{n:'절반으로 줄어든 지구', s:'절반', f:0.5},{n:'거의 없는 지구', s:'거의 없음', f:0}];
+var curOz=0;
+
+/* 국제표준대기(ISA) 기온 분포 — 성층권의 오름폭에 오존 배수를 곱한다 */
 function tempAt(h){
+  const f=OZ[curOz].f, top=-56.5+54*f;          /* 성층권 꼭대기(약 47~51km) 기온 */
   if(h<11)  return 15 - 6.5*h;
   if(h<20)  return -56.5;
-  if(h<32)  return -56.5 + 1.0*(h-20);
-  if(h<47)  return -44.5 + 2.8*(h-32);
-  if(h<51)  return -2.5;
-  if(h<71)  return -2.5 - 2.8*(h-51);
-  if(h<85)  return -58.5 - 2.0*(h-71);
-  return -86.5 + 173*Math.pow((h-85)/35, 3);   /* 열권: 위로 갈수록 빠르게 올라 120 km 약 +87 °C */
+  if(h<32)  return -56.5 + 1.0*f*(h-20);
+  if(h<47)  return -56.5 + 12*f + 2.8*f*(h-32);
+  if(h<51)  return top;
+  if(h<71)  return top - 2.8*(h-51);
+  if(h<85)  return (top-56) - 2.0*(h-71);
+  return (top-84) + 173*Math.pow((h-85)/35, 3);   /* 열권: 위로 갈수록 빠르게 올라 120 km 약 +87 °C */
 }
 const LAYERS=[
   {name:'대류권', lo:0,  hi:11,  cls:'tropo',  col:'#bcd9e4'},
@@ -684,17 +698,23 @@ document.getElementById('altSlider').addEventListener('input',e=>{
   drawAtmo(0);
 });
 
+document.getElementById('ozoneSel').addEventListener('change',e=>{
+  curOz=parseInt(e.target.value,10);
+  NOTE('atmoNote','오존 양을 '+OZ[curOz].n+'(으)로 바꿨습니다. 성층권의 기온이 어떻게 달라지는지 다시 재 보세요.');
+  drawAtmo(0);
+});
 document.getElementById('launchBtn').addEventListener('click',()=>{
   const btn=document.getElementById('launchBtn');
   const dur=600+alt*16;                     /* 높이 올라갈수록 오래 걸린다 */
   NOTE('atmoNote','풍선이 올라가는 중입니다. 오른쪽 붉은 곡선이 실제 기온 분포입니다.');
   runAnim(btn, canvas, dur, drawAtmo, ()=>{
     const t=Math.round(tempAt(alt)*10)/10, L=layerAt(alt);
-    records.push({alt:alt, temp:t, name:L.name, cls:L.cls});
+    records.push({alt:alt, temp:t, name:L.name, cls:L.cls, oz:curOz});
     renderTable();
     const box=document.getElementById('launchResult');
     box.className='result-box ok';
-    box.innerHTML='고도 '+alt+'km ('+L.name+') 기온: <span class="big-val">'+t.toFixed(1)+' °C</span>';
+    box.innerHTML='고도 '+alt+'km ('+L.name+') 기온: <span class="big-val">'+t.toFixed(1)+' °C</span>'+
+      (curOz ? '<br>오존 '+OZ[curOz].s+' — 성층권의 오름폭이 '+(OZ[curOz].f*100).toFixed(0)+'% 로 줄어든 지구입니다.' : '');
     NOTE('atmoNote','고도 '+alt+'km 는 <b>'+L.name+'</b>이고 기온은 '+t.toFixed(1)+'°C 입니다. '+
       (L.cls==='tropo' ? '위로 갈수록 기온이 내려갑니다.'
        : L.cls==='strato' ? '오존층이 자외선을 흡수해 위로 갈수록 기온이 올라갑니다.'
@@ -706,8 +726,8 @@ document.getElementById('launchBtn').addEventListener('click',()=>{
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   const tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="4" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
-  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+r.alt+'</td><td>'+r.temp.toFixed(1)+
+  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  tb.innerHTML=records.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+r.alt+'</td><td class="kr">'+OZ[r.oz||0].s+'</td><td>'+r.temp.toFixed(1)+
     '</td><td class="kr">'+r.name+'</td></tr>').join('');
 }
 
@@ -719,23 +739,54 @@ function renderVerify(){
   document.getElementById('verifyContent').style.display=ok?'block':'none';
   if(!ok) return;
 
-  const sorted=[...records].sort((a,b)=>a.alt-b.alt);
+  /* 오존 조건이 같은 기록만 모아 비교해야 공정하다 */
+  const byOz={};
+  records.forEach(r=>{ const k=r.oz||0; (byOz[k]=byOz[k]||[]).push(r); });
+  let mainOz=0;
+  Object.keys(byOz).forEach(k=>{ if(byOz[k].length>byOz[mainOz].length) mainOz=k; });
+  const sorted=[...byOz[mainOz]].sort((a,b)=>a.alt-b.alt);
   /* 기온은 오르내림을 반복하므로 직선 추세선을 그리지 않는다 */
   scatterChart(document.getElementById('atmoChart'),
     sorted.map(r=>({x:r.alt, y:r.temp, color:'#c1443c'})),
     {xlab:'고도 (km)', ylab:'기온 (°C)', xd:0, yd:0, reg:false});
 
-  const turns=[];
-  for(let i=1;i<sorted.length-1;i++){
-    const a=sorted[i].temp-sorted[i-1].temp, b=sorted[i+1].temp-sorted[i].temp;
-    if(a!==0 && b!==0 && (a>0)!==(b>0)) turns.push(sorted[i]);
+  function turnsOf(arr){
+    const s=[...arr].sort((a,b)=>a.alt-b.alt), out=[];
+    for(let i=1;i<s.length-1;i++){
+      const a=s[i].temp-s[i-1].temp, b=s[i+1].temp-s[i].temp;
+      if(a!==0 && b!==0 && (a>0)!==(b>0)) out.push(s[i]);
+    }
+    return out;
   }
+  const turns=turnsOf(sorted);
   const names=[...new Set(sorted.map(r=>r.name))];
   document.getElementById('atmoInsight').innerHTML='<div class="insight-box">'+
     (turns.length
       ? '고도 <span class="mono">'+turns.map(t=>t.alt+'km').join(', ')+'</span> 부근에서 <b>기온이 오르내리는 방향이 바뀝니다.</b> 바로 그 지점이 층의 경계입니다.'
       : '아직 방향이 바뀌는 지점이 안 보입니다. 5km · 30km · 60km · 100km 처럼 넓게 흩어 재보세요.')+
-    '<br>지금까지 확인한 층: '+names.join(', ')+' ('+names.length+'/4)</div>';
+    '<br>지금까지 확인한 층: '+names.join(', ')+' ('+names.length+'/4)'+
+    '<br><span style="color:#4a636a">※ 그래프와 위 설명은 기록이 가장 많은 조건(오존 '+OZ[mainOz].s+')만 모아 그렸습니다.</span></div>'+
+    /* 오존을 없애 보며 '성층권에서 기온이 오르는 까닭'을 확인한다 */
+    (function(){
+      const ks=Object.keys(byOz);
+      if(ks.length<2) return '<div class="insight-box warm" style="margin-top:12px;"><b>오존을 없애 보면?</b><br>'+
+        '성층권(20~47km)에서 기온이 오르는 까닭이 오존이라면, 오존을 줄인 지구에서는 그 오름이 사라져야 합니다. '+
+        '조작에서 오존 양을 바꾸고 <b>같은 고도들을 다시 재</b> 비교해 보세요.</div>';
+      const rows=ks.map(k=>{
+        const a=byOz[k], t=turnsOf(a);
+        const st=a.filter(r=>r.alt>=20&&r.alt<=47).sort((x,y)=>x.alt-y.alt);
+        let trend='—';
+        if(st.length>=2){ const d0=st[st.length-1].temp-st[0].temp;
+          trend=(d0>1?'올라감 (+'+d0.toFixed(1)+'°C)':d0<-1?'내려감 ('+d0.toFixed(1)+'°C)':'거의 그대로 ('+d0.toFixed(1)+'°C)'); }
+        return '· 오존 '+OZ[k].s+' — 성층권 20~47km 기온 '+trend+' / 방향이 바뀐 고도 '+(t.length?t.map(x=>x.alt+'km').join(', '):'없음');
+      });
+      const noOz=byOz[2]&&byOz[2].filter(r=>r.alt>=20&&r.alt<=47).length>=2;
+      return '<div class="insight-box warm" style="margin-top:12px;"><b>오존을 없애 보면? (내 기록으로 계산)</b><br>'+
+        rows.join('<br>')+'<br><br>'+
+        (noOz ? '오존이 거의 없는 지구에서는 성층권의 기온 오름이 <b>사라졌습니다</b>. 성층권이 따뜻해지는 것은 높이 때문이 아니라 <b>오존이 자외선을 흡수해 열로 바꾸기</b> 때문이에요.'
+              : '오존을 "거의 없는 지구"로 두고 20~47km 를 두 번 이상 재 보면, 그 오름이 정말 오존 때문인지 확인할 수 있어요.')+
+        '</div>';
+    })();
 }
 
 document.getElementById('predictBtn').addEventListener('click',()=>{

@@ -91,7 +91,7 @@ tbody tr:nth-child(even){background:#fafcff}
 <div class="wrap">
   <header class="lab">
     <h1>교실 온도 지도</h1>
-    <p>'덥다'는 증상이지 문제가 아닙니다. 위치별로 직접 재어 어디가 왜 더운지 좁혀 보세요. (4화 · 문제 확인과 정보 수집)</p>
+    <p>'덥다'는 증상이지 문제가 아닙니다. 위치별로 재어 어디가 왜 더운지 좁혀 보세요. 온도계가 없으면 <b>가상 교실 모형</b>으로 자리·시간대·햇빛에 따른 온도를 계산해 볼 수 있어요. (4화 · 문제 확인과 정보 수집)</p>
   </header>
 
   <div class="tabs">
@@ -110,6 +110,7 @@ tbody tr:nth-child(even){background:#fafcff}
         <h2>조절하고 관찰하기</h2>
         <div id="controls"><div class="ctrl"><label for="x">가로 위치 <span class="val" id="vX">2</span> (1=창가)</label><input type="range" id="x" min="1" max="6" step="1" value="2"></div>
 <div class="ctrl"><label for="y">세로 위치 <span class="val" id="vY">3</span> (1=앞)</label><input type="range" id="y" min="1" max="5" step="1" value="3"></div>
+<div class="ctrl"><label for="md">값을 얻는 방법</label><select id="md"><option>내가 직접 잼</option><option>가상 교실 모형</option></select></div>
 <div class="ctrl"><label for="t">측정 온도 <span class="val" id="vT">26.0</span>℃</label><input type="range" id="t" min="16" max="36" step="0.5" value="26"></div>
 <div class="ctrl"><label for="tm">시간대</label><select id="tm"><option>1~2교시</option><option>3~4교시</option><option>5~6교시</option></select></div>
 <div class="ctrl"><label for="sun">햇빛이 직접 드는가</label><select id="sun"><option>아니오</option><option>예</option></select></div></div>
@@ -124,7 +125,7 @@ tbody tr:nth-child(even){background:#fafcff}
             <tbody id="tbody"></tbody>
           </table>
         </div>
-        <div class="note">온도계로 직접 잰 값만 넣으세요. 같은 시간대에 여러 위치를 재야 비교가 됩니다.</div>
+        <div class="note">온도계가 있으면 직접 잰 값을 넣으세요. <b>가상 교실 모형</b>을 고르면 ‘24.0 + (6−가로)×0.45 + (세로−3)×0.2 + 시간대 + 햇빛’으로 계산한 <b>교육용 모형값</b>이 자동으로 들어갑니다. 같은 시간대에 여러 위치를 재야 비교가 됩니다.</div>
       </div>
     </div>
   </section>
@@ -144,10 +145,25 @@ var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 var rows=[];
 var LAB=(function(){
 var out,c,cvv,pts=[];
-var x=document.getElementById('x'),y=document.getElementById('y'),t=document.getElementById('t'),tm=document.getElementById('tm'),sun=document.getElementById('sun');
-x.oninput=function(){document.getElementById('vX').textContent=x.value;draw();};
-y.oninput=function(){document.getElementById('vY').textContent=y.value;draw();};
+var x=document.getElementById('x'),y=document.getElementById('y'),t=document.getElementById('t'),tm=document.getElementById('tm'),sun=document.getElementById('sun'),md=document.getElementById('md');
+/* 가상 교실 모형 — 교육용 모형값 */
+function isSim(){return md.value==='가상 교실 모형';}
+function modelT(){
+  var X=Number(x.value),Y=Number(y.value);
+  var v=24.0+(6-X)*0.45+(Y-3)*0.2+(tm.value==='1~2교시'?0:tm.value==='3~4교시'?1.2:2.0)+(sun.value==='예'?2.5:0);
+  return Math.round(v*10)/10;
+}
+function curT(){return isSim()?modelT():Number(t.value);}
+function syncSim(){
+  if(isSim()){t.value=String(modelT());t.disabled=true;}
+  else{t.disabled=false;}
+  document.getElementById('vT').textContent=Number(t.value).toFixed(1);
+  draw();
+}
+x.oninput=function(){document.getElementById('vX').textContent=x.value;syncSim();};
+y.oninput=function(){document.getElementById('vY').textContent=y.value;syncSim();};
 t.oninput=function(){document.getElementById('vT').textContent=Number(t.value).toFixed(1);draw();};
+md.onchange=syncSim;tm.onchange=syncSim;sun.onchange=syncSim;
 function colorFor(v,mn,mx){
   var f=(mx>mn)?(v-mn)/(mx-mn):0.5;
   var r=Math.round(80+f*170),b=Math.round(210-f*160);
@@ -185,19 +201,19 @@ function draw(){
   else c.fillText('측정값을 넣어 보세요',cvv.width/2,cvv.height-22);
 }
 return {
-  columns:['가로','세로','온도(℃)','시간대','직사광선'],
-  init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw();
-    out.innerHTML='직접 잰 값을 넣고 <b>지도에 찍기</b>를 눌러 보세요. 여러 자리를 재야 분포가 보입니다.';},
+  columns:['가로','세로','온도(℃)','시간대','직사광선','방식'],
+  init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;syncSim();
+    out.innerHTML='직접 잰 값을 넣거나 <b>가상 교실 모형</b>을 고른 뒤 <b>지도에 찍기</b>를 눌러 보세요. 여러 자리를 재야 분포가 보입니다.';},
   run:function(done){
-    pts.push({x:Number(x.value),y:Number(y.value),v:Number(t.value),tm:tm.value,s:sun.value});
+    pts.push({x:Number(x.value),y:Number(y.value),v:curT(),tm:tm.value,s:sun.value});
     var i=0,iv=setInterval(function(){i++;draw();
       if(i>=5){clearInterval(iv);
-        out.innerHTML='측정 '+pts.length+'개. 창가(가로 1~2)와 복도 쪽(가로 5~6)을 모두 재 보세요.';
-        done();}},70);
+        out.innerHTML='측정 '+pts.length+'개'+(isSim()?' (가상 교실 모형 '+curT().toFixed(1)+'℃)':'')+'. 창가(가로 1~2)와 복도 쪽(가로 5~6)을 모두 재 보세요.';
+        done();syncSim();}},70);
   },
   record:function(){
-    return {cells:[x.value,y.value,Number(t.value).toFixed(1),tm.value,sun.value],
-            raw:{x:Number(x.value),v:Number(t.value),tm:tm.value,s:sun.value}};
+    return {cells:[x.value,y.value,curT().toFixed(1),tm.value,sun.value,isSim()?'모형':'직접'],
+            raw:{x:Number(x.value),v:curT(),tm:tm.value,s:sun.value,sim:isSim()}};
   },
   verify:function(rs){
     var win=[],hall=[],sunY=[],sunN=[],byT={};
@@ -231,6 +247,7 @@ return {
        '<li>문제를 \'교실이 덥다\'가 아니라 한 문장으로 좁혀 써 보세요.</li>'+
        '<li>차이를 만든 원인은 무엇이었나요? 그렇다면 해결책은 선풍기일까요?</li>'+
        '<li>이 값은 인터넷에서 찾을 수 있었나요?</li></ol></div></div>'+
+       '<div class="note">가상 교실 모형으로 모은 값은 교육용 모형값이에요. 실제로 재어 본 값과 어긋나면, 모형이 빠뜨린 원인(에어컨 바람·문 열림·사람 수)이 무엇일지 생각해 보세요.</div>'+
        '<div class="note">문제를 좁힐수록 답이 선명해집니다. <b>직접 잰 숫자 하나가 검색 백 번보다 낫습니다.</b></div>';
     return h;
   }

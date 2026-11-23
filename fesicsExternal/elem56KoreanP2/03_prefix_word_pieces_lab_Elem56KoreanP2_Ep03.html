@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,6 +439,14 @@ var LAB = (function(){
         {p:'꾼', pre:false, mean:'어떤 일을 잘하거나 자주 하는 사람', learn:['장사꾼', '낚시꾼'], test:'사냥꾼', ans:'사냥을 잘하거나 자주 하는 사람', wrong:['사냥을 싫어하는 사람', '사냥감']}
       ];
       var LM = [{n:'낱말을 통째로 외우기', s:'통째로', p:0.4, c:PAL[7]}, {n:'조각 뜻 알기', s:'조각 뜻', p:0.9, c:PAL[1]}];
+      var TW = ['조각이 통하는 낱말', '조각 풀이가 안 통하는 낱말'];
+      var TRAP = [
+        {test:'풋볼', ans:'발로 공을 차는 운동', wrong:['덜 익은 공', '처음 나온 공'], why:'"풋-"처럼 보이지만 영어 foot 을 적은 말이라 조각 풀이가 안 통해요.'},
+        {test:'맨드라미', ans:'붉게 피는 꽃 이름', wrong:['아무것도 없는 드라미', '맨손으로 만든 것'], why:'"맨-"처럼 보이지만 꽃 이름 한 낱말이라 조각 풀이가 안 통해요.'},
+        {test:'헛개나무', ans:'약으로 쓰는 나무 이름', wrong:['보람 없는 나무', '쓸데없이 큰 나무'], why:'"헛-"처럼 보이지만 나무 이름 한 낱말이라 조각 풀이가 안 통해요.'},
+        {test:'어부', ans:'고기를 잡는 사람', wrong:['고기를 싫어하는 사람', '고기 이름'], why:'뜻은 "-꾼"과 비슷한데 조각 "-꾼"이 아예 없어서 조각 풀이를 쓸 수 없어요.'}
+      ];
+      function tinfo(i, tw){ return tw ? TRAP[i] : PC[i]; }
       var S = 2303;
       function R(){ S = (S * 1664525 + 1013904223) >>> 0; return S / 4294967296; }
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
@@ -452,22 +462,26 @@ var LAB = (function(){
         shortHint: '조각 하나를 골라 두 방법을 비교하고, 다른 조각으로도 해 보세요.',
         params: [
           {key:'pc', type:'seg', label:'낱말 조각', cols:4, value:0, options:PC.map(function(x){ return x.pre ? x.p + '-' : '-' + x.p; })},
-          {key:'lm', type:'seg', label:'배우는 방법', cols:2, value:0, options:LM.map(function(x){ return x.n; })}
+          {key:'lm', type:'seg', label:'배우는 방법', cols:2, value:0, options:LM.map(function(x){ return x.n; })},
+          {key:'tw', type:'seg', label:'시험에 낼 낱말', cols:2, value:0, options:TW,
+            note:'조각 풀이가 늘 맞지는 않아요. "맨드라미"는 "맨-"이 아니고, "풋볼"은 영어를 적은 말이에요. ※ 맞힌 친구 수(10명 중)는 교육용 모형값이에요.'}
         ],
         compute: function(p){
-          var pc = PC[p.pc], lm = LM[p.lm], ok = 0, ans = [];
-          for (var i = 0; i < 10; i++){ var g = R() < lm.p; if (g) ok++; ans.push(g ? 0 : 1 + Math.floor(R() * 2)); }
-          return {pc:pc, lm:lm, ok:ok, ans:ans};
+          var pc = PC[p.pc], lm = LM[p.lm], ti = tinfo(p.pc, p.tw), ok = 0, ans = [];
+          var pr = p.tw ? (p.lm === 1 ? 0.25 : 0.35) : lm.p;
+          for (var i = 0; i < 10; i++){ var g = R() < pr; if (g) ok++; ans.push(g ? 0 : 1 + Math.floor(R() * 2)); }
+          var vd = ok >= 7 ? '조각을 알면 처음 보는 낱말도 풀려요' : ok >= 5 ? '반쯤만 맞혔어요' : (p.tw ? '조각 풀이가 거꾸로 방해했어요' : '조각 뜻을 모르면 짐작이 어려워요');
+          return {pc:pc, lm:lm, ti:ti, tw:p.tw, ok:ok, ans:ans, vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
-          var pc = PC[p.pc], lm = LM[p.lm], cw = Math.min(130, (W - 60) / 3);
+          var pc = PC[p.pc], lm = LM[p.lm], ti = tinfo(p.pc, p.tw), cw = Math.min(130, (W - 60) / 3);
           T(c, '배운 낱말 (' + lm.s + ')', 20, 28, 15, '#4A5868', 'left', true);
           pc.learn.forEach(function(w, i){ wcard(c, w, pc.p, pc.pre, 20 + i * (cw + 10), 40, cw, p.lm === 1); });
           if (p.lm === 1){ T(c, (pc.pre ? pc.p + '-' : '-' + pc.p) + ' = ' + pc.mean, 20, 112, W < 500 ? 14 : 17, PAL[1], 'left', true); }
           else T(c, pc.learn[0] + ' = …, ' + pc.learn[1] + ' = … (하나하나 외움)', 20, 112, W < 500 ? 14 : 17, '#4A5868');
           var ty = 140;
-          T(c, '처음 보는 낱말', 20, ty + 14, 15, '#4A5868', 'left', true);
-          wcard(c, pc.test, pc.p, pc.pre, 20, ty + 24, cw, !!r && p.lm === 1 && tau > 0.2);
+          T(c, p.tw ? '처음 보는 낱말 (함정)' : '처음 보는 낱말', 20, ty + 14, 15, p.tw ? PAL[4] : '#4A5868', 'left', true);
+          wcard(c, ti.test, pc.p, pc.pre, 20, ty + 24, cw, !!r && p.lm === 1 && !p.tw && tau > 0.2);
           if (!r) return;
           var ay = ty + 100, cs = Math.min(30, (W - 40) / 10);
           for (var i = 0; i < 10; i++){
@@ -477,32 +491,38 @@ var LAB = (function(){
           }
           if (tau >= 1){
             T(c, '맞힌 친구 ' + r.ok + '명 / 10명', 20, ay + 44, 17, lm.c, 'left', true);
-            if (H > 330) T(c, '뜻: ' + pc.ans, 20, ay + 76, W < 500 ? 14 : 16, '#1E2833');
+            if (H > 330) T(c, '뜻: ' + ti.ans, 20, ay + 76, W < 500 ? 14 : 16, '#1E2833');
           }
         },
         stats: function(p, r){
           var wa = {};
-          r.ans.forEach(function(a){ if (a) wa[r.pc.wrong[a - 1]] = (wa[r.pc.wrong[a - 1]] || 0) + 1; });
+          r.ans.forEach(function(a){ if (a) wa[r.ti.wrong[a - 1]] = (wa[r.ti.wrong[a - 1]] || 0) + 1; });
           return [['조각', (r.pc.pre ? r.pc.p + '-' : '-' + r.pc.p) + ' — ' + r.pc.mean], ['배운 방법', r.lm.n, r.lm.c],
-            ['처음 보는 낱말', r.pc.test + ' → ' + r.pc.ans],
+            ['시험 낱말', TW[r.tw]],
+            ['처음 보는 낱말', r.ti.test + ' → ' + r.ti.ans],
             ['맞힌 친구', r.ok + '명 / 10명', PAL[0]],
-            ['틀린 답', Object.keys(wa).length ? Object.keys(wa).map(function(k){ return '"' + k + '" ' + wa[k] + '명'; }).join(' · ') : '없음']];
+            ['틀린 답', Object.keys(wa).length ? Object.keys(wa).map(function(k){ return '"' + k + '" ' + wa[k] + '명'; }).join(' · ') : '없음'],
+            ['판정', r.vd + (r.tw ? ' — ' + r.ti.why : ''), r.ok >= 7 ? PAL[1] : PAL[4]]];
         },
-        columns: ['조각', '배운 방법', '처음 보는 낱말', '맞힘'],
-        record: function(p, r){ return {pc:p.pc, lm:p.lm, ok:r.ok}; },
-        row: function(d){ var pc = PC[d.pc]; return [pc.pre ? pc.p + '-' : '-' + pc.p, LM[d.lm].s, pc.test, d.ok + '/10']; },
+        columns: ['조각', '배운 방법', '낱말 종류', '처음 보는 낱말', '맞힘'],
+        record: function(p, r){ return {pc:p.pc, lm:p.lm, tw:p.tw, ok:r.ok}; },
+        row: function(d){ var pc = PC[d.pc]; return [pc.pre ? pc.p + '-' : '-' + pc.p, LM[d.lm].s, d.tw ? '함정' : '통함', tinfo(d.pc, d.tw).test, d.ok + '/10']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('배운 방법별 평균 맞힌 친구 (10명 중)', '<div id="pw1"></div><p class="ask">웹툰 예시(통째로 약 4명, 조각 뜻 약 9명)와 비슷했나요? 조각 하나를 알면 왜 처음 보는 낱말도 풀릴까요?</p>') +
             card('조각별 기록', '<div id="pw2"></div><p class="ask">과제: "맨-", "헛-", "-꾼" 중 하나를 골라 그 조각이 들어간 낱말을 다섯 개 모으고, 국어사전으로 뜻을 확인해 보세요. 조각의 뜻이 모든 낱말에 들어 있는지 표시해 보세요.</p>') + '</div>';
           var items = [];
-          LM.forEach(function(lm, j){ var g = rec.filter(function(d){ return d.lm === j; }); if (!g.length) return;
+          LM.forEach(function(lm, j){ var g = rec.filter(function(d){ return d.lm === j && !d.tw; }); if (!g.length) return;
             var v = mean(g.map(function(d){ return d.ok; })); items.push({label:lm.s, v:v, color:lm.c, text:'약 ' + f(v, 1) + '명'}); });
-          $('pw1').innerHTML = hbars(items, 10);
+          LM.forEach(function(lm, j){ var g = rec.filter(function(d){ return d.lm === j && d.tw; }); if (!g.length) return;
+            var v = mean(g.map(function(d){ return d.ok; })); items.push({label:lm.s + ' (함정 낱말)', v:v, color:PAL[4], text:'약 ' + f(v, 1) + '명'}); });
+          $('pw1').innerHTML = items.length ? hbars(items, 10) : '<p class="msg">기록이 아직 없어요.</p>';
           var rows = [];
-          PC.forEach(function(pc, i){ var a = rec.filter(function(d){ return d.pc === i && d.lm === 0; }), b = rec.filter(function(d){ return d.pc === i && d.lm === 1; }); if (!a.length && !b.length) return;
-            rows.push([pc.test, a.length ? f(mean(a.map(function(d){ return d.ok; })), 1) + '명' : '—', b.length ? f(mean(b.map(function(d){ return d.ok; })), 1) + '명' : '—']); });
-          $('pw2').innerHTML = tableHTML(['처음 보는 낱말', '통째로', '조각 뜻'], rows);
+          [0, 1].forEach(function(tw){
+            PC.forEach(function(pc, i){ var a = rec.filter(function(d){ return d.pc === i && d.lm === 0 && (d.tw ? 1 : 0) === tw; }), b = rec.filter(function(d){ return d.pc === i && d.lm === 1 && (d.tw ? 1 : 0) === tw; }); if (!a.length && !b.length) return;
+              rows.push([(tw ? '(함정) ' : '') + tinfo(i, tw).test, a.length ? f(mean(a.map(function(d){ return d.ok; })), 1) + '명' : '—', b.length ? f(mean(b.map(function(d){ return d.ok; })), 1) + '명' : '—']); });
+          });
+          $('pw2').innerHTML = tableHTML(['처음 보는 낱말', '통째로', '조각 뜻'], rows) + '<p class="msg">함정 낱말에서는 조각 뜻 쪽이 오히려 더 틀려요. 조각 풀이는 <b>조각이 정말 있을 때</b>만 쓰는 방법이에요.</p>';
         }
       };
     })();
@@ -511,7 +531,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

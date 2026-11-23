@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -476,17 +478,41 @@ var LAB = (function anonymous(
       ];
       var TY = ['단어만 바꿔도 통함', '함께 쓰는 말(연어)이 다름', '높임의 기준이 다름'], TC = [PAL[1], PAL[6], PAL[4]];
       var GS = ['단어만 바꿔도 된다', '바꿔야 할 곳이 있다'];
+      var CELL = ['짚지 않음', '첫째 칸', '둘째 칸', '셋째 칸', '넷째 칸'];
+      /* 마지막 칸(서술어 자리)에 내가 고른 말을 넣어 보기 */
+      var POOL = [['그대로', null], ['来る (오다)', '来る'], ['降る (내리다)', '降る'], ['見る (보다)', '見る'],
+        ['受ける (받다)', '受ける'], ['かける (걸다)', 'かける'], ['飲む (마시다)', '飲む'], ['行く (가다)', '行く']];
+      function diffIdx(a, b){ var o = []; for (var i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) o.push(i); return o; }
       return {
         sceneHeight: 360,
         idle: '문장과 예측을 고른 뒤 <b>바꿔 보고 비교하기</b>를 누르세요.',
         shortHint: '일곱 문장을 모두 예측해 보세요.',
         params: [
           {key:'s', type:'seg', label:'한국어 문장', cols:2, value:0, options:SE.map(function(x){ return x.ko; })},
-          {key:'g', type:'seg', label:'나의 예측', cols:2, value:0, options:GS}
+          {key:'g', type:'seg', label:'나의 예측', cols:2, value:0, options:GS},
+          {key:'swp', type:'seg', label:'마지막 칸에 내가 고른 말 넣기', cols:2, value:0, options:POOL.map(function(x){ return x[0]; }),
+            note:'서술어 자리에 다른 말을 넣어 보세요. 어느 말이 이 문장과 맞고 어느 말이 어긋나나요?'},
+          {key:'pk', type:'seg', label:'어긋난 자리 짚기', cols:3, value:0, options:CELL,
+            note:'두 줄을 맞대어 보기 전에 어느 칸이 어긋날지 먼저 짚어 보세요.'}
         ],
-        compute: function(p){ var s = SE[p.s], same = s.t === 0; return {s:s, ok:same === (p.g === 0)}; },
+        compute: function(p){
+          var b = SE[p.s], use = b.sw.slice();
+          if (p.swp > 0) use[use.length - 1] = POOL[p.swp][1];
+          var s = {ko:b.ko, sw:use, ac:b.ac, t:b.t, n:b.n};
+          var dif = diffIdx(use, b.ac), same = use.join('') === b.ac.join('');
+          var out = {s:s, base:b, use:use, dif:dif, same:same, ok:same === (p.g === 0), swp:p.swp, lastOk:use[use.length - 1] === b.ac[b.ac.length - 1]};
+          if (p.swp > 0) out.swMsg = out.lastOk ? '이 문장에 맞는 말이에요 ✓' : '이 문장과는 어긋나요 ✕ — 실제로는 ' + b.ac[b.ac.length - 1] + '를 써요';
+          if (p.pk > 0){
+            var pi = p.pk - 1;
+            out.pk = p.pk;
+            out.pkHit = dif.indexOf(pi) >= 0;
+            out.pkMsg = !dif.length ? '어긋난 칸이 없어요 — 이 문장은 단어만 바꿔도 통해요'
+              : (out.pkHit ? '맞음 ✓ — 이 칸이 어긋났어요' : '아님 ✕ — 어긋난 칸은 ' + dif.map(function(i){ return CELL[i + 1]; }).join(' · ') + '이에요');
+          }
+          return out;
+        },
         draw: function(c, W, H, p, r, tau){
-          var s = SE[p.s], lx = 20;
+          var s = (r && r.s) ? r.s : SE[p.s], lx = 20;
           T(c, '한국어', lx, 36, {size:14, bold:true, color:'#4A5868'});
           T(c, s.ko, lx, 66, {size:19, bold:true, max:W - 40});
           function line(arr, y, cmp, show){
@@ -513,14 +539,29 @@ var LAB = (function anonymous(
           }
         },
         stats: function(p, r){
-          return [['한국어', r.s.ko], ['단어만 바꾼 문장', r.s.sw.join(''), PAL[6]], ['실제 일본어', r.s.ac.join(''), PAL[1]],
-            ['차이 유형', TY[r.s.t], TC[r.s.t]], ['나의 예측', GS[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]], ['설명', r.s.n, PAL[3]]];
+          return [].concat(
+            r.pk ? [['내가 짚은 칸', CELL[r.pk] + ' → ' + r.pkMsg, r.pkHit ? PAL[1] : PAL[4]]] : [],
+            r.swp ? [['내가 넣은 말', POOL[r.swp][0] + ' → ' + r.swMsg, r.lastOk ? PAL[1] : PAL[4]]] : [],
+            [['한국어', r.s.ko], ['내가 만든 문장', r.s.sw.join(''), PAL[6]], ['실제 일본어', r.s.ac.join(''), PAL[1]],
+            ['어긋난 칸', r.dif.length ? r.dif.map(function(i){ return CELL[i + 1]; }).join(' · ') : '없음', r.dif.length ? PAL[4] : PAL[1]],
+            ['차이 유형', TY[r.s.t], TC[r.s.t]], ['나의 예측', GS[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]], ['설명', r.s.n, PAL[3]]]);
         },
-        columns: ['문장', '예측', '실제 유형', '판정'],
-        record: function(p, r){ return {s:p.s, g:p.g, ok:r.ok}; },
-        row: function(d){ return [SE[d.s].ko, d.g ? '바꿔야 함' : '그대로', TY[SE[d.s].t], d.ok ? '○' : '✕']; },
+        columns: ['문장', '예측', '실제 유형', '판정', '내가 넣은 말 · 짚은 칸'],
+        record: function(p, r){ return {s:p.s, g:p.g, ok:r.ok, swp:r.swp, lastOk:r.lastOk, pk:r.pk || 0, pkHit:r.pkHit, dif:r.dif.length}; },
+        row: function(d){ return [SE[d.s].ko, d.g ? '바꿔야 함' : '그대로', TY[SE[d.s].t], d.ok ? '○' : '✕', (d.swp ? POOL[d.swp][0] + (d.lastOk ? ' ○' : ' ✕') : '—') + (d.pk ? ' · ' + CELL[d.pk] + (d.pkHit ? ' ○' : ' ✕') : '')]; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ss = {}; rec.forEach(function(d){ if (d.swp) ss[d.s + '_' + d.swp] = d; });
+          var sk = Object.keys(ss);
+          var scard = !sk.length ? '' : card('마지막 칸에 내가 넣은 말', tableHTML(['한국어', '내가 넣은 말', '맞나'],
+              sk.map(function(k){ var d = ss[k]; return [SE[d.s].ko, POOL[d.swp][0], d.lastOk ? '맞음 ○' : '어긋남 ✕']; })) +
+            '<p class="ask">「비가 온다」에 来る를 넣으면 어긋나는데 「학교에 간다」에 行く를 넣으면 맞습니다. ' +
+            '한국어에서 한 낱말이 쓰이는 자리가 일본어에서도 그대로인지는 <b>낱말마다 다릅니다</b>. 어느 말이 가장 많이 어긋났나요?</p>');
+          var ps = rec.filter(function(d){ return d.pk; });
+          var pcard = !ps.length ? '' : card('어긋난 자리 짚기', tableHTML(['한국어', '내가 짚은 칸', '어긋난 칸 수', '판정'],
+              ps.map(function(d){ return [SE[d.s].ko, CELL[d.pk], d.dif + '칸', d.pkHit ? '맞음 ○' : '아님 ✕']; })) +
+            '<p class="ask">맞힌 ' + ps.filter(function(d){ return d.pkHit; }).length + ' / ' + ps.length + '번. ' +
+            '높임의 기준이 다른 문장에서는 어긋난 칸이 하나가 아니었나요? 단어 하나만 고쳐서 되는 문제가 아닐 때도 있습니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + scard + pcard +
             card('차이 유형별 예측 정확도', '<div id="sl3a"></div><p class="ask">어느 유형에서 예측이 가장 많이 틀렸나요? "문법은 비슷한데 사회 규칙이 다르다"는 말을 예로 설명해 보세요.</p>') +
             card('같은 한자, 다른 읽기 (음독·훈독)', '<div id="sl3b"></div><p class="ask">과제: 한국어 문장 다섯 개를 일본어로 옮겨 보고, 단어만 바꿔서는 안 되는 지점을 찾아 표시해 보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return SE[d.s].t; }), items = [];
@@ -537,7 +578,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

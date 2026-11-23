@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>키는 모두 같은 때 쑥 클까</h1>
-    <p>중학생이 된 선배 다섯 명이 9살부터 13살까지 <b>한 해 동안 큰 만큼</b>을 적었어요. <b>선배</b>를 고르고 <b>보는 방법</b>을 바꿔, 가장 많이 큰 해에 동그라미를 쳐 보세요.<br><span style="font-size:.9em;color:#a86825">※ 키 기록(가람·나래·다온·라온·마루)은 제로 랩의 가상 기록이에요. 성장 급등기가 오는 나이가 사람마다 다르다는 것은 사실이에요. 키를 잴 때는 벽에 등을 대고 어른과 함께 재고, 아프거나 어지러우면 바로 멈추고 어른에게 말하세요.</span></p>
+    <p>중학생이 된 선배 다섯 명이 9살부터 13살까지 <b>한 해 동안 큰 만큼</b>을 적었어요. <b>선배</b>와 <b>보는 방법</b>을 고르고, <b>내 키 기록</b>도 넣어 보세요 — 내가 한 해에 큰 만큼과 그게 몇 살 때였는지를 넣으면 선배들 가운데 <b>내가 어디쯤인지</b> 겹쳐서 알려 줘요.<br><span style="font-size:.9em;color:#a86825">※ 선배 다섯 명의 키 기록(가람·나래·다온·라온·마루)은 <b>교육용 모형값</b>이에요. 성장 급등기가 오는 나이가 사람마다 다르다는 것은 사실이에요. 내 기록은 보호자와 함께 찾은 실제 키 기록을 넣으면 가장 좋아요. 키를 잴 때는 벽에 등을 대고 어른과 함께 재고, 아프거나 어지러우면 바로 멈추고 어른에게 말하세요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -432,25 +434,36 @@ var LAB = (function(){
       var YR = ['9→10살', '10→11살', '11→12살', '12→13살'];
       var VW = ['한 해 동안 큰 만큼 (막대)', '9살부터 쌓아 보기 (선)'];
       function peak(g){ var k = 0; for (var i = 1; i < g.length; i++) if (g[i] > g[k]) k = i; return k; }
+      /* 내가 넣은 기록을 선배 다섯 명의 '같은 해' 기록에 견준다 */
+      function mine(p){
+        var arr = PP.map(function(q){ return q.g[p.mya]; });
+        var lo = Math.min.apply(null, arr), hi = Math.max.apply(null, arr);
+        var below = arr.filter(function(v){ return v < p.my; }).length;
+        var zone = p.my > hi ? 'over' : p.my < lo ? 'under' : 'in';
+        return {my:p.my, mya:p.mya, arr:arr, lo:lo, hi:hi, below:below, zone:zone};
+      }
       function sum(g){ return g.reduce(function(s, x){ return s + x; }, 0); }
       function cum(g){ var s = 0; return [0].concat(g.map(function(x){ s += x; return s; })); }
       return {
         sceneHeight: 400,
-        idle: '선배와 보는 방법을 고르고 <b>기록 펼치기</b>를 누르세요.',
-        shortHint: '선배를 한 명씩 모두 펼쳐 보고, "다섯 명 모두"로도 견주어 보세요.',
+        idle: '선배와 보는 방법을 고르고, 내 키 기록도 넣은 뒤 <b>기록 펼치기</b>를 누르세요.',
+        shortHint: '선배를 한 명씩 펼쳐 보고, 내가 큰 만큼을 4cm와 12cm로도 바꿔 보세요.',
         params: [
           {key:'w', type:'seg', label:'선배', cols:3, value:0, options:SN.concat(['다섯 명 모두'])},
-          {key:'v', type:'seg', label:'보는 방법', cols:2, value:0, options:VW}
+          {key:'v', type:'seg', label:'보는 방법', cols:2, value:0, options:VW},
+          {key:'my', type:'range', label:'내가 한 해에 큰 만큼', min:0, max:14, step:0.5, value:6, fmt:function(v){ return f(v, v % 1 ? 1 : 0) + 'cm'; }},
+          {key:'mya', type:'seg', label:'그게 몇 살 때인가 (내 기록)', cols:2, value:2, options:YR, note:'보호자와 함께 찾은 실제 키 기록을 넣어 보세요.'}
         ],
         compute: function(p){
+          var m = mine(p);
           if (p.w === 5){
             var pk = PP.map(function(q){ return peak(q.g); }), cnt = [0, 0, 0, 0];
             pk.forEach(function(k){ cnt[k]++; });
             var kinds = cnt.filter(function(x){ return x > 0; }).length;
-            return {all:true, pk:pk, cnt:cnt, kinds:kinds};
+            return {all:true, pk:pk, cnt:cnt, kinds:kinds, m:m};
           }
           var g = PP[p.w].g, k = peak(g);
-          return {all:false, g:g, pk:k, val:g[k], sum:sum(g), cum:cum(g)};
+          return {all:false, g:g, pk:k, val:g[k], sum:sum(g), cum:cum(g), m:m};
         },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#F7F4EC'; c.fillRect(0, 0, W, H);
@@ -463,6 +476,7 @@ var LAB = (function(){
             var bw = (R - L) / 4;
             YR.forEach(function(y, i){ txt(c, y, L + bw * (i + 0.5), B + 24 + (nar && i % 2 ? 20 : 0), {align:'center', color:'#4A5868'}); });
             if (!r){ txt(c, '한 해 동안 큰 만큼', W / 2, 28, {align:'center', bold:true, color:'#4A5868'}); return; }
+            if (r.m && tau > 0.8 && r.m.my <= mx){ seg(c, L, Y(r.m.my), R, Y(r.m.my), '#7A4FA3', 2, [7, 5]); }
             if (!r.all){
               r.g.forEach(function(v, i){
                 var x = L + bw * i + bw * 0.2, w = bw * 0.6, top = Y(v * k);
@@ -508,23 +522,53 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
+          var m = r.m;
+          var zone = m.zone === 'over' ? '선배 다섯 명보다 많이 컸어요 — 지금이 내 급등기일 수 있어요'
+            : m.zone === 'under' ? '그 해에는 선배들보다 적게 컸어요 — 내 급등기가 아직 오지 않았을 수 있어요'
+            : '선배들 범위(' + m.lo + '~' + m.hi + 'cm) 안이에요';
+          var mineRows = [
+            ['내 기록', YR[m.mya] + '에 ' + f(m.my, m.my % 1 ? 1 : 0) + 'cm', '#7A4FA3'],
+            ['같은 해 선배들은', m.arr.join(' · ') + 'cm (가장 적게 ' + m.lo + ', 가장 많이 ' + m.hi + ')'],
+            ['내가 어디쯤', '선배 다섯 명 가운데 ' + m.below + '명보다 많이 컸어요', PAL[0]],
+            ['판정', zone, m.zone === 'in' ? PAL[1] : PAL[4]]
+          ];
           if (r.all) return [['선배', '다섯 명 모두'], ['가장 많이 큰 해', YR.map(function(y, i){ return r.cnt[i] ? y + ' ' + r.cnt[i] + '명' : ''; }).filter(function(s){ return s; }).join(' · '), PAL[0]],
-            ['모두 같은 해에 가장 많이 컸나요?', '아니요 — ' + r.kinds + '가지로 나뉘어요', PAL[4]], ['9살 때 가장 작았던 다온', '12→13살에 약 10cm로 가장 많이 큼', PAL[1]], ['자료', '제로 랩의 가상 기록', PAL[7]]];
+            ['모두 같은 해에 가장 많이 컸나요?', '아니요 — ' + r.kinds + '가지로 나뉘어요', PAL[4]], ['9살 때 가장 작았던 다온', '12→13살에 약 10cm로 가장 많이 큼', PAL[1]]]
+            .concat(mineRows).concat([['자료', '선배 기록은 교육용 모형값', PAL[7]]]);
+          var same = m.mya === r.pk;
           return [['선배', PP[p.w].n], ['가장 많이 큰 해', YR[r.pk] + ' (약 ' + r.val + 'cm)', PAL[4]], ['4년 동안 큰 키를 모두 더하면', '약 ' + r.sum + 'cm', PAL[0]],
-            ['다른 해와 견주면', '가장 적게 큰 해보다 약 ' + (r.val - Math.min.apply(null, r.g)) + 'cm 더 큼'], ['자료', '제로 랩의 가상 기록', PAL[7]]];
+            ['다른 해와 견주면', '가장 적게 큰 해보다 약 ' + (r.val - Math.min.apply(null, r.g)) + 'cm 더 큼']]
+            .concat(mineRows)
+            .concat([['내 급등기와 이 선배', same ? '같은 해예요 (' + YR[m.mya] + ')' : '달라요 — 나는 ' + YR[m.mya] + ', ' + SN[p.w] + ' 선배는 ' + YR[r.pk], same ? PAL[1] : PAL[6]],
+              ['자료', '선배 기록은 교육용 모형값', PAL[7]]]);
         },
-        columns: ['선배', '보기', '가장 많이 큰 해', '4년 합'],
-        record: function(p, r){ return {w:p.w, v:p.v, pk:r.all ? -1 : r.pk, val:r.all ? 0 : r.val, sum:r.all ? 0 : r.sum, kinds:r.all ? r.kinds : 0}; },
-        row: function(d){ return [d.w === 5 ? '다섯 명' : SN[d.w], d.v ? '쌓기' : '막대', d.w === 5 ? d.kinds + '가지로 다름' : YR[d.pk] + ' (' + d.val + 'cm)', d.w === 5 ? '—' : d.sum + 'cm']; },
+        columns: ['선배', '보기', '가장 많이 큰 해', '4년 합', '내 기록', '내가 어디쯤'],
+        record: function(p, r){ return {w:p.w, v:p.v, pk:r.all ? -1 : r.pk, val:r.all ? 0 : r.val, sum:r.all ? 0 : r.sum, kinds:r.all ? r.kinds : 0,
+          my:r.m.my, mya:r.m.mya, below:r.m.below, zone:r.m.zone, lo:r.m.lo, hi:r.m.hi}; },
+        row: function(d){ return [d.w === 5 ? '다섯 명' : SN[d.w], d.v ? '쌓기' : '막대', d.w === 5 ? d.kinds + '가지로 다름' : YR[d.pk] + ' (' + d.val + 'cm)', d.w === 5 ? '—' : d.sum + 'cm',
+          YR[d.mya] + ' ' + d.my + 'cm', d.below + '명보다 큼']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('선배별 가장 많이 큰 해', '<div id="gs1"></div><p class="ask">다섯 명이 모두 같은 해에 가장 많이 컸나요? 9살 때 가장 작았던 다온이는 언제 가장 많이 컸나요? 뭉치의 "다들 열한 살에 쑥!"을 기록으로 고쳐 말해 보세요.</p>') +
-            card('해마다 가장 많이 큰 선배 수 (제로 랩의 가상 기록)', '<div id="gs2"></div><p class="ask">과제: 보호자와 함께 어릴 때의 키 기록(건강 기록이나 사진 메모)을 찾아 "한 해 동안 큰 만큼" 표를 만들고, 앞으로 학기마다 한 번씩 키를 재어 이어 적어 보세요. 키는 벽에 등을 대고 어른과 함께 재기. 친구의 키나 몸으로 놀리지 않기. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
+            card('내 기록은 선배들 가운데 어디쯤 (교육용 모형값)', '<div id="gs2"></div><p class="ask">과제: 보호자와 함께 어릴 때의 키 기록(건강 기록이나 사진 메모)을 찾아 "한 해 동안 큰 만큼" 표를 만들고, 앞으로 학기마다 한 번씩 키를 재어 이어 적어 보세요. 키는 벽에 등을 대고 어른과 함께 재기. 친구의 키나 몸으로 놀리지 않기. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ if (d.w < 5) seen[d.w] = d; });
           var ks = Object.keys(seen).sort();
           $('gs1').innerHTML = ks.length ? tableHTML(['선배'].concat(YR), ks.map(function(k){ var g = PP[k].g, pk = peak(g); return [SN[k]].concat(g.map(function(v, i){ return i === pk ? '<b style="color:#C8463D">◯ ' + v + 'cm</b>' : v + 'cm'; })); })) : '<p>선배 한 명씩 펼친 기록이 아직 없어요. 선배를 한 명씩 골라 보세요.</p>';
-          var cnt = [0, 0, 0, 0]; PP.forEach(function(q){ cnt[peak(q.g)]++; });
-          $('gs2').innerHTML = hbars(YR.map(function(y, i){ return {label:y, v:cnt[i], color:cnt[i] ? PAL[0] : '#C9D2DC', text:cnt[i] + '명'}; }), 5) + '<p>가장 많이 큰 해가 <b>세 가지</b>로 나뉘었어요. 성장은 경주가 아니라 <b>각자의 시간표</b>예요.</p>';
+          /* 내가 넣은 기록만 모아, 그 해 선배들 범위와 겹쳐 본다 */
+          var last = {}; rec.forEach(function(d){ last[d.mya + '_' + d.my] = d; });
+          var mk = Object.keys(last);
+          var ZN = {over:'선배들보다 많이 컸어요', under:'선배들보다 적게 컸어요', in:'선배들 범위 안이에요'};
+          var mrows = mk.map(function(k){ var d = last[k];
+            return [YR[d.mya], f(d.my, d.my % 1 ? 1 : 0) + 'cm', d.lo + '~' + d.hi + 'cm', d.below + '명', ZN[d.zone]]; });
+          var ins = mk.filter(function(k){ return last[k].zone === 'in'; }).length;
+          var outs = mk.length - ins;
+          var msg2 = outs && ins
+            ? '내 기록 ' + mk.length + '가지 가운데 ' + ins + '가지는 선배들 범위 안, ' + outs + '가지는 범위 밖이었어요. 같은 나이라도 한 해에 큰 만큼은 사람마다 크게 달라요 — 범위 밖이어도 이상한 것이 아니에요.'
+            : ins === mk.length
+              ? '넣어 본 내 기록이 모두 선배들 범위 안이었어요. 내가 큰 만큼을 더 작게(0~3cm)와 더 크게(11~14cm)도 넣어 보세요.'
+              : '넣어 본 내 기록이 모두 선배들 범위 밖이었어요. 선배들 범위(' + last[mk[0]].lo + '~' + last[mk[0]].hi + 'cm) 안의 값도 넣어 보세요.';
+          $('gs2').innerHTML = tableHTML(['내 기록의 해', '내가 큰 만큼', '선배들 범위', '내가 앞선 선배', '어디쯤'], mrows) +
+            '<p>가장 많이 큰 해가 선배들 사이에서도 <b>세 가지</b>로 나뉘었어요. ' + msg2 + ' 성장은 경주가 아니라 <b>각자의 시간표</b>예요.</p>';
         }
       };
     })();
@@ -533,7 +577,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

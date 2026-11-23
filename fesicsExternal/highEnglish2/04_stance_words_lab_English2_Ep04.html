@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -504,14 +506,19 @@ var LAB = (function anonymous(
         draw:function(c, W, H, p, r, tau){
           var narrow = W < 560, k = r ? ease(tau / 0.8) : 0, tw = W - 32;
           var a1 = s1(p), a2 = 'The principal ' + VB[p.v].n + ' that the new schedule would cost more than planned.';
-          rbox(c, 16, 10, tw, narrow ? 170 : 116, '#FFFFFF', '#C9D3DE', 1.5);
-          var n1 = wrap(c, a1, 28, 38, tw - 24, 22, {size:17, bold:true});
-          wrap(c, a2, 28, 38 + n1 * 22 + 12, tw - 24, 22, {size:17});
+          var n1 = wrap(c, a1, 28, 38, tw - 24, 22, {size:17, bold:true, measure:true});
+          var ya2 = 38 + n1 * 22 + 12;
+          var n2 = wrap(c, a2, 28, ya2, tw - 24, 22, {size:17, measure:true});
+          var bh = narrow ? ya2 + (n2 - 1) * 22 + 6 : 116;
+          rbox(c, 16, 10, tw, bh, '#FFFFFF', '#C9D3DE', 1.5);
+          wrap(c, a1, 28, 38, tw - 24, 22, {size:17, bold:true});
+          wrap(c, a2, 28, ya2, tw - 24, 22, {size:17});
+          var evy = narrow ? 10 + bh + 26 : 150;
           if (r){
             var ws = r.ev.length ? r.ev.join(' · ') : '(평가 단어 없음)';
-            T(c, '🔎 평가 단어: ' + ws, 16, (narrow ? 200 : 150), {bold:true, size:15, color:r.ev.length >= 2 ? PAL[3] : '#8C99A8', max:tw});
+            T(c, '🔎 평가 단어: ' + ws, 16, evy, {bold:true, size:15, color:r.ev.length >= 2 ? PAL[3] : '#8C99A8', max:tw});
           }
-          var ly = narrow ? 250 : 196, x0 = 30, x1 = W - 30, X = function(v){ return x0 + (x1 - x0) * v / 50; };
+          var ly = narrow ? evy + 50 : 196, x0 = 30, x1 = W - 30, X = function(v){ return x0 + (x1 - x0) * v / 50; };
           seg(c, x0, ly, x1, ly, '#8C99A8', 2);
           for (var t = 0; t <= 50; t += 10){ seg(c, X(t), ly - 5, X(t), ly + 5, '#8C99A8', 1.5); T(c, t + '%', X(t), ly + 24, {size:13, align:'center', color:'#4A5868'}); }
           c.fillStyle = PAL[0]; c.beginPath(); c.arc(X(30), ly, 8, 0, Math.PI * 2); c.fill(); T(c, '실제 30%', X(30), ly - 14, {bold:true, size:14, align:'center', color:PAL[0]});
@@ -560,7 +567,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

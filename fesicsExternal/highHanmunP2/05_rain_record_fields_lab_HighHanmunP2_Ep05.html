@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -453,7 +455,7 @@ var LAB = (function anonymous(
       } else line = t;
     }
     if (line) lines.push(line);
-    lines.forEach(function(l, k){ c.fillText(l, x, y + k * lh); });
+    if (!o.measure) lines.forEach(function(l, k){ c.fillText(l, x, y + k * lh); });
     return lines.length;
   }
   function rbox(c, x, y, w, h, fill, stroke, lw){
@@ -487,7 +489,7 @@ var LAB = (function anonymous(
         return hd === 4 ? (x.pl === '한양' ? '큰 독' : x.pl === '전주' ? '작은 항아리' : '대야') : '규격 측우기';
       }
       return {
-        sceneHeight: 440,
+        sceneHeight: function (w){ return w < 560 ? 658 : 440; },
         idle: '가릴 항목과 비교 목적을 고른 뒤 <b>이 기록으로 비교하기</b>를 누르세요.',
         shortHint: '비교 목적 하나를 정해 두고 가릴 항목을 차례로 바꿔 보세요. "같은 규격 그릇"을 가리면 숫자는 남는데도 무엇이 무너지나요?',
         params: [
@@ -508,7 +510,7 @@ var LAB = (function anonymous(
               else T(c, '가림', x0 + j * cw + cw / 2, y + 16, {size:12, align:'center', color:'#fff'});
             }
           });
-          var gy = y0 + rh * 7 + 22, gh = H - gy - 60;
+          var gy = y0 + rh * 7 + 22, gh = H - gy - (W < 560 ? 150 : 60);
           T(c, '비교: ' + GO[p.g], 20, gy, {size:15, bold:true, max:W - 40});
           if (!r){ T(c, '실행하면 비교 그래프가 그려집니다.', W / 2, gy + gh / 2 + 10, {size:14, align:'center', color:'#8C99A8'}); return; }
           var bars;
@@ -524,8 +526,15 @@ var LAB = (function anonymous(
             T(c, b.l, bx + bwid / 2, by + 16, {size:11, align:'center', color:'#4A5868', max:bwid + 14});
           });
           if (tau > 0.75){
-            T(c, OS[r.o], 20, H - 34, {size:17, bold:true, color:OC[r.o]});
-            wrap(c, r.why, 20 + 100, H - 34, W - 140, 18, {size:13, color:'#26313D'});
+            // 좁은 화면: 까닭 글을 전체 폭으로 내려 쓰고 판정은 그 위에
+            if (W < 560){
+              var nwy = wrap(c, r.why, 20, H - 56, W - 40, 17, {size:12, measure:true});
+              T(c, OS[r.o], 20, H - 56 - nwy * 17 - 6, {size:17, bold:true, color:OC[r.o]});
+              wrap(c, r.why, 20, H - 56, W - 40, 17, {size:12, color:'#26313D'});
+            } else {
+              T(c, OS[r.o], 20, H - 34, {size:17, bold:true, color:OC[r.o]});
+              wrap(c, r.why, 20 + 100, H - 34, W - 140, 18, {size:13, color:'#26313D'});
+            }
           }
         },
         stats: function(p, r){
@@ -553,7 +562,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

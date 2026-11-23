@@ -235,18 +235,27 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
   <section class="card">
     <h2>조절 &amp; 측정</h2>
     <div class="control-row"><label>온도 <b id="tVal">100 ℃</b></label><input type="range" id="tSlider" min="-100" max="400" step="10" value="100" aria-label="온도"></div>
+    <div class="control-row">
+      <label>퍼뜨릴 기체 <b id="gasVal">공기 (29)</b></label>
+      <div class="verify-actions" id="gasOptions" style="display:flex;gap:8px;">
+        <button class="action btn-ghost" data-m="0" style="flex:1;">수소 (2)</button>
+        <button class="action" data-m="1" style="flex:1;">공기 (29)</button>
+        <button class="action btn-ghost" data-m="2" style="flex:1;">이산화탄소 (44)</button>
+      </div>
+    </div>
     <div class="readout" id="speedReadout">입자의 평균 속력(상댓값) <b>1.00</b></div>
     <button class="action" id="removeWall">🚪 칸막이 제거</button>
     <button class="action btn-ghost" id="resetDiff">초기화</button>
     <div class="readout bigstat">혼합도<br><b id="mixPct">0%</b></div>
     <div class="readout" id="timeResult">아직 칸막이를 제거하지 않았어요.</div>
     <div class="hint">💡 <b>온도를 바꾸면 칸막이가 다시 생깁니다.</b> 실험 도중에 온도가 바뀌면 조건이 달라져 측정값을 쓸 수 없기 때문이에요.<br>
-      온도를 정한 뒤 칸막이를 제거하세요. 완전히 섞이면 자동으로 기록됩니다. 4개 이상 모으면 오른쪽 탭에서 분석할 수 있어요.</div>
+      온도를 정한 뒤 칸막이를 제거하세요. 완전히 섞이면 자동으로 기록됩니다. 4개 이상 모으면 오른쪽 탭에서 분석할 수 있어요.<br>
+      온도를 그대로 두고 <b>퍼뜨릴 기체</b>만 바꿔서도 재 보세요. 같은 온도인데 시간이 달라지나요?</div>
     <div class="hint">📐 기체 분자 운동론에 따르면 입자의 평균 속력은 <b>절대온도의 제곱근에 비례</b>합니다 (속력 ∝ √T).
     100℃(373K)를 1.00으로 놓고 상댓값을 표시했습니다.<br><span style="color:#a86825">※ 이 상자는 입자가 <b>서로 부딪히지 않고</b> 벽에만 부딪히는 <b>교육용 단순 모형</b>이라 섞이는 시간이 평균 속력에 반비례(∝ 1/√T)합니다. 실제 기체는 분자끼리 끊임없이 충돌하며 조금씩 퍼지므로(확산 계수 D ∝ T^1.5~1.75 ÷ 압력), 온도가 오르면 실제 확산은 이 모형보다 <b>더 빨라지고</b>, 압력이 낮을수록 빨라집니다.</span></div>
     <div class="scroll-table-wrap">
 <table id="trialTable">
-      <thead><tr><th>온도</th><th>완료 시간(초)</th></tr></thead>
+      <thead><tr><th>기체</th><th>온도</th><th>완료 시간(초)</th></tr></thead>
       <tbody id="trialBody"></tbody>
     </table>
 </div>
@@ -265,7 +274,7 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
   <div id="verifyContent" class="hidden">
     <div class="scroll-table-wrap">
 <table id="myDiffTable">
-      <thead><tr><th>온도(℃)</th><th>절대온도(K)</th><th>완료 시간(초)</th><th>시간 × √K</th></tr></thead>
+      <thead><tr><th>기체</th><th>온도(℃)</th><th>절대온도(K)</th><th>완료 시간(초)</th><th>시간 × √(K÷분자량)</th></tr></thead>
       <tbody id="myDiffBody"></tbody>
     </table>
 </div>
@@ -366,12 +375,27 @@ const CW=canvas.width, CH=canvas.height, pad=20;
 const tSlider=document.getElementById('tSlider'), tVal=document.getElementById('tVal');
 const BASE_K=373;                                   /* 100℃ = 373K 를 기준(1.00) */
 function absK(){ return parseInt(tSlider.value)+273; }
-function relSpeed(){ return Math.sqrt(absK()/BASE_K); }   /* 평균 속력 ∝ √절대온도 — 입자 간 충돌 없는 교육용 모형. 실제 확산 계수는 D ∝ T^1.5~1.75/P */
+const MW=[2,29,44], MWNAME=['수소 (2)','공기 (29)','이산화탄소 (44)'];   /* 교육용 모형값 — 어림한 분자량 */
+let mwIdx=1;                                        /* 기준은 공기 29 */
+function mw(){ return MW[mwIdx]; }
+/* 평균 속력 ∝ √(절대온도 ÷ 분자량) — 입자 간 충돌 없는 교육용 모형. 실제 확산 계수는 D ∝ T^1.5~1.75/P */
+function relSpeed(){ return Math.sqrt(absK()/BASE_K)*Math.sqrt(29/mw()); }
 tSlider.addEventListener('input',()=>{
   tVal.textContent=tSlider.value+' ℃';
   document.getElementById('speedReadout').innerHTML=
     '입자의 평균 속력(상댓값) <b>'+relSpeed().toFixed(2)+'</b>';
   resetSim();          /* 온도를 바꾸면 칸막이가 다시 생기고 처음부터 시작한다 */
+});
+
+document.getElementById('gasOptions').addEventListener('click',(e)=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#gasOptions button').forEach(x=>{x.classList.add('btn-ghost');});
+  b.classList.remove('btn-ghost');
+  mwIdx=parseInt(b.dataset.m,10)||0;
+  document.getElementById('gasVal').textContent=MWNAME[mwIdx];
+  document.getElementById('speedReadout').innerHTML=
+    '입자의 평균 속력(상댓값) <b>'+relSpeed().toFixed(2)+'</b>';
+  resetSim();          /* 기체를 바꾸면 칸막이가 다시 생기고 처음부터 시작한다 */
 });
 
 let redP=[], blueP=[], wallRemoved=false, startTime=null, doneTime=null;
@@ -465,9 +489,9 @@ function animate(){
       doneTime=((performance.now()-startTime)/1000);
       document.getElementById('timeResult').innerHTML=`완전히 섞이는 데 걸린 시간: <b>${doneTime.toFixed(1)}초</b>`;
       if(trials.length<8){
-        trials.push({temp:parseInt(tSlider.value), k:absK(), time:doneTime});
+        trials.push({temp:parseInt(tSlider.value), k:absK(), m:mw(), gas:MWNAME[mwIdx], time:doneTime});
         const tr=document.createElement('tr');
-        tr.innerHTML=`<td>${parseInt(tSlider.value)}</td><td>${doneTime.toFixed(1)}</td>`;
+        tr.innerHTML=`<td>${MWNAME[mwIdx]}</td><td>${parseInt(tSlider.value)}</td><td>${doneTime.toFixed(1)}</td>`;
         trialBody.appendChild(tr);
       }
     }
@@ -499,10 +523,10 @@ function renderVerify(){
   const sorted=[...trials].sort((a,b)=>a.temp-b.temp);
   const invs=[];
   sorted.forEach(t0=>{
-    const inv=t0.time*Math.sqrt(t0.k);
+    const inv=t0.time*Math.sqrt(t0.k/(t0.m||29));   /* 기체가 달라도 일정한 값 */
     invs.push(inv);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${t0.temp}</td><td>${t0.k}</td><td>${t0.time.toFixed(1)}</td><td><b>${inv.toFixed(0)}</b></td>`;
+    tr.innerHTML=`<td>${t0.gas||'공기 (29)'}</td><td>${t0.temp}</td><td>${t0.k}</td><td>${t0.time.toFixed(1)}</td><td><b>${inv.toFixed(1)}</b></td>`;
     body.appendChild(tr);
   });
   const avgInv=invs.reduce((a,b)=>a+b,0)/invs.length;
@@ -524,7 +548,7 @@ document.getElementById('checkQuiz').addEventListener('click',()=>{
   const q1ok = (gotFaster && tempSelected==='up') || (!gotFaster && tempSelected==='down');
 
   const predict=parseFloat(document.getElementById('predictTime').value);
-  const truePredict=avgInv/Math.sqrt(573);
+  const truePredict=avgInv/Math.sqrt(573/29);      /* 300℃ 공기로 예측 */
   const predictOk = !isNaN(predict) && Math.abs(predict-truePredict) < Math.max(1.5, truePredict*0.2);
 
   const spread = avgInv>0 ? (mx-mn)/avgInv*100 : 0;
@@ -534,11 +558,13 @@ document.getElementById('checkQuiz').addEventListener('click',()=>{
     → ${gotFaster?'온도가 높을수록 빨리 섞였습니다':'뚜렷한 경향이 보이지 않습니다'} → ${q1ok?'정답입니다! 👏':'다시 살펴보세요.'}<br>
     Q2. 예측값 ${isNaN(predict)?'-':predict}초 → ${predictOk?'정답에 가깝습니다! 👏':'다시 계산해 보세요.'}
     (평균 ${avgInv.toFixed(0)} ÷ √573 = <b>${truePredict.toFixed(1)}초</b>)<br><br>
-    <b>시간 × √절대온도</b> 값은 ${mn.toFixed(0)} ~ ${mx.toFixed(0)} 사이(평균 ${avgInv.toFixed(0)}, 퍼짐 ${spread.toFixed(0)}%)${spread<=25
+    <b>시간 × √(절대온도 ÷ 분자량)</b> 값은 ${mn.toFixed(0)} ~ ${mx.toFixed(0)} 사이(평균 ${avgInv.toFixed(0)}, 퍼짐 ${spread.toFixed(0)}%)${spread<=25
       ? '로 거의 일정합니다.'
       : '로 꽤 들쭉날쭉합니다. 입자가 무작위로 움직여서 한 번 잰 시간에는 우연한 차이가 섞이므로, 같은 온도에서 여러 번 재어 평균을 내 보면 더 일정해집니다.'}
     온도마다 걸린 시간은 크게 달랐지만, 그 뒤에는 <b>평균 속력 ∝ √절대온도</b>라는 하나의 규칙이 숨어 있습니다.
-    절대온도를 4배로 올려도 속력은 2배밖에 빨라지지 않는다는 뜻이기도 합니다.`;
+    절대온도를 4배로 올려도 속력은 2배밖에 빨라지지 않는다는 뜻이기도 합니다.<br>
+    기체를 바꿔 재 보면, 같은 온도에서도 <b>가벼운 기체가 더 빨리</b> 퍼집니다. 분자량이 4배면 속력은 반으로 줄어듭니다.
+    <span style="color:#a86825">※ 분자량 2·29·44 는 수소·공기·이산화탄소의 어림값(교육용 모형값)입니다.</span>`;
 });
 
 /* ===================== 제로 랩 공통 보정 ===================== */

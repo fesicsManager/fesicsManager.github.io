@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -430,36 +432,54 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var DS = [{nm:'자료 A', v:[2, 3, 3, 4, 3]}, {nm:'자료 B', v:[1, 5, 2, 4, 3]}], MS = ['편차 절댓값의 평균', '분산', '표준편차'];
+      /* k를 누구에게 더하는지도 열어, '모두에게 똑같이'라는 반례를 만나게 한다 */
+      var WHO = ['가장 많이 한 사람에게', '모두에게 똑같이', '가운데 사람에게'];
+      var PRL = ['40% 아래', '40~60%', '60% 이상'];
+      var bandOf = function(pc){ return pc < 40 ? 0 : pc < 60 ? 1 : 2; };
+      var addK = function(v, k, who){ var a = v.slice();
+        if (who === 1){ for (var i = 0; i < a.length; i++) a[i] += k; }
+        else if (who === 2) a[2] += k;
+        else a[4] += k;
+        return a; };
       var calc = function(v){ var m = mean(v), dv = v.map(function(x){ return x - m; }), ad = dv.map(Math.abs), sq = dv.map(function(x){ return x * x; });
         var mad = mean(ad), vr = mean(sq); return {m:m, dv:dv, ad:ad, sq:sq, mad:mad, vr:vr, sd:Math.sqrt(vr), sum:dv.reduce(function(a, b){ return a + b; }, 0)}; };
       return {
         sceneHeight: 450,
-        idle: '자료, 극단값 크기 k, 볼 측정값을 고른 뒤 <b>흩어짐 재기</b>를 누르세요.',
-        shortHint: '자료 A에서 k를 0, 2, 4, 6 으로 바꿔 기록해 보세요. 절댓값 평균과 분산 중 어느 쪽이 더 빨리 커지나요?',
+        idle: '자료, 더할 시간 k, 누구에게 더할지, 내 예측을 고른 뒤 <b>흩어짐 재기</b>를 누르세요.',
+        shortHint: '자료 A에서 k를 0, 2, 4, 6 으로 바꿔 기록해 보세요. 그다음 <b>모두에게 똑같이</b>로 바꿔 보세요. 흩어짐이 커지나요?',
         params: [
           {key:'ds', type:'seg', label:'자료 (하루 공부 시간, 시간)', cols:2, value:0, options:DS.map(function(d){ return d.nm + ': ' + d.v.join(', '); })},
-          {key:'k', type:'range', label:'마지막 값에 더할 시간 k', min:0, max:6, step:1, value:0, fmt:function(v){ return '+' + f(v, 0) + '시간'; }},
+          {key:'k', type:'range', label:'더할 시간 k', min:0, max:6, step:1, value:0, fmt:function(v){ return '+' + f(v, 0) + '시간'; }},
+          {key:'who', type:'seg', label:'k를 누구에게 더할까', cols:3, value:0, options:WHO},
+          {key:'pr', type:'seg', label:'예측 — 가장 큰 편차가 편차²의 몇 %를 차지할까', cols:3, value:0, options:PRL},
           {key:'ms', type:'seg', label:'강조해서 볼 값', cols:3, value:1, options:MS}
         ],
         compute: function(p){
-          var v = DS[p.ds].v.slice(); v[4] += p.k; var R = calc(v);
+          var v = DS[p.ds].v.slice(); v = addK(v, p.k, p.who); var R = calc(v);
           var i = 0; R.ad.forEach(function(a, j){ if (a > R.ad[i]) i = j; });
           var sa = R.ad.reduce(function(a, b){ return a + b; }, 0), ss = R.sq.reduce(function(a, b){ return a + b; }, 0);
-          R.v = v; R.k = p.k; R.big = i; R.shA = sa ? R.ad[i] / sa * 100 : 0; R.shS = ss ? R.sq[i] / ss * 100 : 0; R.sa = sa; R.ss = ss;
+          var base = calc(DS[p.ds].v);
+          R.v = v; R.k = p.k; R.who = p.who; R.big = i; R.shA = sa ? R.ad[i] / sa * 100 : 0; R.shS = ss ? R.sq[i] / ss * 100 : 0; R.sa = sa; R.ss = ss;
+          R.base = base.vr; R.band = bandOf(R.shS); R.pr = p.pr; R.right = R.band === p.pr;
+          R.verdict = p.who === 1 ? '모두에게 똑같이 더하면 평균만 ' + f(p.k, 0) + '시간 움직이고 흩어짐은 그대로예요 — 제곱이 늘 끌려가는 것은 아닙니다'
+            : Math.abs(R.vr - base.vr) < 1e-9 ? '흩어짐이 달라지지 않았어요'
+            : R.vr > base.vr ? '한 값만 멀어지자 분산이 ' + f(base.vr, 3) + ' → ' + f(R.vr, 3) + ' 으로 커졌어요'
+            : '분산이 ' + f(base.vr, 3) + ' → ' + f(R.vr, 3) + ' 으로 오히려 줄었어요';
           return R;
         },
         draw: function(c, W, H, p, r, tau){
-          var v = DS[p.ds].v.slice(); v[4] += p.k; var R = r || calc(v), L = 40, Rr = W - 30, X = function(x){ return L + x / 10 * (Rr - L); }, yl = 70;
+          var v = addK(DS[p.ds].v.slice(), p.k, p.who); var R = r || calc(v), L = 40, Rr = W - 30, X = function(x){ return L + x / 10 * (Rr - L); }, yl = 70;
           seg(c, L, yl, Rr, yl, '#8C99A8', 2);
           for (var i = 0; i <= 10; i += 2){ seg(c, X(i), yl - 5, X(i), yl + 5, '#8C99A8', 1.5); txt(c, String(i), X(i), yl + 24, {align:'center', color:'#4A5868'}); }
           txt(c, '시간', Rr, yl - 34, {align:'right', color:'#4A5868'});
           seg(c, X(R.m), yl - 40, X(R.m), yl + 10, PAL[6], 3); txt(c, '평균 ' + f(R.m, 2), X(R.m), yl - 44, {align:'center', bold:true, color:PAL[6]});
-          v.forEach(function(x, j){ var yy = yl - 10 - j * 6; c.fillStyle = j === 4 ? PAL[4] : PAL[0]; c.beginPath(); c.arc(X(x), yy, 6, 0, Math.PI * 2); c.fill(); });
+          var mk = p.who === 1 ? -1 : p.who === 2 ? 2 : 4;
+          v.forEach(function(x, j){ var yy = yl - 10 - j * 6; c.fillStyle = (mk < 0 || j === mk) ? PAL[4] : PAL[0]; c.beginPath(); c.arc(X(x), yy, 6, 0, Math.PI * 2); c.fill(); });
           if (!r) return;
           var k = Math.min(tau / 0.7, 1), top = 130, bh = Math.max(14, Math.min(26, (H - top - 40) / 10 - 4)), bw = Rr - L - 110;
           txt(c, '각 자료의 몫 (|편차| / 편차²)', L, top - 8, {bold:true});
           r.v.forEach(function(x, j){ var y = top + j * (2 * bh + 10);
-            txt(c, x + '시간', L, y + bh + 4, {color:j === 4 ? PAL[4] : '#1E2833', bold:j === 4});
+            txt(c, x + '시간', L, y + bh + 4, {color:(mk < 0 || j === mk) ? PAL[4] : '#1E2833', bold:(mk < 0 || j === mk)});
             var sa = r.sa || 1, ss = r.ss || 1;
             c.fillStyle = '#A8B4C2'; c.fillRect(L + 90, y, bw * r.ad[j] / sa * k, bh - 2);
             c.fillStyle = PAL[4]; c.fillRect(L + 90, y + bh, bw * r.sq[j] / ss * k, bh - 2); });
@@ -471,17 +491,20 @@ var LAB = (function(){
           var hi = function(i){ return p.ms === i ? PAL[3] : null; };
           return [['자료', r.v.join(', ') + ' (시간)'], ['평균', f(r.m, 2) + '시간'], ['편차의 합', f(Math.abs(r.sum) < 1e-9 ? 0 : r.sum, 2) + ' — 항상 0'],
             ['편차 절댓값의 평균', f(r.mad, 3) + '시간', hi(0)], ['분산', f(r.vr, 3) + '시간² (단위가 제곱)', hi(1)], ['표준편차', f(r.sd, 3) + '시간', hi(2)],
-            ['가장 큰 편차의 몫', '|편차| 기준 ' + f(r.shA, 0) + '% → 편차² 기준 ' + f(r.shS, 0) + '%', PAL[4]]].map(function(x){ return x[2] ? x : [x[0], x[1]]; });
+            ['가장 큰 편차의 몫', '|편차| 기준 ' + f(r.shA, 0) + '% → 편차² 기준 ' + f(r.shS, 0) + '%', PAL[4]],
+            ['k를 더한 곳', WHO[r.who || 0]],
+            ['더하기 전 분산과 비교', r.verdict, r.who === 1 ? PAL[6] : '#4A5868'],
+            ['내 예측', PRL[r.pr] + ' → 실제 ' + f(r.shS, 0) + '% (' + PRL[r.band] + ')' + (r.right ? ' — 맞음' : ' — 틀림'), r.right ? PAL[1] : PAL[4]]].map(function(x){ return x[2] ? x : [x[0], x[1]]; });
         },
-        columns: ['자료', 'k', '절댓값 평균', '분산', '표준편차'],
-        record: function(p, r){ return {ds:p.ds, k:r.k, mad:r.mad, vr:r.vr, sd:r.sd}; },
-        row: function(d){ return [DS[d.ds].nm, '+' + d.k, f(d.mad, 3), f(d.vr, 3), f(d.sd, 3)]; },
+        columns: ['자료', 'k', '더한 곳', '절댓값 평균', '분산', '표준편차', '예측'],
+        record: function(p, r){ return {ds:p.ds, k:r.k, who:r.who, mad:r.mad, vr:r.vr, sd:r.sd, shS:r.shS, right:r.right}; },
+        row: function(d){ return [DS[d.ds].nm, '+' + d.k, WHO[d.who || 0], f(d.mad, 3), f(d.vr, 3), f(d.sd, 3), d.right == null ? '—' : (d.right ? '맞음' : '틀림')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('극단값 k와 흩어짐 (회색 절댓값 평균 · 빨강 분산 · 파랑 표준편차)', '<canvas class="chart" id="vs1"></canvas><p class="ask">k가 커질 때 분산(빨강)은 직선처럼 늘어나나요, 점점 가파르게 늘어나나요? 절댓값 평균(회색)은요?</p>') +
             card('기록', '<div id="vs2"></div><p class="ask">과제: 분산의 단위가 시간² 이 되는 까닭을 설명하고, 표준편차로 되돌리면 어떤 점이 좋은지 적어 보세요.</p>') + '</div>';
           drawScatter($('vs1'), {series:[{color:PAL[7], pts:rec.map(function(d){ return {x:d.k, y:d.mad}; })}, {color:PAL[4], pts:rec.map(function(d){ return {x:d.k, y:d.vr}; })}, {color:PAL[0], pts:rec.map(function(d){ return {x:d.k, y:d.sd}; }), hollow:true}], xLabel:'k (시간)', yLabel:'값'});
-          $('vs2').innerHTML = tableHTML(['자료', 'k', '절댓값 평균', '분산', '표준편차'], rec.slice(-10).map(function(d){ return [DS[d.ds].nm, '+' + d.k, f(d.mad, 3), f(d.vr, 3), f(d.sd, 3)]; }));
+          $('vs2').innerHTML = tableHTML(['자료', 'k', '더한 곳', '절댓값 평균', '분산', '표준편차'], rec.slice(-10).map(function(d){ return [DS[d.ds].nm, '+' + d.k, WHO[d.who || 0], f(d.mad, 3), f(d.vr, 3), f(d.sd, 3)]; }));
         }
       };
     })();
@@ -490,7 +513,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

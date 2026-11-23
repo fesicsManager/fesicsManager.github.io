@@ -113,7 +113,9 @@ tbody tr:nth-child(even){background:#fafcff}
 <option>더하기</option><option>빼기</option><option>크게</option><option>작게</option><option>모양 바꾸기</option><option>재료 바꾸기</option><option>반대로 하기</option><option>다른 용도로</option><option>기법 없이 그냥 생각</option>
 </select></div>
 <div class="ctrl"><label for="n">3분 동안 나온 개수 <span class="val" id="vN">4</span>개</label><input type="range" id="n" min="0" max="20" step="1" value="4"></div>
-<div class="ctrl"><label for="g">그중 써 볼 만한 것 <span class="val" id="vG">1</span>개</label><input type="range" id="g" min="0" max="10" step="1" value="1"></div></div>
+<div class="ctrl"><label for="g">그중 써 볼 만한 것 <span class="val" id="vG">1</span>개</label><input type="range" id="g" min="0" max="10" step="1" value="1"></div>
+<div class="ctrl"><label for="gn">짐작 — 이 기법으로 몇 개 나올까 <span class="val" id="vGN">4</span>개</label>
+<input type="range" id="gn" min="0" max="20" step="1" value="4"></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">판에 세워 올리기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -149,6 +151,16 @@ var obj=document.getElementById('obj'),meth=document.getElementById('meth'),n=do
 n.oninput=function(){document.getElementById('vN').textContent=n.value;};
 g.oninput=function(){document.getElementById('vG').textContent=g.value;};
 var MS=['더하기','빼기','크게','작게','모양 바꾸기','재료 바꾸기','반대로 하기','다른 용도로','기법 없이 그냥 생각'];
+var gn=document.getElementById('gn');
+gn.oninput=function(){document.getElementById('vGN').textContent=gn.value;};
+function methodVsFree(){
+  var free=stack['기법 없이 그냥 생각'];
+  if(!free||!free.n)return null;
+  var s=0,c2=0;
+  for(var k in stack){if(k==='기법 없이 그냥 생각')continue;s+=stack[k].n;c2++;}
+  if(!c2)return null;
+  return {avg:s/c2,free:free.n};
+}
 function draw(prog){
   c.clearRect(0,0,cvv.width,cvv.height);
   var base=cvv.height-92,maxH=230,w=(cvv.width-24)/MS.length;
@@ -174,7 +186,7 @@ function draw(prog){
   c.fillStyle='#f0903a';c.fillText('주황 = 써 볼 만한 것',150,20);
 }
 return {
-  columns:['물건','기법','나온 개수','써 볼 만한 것'],
+  columns:['물건','기법','나온 개수','써 볼 만한 것','짐작 개수'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='기법을 하나 걸고 3분 동안 적은 개수를 넣은 뒤 <b>판에 세워 올리기</b>를 눌러 보세요.';},
   run:function(done){
@@ -183,12 +195,23 @@ return {
     stack[k].n+=Number(n.value);stack[k].g+=Number(g.value);
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/20,1));
       if(t>=20){clearInterval(iv);
-        out.innerHTML='<b>'+k+'</b> 기법으로 지금까지 '+stack[k].n+'개. 다른 기법도 걸어 보세요.';
+        var gv=Number(gn.value),ac=Number(n.value),er=ac-gv;
+        var msg='<b>'+k+'</b> 기법으로 지금까지 '+stack[k].n+'개. 다른 기법도 걸어 보세요.'+
+          '<br>짐작 '+gv+'개 / 이번에 실제로 나온 것 '+ac+'개 — '+
+          (Math.abs(er)<=1?'<b>거의 맞혔습니다.</b>':(er>0?'<b>짐작보다 '+er+'개 더 나왔습니다.</b>':'<b>짐작보다 '+(-er)+'개 적게 나왔습니다.</b>'));
+        var mv=methodVsFree();
+        if(mv){
+          msg+='<br>기법을 걸었을 때 평균 <b>'+mv.avg.toFixed(1)+'개</b> / 기법 없이 <b>'+mv.free+'개</b> — '+
+            (mv.avg>mv.free?'<b>기법을 걸 때가 더 많았습니다.</b>':(mv.avg<mv.free?'<b>기법 없이가 더 많았습니다.</b> 기법이 늘 이기는 것은 아닙니다.':'<b>거의 같았습니다.</b>'));
+        }else{
+          msg+='<br><b>기법 없이 그냥 생각</b>도 한 번 올리면 기법의 효과를 바로 겨뤄 줍니다.';
+        }
+        out.innerHTML=msg;
         done();}},30);
   },
   record:function(){
-    return {cells:[obj.value||'물건',meth.value,n.value,g.value],
-            raw:{o:obj.value||'물건',m:meth.value,n:Number(n.value),g:Number(g.value)}};
+    return {cells:[obj.value||'물건',meth.value,n.value,g.value,gn.value],
+            raw:{o:obj.value||'물건',m:meth.value,n:Number(n.value),g:Number(g.value),gn:Number(gn.value)}};
   },
   verify:function(rs){
     var byM={},free=null,withM=[];
@@ -213,6 +236,18 @@ return {
       h+='<div style="font-size:.95rem;margin-top:.5rem">기법 없이 · '+free.n+'개 (쓸 만한 것 '+free.g+')</div>'+
          '<div class="barwrap"><div class="bar" style="width:'+(free.n/mx*100)+'%;background:#b6bfcd"></div></div>';
     }
+    h+=(function(){
+      var se=0,c2=0,over=0;
+      for(var q=0;q<rs.length;q++){
+        var r=rs[q].raw; if(r.gn==null)continue;
+        se+=Math.abs(r.n-r.gn); c2++;
+        if(r.n>r.gn)over++;
+      }
+      if(!c2)return '';
+      return '<h4 style="margin:.7rem 0 .2rem">짐작과 실제</h4>'+
+        '<p style="font-size:1.03rem;line-height:1.8">짐작과 실제의 차이는 평균 <b>'+(se/c2).toFixed(1)+'개</b>였고, 짐작보다 많이 나온 적은 <b>'+over+' / '+c2+'번</b>이었습니다. '+
+        (over>c2/2?'생각보다 많이 나오는 쪽이었습니다 — 기법은 <b>생각의 문을 여는 손잡이</b>입니다.':'생각보다 적게 나오는 쪽이었습니다 — 3분을 다 쓰고 있나요?')+'</p>';
+    })();
     h+='</div><div><h3>읽어 내기</h3>';
     if(free&&withM.length){
       var avgM=totN/withM.length;

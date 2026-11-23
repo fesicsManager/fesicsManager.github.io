@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -472,7 +474,7 @@ return (function(){
       function right(q, like){ if (q.en) return like ? {w:0, s:'Yes, I do.'} : {w:1, s:'No, I don\'t.'}; if (!q.neg) return like ? {w:0, s:'응, 좋아해.'} : {w:1, s:'아니, 안 좋아해.'}; return like ? {w:1, s:'아니, 좋아해.'} : {w:0, s:'응, 안 좋아해.'}; }
       function hear(q, w){ if (q.en) return w === 0; if (!q.neg) return w === 0; return w === 1; }
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 560 ? 560 : 420; },
         idle: '질문, 사실, 나의 첫마디를 고른 뒤 <b>이렇게 대답하기</b>를 누르세요.',
         shortHint: '영어 질문 세 가지에서 사실만 바꿔 보세요. Yes/No가 바뀌나요? 그다음 한국어 두 질문과 비교해 보세요.',
         params: [
@@ -488,19 +490,26 @@ return (function(){
           return {q:q, like:like, rt:rt, ok:ok, heardLike:heardLike, said:said, mixed:mixed};
         },
         draw: function(c, W, H, p, r, tau){
-          var q = Q[p.q], a = r ? ph(tau, 0, 0.35) : 0;
+          var q = Q[p.q], a = r ? ph(tau, 0, 0.35) : 0, nar = W < 560;
           person(c, 40, 70, 40, PAL[2]); person(c, W - 40, 70, 40, PAL[0]);
-          var qw = Math.min(W - 120, 360); rbox(c, 76, 24, qw, 40, '#EEF3FA', '#B8C7DB'); wrapT(c, q.q, 88, 50, qw - 24, 20, {bold:true, size:q.q.length > 24 && W < 520 ? 15 : 18});
-          tx(c, '사실: ' + FACT[p.fact], 20, 124, {size:16, color:'#4A5868', bold:true});
+          /* 좁은 화면: 말풍선을 두 사람 아래 폭 가득 두고, 글 줄 수만큼 아래 칸을 내린다 */
+          var qfs = nar ? 15 : (q.q.length > 24 && W < 520 ? 15 : 18);
+          var qw = nar ? W - 40 : Math.min(W - 120, 360), qx = nar ? 20 : 76, qy = nar ? 100 : 24;
+          var ql = lines(c, q.q, qw - 24, {bold:true, size:qfs}), qh = Math.max(40, 22 + ql.length * 20);
+          rbox(c, qx, qy, qw, qh, '#EEF3FA', '#B8C7DB');
+          wrapT(c, q.q, qx + 12, qy + 26, qw - 24, 20, {bold:true, size:qfs});
+          var fy = nar ? qy + qh + 26 : 124;
+          tx(c, '사실: ' + FACT[p.fact], 20, fy, {size:16, color:'#4A5868', bold:true});
           if (!r){ tx(c, '첫마디: ' + FW[p.w], 20, H - 18, {color:'#4A5868'}); return; }
-          c.globalAlpha = a; var aw = Math.min(W - 120, 300), ax = W - 76 - aw;
-          rbox(c, ax, 140, aw, 44, r.ok ? '#D8F0E5' : '#FBE3E1', r.ok ? PAL[1] : PAL[4]); tx(c, r.said, ax + 14, 168, {bold:true, size:20}); c.globalAlpha = 1;
+          c.globalAlpha = a; var aw = nar ? W - 40 : Math.min(W - 120, 300), ax = nar ? 20 : W - 76 - aw, ay = nar ? fy + 16 : 140;
+          rbox(c, ax, ay, aw, 44, r.ok ? '#D8F0E5' : '#FBE3E1', r.ok ? PAL[1] : PAL[4]); tx(c, r.said, ax + 14, ay + 28, {bold:true, size:nar ? 17 : 20}); c.globalAlpha = 1;
+          var ey = nar ? ay + 98 : 250;
           if (tau > 0.35){ var b = ph(tau, 0.35, 0.75); c.globalAlpha = b;
-            c.fillStyle = '#F7F9FC'; c.strokeStyle = '#B8C7DB'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(W / 2 - 20, 250, Math.min(W / 2 - 30, 220), 40, 0, 0, Math.PI * 2); c.fill(); c.stroke();
-            [[W / 2 - 20, 300, 8], [W / 2 - 4, 318, 5]].forEach(function(o){ c.beginPath(); c.arc(o[0], o[1], o[2], 0, Math.PI * 2); c.fill(); c.stroke(); });
-            tx(c, r.mixed ? '듣는 사람: “좋아한다는 거야, 아니야?”' : '듣는 사람: “' + (r.heardLike ? '좋아한대' : '안 좋아한대') + '”', W / 2 - 20, 256, {bold:true, size:r.mixed && W < 520 ? 14 : 17, align:'center', color:!r.mixed && r.heardLike === r.like ? PAL[1] : PAL[4]});
+            c.fillStyle = '#F7F9FC'; c.strokeStyle = '#B8C7DB'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(W / 2 - 20, ey, Math.min(W / 2 - 30, 220), 40, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+            [[W / 2 - 20, ey + 50, 8], [W / 2 - 4, ey + 68, 5]].forEach(function(o){ c.beginPath(); c.arc(o[0], o[1], o[2], 0, Math.PI * 2); c.fill(); c.stroke(); });
+            tx(c, r.mixed ? '듣는 사람: “좋아한다는 거야, 아니야?”' : '듣는 사람: “' + (r.heardLike ? '좋아한대' : '안 좋아한대') + '”', W / 2 - 20, ey + 6, {bold:true, size:r.mixed && W < 520 ? 14 : 17, align:'center', color:!r.mixed && r.heardLike === r.like ? PAL[1] : PAL[4]});
             c.globalAlpha = 1; }
-          if (tau > 0.75){ var y1 = 352, c2 = ph(tau, 0.75, 1); c.globalAlpha = c2;
+          if (tau > 0.75){ var y1 = nar ? ey + 96 : 352, c2 = ph(tau, 0.75, 1); c.globalAlpha = c2;
             wrapT(c, r.ok ? '사실이 그대로 전달됐어요' : (r.mixed ? '첫마디와 뒤 문장이 섞여 어느 쪽인지 알 수 없어요 — 바른 대답: ' + r.rt.s : '오해 — 바른 대답: ' + r.rt.s), 20, y1, W - 90, 22, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
             mark(c, W - 40, y1 + 4, 22, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4]); c.globalAlpha = 1; }
         },
@@ -529,7 +538,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

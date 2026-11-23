@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -290,9 +291,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -435,11 +437,20 @@ var LAB = (function(){
           {key:'e', type:'range', label:'하루 에너지 소비', min:1400, max:3400, step:100, value:2200, fmt:function(v){ return v + ' kcal'; }},
           {key:'w', type:'range', label:'몸무게', min:40, max:90, step:1, value:60, fmt:function(v){ return v + ' kg'; }},
           {key:'y', type:'seg', label:'포도당 1분자당 ATP (가정)', cols:2, value:1, options:['30개', '32개']},
-          {key:'st', type:'seg', label:'몸속 ATP 저장량 (추정치)', cols:3, value:0, options:STK.map(function(x){ return x.name; })}
+          {key:'st', type:'seg', label:'몸속 ATP 저장량 (추정치)', cols:3, value:0, options:STK.map(function(x){ return x.name; })},
+          {key:'gu', type:'range', label:'먼저 짐작: 하루에 만드는 ATP는 몸무게의 몇 %일까?', min:0, max:200, step:10, value:0,
+            fmt:function(v){ return v === 0 ? '짐작 안 함' : '약 ' + v + '% (몸무게의 ' + f(v / 100, 2) + '배)'; }}
         ],
         compute: function(p){
           var glu = p.e / 686, atp = glu * AY[p.y], kg = atp * 507 / 1000, cyc = kg * 1000 / STK[p.st].g;
-          return {glu:glu, glug:glu * 180, atp:atp, kg:kg, ratio:kg / p.w, cyc:cyc, sec:86400 / cyc, eff:AY[p.y] * 7.3 / 686 * 100};
+          var out = {glu:glu, glug:glu * 180, atp:atp, kg:kg, ratio:kg / p.w, cyc:cyc, sec:86400 / cyc, eff:AY[p.y] * 7.3 / 686 * 100};
+          if (p.gu > 0){
+            var act = out.ratio * 100, rel = Math.abs(p.gu - act) / act;
+            out.gu = p.gu; out.act = act;
+            out.grade = rel < 0.15 ? '맞음 ✓' : (rel < 0.4 ? '가까움' : (rel < 1.5 ? '빗나감' : '크게 빗나감 ✕'));
+            out.gmsg = out.grade + ' — 실제 약 ' + f(act, 0) + '% (몸무게의 ' + f(out.ratio, 2) + '배)' + (p.gu < act ? ', 짐작이 작았어요' : (p.gu > act ? ', 짐작이 컸어요' : ''));
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){
           /* 고리 왼쪽에 '세포호흡 →' 글자 자리(약 90 px)를 남기되 오른쪽 막대그래프와 겹치지 않게 */
@@ -459,13 +470,20 @@ var LAB = (function(){
           return [['필요한 포도당', f(r.glu, 2) + ' mol (약 ' + f(r.glug, 0) + ' g)'], ['하루에 만드는 ATP', f(r.atp, 0) + ' mol', PAL[6]],
             ['ATP 총질량', '약 ' + f(r.kg, 1) + ' kg — 몸무게의 ' + f(r.ratio * 100, 0) + '%', PAL[4]],
             ['재활용 횟수', '하루 약 ' + Math.round(r.cyc).toLocaleString('ko-KR') + '번 (저장량 ' + STK[p.st].name + ')', PAL[3]],
-            ['한 번 도는 데', '약 ' + f(r.sec, r.sec < 10 ? 1 : 0) + '초'], ['ATP에 담기는 비율(표준값 7.3 kcal/mol 기준)', '약 ' + f(r.eff, 0) + '%']];
+            ['한 번 도는 데', '약 ' + f(r.sec, r.sec < 10 ? 1 : 0) + '초'], ['ATP에 담기는 비율(표준값 7.3 kcal/mol 기준)', '약 ' + f(r.eff, 0) + '%']].concat(
+            r.gu ? [['내 짐작 채점', '짐작 ' + r.gu + '% → ' + r.gmsg, /맞음/.test(r.grade) ? PAL[1] : PAL[4]],
+              ['이 비율은 무엇에 달렸나', '하루 소비 에너지 ÷ 몸무게 — 같은 몸무게에서 많이 쓰면 비율이 커지고, 같은 소비에서 몸무게가 크면 작아져요', PAL[6]]] : []);
         },
-        columns: ['소비 kcal', '몸무게', 'ATP/포도당', 'ATP kg', '몸무게 대비', '재활용/일'],
-        record: function(p, r){ return {e:p.e, w:p.w, y:AY[p.y], kg:r.kg, ratio:r.ratio, cyc:r.cyc}; },
-        row: function(d){ return [d.e, d.w, d.y, f(d.kg, 1), f(d.ratio * 100, 0) + '%', Math.round(d.cyc)]; },
+        columns: ['소비 kcal', '몸무게', 'ATP/포도당', 'ATP kg', '몸무게 대비', '재활용/일', '내 짐작'],
+        record: function(p, r){ return {e:p.e, w:p.w, y:AY[p.y], kg:r.kg, ratio:r.ratio, cyc:r.cyc, gu:r.gu || 0, grade:r.grade || ''}; },
+        row: function(d){ return [d.e, d.w, d.y, f(d.kg, 1), f(d.ratio * 100, 0) + '%', Math.round(d.cyc), d.gu ? d.gu + '% · ' + d.grade : '—']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var gs = rec.filter(function(d){ return d.gu; });
+          var gcard = !gs.length ? '' : card('내 짐작과 계산값 (몸무게 대비 ATP)', tableHTML(['소비', '몸무게', '내 짐작', '계산값', '채점'],
+              gs.map(function(d){ return [d.e + ' kcal', d.w + ' kg', d.gu + '%', f(d.ratio * 100, 0) + '%', d.grade]; })) +
+            '<p class="ask">맞힌 ' + gs.filter(function(d){ return /맞음/.test(d.grade); }).length + ' / ' + gs.length + '번. ' +
+            '짐작이 작게 나오기 쉬운 까닭은 무엇일까요? ATP는 몸에 쌓아 두는 것이 아니라 <b>만들고 바로 쓰고 다시 만드는</b> 물질이라, 하루에 만드는 양이 몸무게에 맞먹습니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + gcard +
             card('소비 에너지와 하루 ATP 질량', '<canvas class="chart" id="at1"></canvas><div id="at1b"></div><p class="ask">기울기(kg/kcal)는 ATP 수 × 0.507 ÷ 686과 같은가요? 에너지를 두 배로 쓰면 ATP도 두 배가 되는 까닭은?</p>') +
             card('몸무게 대비 ATP', '<div id="at2"></div><p class="ask">과제: 광합성과 세포호흡을 ATP의 흐름으로 잇는 그림을 그리고, "ATP는 에너지 저장 물질이 아니라 운반 물질"이라는 말을 설명해 보세요.</p>') + '</div>';
           var ser = AY.map(function(y, i){ return {color:i ? PAL[6] : PAL[3], pts:rec.filter(function(d){ return d.y === y; }).map(function(d){ return {x:d.e, y:d.kg}; })}; });
@@ -482,7 +500,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

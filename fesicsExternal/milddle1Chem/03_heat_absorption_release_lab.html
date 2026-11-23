@@ -208,12 +208,20 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
       <label>가열 세기 (전열기 출력) <b id="pVal">1000 W</b></label>
       <input type="range" id="powerSlider" min="500" max="2000" step="100" value="1000" aria-label="가열 세기 (전열기 출력)">
     </div>
+    <div class="control-row">
+      <label>비커에 넣은 얼음의 질량 <b id="mVal">100 g</b></label>
+      <div class="verify-actions" id="massOptions" style="display:flex;gap:8px;">
+        <button class="action btn-ghost" data-m="50" style="flex:1;">50 g</button>
+        <button class="action" data-m="100" style="flex:1;">100 g</button>
+        <button class="action btn-ghost" data-m="200" style="flex:1;">200 g</button>
+      </div>
+    </div>
     <button class="action" id="startBtn">▶ 가열 시작</button>
     <button class="action btn-ghost" id="resetBtn">초기화</button>
     <div class="hint">💡 출력을 높이면 그래프의 기울기가 가팔라지고, 평평한 구간(상태 변화)의 길이는 짧아집니다. 가열이 끝나면 결과가 자동으로 표에 기록됩니다.<br><span style="color:#a86825">※ 교육용 이상 조건: 1기압으로 일정하고, 가열기의 열이 <b>모두 물질에 전달되며</b>(열손실 없음), 용기가 데워지는 데 드는 열은 무시합니다. 실제 실험에서는 열이 새어 나가 평평한 구간이 더 길고 기울기가 완만하게 나옵니다.</span></div>
     <div class="scroll-table-wrap">
 <table id="trialTable">
-      <thead><tr><th>가열 세기(W)</th><th>융해 구간(s)</th><th>융해열(J/g)</th></tr></thead>
+      <thead><tr><th>얼음(g)</th><th>가열 세기(W)</th><th>융해 구간(s)</th><th>융해열(J/g)</th></tr></thead>
       <tbody id="trialBody"></tbody>
     </table>
 </div>
@@ -239,13 +247,13 @@ body{background:radial-gradient(var(--grid) 1.5px, transparent 1.5px) 0 0/24px 2
   <div id="verifyContent" class="hidden">
     <div class="scroll-table-wrap">
 <table id="myTrialTable">
-      <thead><tr><th>가열 세기(W)</th><th>융해 구간(s)</th><th>융해열(J/g)</th></tr></thead>
+      <thead><tr><th>얼음(g)</th><th>가열 세기(W)</th><th>융해 구간(s)</th><th>융해열(J/g)</th></tr></thead>
       <tbody id="myTrialBody"></tbody>
     </table>
 </div>
 
     <div style="margin-top:18px;">
-      <p style="font-family:var(--head);font-weight:700;font-size:18px;margin:0 0 10px;">Q. 가열 세기(P)가 달라도 계산된 융해열 값은 어떤가요?</p>
+      <p style="font-family:var(--head);font-weight:700;font-size:18px;margin:0 0 10px;">Q. 가열 세기(P)와 얼음의 질량이 달라도 계산된 융해열 값은 어떤가요?</p>
       <div class="verify-actions" id="latentRelation" style="display:flex;gap:10px;">
         <button class="action" data-v="same" style="flex:1;background:#eef2f0;color:var(--ink-soft);box-shadow:none;border:1px solid #d5e0dc;">거의 같다</button>
         <button class="action" data-v="diff" style="flex:1;background:#eef2f0;color:var(--ink-soft);box-shadow:none;border:1px solid #d5e0dc;">가열 세기에 따라 크게 다르다</button>
@@ -327,10 +335,21 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
 }));
 
 /* ===== EXPLORE: heating simulation ===== */
-const m=100, cIce=2.1, cWater=4.18, cVapor=2.0, Lf=334, Lv=2260;
+let m=100;                        /* 얼음의 질량 (g) — 둘째 조작 */
+const cIce=2.1, cWater=4.18, cVapor=2.0, Lf=334, Lv=2260;
 const powerSlider=document.getElementById('powerSlider'), pVal=document.getElementById('pVal');
 let P = 1000;
 powerSlider.addEventListener('input',()=>{ P=parseInt(powerSlider.value); pVal.textContent=P+' W'; computeSegments(); });
+document.getElementById('massOptions').addEventListener('click',(e)=>{
+  const b=e.target.closest('button'); if(!b||running) return;
+  document.querySelectorAll('#massOptions button').forEach(x=>{x.classList.add('btn-ghost');});
+  b.classList.remove('btn-ghost');
+  m=parseInt(b.dataset.m,10)||100;
+  document.getElementById('mVal').textContent=m+' g';
+  computeSegments();
+  history=[]; curVt=0; curT=-20; clearParticles(); drawGraph();
+  timeReadout.textContent='0.0 s'; tempReadout.textContent='-20.0 ℃'; qReadout.textContent='0 J';
+});
 
 let seg, tb;
 function computeSegments(){
@@ -843,9 +862,9 @@ function autoRecordTrial(){
   if(meltPts.length<2) return;
   const dt=meltPts[meltPts.length-1].t - meltPts[0].t;
   const Q=P*dt, L=Q/m;
-  trials.push({P, dt, L});
+  trials.push({P, m, dt, L});
   const tr=document.createElement('tr');
-  tr.innerHTML=`<td>${P}</td><td>${dt.toFixed(1)}</td><td>${L.toFixed(0)}</td>`;
+  tr.innerHTML=`<td>${m}</td><td>${P}</td><td>${dt.toFixed(1)}</td><td>${L.toFixed(0)}</td>`;
   trialBody.appendChild(tr);
 }
 
@@ -870,13 +889,19 @@ function renderVerify(){
   body.innerHTML='';
   trials.forEach(tr0=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${tr0.P}</td><td>${tr0.dt.toFixed(1)}</td><td><b>${tr0.L.toFixed(0)}</b></td>`;
+    tr.innerHTML=`<td>${tr0.m||100}</td><td>${tr0.P}</td><td>${tr0.dt.toFixed(1)}</td><td><b>${tr0.L.toFixed(0)}</b></td>`;
     body.appendChild(tr);
   });
   const Ls=trials.map(t=>t.L);
   const avg=Ls.reduce((a,b)=>a+b,0)/Ls.length;
   const cv=Math.sqrt(Ls.reduce((a,b)=>a+(b-avg)*(b-avg),0)/Ls.length)/avg*100;
   renderVerify._cv=cv;
+  /* 같은 가열 세기에서 질량만 다른 짝이 있으면 구간 길이를 견주어 준다 */
+  const byP={};
+  trials.forEach(t=>{ (byP[t.P]=byP[t.P]||[]).push(t); });
+  renderVerify._mcmp=Object.keys(byP).filter(k=>{
+    const s={}; byP[k].forEach(t=>{ s[t.m||100]=1; }); return Object.keys(s).length>=2;
+  }).map(k=>k+' W → '+byP[k].map(t=>(t.m||100)+'g '+t.dt.toFixed(1)+'초').join(' · '));
 }
 
 document.getElementById('gradeBtn3').addEventListener('click',()=>{
@@ -892,7 +917,10 @@ document.getElementById('gradeBtn3').addEventListener('click',()=>{
   const result=document.getElementById('verifyResult');
   result.className='show';
   result.innerHTML=`내 데이터의 융해열 값은 서로 ${actuallySame?'거의 같습니다':'차이가 좀 있습니다'} (편차 약 ${cv.toFixed(1)}%) → ${ok?'정답입니다! 👏':'다시 살펴보세요.'}<br><span style="color:#a86825;font-size:.92em">(열손실 없음·용기 열용량 무시·1기압 일정이라는 이상 조건에서 계산한 값입니다.)</span><br><br>
-    가열 세기(P)를 바꾸면 융해에 걸리는 <b>시간</b>은 달라지지만, Q=P×Δt로 계산한 <b>융해열(J/g)은 물질의 고유한 성질</b>이라 거의 같은 값이 나옵니다. 이것이 바로 각 물질마다 정해진 융해열·기화열 값이 존재하는 이유입니다.`;
+    가열 세기(P)를 바꾸면 융해에 걸리는 <b>시간</b>은 달라지지만, Q=P×Δt로 계산한 <b>융해열(J/g)은 물질의 고유한 성질</b>이라 거의 같은 값이 나옵니다. 이것이 바로 각 물질마다 정해진 융해열·기화열 값이 존재하는 이유입니다.<br><br>
+    ${(renderVerify._mcmp&&renderVerify._mcmp.length)
+      ? '같은 가열 세기에서 <b>얼음의 질량</b>만 바꾼 기록: '+renderVerify._mcmp.join(' / ')+'<br>→ 질량이 2배면 평평한 구간도 2배로 길어집니다(필요한 열량 Q = 융해열 × 질량). 그래도 Q를 질량으로 나눈 융해열(J/g)은 그대로예요.'
+      : '가열 세기를 그대로 두고 <b>얼음의 질량</b>만 50g·200g으로 바꿔 더 재 보세요. 평평한 구간의 길이와 융해열(J/g) 가운데 무엇이 달라지나요?'}`;
 });
 
 /* ===================== 제로 랩 공통 보정 ===================== */

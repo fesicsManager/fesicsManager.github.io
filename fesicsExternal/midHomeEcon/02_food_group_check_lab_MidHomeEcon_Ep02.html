@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,27 +443,54 @@ var LAB = (function(){
       var A = [[['점심 밥', 1], ['밤 라면', 2]], [['점심 불고기 조금', 1]], [['점심 김치', 1]], [], [['아침 우유 한 잔', 0]], [['라면', 2], ['과자', 2], ['탄산음료', 2]]];
       var Bd = [[['아침 밥', 0], ['점심 밥', 1], ['저녁 밥', 2]], [['아침 달걀', 0], ['점심 생선', 1], ['저녁 두부', 2]], [['아침 나물', 0], ['점심 김치', 1], ['저녁 채소 반찬', 2]], [['간식 사과', 2]], [['간식 우유', 2], ['저녁 요구르트', 2]], [['반찬 기름 조금', 9]]];
       var Ap = A.map(function(g, i){ var x = g.slice(); if (i === 1) x.unshift(['아침 달걀', 0]); if (i === 3) x.unshift(['아침 과일', 0]); return x; });
-      var D = [{n:'식단 A (아침 거름 · 밤 라면과 과자)', s:'A', g:A}, {n:'식단 B (세 끼 · 간식 우유와 과일)', s:'B', g:Bd}, {n:'식단 A+ (A + 아침 달걀·과일·우유)', s:'A+', g:Ap}];
+      var D = [{n:'식단 A (아침 거름 · 밤 라면과 과자)', s:'A', g:A}, {n:'식단 B (세 끼 · 간식 우유와 과일)', s:'B', g:Bd}, {n:'식단 A+ (A + 아침 달걀·과일·우유)', s:'A+', g:Ap},
+        {n:'내 식단 (내가 담은 것)', s:'내', g:null}];
       var MV = ['하루 전체', '아침만', '점심만', '저녁·밤·간식만'];
-      function pick(d, m){ return D[d].g.map(function(g){ return g.filter(function(it){ return m === 0 || it[1] === 9 || it[1] === m - 1; }); }); }
+      /* 학생이 직접 담는 음식 — [이름, 식품군, 끼니(0 아침·1 점심·2 저녁·밤·간식·9 세 끼 조금씩)] */
+      var MYF = [
+        ['아침 밥', 0, 0], ['점심 밥', 0, 1], ['저녁 밥', 0, 2],
+        ['아침 달걀', 1, 0], ['점심 생선', 1, 1], ['저녁 두부', 1, 2],
+        ['아침 나물', 2, 0], ['점심 김치', 2, 1], ['저녁 채소 반찬', 2, 2],
+        ['아침 과일', 3, 0], ['간식 사과', 3, 2],
+        ['아침 우유', 4, 0], ['간식 요구르트', 4, 2],
+        ['밤 라면', 5, 2], ['과자', 5, 2], ['탄산음료', 5, 2]
+      ];
+      var ACT = ['담기', '빼기', '모두 비우기'];
+      var MY = [];
+      function myGroups(){ var g = [[], [], [], [], [], []];
+        MY.forEach(function(k){ var it = MYF[k]; if (it) g[it[1]].push([it[0], it[2]]); }); return g; }
+      function pick(d, m){ var src = d === 3 ? myGroups() : D[d].g;
+        return src.map(function(g){ return g.filter(function(it){ return m === 0 || it[1] === 9 || it[1] === m - 1; }); }); }
       function st(i, n){ if (i === 5) return n >= 3 ? ['너무 많음', PAL[4]] : n === 0 ? ['없음', '#8C99A8'] : ['조금', PAL[1]]; return n === 0 ? ['빈 칸', PAL[4]] : n === 1 ? ['조금', '#D9A21B'] : ['채움', PAL[1]]; }
       return {
         sceneHeight: 430,
-        idle: '식단과 볼 끼니를 고른 뒤 <b>식품군 칸에 옮기기</b>를 누르세요.',
-        shortHint: '"하루 전체"로 A와 B를 비교한 뒤, A를 "아침만"으로 보고 A+와 견주어 보세요. 아침 하나로 칸이 몇 개 채워지나요?',
+        idle: '식단과 볼 끼니를 고른 뒤 <b>식품군 칸에 옮기기</b>를 누르세요. ‘내 식단’을 고르면 음식을 직접 담고 뺄 수 있어요.',
+        shortHint: '‘내 식단’으로 바꿔 어제 먹은 것을 하나씩 담아 보세요. 빈 칸이 어디인지, 무엇을 더하면 채워지는지 알려 줍니다.',
         params: [
-          {key:'d', type:'seg', label:'하루 식단', cols:3, value:0, options:D.map(function(x){ return x.n; })},
-          {key:'m', type:'seg', label:'볼 끼니', cols:4, value:0, options:MV}
+          {key:'d', type:'seg', label:'하루 식단', cols:2, value:0, options:D.map(function(x){ return x.n; })},
+          {key:'m', type:'seg', label:'볼 끼니', cols:4, value:0, options:MV},
+          {key:'food', type:'seg', label:'담거나 뺄 음식 (‘내 식단’에서만)', cols:4, value:0, options:MYF.map(function(x){ return x[0]; })},
+          {key:'act', type:'seg', label:'무엇을 할까', cols:3, value:0, options:ACT,
+            note:'‘내 식단’을 고른 상태에서 실행하면 고른 음식이 담기거나 빠집니다. 어제 먹은 것을 하나씩 담아 빈 칸을 찾아보세요.'}
         ],
         compute: function(p){
+          if (p.d === 3){                                   /* 내 식단: 고른 음식을 담거나 뺀다 */
+            if (p.act === 2) MY = [];
+            else if (p.act === 1){ var j = MY.indexOf(p.food); if (j >= 0) MY.splice(j, 1); }
+            else if (MY.indexOf(p.food) < 0) MY.push(p.food);
+          }
           var g = pick(p.d, p.m), n = g.map(function(x){ return x.length; }), empty = [], few = [], filled = 0;
           n.forEach(function(v, i){ if (i < 5){ if (v === 0) empty.push(GN[i]); else { filled++; if (v === 1) few.push(GN[i]); } } });
-          return {g:g, n:n, empty:empty, few:few, filled:filled, fat:n[5]};
+          var sug = [];
+          empty.forEach(function(gn){ var gi = GN.indexOf(gn), cand = [];
+            MYF.forEach(function(it){ if (it[1] === gi) cand.push(it[0]); });
+            if (cand.length) sug.push(gn + ' → ' + cand.slice(0, 2).join(' 또는 ')); });
+          return {g:g, n:n, empty:empty, few:few, filled:filled, fat:n[5], sug:sug, mine:MY.slice()};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var g = r ? r.g : pick(p.d, p.m), lw = Math.min(190, W * 0.42), y0 = 52, rh = (H - y0 - 20) / 6, total = 0, shown;
           g.forEach(function(x){ total += x.length; }); shown = r ? Math.floor(Math.min(1, tau / 0.85) * total + 0.001) : 0;
-          tfit(c, D[p.d].s + ' · ' + MV[p.m], 16, 30, {bold:true});
+          tfit(c, (p.d === 3 ? '내 식단 ' + (r ? r.mine.length : MY.length) + '가지' : D[p.d].s) + ' · ' + MV[p.m], 16, 30, {bold:true});
           var k = 0;
           g.forEach(function(items, i){
             var y = y0 + i * rh, s = st(i, items.length);
@@ -477,21 +506,28 @@ var LAB = (function(){
           var fatT = r.fat >= 3 ? '유지·당류는 ' + r.fat + '가지로 너무 많아요' : r.fat ? '유지·당류는 조금이에요' : '유지·당류는 없어요';
           var interp = p.m === 0 ? (r.empty.length ? '빈 칸 ' + r.empty.length + '개, 조금뿐인 칸 ' + r.few.length + '개 — 끼니를 거른 만큼 칸이 함께 비었어요. ' + fatT : '다섯 칸이 모두 채워졌어요. ' + fatT + (r.fat >= 3 ? ' — 다음엔 라면·과자·탄산음료를 줄여 보기' : '') + (r.few.length ? ' (조금뿐인 칸 ' + r.few.length + '개는 하나씩 늘려 보기)' : ''))
             : '이 끼니 하나가 채우는 칸: ' + r.filled + '개 (유지·당류 제외)';
-          return [['식단 · 끼니', D[p.d].s + ' · ' + MV[p.m]], ['채워진 칸 (유지·당류 제외 5칸 중)', r.filled + '칸', PAL[1]],
+          var out = [['식단 · 끼니', (p.d === 3 ? '내 식단' : D[p.d].s) + ' · ' + MV[p.m]], ['채워진 칸 (유지·당류 제외 5칸 중)', r.filled + '칸', PAL[1]],
             ['빈 칸', r.empty.length ? r.empty.join(', ') : '없음', r.empty.length ? PAL[4] : PAL[1]], ['조금뿐인 칸', r.few.length ? r.few.join(', ') : '없음'],
-            ['유지·당류 가짓수', r.fat + '가지', r.fat >= 3 ? PAL[4] : PAL[1]], ['옮긴 음식', list], ['해석', interp, PAL[3]]];
+            ['유지·당류 가짓수', r.fat + '가지', r.fat >= 3 ? PAL[4] : PAL[1]], ['옮긴 음식', list]];
+          if (p.d === 3) out.push(['내가 담은 음식 ' + r.mine.length + '가지', r.mine.length ? r.mine.map(function(k){ return MYF[k][0]; }).join(', ') : '아직 없어요 — 음식을 고르고 ‘담기’로 실행하세요', r.mine.length ? null : PAL[6]],
+            ['무엇을 더하면 그 칸이 채워질까', r.sug.length ? r.sug.join(' / ') : '빈 칸이 없어요', r.sug.length ? PAL[6] : PAL[1]]);
+          else out.push(['무엇을 더하면 그 칸이 채워질까', r.sug.length ? r.sug.join(' / ') : '빈 칸이 없어요', r.sug.length ? PAL[6] : PAL[1]]);
+          out.push(['해석', interp, PAL[3]]);
+          return out;
         },
-        columns: ['식단', '끼니', '채운 칸', '빈 칸', '유지·당류'],
-        record: function(p, r){ return {d:p.d, m:p.m, filled:r.filled, empty:r.empty.length, fat:r.fat}; },
-        row: function(d){ return [D[d.d].s, MV[d.m], d.filled + '/5칸', d.empty + '칸', d.fat + '가지']; },
+        columns: ['식단', '끼니', '담은 가짓수', '채운 칸', '빈 칸', '유지·당류'],
+        record: function(p, r){ return {d:p.d, m:p.m, filled:r.filled, empty:r.empty.length, fat:r.fat, cnt:r.mine.length}; },
+        row: function(d){ return [D[d.d].s, MV[d.m], d.d === 3 ? d.cnt + '가지' : '—', d.filled + '/5칸', d.empty + '칸', d.fat + '가지']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('하루 전체 식품군 체크표', '<div id="h2a"></div><p class="ask">A는 어느 칸이 비고 어느 칸이 넘치나요? "굶으면 지방만 빠진다"는 말이 왜 맞지 않는지 체크표로 설명해 보세요.</p>') +
             card('끼니 하나가 채우는 칸 수', '<div id="h2b"></div><p class="ask">과제: 하루 동안 먹은 음식을 모두 적어 여섯 식품군 체크표에 옮겨 보세요. 빈 칸이나 너무 많은 칸을 찾아 내일 바꿀 한 가지를 정해 실천하고 결과를 적어 보세요. 체중이 걱정되면 혼자 굶지 말고 보호자·보건 선생님과 의논하세요.</p>') + '</div>';
           var day = uniq(rec.filter(function(d){ return d.m === 0; }).map(function(d){ return d.d; })).sort();
           if (day.length){
-            var rows = GN.map(function(gn, i){ return [gn].concat(day.map(function(dd){ var n = D[dd].g[i].length; return n + '가지 · ' + st(i, n)[0]; })); });
-            $('h2a').innerHTML = tableHTML(['식품군'].concat(day.map(function(dd){ return '식단 ' + D[dd].s; })), rows);
+            var rows = GN.map(function(gn, i){ return [gn].concat(day.map(function(dd){ var n = pick(dd, 0)[i].length; return n + '가지 · ' + st(i, n)[0]; })); });
+            $('h2a').innerHTML = tableHTML(['식품군'].concat(day.map(function(dd){ return dd === 3 ? '내 식단(지금)' : '식단 ' + D[dd].s; })), rows) +
+              (day.indexOf(3) >= 0 ? '<p class="msg">‘내 식단’ 칸은 <b>지금 담겨 있는</b> 음식으로 다시 센 값이에요. 비어 있는 칸에 무엇을 더하면 채워질지 결과 칸에서 알려 줘요.</p>'
+                : '<p class="msg">‘내 식단’으로 어제 먹은 것을 직접 담아 보면 여기에 내 칸이 함께 나와요.</p>');
           } else $('h2a').innerHTML = '<p class="msg">"하루 전체"로 식단을 바꿔 가며 실행해 보세요.</p>';
           var it = [];
           rec.filter(function(d){ return d.m > 0; }).forEach(function(d){ var lb = D[d.d].s + ' · ' + MV[d.m]; if (!it.some(function(x){ return x.label === lb; })) it.push({label:lb, v:d.filled, color:d.filled ? PAL[1] : PAL[4], text:d.filled + '칸'}); });
@@ -504,7 +540,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

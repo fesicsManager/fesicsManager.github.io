@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -475,21 +477,53 @@ return (function(){
         {n:'(다) 근거·출처·한계', q:'“2주 동안 저녁 체육관 대기 인원을 직접 셌습니다. 평균 12명이 자리가 없어 돌아갔습니다. 다만 하루는 행사가 있어 뺐습니다. 관리 인력 문제는 학교와 함께 풀겠습니다.”', sc:[4.1, 4.3, 4.0], yes:22, tool:'출처 있는 근거 + 한계 인정 + 반대쪽 걱정에 답'}
       ];
       var EL = ['전문성', '신뢰성', '선의'];
+      var ONOFF = ['끔', '켬'];
+      /* (라) — 네 요소를 따로 켜고 끄는 판. 점수는 교육용 모형값이다.
+         전문성·신뢰성·선의마다 요소가 더하는 몫을 다르게 두어, 무엇이 무엇을 올리는지 가려낼 수 있다 */
+      var WT = [
+        {b:1.6, ev:1.2, src:0.7, lim:0.2, abs:-0.2},
+        {b:1.5, ev:0.7, src:1.1, lim:0.9, abs:-0.6},
+        {b:1.8, ev:0.5, src:0.3, lim:1.0, abs:-0.5}];
+      function clamp5(v){ return Math.max(1, Math.min(5, v)); }
+      function mkMine(p){
+        var ev = p.ev || 0, src = p.src || 0, lim = p.lim || 0, ab = p.ab || 0;
+        var sc = WT.map(function(w){ return Math.round(clamp5(w.b + w.ev * ev + w.src * src + w.lim * lim + w.abs * ab) * 10) / 10; });
+        var avg = (sc[0] + sc[1] + sc[2]) / 3;
+        var yes = Math.max(0, Math.min(30, Math.round(30 * (avg - 1) / 4 * 0.92)));
+        var parts = [];
+        if (ev) parts.push('저녁 체육관 대기 인원을 세어 평균 12명이 돌아갔습니다.');
+        if (src) parts.push('2주 동안 제가 직접 센 기록입니다.');
+        if (lim) parts.push('다만 행사가 있던 하루는 뺐습니다.');
+        if (ab) parts.push('무조건 맞습니다! 100% 확실합니다!');
+        if (!parts.length) parts.push('체육관을 늘려야 합니다.');
+        var tool = [];
+        if (ev) tool.push('근거');
+        if (src) tool.push('출처');
+        if (lim) tool.push('한계 인정');
+        if (ab) tool.push('단정 표현');
+        return {n:'(라) 내가 켠 요소', q:'“' + parts.join(' ') + '”', sc:sc, yes:yes,
+          tool:(tool.length ? tool.join(' + ') : '아무 요소도 켜지 않음') + ' — 점수는 교육용 모형값',
+          mine:true, on:{ev:ev, src:src, lim:lim, ab:ab}};
+      }
       return {
         sceneHeight: 450,
-        idle: '연설과 나의 예측을 고른 뒤 <b>이 연설을 들려주기</b>를 누르세요.',
+        idle: '연설과 나의 예측을 고른 뒤 <b>이 연설을 들려주기</b>를 누르세요. (라) 를 고르면 근거·출처·한계·단정 표현을 따로 켜고 끌 수 있습니다.',
         shortHint: '세 연설을 모두 들려주세요. 가장 자신만만한 연설의 신뢰성 점수는 몇 점이었나요?',
         params: [
-          {key:'s', type:'seg', label:'연설 (주장은 같음)', cols:1, value:0, options:S.map(function(x){ return x.n; })},
+          {key:'s', type:'seg', label:'연설 (주장은 같음)', cols:1, value:0, options:S.map(function(x){ return x.n; }).concat(['(라) 요소를 내가 켜고 끄기'])},
+          {key:'ev', type:'seg', label:'(라) 직접 센 근거', cols:2, value:0, options:ONOFF},
+          {key:'src', type:'seg', label:'(라) 근거의 출처 밝히기', cols:2, value:0, options:ONOFF},
+          {key:'lim', type:'seg', label:'(라) 한계 인정하기', cols:2, value:0, options:ONOFF},
+          {key:'ab', type:'seg', label:'(라) 단정 표현 (“100% 확실”)', cols:2, value:0, options:ONOFF},
           {key:'g', type:'range', label:'나의 예측 — 찬성할 사람 (30명 중)', min:0, max:30, step:1, value:15, fmt:function(v){ return v + '명'; }}
         ],
-        compute: function(p){ var x = S[p.s]; return {x:x, diff:p.g - x.yes, avg:(x.sc[0] + x.sc[1] + x.sc[2]) / 3}; },
+        compute: function(p){ var x = (p.s === 3 ? mkMine(p) : S[p.s]); return {x:x, diff:p.g - x.yes, avg:(x.sc[0] + x.sc[1] + x.sc[2]) / 3}; },
         draw: function(c, W, H, p, r, tau){
-          var x = S[p.s];
+          var x = (r && r.x) ? r.x : (p.s === 3 ? mkMine(p) : S[p.s]);
           var qx = W < 600 ? 20 : 84;
           if (W >= 600){ person(c, 44, 70, 40, PAL[0]); c.fillStyle = '#A8B4C2'; c.fillRect(22, 94, 44, 30); }
           rbox(c, qx, 12, W - 20 - qx, 112, '#F7F9FC', '#D3DAE3', 1);
-          wrapT(c, x.q, qx + 12, 34, W - 44 - qx, 19, {size:p.s === 2 ? 14 : 16, bold:true});
+          wrapT(c, x.q, qx + 12, 34, W - 44 - qx, 19, {size:(p.s === 2 || x.mine) ? 14 : 16, bold:true});
           if (!r){ tx(c, '나의 예측: ' + p.g + '명 / 30명', 20, H - 18, {color:'#4A5868'}); return; }
           var a = ph(tau, 0, 0.55), y0 = 140, bw = W - 170;
           EL.forEach(function(e, i){
@@ -506,18 +540,29 @@ return (function(){
         stats: function(p, r){
           var x = r.x;
           return [['연설', x.n], ['전문성 · 신뢰성 · 선의', x.sc.map(function(v){ return f(v, 1); }).join(' · ') + ' (5점 만점)', PAL[1]], ['세 요소 평균', f(r.avg, 2) + '점'],
-            ['찬성', x.yes + '명 / 30명', PAL[3]], ['말하기 전략', x.tool], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[0]]];
+            ['찬성', x.yes + '명 / 30명', PAL[3]], ['말하기 전략', x.tool], ['나의 예측과 차이', sgn(r.diff, 0) + '명', PAL[0]]]
+            .concat(x.mine ? [['신뢰성을 가장 많이 올린 요소', x.on.src ? '출처 밝히기 (+1.1)' : (x.on.lim ? '한계 인정 (+0.9)' : (x.on.ev ? '직접 센 근거 (+0.7)' : '아직 켠 요소가 없습니다')), PAL[1]],
+              ['단정 표현', x.on.ab ? '켜 두면 신뢰성이 0.6점 내려갑니다' : '꺼져 있습니다', x.on.ab ? PAL[4] : PAL[1]]] : []);
         },
-        columns: ['연설', '전문성', '신뢰성', '선의', '찬성', '나의 예측'],
-        record: function(p, r){ return {s:p.s, g:p.g}; },
-        row: function(d){ var x = S[d.s]; return [x.n.slice(0, 3), f(x.sc[0], 1), f(x.sc[1], 1), f(x.sc[2], 1), x.yes + '/30', d.g + '명']; },
+        columns: ['연설', '전문성', '신뢰성', '선의', '찬성', '켠 요소'],
+        record: function(p, r){ return {s:p.s, g:p.g, sc:r.x.sc, yes:r.x.yes, on:(r.x.on || null)}; },
+        row: function(d){ return [['(가)', '(나)', '(다)', '(라)'][d.s], f(d.sc[0], 1), f(d.sc[1], 1), f(d.sc[2], 1), d.yes + '/30',
+          d.on ? (['ev', 'src', 'lim', 'ab'].filter(function(k){ return d.on[k]; }).map(function(k){ return {ev:'근거', src:'출처', lim:'한계', ab:'단정'}[k]; }).join('+') || '없음') : '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('연설별 공신력 점수 (5점 만점)', '<div id="sl5a"></div><p class="ask">(다)는 약점을 먼저 말했는데 신뢰성이 가장 높아요. 한계를 밝히는 말하기가 왜 믿음을 얻는지 설명해 보세요.</p>') +
+            card('(라) 어느 요소가 무엇을 올렸나', '<div id="sl5c"></div><p class="ask">요소를 하나씩만 켜 보면서 전문성·신뢰성·선의 가운데 어느 점수가 오르는지 가려내 보세요. 단정 표현만 켜면 어떻게 되나요?</p>') +
             card('찬성 인원과 나의 예측', '<div id="sl5b"></div><p class="ask">과제: 학교에 건의하고 싶은 주제로 2분 연설문을 쓰되, 근거의 출처 한 가지, 스스로 인정하는 한계 한 가지, 반대쪽 걱정에 대한 답 한 가지를 꼭 넣으세요. 친구 다섯 명에게 전문성·신뢰성·선의를 5점 만점으로 매겨 달라고 해 보세요.</p>') + '</div>';
           $('sl5a').innerHTML = tableHTML(['연설'].concat(EL), S.map(function(x){ return [x.n].concat(x.sc.map(function(v){ return f(v, 1); })); }));
           var g = groupBy(rec, function(d){ return d.s; });
           $('sl5b').innerHTML = hbars(S.map(function(x, i){ var a = g[i]; return {label:x.n, v:x.yes, color:[PAL[4], PAL[6], PAL[1]][i], text:x.yes + '명' + (a ? ' · 내 예측 ' + f(mean(a.map(function(d){ return d.g; })), 1) : '')}; }), 30);
+          var mine = rec.filter(function(d){ return d.s === 3 && d.on; });
+          $('sl5c').innerHTML = mine.length
+            ? tableHTML(['켠 요소', '전문성', '신뢰성', '선의', '찬성'], mine.map(function(d){
+                var on = ['ev', 'src', 'lim', 'ab'].filter(function(k){ return d.on[k]; }).map(function(k){ return {ev:'근거', src:'출처', lim:'한계', ab:'단정'}[k]; }).join(' + ') || '없음';
+                return [on, f(d.sc[0], 1), f(d.sc[1], 1), f(d.sc[2], 1), d.yes + '/30']; })) +
+              '<p class="msg">이 모형에서 <b>신뢰성</b>을 가장 많이 올리는 것은 출처(+1.1)와 한계 인정(+0.9)이고, 단정 표현은 되레 0.6점을 깎아요. <b>전문성</b>은 직접 센 근거(+1.2)가 가장 많이 올려요. 숫자는 교육용 모형값이에요.</p>'
+            : '<p class="msg">(라) 를 골라 요소를 하나씩 켜 보세요.</p>';
         }
       };
     })();
@@ -527,7 +572,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

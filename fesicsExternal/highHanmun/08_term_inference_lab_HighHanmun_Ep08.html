@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -474,15 +476,27 @@ var LAB = (function anonymous(
         {h:'骨折', ko:'골절', f:'의학', g:['骨 뼈 골', '折 꺾을 절'], c:['뼈가 부러짐', '뼈를 깎는 듯한 노력', '절을 여러 번 함'], a:0},
         {h:'炎症', ko:'염증', f:'의학', g:['炎 불꽃 염', '症 증세 증'], c:['어떤 일에 싫증이 남 (다른 한자 厭症)', '몸의 한 부분이 붉게 붓고 열이 나며 아픈 증상', '소금기가 많아 생기는 병'], a:1}
       ];
+      function homIdx(t){ for (var i = 0; i < 3; i++) if (/다른 한자/.test(t.c[i])) return i; return -1; }
+      var MC = ['이 분야의 글 (기본)', '일상 글 — 소리만 같은 낱말'];
+      var MS = ['분야 글', '일상 글'];
       return {
         sceneHeight: 420,
-        idle: '용어와 후보 번호를 고른 뒤 <b>이 뜻으로 추론하기</b>를 누르세요. 후보는 장면에 나와 있어요.',
-        shortHint: '학술·법률·의학 용어를 골고루 추론해 보세요.',
+        idle: '용어와 후보 번호를 고른 뒤 <b>이 뜻으로 추론하기</b>를 누르세요. 후보는 장면에 나와 있어요. <b>읽을 맥락</b>을 바꾸면 같은 소리라도 다른 한자어가 답이 될 수 있어요.',
+        shortHint: '학술·법률·의학 용어를 골고루 추론해 보세요. 같은 용어를 맥락만 바꿔서도 해 보세요.',
         params: [
           {key:'t', type:'seg', label:'용어', cols:4, value:0, options:TM.map(function(x){ return x.h + ' ' + x.ko; })},
-          {key:'c', type:'seg', label:'글자 뜻으로 고른 정의', cols:3, value:0, options:['후보 ①', '후보 ②', '후보 ③']}
+          {key:'ph', type:'seg', label:'① 먼저 예측 — 이 낱말에 소리가 같은 다른 한자어 함정이 있을까?', cols:3, value:0,
+            options:['예측 안 함', '있다', '없다'], note:'후보를 읽기 전에, 소리(한글)만 듣고 떠오르는 다른 뜻이 있는지 생각해 보세요. 찍으면 맞힌 수가 쌓입니다.'},
+          {key:'c', type:'seg', label:'② 글자 뜻으로 고른 정의', cols:3, value:0, options:['후보 ①', '후보 ②', '후보 ③']},
+          {key:'m', type:'seg', label:'읽을 맥락', value:0, options:MC,
+            note:'※ 교육용 모형 — \'일상 글\'을 고르면, 소리가 같은 다른 한자어(架設·果實·厭症 등)가 있는 낱말은 그쪽을 답으로 봅니다. 그런 낱말이 없으면 답은 그대로예요.'}
         ],
-        compute: function(p){ var t = TM[p.t]; return {t:t, ok:p.c === t.a}; },
+        compute: function(p){
+          var t = TM[p.t], hi = homIdx(t);
+          var ans = (p.m === 1 && hi >= 0) ? hi : t.a;
+          return {t:t, ans:ans, hi:hi, flip:ans !== t.a, ok:p.c === ans,
+            phOK:(p.ph === 0 ? null : (p.ph === 1) === (hi >= 0))};
+        },
         draw: function(c, W, H, p, r, tau){
           var t = TM[p.t], S = Math.min(64, W * 0.16);
           T(c, t.f + ' 용어', 20, 28, {size:14, bold:true, color:'#4A5868'});
@@ -494,30 +508,56 @@ var LAB = (function anonymous(
           }
           var y = 36 + S * 1.2 + 44, bh = (H - y - 50) / 3;
           for (var i = 0; i < 3; i++){
-            var on = r && i === p.c, good = r && tau > 0.6 && i === t.a, k = on ? ease(tau / 0.4) : 0;
+            var on = r && i === p.c, good = r && tau > 0.6 && i === r.ans, k = on ? ease(tau / 0.4) : 0;
             rbox(c, 20 + k * 6, y + i * bh, W - 40, bh - 8, good ? '#E2F4EC' : on ? '#EAF1FA' : '#F7F9FC', on ? PAL[0] : '#D4DCE5', on ? 3 : 1);
-            T(c, '①②③'[i], 34 + k * 6, y + i * bh + bh / 2 + 2, {bold:true, color:'#8C99A8'});
-            T(c, t.c[i], 60 + k * 6, y + i * bh + bh / 2 + 2, {size:15, max:W - 100});
+            // 좁은 화면: 설명을 여러 줄로 나눠 번호와 겹치지 않게
+            if (W < 560){
+              T(c, '①②③'[i], 30 + k * 6, y + i * bh + 24, {bold:true, color:'#8C99A8', size:16});
+              wrap(c, t.c[i], 52 + k * 6, y + i * bh + 24, W - 74, 17, {size:13});
+            } else {
+              T(c, '①②③'[i], 34 + k * 6, y + i * bh + bh / 2 + 2, {bold:true, color:'#8C99A8'});
+              T(c, t.c[i], 60 + k * 6, y + i * bh + bh / 2 + 2, {size:15, max:W - 100});
+            }
           }
-          if (r && tau > 0.7) T(c, (r.ok ? '○ 글자 뜻과 정의가 이어져요' : '✕ 정답은 ' + '①②③'[t.a]) + ' — ' + t.ko, W / 2, H - 16, {bold:true, align:'center', color:r.ok ? PAL[1] : PAL[4], max:W - 24});
+          if (r && tau > 0.7) T(c, (r.ok ? '○ 글자 뜻과 정의가 이어져요' : '✕ 정답은 ' + '①②③'[r.ans]) + ' — ' + t.ko, W / 2, H - 16, {bold:true, align:'center', color:r.ok ? PAL[1] : PAL[4], max:W - 24});
         },
         stats: function(p, r){
-          return [['용어', r.t.h + ' ' + r.t.ko + ' (' + r.t.f + ')', PAL[0]], ['글자 뜻', r.t.g.join(' + ')], ['고른 정의', r.t.c[p.c]],
-            ['실제 정의', r.t.c[r.t.a], PAL[1]], ['판정', r.ok ? '맞음' : '다름', r.ok ? PAL[1] : PAL[4]]];
+          var a = [['용어', r.t.h + ' ' + r.t.ko + ' (' + r.t.f + ')', PAL[0]], ['글자 뜻', r.t.g.join(' + ')],
+            ['읽을 맥락', MC[p.m], p.m ? PAL[5] : null], ['고른 정의', r.t.c[p.c]],
+            ['실제 정의', r.t.c[r.ans], PAL[1]], ['② 판정', r.ok ? '맞음' : '다름', r.ok ? PAL[1] : PAL[4]]];
+          if (r.phOK !== null) a.push(['① 함정 예측', (p.ph === 1 ? '있다' : '없다') + ' → ' + (r.phOK ? '맞음' : '틀림') +
+            ' — ' + (r.hi >= 0 ? '소리가 같은 다른 한자어가 후보 ' + '①②③'[r.hi] + '에 섞여 있어요' : '이 낱말에는 그런 함정이 없어요'), r.phOK ? PAL[1] : PAL[4]]);
+          else a.push(['① 함정 예측', '예측을 찍지 않았어요 — 후보를 읽기 전에 찍어 보세요', '#8C99A8']);
+          if (p.m === 1) a.push(['맥락이 바꾼 것', r.flip
+            ? '일상 글로 읽으니 답이 ' + '①②③'[r.t.a] + ' → ' + '①②③'[r.ans] + '로 바뀌었어요 (교육용 모형)'
+            : '이 낱말은 소리가 같은 다른 한자어가 없어 답이 그대로예요', r.flip ? PAL[4] : PAL[5]]);
+          return a;
         },
-        columns: ['용어', '분야', '고른 후보', '판정'],
-        record: function(p, r){ return {t:p.t, c:p.c, ok:r.ok}; },
-        row: function(d){ return [TM[d.t].h + ' ' + TM[d.t].ko, TM[d.t].f, '①②③'[d.c], d.ok ? '○' : '✕']; },
+        columns: ['용어', '분야', '맥락', '① 함정 예측', '고른 후보', '② 판정'],
+        record: function(p, r){ return {t:p.t, c:p.c, ok:r.ok, m:p.m, ph:p.ph, hi:r.hi, flip:r.flip, a1:r.phOK}; },
+        row: function(d){ return [TM[d.t].h + ' ' + TM[d.t].ko, TM[d.t].f, MS[d.m],
+          d.ph === 0 ? '–' : ((d.ph === 1 ? '있다' : '없다') + (d.a1 ? ' ○' : ' ✕')),
+          '①②③'[d.c], (d.ok ? '○' : '✕') + (d.flip ? ' (맥락 바뀜)' : '')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('분야별 추론 성공률', '<div id="hh8a"></div><p class="ask">소리가 같은 다른 한자어의 뜻(싫증·설치·열매)에 끌린 적이 있나요? 한자를 알 때와 모를 때의 차이를 한 문장으로 정리해 보세요.</p>') +
-            card('한자어를 아는 것과 모르는 것의 차이', '<div id="hh8b"></div><p class="ask">과제: 관심 있는 분야의 전문 용어 열 개를 골라 한자로 분해하고, 일상어와 뜻이 다른 것을 찾아 정리해 보세요.</p>') + '</div>';
+            card('한자어를 아는 것과 모르는 것의 차이', '<div id="hh8b"></div><p class="ask">과제: 관심 있는 분야의 전문 용어 열 개를 골라 한자로 분해하고, 일상어와 뜻이 다른 것을 찾아 정리해 보세요.</p>') +
+            card('함정 예측과 맥락별 정답률', '<div id="hh8c"></div><p class="ask">맥락을 바꾸니 답이 뒤집힌 낱말은 무엇이었나요? 글만 보고 어느 한자어인지 가려내려면 무엇을 봐야 할까요?</p>') + '</div>';
           var by = groupBy(rec, function(d){ return TM[d.t].f; }), items = [];
           ['학술', '법률', '의학'].forEach(function(k, i){ var g = by[k]; if (!g) return; var ok = g.filter(function(d){ return d.ok; }).length / g.length * 100;
             items.push({label:k + ' (' + g.length + '회)', v:ok, color:PAL[i], text:f(ok, 0) + '%'}); });
           $('hh8a').innerHTML = hbars(items, 100);
           $('hh8b').innerHTML = tableHTML(['상황', '모르면', '알면'], [['처음 보는 학술 용어', '통째로 암기', '글자로 뜻 추론'], ['법률 조문의 "선의"', '일상 뜻으로 오독', '"모름"이라는 전문 용어로 구분'],
             ['동음이의어', '맥락에만 의존', '한자로 구분'], ['일본어·중국어 학습', '처음부터', '어휘 상당 부분 전이']]);
+          var pr = rec.filter(function(d){ return d.ph; }), pc = pr.filter(function(d){ return d.a1; }).length;
+          var bm = groupBy(rec, function(d){ return d.m; }), it2 = [];
+          MS.forEach(function(nm, i){ var g = bm[i]; if (!g) return; var v = g.filter(function(d){ return d.ok; }).length / g.length * 100;
+            it2.push({label:nm + ' (' + g.length + '회)', v:v, color:i ? PAL[5] : PAL[0], text:f(v, 0) + '%'}); });
+          var fl = {}; rec.forEach(function(d){ if (d.flip) fl[TM[d.t].ko] = 1; });
+          var fk = Object.keys(fl);
+          $('hh8c').innerHTML = '<p class="msg">함정이 있는지 맞힌 수 ' + (pr.length ? '<b>' + pc + ' / ' + pr.length + '회</b>' : '— 아직 ①을 찍은 기록이 없어요') + '</p>' +
+            hbars(it2, 100) +
+            '<p class="msg">' + (fk.length ? '맥락을 바꾸니 답이 뒤집힌 낱말: <b>' + fk.join(', ') + '</b>' : '맥락을 \'일상 글\'로 바꿔 보면 답이 뒤집히는 낱말을 찾을 수 있어요.') + '</p>';
         }
       };
     
@@ -527,7 +567,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

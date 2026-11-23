@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -303,6 +305,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; var fs = o.size || 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; if (o.maxW){ var w0 = c.measureText(s).width; if (w0 > o.maxW){ fs = Math.max(12, Math.floor(fs * o.maxW / w0)); c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; } } c.fillStyle = o.color || '#1E2833';
@@ -429,23 +438,28 @@ function hbars(items, max){
 var LAB = (function(){
       var G = [0, 30, 45, 60, 80, 85, 89, 90], PR = ['tan 90°에도 값이 있다', 'tan 90°는 값이 없다'];
       var EX = {0:['0', '1', '0'], 30:['1/2', '√3/2', '√3/3'], 45:['√2/2', '√2/2', '1'], 60:['√3/2', '1/2', '√3'], 90:['1', '0', '없음']};
+      /* 세로선을 어디에 두어도 90°에서는 만나지 않는다 — 그림 크기 탓이 아님을 재 보게 한다 */
+      var XV = [0.5, 1, 1.5], XVL = ['0.5', '1', '1.5'];
       return {
         sceneHeight: 450,
         idle: '각과 예상을 고른 뒤 <b>각 올리기</b>를 누르세요.',
-        shortHint: '80°, 85°, 89°, 90°를 차례로 해 보세요. tan 값이 어떻게 변하나요?',
+        shortHint: '80°, 85°, 89°, 90°를 차례로 해 보세요. 그다음 세로선 자리를 0.5나 1.5로 옮겨 보세요. 높이는 달라지는데 높이÷x 는 어떤가요?',
         params: [
           {key:'g', type:'seg', label:'각 θ', cols:4, value:6, options:G.map(function(v){ return v + '°'; })},
+          {key:'xv', type:'seg', label:'세로선 자리 x', cols:3, value:1, options:XVL},
           {key:'pr', type:'seg', label:'나의 예상', cols:2, value:0, options:PR}
         ],
         compute: function(p){
-          var d = G[p.g], t = d * Math.PI / 180, s = d === 90 ? 1 : Math.sin(t), c = d === 90 ? 0 : Math.cos(t), tn = d === 90 ? null : Math.tan(t);
-          return {d:d, s:s, c:c, tn:tn, ex:EX[d] || null};
+          var d = G[p.g], xv = XV[p.xv], t = d * Math.PI / 180, s = d === 90 ? 1 : Math.sin(t), c = d === 90 ? 0 : Math.cos(t), tn = d === 90 ? null : Math.tan(t);
+          return {d:d, xv:xv, s:s, c:c, tn:tn, ex:EX[d] || null, hgt:tn === null ? null : xv * tn,
+            note:d === 90 ? '세로선을 어디로 옮겨도 반직선과 평행이라 만나지 않아요 — 그림 크기 탓이 아니에요'
+              : '세로선을 옮기면 만나는 높이는 ' + XVL[p.xv] + '배가 되지만, 높이 ÷ x 는 늘 같아요'};
         },
         draw: function(c, W, H, p, r, tau){
-          var R = Math.min(W * 0.32, (H - 80) / 2.6), Ox = Math.max(60, W * 0.18), Oy = H - 50, tx = Ox + R;
+          var xv = XV[p.xv], R = Math.min(W * 0.32 / Math.max(xv, 1), (H - 80) / 2.6), Ox = Math.max(60, W * 0.18), Oy = H - 50, tx = Ox + R * xv;
           seg(c, Ox - 20, Oy, W - 20, Oy, '#8C99A8', 1.5); seg(c, Ox, Oy + 20, Ox, 16, '#8C99A8', 1.5);
           c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.beginPath(); c.arc(Ox, Oy, R, -Math.PI / 2, 0); c.stroke();
-          seg(c, tx, Oy + 10, tx, 10, PAL[1], 3); c.font = '700 18px ' + FONT; var thLow = Ox + 34 + c.measureText('θ = 90°').width > tx + 2; txt(c, 'x = 1', tx + 8, Oy - 8, {color:PAL[1], bold:true});
+          seg(c, tx, Oy + 10, tx, 10, PAL[1], 3); c.font = '700 18px ' + FONT; var thLow = Ox + 34 + c.measureText('θ = 90°').width > tx + 2; txtFit(c, 'x = ' + XVL[p.xv], tx + 8, Oy - 8, {color:PAL[1], bold:true}, Math.max(30, W - tx - 12));
           txt(c, 'O', Ox - 18, Oy + 18, {bold:true});
           var d = r ? G[p.g] * Math.min(1, tau / 0.7) : G[p.g], th = d * Math.PI / 180;
           var ex = Ox + Math.cos(th) * 3000, ey = Oy - Math.sin(th) * 3000;
@@ -454,25 +468,29 @@ var LAB = (function(){
           seg(c, Ox + Math.cos(th) * R, Oy, Ox + Math.cos(th) * R, Oy - Math.sin(th) * R, PAL[4], 2, [5, 4]);
           txt(c, 'θ = ' + f(d, 0) + '°', Ox + 34, thLow ? Oy + 26 : Oy - 10, {bold:true, color:PAL[6]});
           if (!r) return;
-          if (G[p.g] === 90 && tau >= 0.7){ txt(c, '반직선 ∥ 세로선 → 만나지 않음', W - 20, 40, {align:'right', bold:true, color:PAL[4], maxW:W - 30}); return; }
-          var tv = Math.tan(th), hy = Oy - tv * R;
+          if (G[p.g] === 90 && tau >= 0.7){ txtFit(c, '반직선 ∥ 세로선 → 만나지 않음', W - 20, 40, {align:'right', bold:true, color:PAL[4]}, W - 30); return; }
+          var tv = Math.tan(th), hv = tv * xv, hy = Oy - hv * R;
           c.font = '700 18px ' + FONT;   /* 좁은 화면: 오른쪽 끝을 넘으면 점·화살표 왼쪽에 쓴다 */
           if (hy >= 20){ c.fillStyle = PAL[6]; c.beginPath(); c.arc(tx, hy, 8, 0, Math.PI * 2); c.fill();
-            if (tx + 12 + c.measureText('tan = ' + f(tv, 3)).width > W - 4) txt(c, 'tan = ' + f(tv, 3), tx - 12, hy + 6, {bold:true, color:PAL[6], align:'right'});
-            else txt(c, 'tan = ' + f(tv, 3), tx + 12, hy + 6, {bold:true, color:PAL[6]}); }
+            if (tx + 12 + c.measureText('높이 = ' + f(hv, 3)).width > W - 4) txt(c, '높이 = ' + f(hv, 3), tx - 12, hy + 6, {bold:true, color:PAL[6], align:'right'});
+            else txt(c, '높이 = ' + f(hv, 3), tx + 12, hy + 6, {bold:true, color:PAL[6]}); }
           else { arrow(c, tx + 18, 60, tx + 18, 18, PAL[6], 3);
-            if (tx + 28 + c.measureText('위로 계속 · tan ≈ ' + f(tv, 2)).width > W - 4){ txt(c, '위로 계속', tx + 8, 36, {bold:true, color:PAL[6], align:'right'}); txt(c, 'tan ≈ ' + f(tv, 2), tx + 8, 58, {bold:true, color:PAL[6], align:'right'}); }
-            else txt(c, '위로 계속 · tan ≈ ' + f(tv, 2), tx + 28, 44, {bold:true, color:PAL[6]}); }
+            if (tx + 28 + c.measureText('위로 계속 · 높이 ≈ ' + f(hv, 2)).width > W - 4){ txt(c, '위로 계속', tx + 8, 36, {bold:true, color:PAL[6], align:'right'}); txt(c, '높이 ≈ ' + f(hv, 2), tx + 8, 58, {bold:true, color:PAL[6], align:'right'}); }
+            else txt(c, '위로 계속 · 높이 ≈ ' + f(hv, 2), tx + 28, 44, {bold:true, color:PAL[6]}); }
         },
         stats: function(p, r){
           var e = r.ex;
           return [['각 θ', r.d + '°'], ['sin θ', e ? e[0] + (r.d % 90 ? ' ≈ ' + f(r.s, 4) : '') : f(r.s, 4)], ['cos θ', e ? e[1] + (r.d % 90 ? ' ≈ ' + f(r.c, 4) : '') : f(r.c, 4)],
             ['tan θ', r.tn === null ? '정할 수 없음 (cos 90° = 0 으로 나눔)' : (e ? e[2] + (r.d % 45 ? ' ≈ ' + f(r.tn, 4) : '') : '≈ ' + f(r.tn, 3)), PAL[6]],
+            ['세로선 자리 x', String(r.xv)],
+            ['만나는 높이', r.hgt === null ? '만나지 않음' : f(r.hgt, 3)],
+            ['높이 ÷ x', r.tn === null ? '정할 수 없음' : f(r.tn, 3) + ' — 세로선을 옮겨도 이 값은 같아요', PAL[0]],
+            ['세로선을 옮겨 보면', r.note, r.d === 90 ? PAL[4] : '#4A5868'],
             ['나의 예상', PR[p.pr] + (p.pr === 1 ? ' — 맞음' : ' — 90°에서는 값이 없어요'), p.pr === 1 ? PAL[1] : PAL[4]]];
         },
-        columns: ['θ', 'sin', 'cos', 'tan'],
-        record: function(p, r){ return {d:r.d, s:r.s, c:r.c, tn:r.tn}; },
-        row: function(d){ return [d.d + '°', f(d.s, 4), f(d.c, 4), d.tn === null ? '없음' : f(d.tn, 3)]; },
+        columns: ['θ', 'x', '높이', 'sin', 'cos', 'tan'],
+        record: function(p, r){ return {d:r.d, xv:r.xv, hgt:r.hgt, s:r.s, c:r.c, tn:r.tn}; },
+        row: function(d){ return [d.d + '°', String(d.xv == null ? 1 : d.xv), d.hgt == null ? '없음' : f(d.hgt, 3), f(d.s, 4), f(d.c, 4), d.tn === null ? '없음' : f(d.tn, 3)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('각별 tan 값 (막대는 60까지)', '<div id="tn1"></div><p class="ask">85° → 89° 로 4°만 커졌는데 tan은 몇 배가 되었나요? 90°에 하나의 수를 줄 수 있을까요?</p>') +
@@ -489,7 +507,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

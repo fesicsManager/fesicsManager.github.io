@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -313,7 +315,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -446,7 +448,7 @@ var SPD = [1e6, 1e9, 1e12], SN = ['10⁶/초 (1990년대 PC)', '10⁹/초 (요�
 var AGE = 4.35e17;   // 우주 나이 (초)
 function tstr(sec){ if (sec < 1e-6) return f(sec * 1e9, 1) + ' ns'; if (sec < 1e-3) return f(sec * 1e6, 1) + ' μs'; if (sec < 1) return f(sec * 1000, 1) + ' ms'; if (sec < 60) return f(sec, 2) + ' 초'; if (sec < 3600) return f(sec / 60, 1) + ' 분'; if (sec < 86400) return f(sec / 3600, 1) + ' 시간'; if (sec < 3.15e7) return f(sec / 86400, 1) + ' 일'; if (sec < AGE) return f(sec / 3.15e7, 0) + ' 년'; return '우주 나이의 ' + (sec / AGE).toExponential(1) + '배'; }
 return {
-  sceneHeight: 430,
+  sceneHeight: function(w){ return w < 420 ? 520 : 430; },
   idle: '알고리즘·입력 크기·컴퓨터 속도를 정한 뒤 <b>연산 횟수 세기</b>를 누르세요.',
   shortHint: '자유 탐구 탭에서 같은 알고리즘의 n을 바꿔 가며, 그리고 같은 n에서 알고리즘을 바꿔 가며 기록하세요.',
   params: [
@@ -457,14 +459,17 @@ return {
   ],
   compute: function(p){ var n = NS[p.n], lg = ALG[p.a].fn(n), sec = Math.pow(10, lg - Math.log10(SPD[p.s])); return {an:ALG[p.a].name, n:n, lg:lg, sec:sec, ts:tlg(lg, SPD[p.s]), sn:SN[p.s], dblLg:ALG[p.a].fn(2 * n) - lg}; },
   draw: function(c, W, H, p, r, tau){
-    var n = NS[p.n], k = r ? Math.min(tau / 0.9, 1) : 0, px = 74, py = 30, pw = W - px - 20, narrow = W < 420, ph = H - py - (narrow ? 150 : 130);
-    var ax = plotBox(c, px, py, pw, ph, narrow ? [0, 5, 1, 'nonum'] : [0, 5, 1], [0, 30, 5], '', 'log₁₀ 연산 횟수');
+    var n = NS[p.n], k = r ? Math.min(tau / 0.9, 1) : 0, px = 74, py = 30, pw = W - px - 20, narrow = W < 420, ph = H - py - (narrow ? 240 : 130);
+    // 가로 눈금 숫자(0~5)는 뜻이 없고 아래 이름표와 붙으므로 좁은·중간 폭에서는 숨긴다
+    var ax = plotBox(c, px, py, pw, ph, W < 620 ? [0, 5, 1, 'nonum'] : [0, 5, 1], [0, 30, 5], '', 'log₁₀ 연산 횟수');
     var bw = pw / 5 * 0.6;
     ALG.forEach(function(A, i){ var v = Math.min(30, A.fn(n)), x = ax.X(i + 0.5); c.fillStyle = i === p.a ? PAL[i] : '#C9D2DC';
       c.fillRect(x - bw / 2, ax.Y(v * (i === p.a ? k : 1)), bw, ax.Y(0) - ax.Y(v * (i === p.a ? k : 1)));
       if (i === p.a){ c.strokeStyle = '#1E2833'; c.lineWidth = 2; c.strokeRect(x - bw / 2, ax.Y(v), bw, ax.Y(0) - ax.Y(v)); }
       var nm = A.name.split(' O')[1] ? 'O' + A.name.split(' O')[1] : A.name;
-      if (narrow){ c.font = '13px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(nm, x, py + ph + 18 + (i % 2) * 16); }
+      // 좁은 화면: 막대 밑에는 번호만, 이름은 아래에 한 줄씩
+      if (narrow){ c.font = '13px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(String(i + 1), x, py + ph + 18);
+        txt(c, (i + 1) + ' ' + nm, 12, py + ph + 42 + i * 19, {color:'#4A5868', size:13}); }
       else txt(c, nm, x, py + ph + 24, {align:'center', color:'#4A5868'}); });
     seg(c, px, ax.Y(17.6), px + pw, ax.Y(17.6), '#C8463D', 1.5, [6, 4]);
     if (narrow){ c.font = '13px ' + FONT; c.fillStyle = '#C8463D'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText('10⁹/초로 우주 나이 동안', px + 6, ax.Y(27) - 6); c.fillText('할 수 있는 연산 (≈10²⁷)', px + 6, ax.Y(27) + 10); }
@@ -500,7 +505,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -305,6 +307,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -446,6 +455,19 @@ var LAB = (function(){
       var FM = ['am/is/are + -ing', '그대로 또는 -s', '-ing만 (am/is/are 없이)'];
       var RULE = ['그냥 -ing', 'e 빼고 -ing', '끝 글자 한 번 더 + -ing'];
       function sent(d, v){ return (d.pre + ' ' + v + ' ' + d.post).replace(' .', '.'); }
+      /* 시간 말을 카드와 따로 골라 끼워 넣는다 — 같은 문장에서 모양이 바뀌는 것을 보게 */
+      var TWL = ['카드 그대로', 'now', 'Look!', 'every day', 'on Sundays'];
+      var TWNOW = [null, true, true, false, false];
+      function swapTw(d, ti){
+        if (!ti) return d;
+        var pre = d.pre.replace(/^Look!\s*/, '');
+        var post = d.post.split(d.tw).join('').replace(/\s+/g, ' ').replace(/\s+\./, '.').replace(/^\s+/, '');
+        if (!post) post = '.';
+        var t = TWL[ti];
+        if (t === 'Look!') return {pre:'Look! ' + pre, post:post, be:d.be, ing:d.ing, pr:d.pr, tw:'Look!', now:true, rule:d.rule};
+        var np = post === '.' ? t + '.' : post.replace(/\.$/, '') + ' ' + t + '.';
+        return {pre:pre, post:np, be:d.be, ing:d.ing, pr:d.pr, tw:t, now:TWNOW[ti], rule:d.rule};
+      }
       function verb(d, fm){ return fm === 0 ? d.be + ' ' + d.ing : fm === 1 ? d.pr : d.ing; }
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
@@ -455,22 +477,29 @@ var LAB = (function(){
         if (line){ txt(c, line, x, y + n * lh, o); n++; } return n;
       }
       return {
-        sceneHeight: 400,
+        sceneHeight: function(w){ return w < 300 ? 640 : w < 460 ? 520 : 400; },
         idle: '문장 카드와 동사 모양을 고른 뒤 <b>빈칸 채우기</b>를 누르세요.',
         shortHint: '같은 동사가 들어간 카드 두 장(예: She … now / She … every night)을 짝지어 해 보세요. 12장을 모두 하면 규칙이 보여요.',
         params: [
           {key:'c', type:'seg', label:'문장 카드', cols:2, value:0, options:CD.map(function(d){ return d.pre + ' ___ ' + d.post; })},
+          {key:'tw', type:'seg', label:'시간 말 바꿔 끼우기', cols:5, value:0, options:TWL},
           {key:'fm', type:'seg', label:'예측: 빈칸에 들어갈 모양은?', cols:3, value:1, options:FM,
             note:'뭉치는 "먹는 건 다 eat이지!"라고 했어요. 시간 말이 바뀌어도 그대로일까요?'}
         ],
         compute: function(p){
-          var d = CD[p.c], right = d.now ? 0 : 1, ok = p.fm === right;
+          var d = swapTw(CD[p.c], p.tw), right = d.now ? 0 : 1, ok = p.fm === right;
           var msg = ok ? (d.now ? '지금 하고 있는 일 — am/is/are + -ing가 맞아요' : '늘 하는 일 — -ing 없이 그대로 또는 -s가 맞아요')
             : p.fm === 2 ? 'am/is/are가 빠져서 문장이 되지 않아요' : d.now ? '"' + d.tw + '"는 지금 하는 일 — -ing 모양이 필요해요' : '"' + d.tw + '"는 늘 하는 일 — -ing를 쓰지 않아요';
-          return {d:d, ok:ok, mine:sent(d, verb(d, p.fm)), right:sent(d, verb(d, right)), msg:msg, rf:right};
+          var base = CD[p.c], flip = p.tw > 0 && base.now !== d.now;
+          return {d:d, ok:ok, mine:sent(d, verb(d, p.fm)), right:sent(d, verb(d, right)), msg:msg, rf:right,
+            twName:TWL[p.tw],
+            flipMsg:p.tw === 0 ? '카드에 적힌 시간 말 그대로예요.'
+              : flip ? '시간 말을 "' + d.tw + '"로 바꾸자 바른 모양이 "' + FM[base.now ? 0 : 1] + '"에서 "' + FM[right] + '"으로 뒤집혔어요.'
+              : '시간 말을 "' + d.tw + '"로 바꿨지만 같은 묶음이라 바른 모양은 그대로 "' + FM[right] + '"이에요.',
+            flip:flip};
         },
         draw: function(c, W, H, p, r, tau){
-          var d = CD[p.c], k = r ? Math.min(tau / 0.7, 1) : 0;
+          var d = swapTw(CD[p.c], p.tw), k = r ? Math.min(tau / 0.7, 1) : 0;
           c.fillStyle = '#FFF1C9'; c.fillRect(20, 20, Math.min(W - 40, d.tw.length * 11 + 30), 34);
           txt(c, d.tw, 34, 43, {bold:true, color:'#8A5A00'});
           var ix = W - 70, iy = 40;
@@ -491,18 +520,21 @@ var LAB = (function(){
         stats: function(p, r){
           return [['시간 말', r.d.tw + ' — ' + (r.d.now ? '지금 하고 있는 일' : '늘 하는 일'), r.d.now ? PAL[0] : PAL[1]],
             ['내가 채운 문장', r.mine, r.ok ? PAL[1] : PAL[4]], ['판정', (r.ok ? '○ ' : '✕ ') + r.msg, r.ok ? PAL[1] : PAL[4]],
-            ['바른 문장', r.right, PAL[0]], ['-ing 붙이는 법', r.d.ing + ' — ' + RULE[r.d.rule]]];
+            ['바른 문장', r.right, PAL[0]],
+            ['끼워 넣은 시간 말', r.twName],
+            ['시간 말을 바꾸면', r.flipMsg, r.flip ? PAL[6] : '#4A5868'],
+            ['-ing 붙이는 법', r.d.ing + ' — ' + RULE[r.d.rule]]];
         },
-        columns: ['시간 말', '고른 모양', '내 문장', '판정'],
-        record: function(p, r){ return {c:p.c, fm:p.fm, now:r.d.now, ok:r.ok, mine:r.mine}; },
-        row: function(d){ return [CD[d.c].tw, FM[d.fm], d.mine, d.ok ? '○' : '✕']; },
+        columns: ['시간 말', '바꿔 끼움', '고른 모양', '내 문장', '판정'],
+        record: function(p, r){ return {c:p.c, tw:p.tw, fm:p.fm, now:r.d.now, twd:r.d.tw, ok:r.ok, mine:r.mine}; },
+        row: function(d){ return [d.twd || CD[d.c].tw, TWL[d.tw || 0], FM[d.fm], d.mine, d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('시간 말 묶음별 바른 모양', '<div id="nw1"></div><p class="ask">now·Look!이 있는 카드와 every·on Sundays가 있는 카드에서 바른 모양이 각각 무엇이었나요? 예외가 있었나요?</p>') +
             card('-ing 붙이는 법', '<div id="nw2"></div><p class="ask">과제: 가족이 지금 하고 있는 일 세 가지를 "Dad is cooking."처럼 쓰고, 그 사람이 날마다 하는 일 한 가지를 옆에 나란히 써 보세요.</p>') + '</div>';
           var rows = [];
           [true, false].forEach(function(nw){ var a = rec.filter(function(d){ return d.now === nw; }); if (!a.length) return;
-            var cs = {}; a.forEach(function(d){ cs[d.c] = 1; });
+            var cs = {}; a.forEach(function(d){ cs[d.c + '|' + (d.tw || 0)] = 1; });
             rows.push([nw ? '지금 (now, Look!)' : '늘 (every, on …)', Object.keys(cs).length + '장', a.length + '번', a.filter(function(d){ return d.ok; }).length + '번', FM[nw ? 0 : 1]]); });
           $('nw1').innerHTML = tableHTML(['시간 말', '카드', '기록', '맞힘', '바른 모양'], rows);
           var seen = {}, r2 = [];
@@ -516,7 +548,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

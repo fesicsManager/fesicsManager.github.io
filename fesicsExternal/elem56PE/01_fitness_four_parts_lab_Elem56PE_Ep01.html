@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>달리기가 빠르면 체력도 1등일까 — 체력 네 칸 그리기</h1>
-    <p>네 친구의 체력 기록표를 <b>네 방향 그래프</b>로 그려요. 친구를 골라 보고, 칸마다 1등이 누구인지 찾아보세요. "학기 초의 나"와 비교하는 그래프도 있어요.<br><span style="font-size:.9em;color:#a86825">※ 네 친구의 기록은 제로 랩의 가상 기록표이고, 학기 초 기록도 비교를 위해 만든 가상 자료예요.</span></p>
+    <p>네 친구의 체력 기록표를 <b>네 방향 그래프</b>로 그려요. 친구를 골라 보고, 칸마다 1등이 누구인지 찾아보세요. <b>"나"를 고르면 슬라이더에 내 기록을 직접 넣어</b> 네 친구 사이에서 내 네 칸이 몇 등인지 그려 줘요. "학기 초의 나"와 비교하는 그래프도 있어요.<br><span style="font-size:.9em;color:#a86825">※ 네 친구의 기록은 제로 랩의 가상 기록표이고, 학기 초 기록도 비교를 위해 만든 가상 자료예요. "나"의 학기 초 기록은 내가 넣은 '학기 초보다 늘어난 정도'로 계산한 값입니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,11 +440,20 @@ var LAB = (function(){
         {n:'제로', g:18, e:55, f:4, p:150, c:PAL[0], st:{g:16, e:46, f:3, p:142}},
         {n:'하늘', g:24, e:30, f:2, p:165, c:PAL[4], st:{g:22, e:27, f:1, p:160}},
         {n:'바다', g:15, e:38, f:15, p:140, c:PAL[1], st:{g:14, e:33, f:13, p:131}},
-        {n:'산들 (50m 1등)', g:20, e:32, f:6, p:180, c:PAL[6], st:{g:19, e:30, f:5, p:172}}
+        {n:'산들 (50m 1등)', g:20, e:32, f:6, p:180, c:PAL[6], st:{g:19, e:30, f:5, p:172}},
+        {n:'나 (내 기록)', g:19, e:40, f:8, p:155, c:PAL[2], st:{g:17, e:36, f:7, p:141}}
       ];
       var MD = ['친구 넷과 비교', '학기 초의 나와 비교'];
-      function mx(k){ var m = 0; KD.forEach(function(d){ m = Math.max(m, d[k]); }); return m; }
-      function rank(i, k){ var r = 1; KD.forEach(function(d, j){ if (j !== i && d[k] > KD[i][k]) r++; }); return r; }
+      /* '나' 칸은 아래 슬라이더에 넣은 내 기록으로 채운다 (미리 박힌 값이 아니다) */
+      function setMe(p){
+        var m = KD[4], up = 1 + (+p.mr) / 100;
+        m.g = +p.mg; m.e = +p.me; m.f = +p.mf; m.p = +p.mp;
+        m.st = {g:Math.round(m.g / up), e:Math.round(m.e / up), f:Math.round(m.f / up * 10) / 10, p:Math.round(m.p / up)};
+      }
+      /* 친구를 볼 때는 넷끼리, 내 기록을 볼 때는 나까지 다섯이 겨룬다 */
+      function pool(p){ return p.k === 4 ? KD : KD.slice(0, 4); }
+      function mx(k, arr){ var m = 0; (arr || KD.slice(0, 4)).forEach(function(d){ m = Math.max(m, d[k]); }); return m; }
+      function rank(i, k, arr){ var r = 1; arr.forEach(function(d, j){ if (j !== i && d[k] > arr[i][k]) r++; }); return r; }
       function poly(c, cx, cy, R, vals, color, fill, lw){
         c.beginPath();
         vals.forEach(function(v, j){ var a = -Math.PI / 2 + j * Math.PI / 2, x = cx + Math.cos(a) * R * v, y = cy + Math.sin(a) * R * v; if (j === 0) c.moveTo(x, y); else c.lineTo(x, y); });
@@ -450,26 +461,33 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 440,
-        idle: '친구와 비교 방법을 고르고 <b>그래프 그리기</b>를 누르세요.',
-        shortHint: '네 친구를 모두 그려 보고, 칸마다 1등을 찾아보세요.',
+        idle: '누구의 기록인지와 비교 방법을 고르고 <b>그래프 그리기</b>를 누르세요. "나"를 고르면 슬라이더에 넣은 내 기록으로 그려요.',
+        shortHint: '네 친구를 모두 그려 보고, 칸마다 1등을 찾아보세요. "나"를 골라 내 기록도 넣어 보세요.',
         params: [
           {key:'k', type:'seg', label:'누구의 기록?', cols:2, value:3, options:KD.map(function(x){ return x.n; })},
-          {key:'md', type:'seg', label:'무엇과 비교?', cols:2, value:0, options:MD}
+          {key:'md', type:'seg', label:'무엇과 비교?', cols:2, value:0, options:MD},
+          {key:'mg', type:'range', label:'내 기록 · 근력 (악력)', min:5, max:40, step:1, value:19, fmt:function(v){ return v + ' kg'; }},
+          {key:'me', type:'range', label:'내 기록 · 지구력 (윗몸말아올리기)', min:5, max:70, step:1, value:40, fmt:function(v){ return v + ' 회'; }},
+          {key:'mf', type:'range', label:'내 기록 · 유연성 (앞으로 굽히기)', min:0, max:25, step:1, value:8, fmt:function(v){ return v + ' cm'; }},
+          {key:'mp', type:'range', label:'내 기록 · 순발력 (제자리멀리뛰기)', min:100, max:210, step:5, value:155, fmt:function(v){ return v + ' cm'; }},
+          {key:'mr', type:'range', label:'학기 초보다 늘어난 정도', min:0, max:40, step:5, value:10, fmt:function(v){ return v + ' %'; }}
         ],
         compute: function(p){
-          var d = KD[p.k], rk = EL.map(function(e){ return rank(p.k, e.k); });
+          setMe(p);
+          var arr = pool(p), d = arr[p.k], rk = EL.map(function(e){ return rank(p.k, e.k, arr); });
           var best = 0, worst = 0; rk.forEach(function(r, j){ if (r < rk[best]) best = j; if (r > rk[worst]) worst = j; });
           var firsts = rk.filter(function(r){ return r === 1; }).length;
           var grow = EL.map(function(e){ return d[e.k] - d.st[e.k]; });
-          return {d:d, rk:rk, best:best, worst:worst, firsts:firsts, grow:grow};
+          return {d:d, rk:rk, best:best, worst:worst, firsts:firsts, grow:grow, n:arr.length, mine:p.k === 4};
         },
         draw: function(c, W, H, p, r, tau){
           var cx = W / 2, cy = H / 2 + 6, R = Math.max(60, Math.min(W / 2 - 80, H / 2 - 70)), k = r ? Math.min(1, tau / 0.8) : 0;
           for (var g = 1; g <= 4; g++) poly(c, cx, cy, R * g / 4, [1, 1, 1, 1], '#E1E7EE', null, 1);
           for (var j = 0; j < 4; j++){ var a = -Math.PI / 2 + j * Math.PI / 2; seg(c, cx, cy, cx + Math.cos(a) * R, cy + Math.sin(a) * R, '#C9D2DC', 1); }
-          var me = KD[p.k];
-          function vals(o){ return EL.map(function(e){ return o[e.k] / mx(e.k); }); }
-          if (p.md === 0){ KD.forEach(function(d, i){ if (i !== p.k) poly(c, cx, cy, R, vals(d), d.c, null, 1.5); }); }
+          setMe(p);
+          var arr = pool(p), me = arr[p.k];
+          function vals(o){ return EL.map(function(e){ return o[e.k] / mx(e.k, arr); }); }
+          if (p.md === 0){ arr.forEach(function(d, i){ if (i !== p.k) poly(c, cx, cy, R, vals(d), d.c, null, 1.5); }); }
           else poly(c, cx, cy, R, vals(me.st), '#8C99A8', 'rgba(140,153,168,.15)', 2);
           var v = vals(me).map(function(x){ return r ? x * k : x * 0.02; });
           c.globalAlpha = 0.25; poly(c, cx, cy, R, v, me.c, me.c, 0); c.globalAlpha = 1;
@@ -486,17 +504,20 @@ var LAB = (function(){
         },
         stats: function(p, r){
           var out = [['누구', r.d.n, r.d.c]];
-          EL.forEach(function(e, j){ out.push([e.n, r.d[e.k] + e.u + ' · 넷 중 ' + r.rk[j] + '등' + (p.md === 1 ? ' · 학기 초보다 ' + sgn(r.grow[j], 0) + e.u : ''), r.rk[j] === 1 ? PAL[6] : null]); });
+          EL.forEach(function(e, j){ out.push([e.n, r.d[e.k] + e.u + ' · ' + (r.n === 4 ? '넷' : '다섯') + ' 중 ' + r.rk[j] + '등' + (p.md === 1 ? ' · 학기 초보다 ' + sgn(r.grow[j], 0) + e.u : ''), r.rk[j] === 1 ? PAL[6] : null]); });
           out.push(['강한 칸 · 약한 칸', EL[r.best].n + ' · ' + EL[r.worst].n, PAL[0]]);
           out.push(['1등인 칸 수', r.firsts + '칸 (네 칸 중)']);
+          if (r.mine) out.push(['내 기록 판정', '가장 약한 칸은 ' + EL[r.worst].n + '이에요. 다음 두 주 동안 이 칸부터 늘려 보세요. 달리기(순발력)가 ' + r.rk[3] + '등이어도 다른 칸이 같이 1등은 아니었죠?', PAL[2]]);
+          else out.push(['내 기록은?', '"나 (내 기록)"를 골라 슬라이더에 내 기록을 넣으면, 네 친구 사이에서 내 네 칸이 몇 등인지 그려 줘요', PAL[2]]);
           return out;
         },
         columns: ['누구', '근력', '지구력', '유연성', '순발력', '강한 칸'],
-        record: function(p, r){ return {k:p.k, md:p.md, rk:r.rk.slice(), best:r.best}; },
-        row: function(d){ return [KD[d.k].n.replace(' (50m 1등)', ''), d.rk[0] + '등', d.rk[1] + '등', d.rk[2] + '등', d.rk[3] + '등', EL[d.best].n]; },
+        record: function(p, r){ return {k:p.k, md:p.md, rk:r.rk.slice(), best:r.best, worst:r.worst, v:EL.map(function(e){ return r.d[e.k]; })}; },
+        row: function(d){ return [KD[d.k].n.replace(' (50m 1등)', '').replace(' (내 기록)', ''), d.rk[0] + '등', d.rk[1] + '등', d.rk[2] + '등', d.rk[3] + '등', EL[d.best].n]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('칸별 1등은 누구?', '<div id="fp1"></div><p class="ask">네 칸의 1등이 모두 같은 사람이었나요? "체력이 좋다"고 말할 때 무엇을 더 물어봐야 할까요?</p>') +
+            card('내 기록 네 칸', '<div id="fp3"></div><p class="ask">내 네 칸 가운데 가장 약한 칸은 무엇인가요? 그 칸을 늘리려면 어떤 운동을 하면 좋을까요?</p>') +
             card('살펴본 친구의 강한 칸', '<div id="fp2"></div><p class="ask">과제: 네 요소 중 집에서 잴 수 있는 것(앉아 윗몸 앞으로 굽히기, 제자리멀리뛰기 등)을 골라 기록하고, 나의 강한 칸과 약한 칸을 적어 보세요. 무리하지 말고 한 번에 두세 번만. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.k] = d; });
           var rows = EL.map(function(e, j){
@@ -507,6 +528,15 @@ var LAB = (function(){
           var items = [];
           Object.keys(seen).forEach(function(i){ var d = seen[i]; items.push({label:KD[i].n, v:4 - d.rk[d.best] + 1, color:KD[i].c, text:'강한 칸: ' + EL[d.best].n}); });
           $('fp2').innerHTML = hbars(items, 4);
+          var mi = rec.filter(function(d){ return d.k === 4; });
+          if (mi.length){
+            var last = mi[mi.length - 1];
+            $('fp3').innerHTML = tableHTML(['칸', '내 기록', '다섯 중 등수'], EL.map(function(e, j){
+              return [e.n, (last.v ? last.v[j] : '—') + e.u, last.rk[j] + '등'];
+            })) + '<p class="msg">가장 약한 칸: <b>' + EL[last.worst == null ? last.best : last.worst].n + '</b></p>';
+          } else {
+            $('fp3').innerHTML = '<p class="msg">"나 (내 기록)"를 골라 슬라이더에 내 기록을 넣고 그려 보세요.</p>';
+          }
         }
       };
     })();
@@ -515,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,8 +439,13 @@ function hbars(items, max){
 var LAB = (function(){
 
 var GAS = [{name:'공기', k:8}, {name:'이산화탄소 채움', k:12}, {name:'이산화탄소 더 진하게', k:14}], LIGHT = [0.6, 1, 1.4], LN = ['어두움 (×0.6)', '보통 (×1)', '밝음 (×1.4)'], T0 = 20, TAU = 8;
-function temp(gi, li, t){ return T0 + GAS[gi].k * LIGHT[li] * (1 - Math.exp(-t / TAU)); }
-function calc(gi, li, t){ var T = temp(gi, li, t), Ta = temp(0, li, t); return {gn:GAS[gi].name, ln:LN[li], t:t, T:T, Ta:Ta, diff:T - Ta, eq:T0 + GAS[gi].k * LIGHT[li]}; }
+var PQ = ['온도 차도 두 배가 된다', '두 배보다 작게 늘어난다', '달라지지 않는다'];
+/* 온실 기체가 붙잡는 열은 농도에 로그로 늘어난다 — 농도를 두 배로 해도 온도 차가 두 배가 되지는 않는다.
+   420 ppm 을 기준으로 두 배마다 상승 폭 계수가 4 씩 커지는 교육용 모형값. */
+function kOf(gi, ppm){ return gi === 0 ? 8 : GAS[gi].k + 4 * Math.log(ppm / 420) / Math.LN2; }
+function temp(gi, li, t, ppm){ return T0 + kOf(gi, ppm) * LIGHT[li] * (1 - Math.exp(-t / TAU)); }
+function calc(gi, li, t, ppm){ var T = temp(gi, li, t, ppm), Ta = temp(0, li, t, ppm);
+  return {gn:GAS[gi].name, ln:LN[li], t:t, T:T, Ta:Ta, diff:T - Ta, eq:T0 + kOf(gi, ppm) * LIGHT[li], ppm:ppm}; }
 return {
   sceneHeight: 400,
   idle: '기체·전등 밝기·시간을 정한 뒤 <b>전등 켜기</b>를 누르세요.',
@@ -447,32 +454,53 @@ return {
     {key:'g', type:'seg', label:'병 안의 기체', cols:3, value:1, options:GAS.map(function(x){ return x.name; })},
     {key:'l', type:'seg', label:'전등 밝기', cols:3, value:1, options:LN},
     {key:'t', type:'range', label:'시간', min:1, max:30, step:1, value:20, fmt:function(v){ return v + '분'; },
-      note:'실온 20 ℃에서 시작합니다. 공기 병은 비교용으로 항상 함께 계산합니다. 온도 상승 폭(공기 8, CO₂ 12·14 ℃ × 밝기)은 교육용 가상 계수예요.'}
+      note:'실온 20 ℃에서 시작합니다. 공기 병은 비교용으로 항상 함께 계산합니다. 온도 상승 폭(공기 8, CO₂ 12·14 ℃ × 밝기)은 교육용 가상 계수예요.'},
+    {key:'ppm', type:'range', label:'CO₂ 병의 농도', min:280, max:1680, step:70, value:420, fmt:function(v){ return v + ' ppm'; },
+      note:'산업화 전 280 ppm, 지금 약 420 ppm이에요. 농도를 올리면 붙잡는 열이 늘지만 로그로 늘어서, 두 배로 해도 온도 차가 두 배가 되지는 않아요. ※ 두 배마다 +4 ℃라는 계수는 교육용 모형값이에요.'},
+    {key:'pq', type:'seg', label:'먼저 짐작하기 — 농도를 두 배로 하면?', cols:3, value:1, options:PQ}
   ],
-  compute: function(p){ return calc(p.g, p.l, p.t); },
+  compute: function(p){
+    var C = calc(p.g, p.l, p.t, p.ppm), base = calc(p.g, p.l, p.t, 420);
+    C.ratio = base.diff ? C.diff / base.diff : 1;
+    var dbl = calc(p.g, p.l, p.t, 840).diff, rr = base.diff ? dbl / base.diff : 1;
+    var ans = rr >= 1.8 ? 0 : rr > 1.02 ? 1 : 2;
+    C.pq = p.pq; C.ok = p.g === 0 ? true : p.pq === ans; C.rr = rr;
+    C.vd = p.g === 0 ? '공기 병은 CO₂ 농도와 상관이 없어요'
+      : '420 → 840 ppm 으로 두 배로 하면 온도 차는 약 ' + f(rr, 2) + '배 — 두 배가 되지 않아요';
+    return C;
+  },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.g, p.l, p.t), tNow = C.t * k;
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.g, p.l, p.t, p.ppm), tNow = C.t * k;
     var bx = [50, 150], y0 = H - 60, bh = 150, bw = 60;
-    [0, p.g].forEach(function(gi, i){ var x = bx[i], T = temp(gi, p.l, tNow), col = gi === 0 ? 'rgba(160,200,240,.5)' : 'rgba(240,160,120,.5)'; c.fillStyle = col; c.fillRect(x, y0 - bh, bw, bh); c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.strokeRect(x, y0 - bh, bw, bh); c.fillStyle = '#C8463D'; var th = (T - 15) / 25 * (bh - 20); c.fillRect(x + bw / 2 - 4, y0 - 10 - th, 8, th); txt(c, f(T, 1) + ' ℃', x + bw / 2, y0 - bh - 8, {align:'center', bold:true}); txt(c, gi === 0 ? '공기' : GAS[gi].name.split(' ')[0], x + bw / 2, y0 + 22, {align:'center', color:'#4A5868'}); });
+    [0, p.g].forEach(function(gi, i){ var x = bx[i], T = temp(gi, p.l, tNow, p.ppm), col = gi === 0 ? 'rgba(160,200,240,.5)' : 'rgba(240,160,120,.5)'; c.fillStyle = col; c.fillRect(x, y0 - bh, bw, bh); c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.strokeRect(x, y0 - bh, bw, bh); c.fillStyle = '#C8463D'; var th = (T - 15) / 25 * (bh - 20); c.fillRect(x + bw / 2 - 4, y0 - 10 - th, 8, th); txt(c, f(T, 1) + ' ℃', x + bw / 2, y0 - bh - 8, {align:'center', bold:true}); txt(c, gi === 0 ? '공기' : GAS[gi].name.split(' ')[0], x + bw / 2, y0 + 22, {align:'center', color:'#4A5868'}); });
     glow(c, 130, 30, 60, '#FFE08A', r ? 0.9 * LIGHT[p.l] / 1.4 : 0.3); txt(c, '💡', 130, 40, {align:'center'});
-    var px = 290, pw = W - px - 20, ph = H - 100; if (pw > 80){ var ax = plotBox(c, px, 30, pw, ph, [0, 30, 10], [15, 45, 10], '분', '℃'); [0, p.g].forEach(function(gi, i){ c.strokeStyle = gi === 0 ? '#2B5FA3' : '#C8463D'; c.lineWidth = 3; c.beginPath(); for (var t = 0; t <= tNow; t += 0.5){ var yy = ax.Y(temp(gi, p.l, t)); if (t === 0) c.moveTo(ax.X(t), yy); else c.lineTo(ax.X(t), yy); } c.stroke(); }); }
-    txt(c, f(tNow, 0) + '분 · 차이 ' + f(temp(p.g, p.l, tNow) - temp(0, p.l, tNow), 1) + ' ℃', 12, H - 12, {bold:true, color:'#C8463D'});
+    var px = 290, pw = W - px - 20, ph = H - 100; if (pw > 80){ var ax = plotBox(c, px, 30, pw, ph, [0, 30, 10], [15, 45, 10], '분', '℃'); [0, p.g].forEach(function(gi, i){ c.strokeStyle = gi === 0 ? '#2B5FA3' : '#C8463D'; c.lineWidth = 3; c.beginPath(); for (var t = 0; t <= tNow; t += 0.5){ var yy = ax.Y(temp(gi, p.l, t, p.ppm)); if (t === 0) c.moveTo(ax.X(t), yy); else c.lineTo(ax.X(t), yy); } c.stroke(); }); }
+    txt(c, f(tNow, 0) + '분 · 차이 ' + f(temp(p.g, p.l, tNow, p.ppm) - temp(0, p.l, tNow, p.ppm), 1) + ' ℃', 12, H - 12, {bold:true, color:'#C8463D'});
   },
   stats: function(p, r){
-    return [['기체 · 밝기 · 시간', r.gn + ' · ' + r.ln + ' · ' + r.t + '분'], ['이 병의 온도', f(r.T, 1) + ' ℃', PAL[4]], ['공기 병 온도 (비교)', f(r.Ta, 1) + ' ℃', PAL[0]], ['온도 차', '+' + f(r.diff, 1) + ' ℃', PAL[4]], ['오래 두면 도달하는 온도', f(r.eq, 1) + ' ℃ (평형)']];
+    return [['기체 · 밝기 · 시간', r.gn + ' · ' + r.ln + ' · ' + r.t + '분'], ['CO₂ 농도', r.ppm + ' ppm' + (p.g === 0 ? ' (공기 병에는 영향 없음)' : '')],
+      ['이 병의 온도', f(r.T, 1) + ' ℃', PAL[4]], ['공기 병 온도 (비교)', f(r.Ta, 1) + ' ℃', PAL[0]], ['온도 차', '+' + f(r.diff, 1) + ' ℃', PAL[4]],
+      ['420 ppm 일 때와 비교', '온도 차 약 ' + f(r.ratio, 2) + '배'],
+      ['오래 두면 도달하는 온도', f(r.eq, 1) + ' ℃ (평형)'],
+      ['내 짐작', PQ[r.pq] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+      ['판정', r.vd, r.ok ? PAL[1] : PAL[4]]];
   },
-  columns: ['기체', '밝기', '시간', '온도 (℃)', '공기 병', '차이'],
-  record: function(p, r){ return {g:p.g, l:p.l, t:r.t, T:r.T, Ta:r.Ta, diff:r.diff}; },
-  row: function(d){ return [GAS[d.g].name, LN[d.l].split(' ')[0], d.t, f(d.T, 1), f(d.Ta, 1), '+' + f(d.diff, 1)]; },
+  columns: ['기체', '농도 (ppm)', '밝기', '시간', '온도 (℃)', '공기 병', '차이'],
+  record: function(p, r){ return {g:p.g, l:p.l, ppm:r.ppm, t:r.t, T:r.T, Ta:r.Ta, diff:r.diff}; },
+  row: function(d){ return [GAS[d.g].name, d.ppm, LN[d.l].split(' ')[0], d.t, f(d.T, 1), f(d.Ta, 1), '+' + f(d.diff, 1)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('시간에 따른 온도', '<canvas class="chart" id="ch1" role="img" aria-label="시간에 따른 온도"></canvas><ul class="readout" id="ro1"></ul><p class="ask">온도는 계속 오르나요, 어느 값에서 멈추나요? 두 병의 차이는 시간이 지나면 일정해지나요?</p>') +
       card('온실 효과는 나쁜가', '<div id="ro2"></div><p class="ask">CO₂ 병이 더 뜨거운 까닭을 "나가는 열"로 설명해 보세요. 온실 효과가 없다면 지구는 몇 ℃일까요? 그럼 무엇이 문제인가요?</p>') + '</div>';
-    var byG = groupBy(rec, function(d){ return d.g + '|' + d.l; }), s1 = [], r1 = [], ci = 0;
-    Object.keys(byG).forEach(function(k){ var g = byG[k], col = PAL[ci % PAL.length]; ci++; s1.push({color:col, pts:g.map(function(d){ return {x:d.t, y:d.T}; })}); r1.push('<li>' + dot(col) + GAS[g[0].g].name + ' · ' + LN[g[0].l].split(' ')[0] + ': 최고 ' + f(Math.max.apply(null, g.map(function(d){ return d.T; })), 1) + ' ℃</li>'); });
+    var byG = groupBy(rec, function(d){ return d.g + '|' + d.l + '|' + d.ppm; }), s1 = [], r1 = [], ci = 0;
+    Object.keys(byG).forEach(function(k){ var g = byG[k], col = PAL[ci % PAL.length]; ci++; s1.push({color:col, pts:g.map(function(d){ return {x:d.t, y:d.T}; })}); r1.push('<li>' + dot(col) + GAS[g[0].g].name + ' · ' + g[0].ppm + ' ppm · ' + LN[g[0].l].split(' ')[0] + ': 최고 ' + f(Math.max.apply(null, g.map(function(d){ return d.T; })), 1) + ' ℃</li>'); });
     drawScatter($('ch1'), {xLabel:'시간 (분)', yLabel:'온도 (℃)', series:s1, tightY:true});
     $('ro1').innerHTML = r1.join('');
-    $('ro2').innerHTML = tableHTML(['기체', '밝기', '시간', '온도', '공기 병', '차이'], rec.map(function(d){ return [GAS[d.g].name, LN[d.l].split(' ')[0], d.t + '분', f(d.T, 1) + ' ℃', f(d.Ta, 1) + ' ℃', '+' + f(d.diff, 1) + ' ℃']; }));
+    var pp = {}; rec.forEach(function(d){ if (d.g) pp[d.ppm] = d; });
+    var pk = Object.keys(pp).map(Number).sort(function(a, b){ return a - b; });
+    $('ro2').innerHTML = tableHTML(['기체', '농도', '밝기', '시간', '온도', '공기 병', '차이'], rec.map(function(d){ return [GAS[d.g].name, d.ppm + ' ppm', LN[d.l].split(' ')[0], d.t + '분', f(d.T, 1) + ' ℃', f(d.Ta, 1) + ' ℃', '+' + f(d.diff, 1) + ' ℃']; }))
+      + (pk.length >= 2 ? '<p class="msg">농도를 두 배로 올려도 온도 차는 두 배가 되지 않아요 — 농도와 온도 차는 로그 관계예요. 그래서 농도를 조금만 더 올려도 되돌리기는 매우 어려워요.</p>'
+        : '<p class="msg">CO₂ 농도를 280 · 420 · 840 ppm 으로 바꿔 기록하면 농도와 온도 차의 관계가 보여요.</p>');
   }
 };
 })();
@@ -481,7 +509,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>엔트로피와 변화의 방향 | 고3 과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -429,18 +431,20 @@ return {
     txt(c, P.name, 12, 34, {bold:true});
     txt(c, P.why, 12, 58, {color:'#4A5868'});
     // 엔트로피 막대
-    var bx2 = 160, by3 = 110, bw2 = W - bx2 - 30;
+    /* 좁은 화면에서는 이름표를 막대 위에 두고 막대를 전체 폭으로 */
+    var narrow = W < 560;
+    var bx2 = narrow ? 16 : 160, by3 = 110, bw2 = narrow ? W - 32 : W - 160 - 30;
     if (!r){ txt(c, '계산하면 결과가 나옵니다', 12, by3, {color:'#4A5868'}); return; }
     var mx = Math.max(Math.abs(r.sys), Math.abs(r.sur), Math.abs(r.tot), 10);
     var zero = bx2 + bw2 / 2;
-    c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(zero, by3 - 10); c.lineTo(zero, by3 + 120); c.stroke();
+    c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(zero, by3 - 10); c.lineTo(zero, by3 + (narrow ? 160 : 120)); c.stroke();
     [['계의 엔트로피 ΔS', r.sys, '#2B5FA3'], ['주위의 엔트로피 −ΔH/T', r.sur, '#D98E04'], ['전체 ΔS', r.tot, '#2E9E78']].forEach(function(q, i){
-      var y = by3 + i * 38, w = q[1] / mx * (bw2 / 2) * k;
-      txt(c, q[0], 12, y + 12, {base:'middle'});
-      c.fillStyle = q[2]; c.fillRect(Math.min(zero, zero + w), y, Math.abs(w), 22);
-      txt(c, sgn(q[1] * k, 2), w >= 0 ? zero + w + 6 : zero + w - 6, y + 12, {base:'middle', align:w >= 0 ? 'left' : 'right'});
+      var y = by3 + i * (narrow ? 54 : 38), w = q[1] / mx * (bw2 / 2) * k;
+      txt(c, q[0], 12, y + (narrow ? -2 : 12), {base:narrow ? 'alphabetic' : 'middle'});
+      c.fillStyle = q[2]; c.fillRect(Math.min(zero, zero + w), y + (narrow ? 12 : 0), Math.abs(w), 22);
+      txt(c, sgn(q[1] * k, 2), w >= 0 ? zero + w + 6 : zero + w - 6, y + (narrow ? 24 : 12), {base:'middle', align:w >= 0 ? 'left' : 'right'});
     });
-    txt(c, '단위 J/(mol·K) · ' + r.T + ' K', 12, by3 + 138, {color:'#4A5868'});
+    txt(c, '단위 J/(mol·K) · ' + r.T + ' K', 12, by3 + (narrow ? 176 : 138), {color:'#4A5868'});
     var by4 = 320;
     txt(c, '전체 엔트로피 ' + sgn(r.tot, 2) + ' → ' + (r.spon ? '저절로 일어남' : '저절로 일어나지 않음'), 12, by4,
       {bold:true, color:r.spon ? '#2E9E78' : '#C8463D'});
@@ -491,7 +495,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

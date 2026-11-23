@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -292,9 +293,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -428,35 +430,46 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var TEXT = 'I have a dog. It is big and brown. In the morning, my dog and I go to the park. We run and play. Then we sit down and look at the birds. My dog likes to jump. I like my dog, and it likes me.';
+      /* 재어 볼 글 — 글 종류가 달라지면 같은 목록으로 재도 비율이 갈린다 */
+      var TEXTS = [
+        {nm:'이야기글', t:'I have a dog. It is big and brown. In the morning, my dog and I go to the park. We run and play. Then we sit down and look at the birds. My dog likes to jump. I like my dog, and it likes me.'},
+        {nm:'과학 설명글', t:'Water has three forms. Solid ice melts into liquid water. Liquid water evaporates and becomes invisible vapor. The vapor rises, cools, and condenses into tiny droplets. Millions of droplets together form a cloud. Heavy clouds release rain or snow.'},
+        {nm:'놀이 규칙 안내글', t:'Here are the rules. Each player gets five cards. You can put down one card when it is your turn. If you have no card, you take one from the pile. The first player with no cards wins the game.'}
+      ];
+      var TN = TEXTS.map(function(x){ return x.nm; });
       var L25 = ['the', 'of', 'and', 'a', 'to', 'in', 'is', 'you', 'that', 'it', 'he', 'was', 'for', 'on', 'are', 'as', 'with', 'his', 'they', 'i', 'at', 'be', 'this', 'have', 'from'];
       var L50 = ['or', 'one', 'had', 'by', 'words', 'but', 'not', 'what', 'all', 'were', 'we', 'when', 'your', 'can', 'said', 'there', 'use', 'an', 'each', 'which', 'she', 'do', 'how', 'their', 'if'];
       var L100 = ['will', 'up', 'other', 'about', 'out', 'many', 'then', 'them', 'these', 'so', 'some', 'her', 'would', 'make', 'like', 'him', 'into', 'time', 'has', 'look', 'two', 'more', 'write', 'go', 'see', 'number', 'no', 'way', 'could', 'people', 'my', 'than', 'first', 'water', 'been', 'call', 'who', 'oil', 'its', 'now', 'find', 'long', 'down', 'day', 'did', 'get', 'come', 'made', 'may', 'part'];
-      var LS = ['자주 쓰는 25개', '자주 쓰는 50개', '자주 쓰는 100개'], PRED = ['① 절반이 넘는다', '② 10개쯤', '③ 5개쯤', '④ 하나도 없다'];
-      var WS = TEXT.split(' ');
+      var LS = ['자주 쓰는 25개', '자주 쓰는 50개', '자주 쓰는 100개'], PRED = ['① 절반(50%)이 넘는다', '② 30%쯤', '③ 15%쯤', '④ 거의 없다'];
+      function ws(ti){ return TEXTS[ti].t.split(' '); }
       function clean(w){ return w.replace(/[.,]/g, '').toLowerCase(); }
       function list(n){ var a = L25.slice(); if (n >= 1) a = a.concat(L50); if (n >= 2) a = a.concat(L100); return a; }
-      function mark(n){ var L = list(n); return WS.map(function(w){ return L.indexOf(clean(w)) >= 0; }); }
-      function count(n){ return mark(n).filter(function(x){ return x; }).length; }
+      function mark(ti, n){ var L = list(n), W = ws(ti); return W.map(function(w){ return L.indexOf(clean(w)) >= 0; }); }
+      function count(ti, n){ return mark(ti, n).filter(function(x){ return x; }).length; }
+      /* 예측 채점은 글마다 다시 계산한다 — 미리 정해 둔 정답이 없다 */
+      function answerIdx(pct){ return pct > 45 ? 0 : (pct > 22 ? 1 : (pct > 8 ? 2 : 3)); }
       return {
-        sceneHeight: function(w){ return w < 560 ? 500 : 400; },
-        idle: '목록 크기와 나의 예측을 고른 뒤 <b>형광펜 칠하기</b>를 누르세요.',
-        shortHint: '목록 25개, 50개, 100개를 모두 칠해 보고 칠해진 단어 수를 비교해 보세요.',
+        sceneHeight: function(w){ return w < 560 ? 572 : 400; },
+        idle: '글과 목록 크기, 나의 예측을 고른 뒤 <b>형광펜 칠하기</b>를 누르세요. 글 종류를 바꾸면 결론이 바뀔 수 있어요.',
+        shortHint: '같은 100개 목록으로 <b>이야기글과 과학 설명글</b>을 모두 칠해 비율을 비교해 보세요.',
         params: [
+          {key:'t', type:'seg', label:'재어 볼 글', cols:3, value:0, options:TN},
           {key:'l', type:'seg', label:'대어 볼 목록', cols:3, value:2, options:LS},
-          {key:'g', type:'seg', label:'예측: 46단어 중 "자주 쓰는 100개"에 든 단어는?', cols:2, value:2, options:PRED}
+          {key:'g', type:'seg', label:'예측: 이 글에서 "자주 쓰는 100개"에 든 단어의 비율은?', cols:2, value:2, options:PRED}
         ],
         compute: function(p){
-          var m = mark(p.l), n = m.filter(function(x){ return x; }).length, n100 = count(2);
-          var fr = {}; WS.forEach(function(w, i){ if (m[i]){ var k = clean(w); fr[k] = (fr[k] || 0) + 1; } });
+          var W = ws(p.t), m = mark(p.t, p.l), n = m.filter(function(x){ return x; }).length, n100 = count(p.t, 2);
+          var pct100 = n100 / W.length * 100, ai = answerIdx(pct100);
+          var fr = {}; W.forEach(function(w, i){ if (m[i]){ var k = clean(w); fr[k] = (fr[k] || 0) + 1; } });
           var top = Object.keys(fr).sort(function(a, b){ return fr[b] - fr[a]; }).slice(0, 4).map(function(k){ return (k === 'i' ? 'I' : k) + ' ' + fr[k] + '번'; });
-          var story = {}; WS.forEach(function(w, i){ if (!m[i]) story[clean(w)] = 1; });
-          return {m:m, n:n, pct:n / WS.length * 100, n100:n100, hit:p.g === 0, top:top, story:Object.keys(story)};
+          var story = {}; W.forEach(function(w, i){ if (!m[i]) story[clean(w)] = 1; });
+          return {W:W, m:m, n:n, pct:n / W.length * 100, n100:n100, pct100:pct100, ai:ai, hit:p.g === ai, top:top, story:Object.keys(story)};
         },
         draw: function(c, W, H, p, r, tau){
-          var x = 20, y = 40, lh = 34, m = r ? r.m : null, upto = r ? Math.floor(WS.length * Math.min(tau / 0.85, 1)) : 0, cnt = 0;
+          var WL = ws(p.t);
+          var x = 20, y = 40, lh = 34, m = r ? r.m : null, upto = r ? Math.floor(WL.length * Math.min(tau / 0.85, 1)) : 0, cnt = 0;
           c.font = '18px ' + FONT;
-          WS.forEach(function(w, i){
+          WL.forEach(function(w, i){
             var tw = c.measureText(w).width;
             if (x + tw > W - 20){ x = 20; y += lh; }
             if (m && i < upto && m[i]){ c.fillStyle = '#FFE36E'; c.fillRect(x - 3, y - 20, tw + 6, 27); cnt++; }
@@ -465,33 +478,52 @@ var LAB = (function(){
             x += tw + 10;
           });
           var by = y + 50;
-          txt(c, '칠한 단어: ' + cnt + ' / ' + WS.length, 20, by, {bold:true, color:PAL[6]});
+          txt(c, '칠한 단어: ' + cnt + ' / ' + WL.length, 20, by, {bold:true, color:PAL[6]});
           c.fillStyle = '#E6EBF1'; c.fillRect(20, by + 12, W - 40, 20);
-          c.fillStyle = '#E8B400'; c.fillRect(20, by + 12, (W - 40) * cnt / WS.length, 20);
+          c.fillStyle = '#E8B400'; c.fillRect(20, by + 12, (W - 40) * cnt / WL.length, 20);
           seg(c, 20 + (W - 40) / 2, by + 6, 20 + (W - 40) / 2, by + 38, '#4A5868', 2, [4, 3]);
           txt(c, '절반', 20 + (W - 40) / 2, by + 56, {align:'center', color:'#4A5868'});
         },
         stats: function(p, r){
-          return [['목록', LS[p.l]], ['칠한 단어', r.n + ' / ' + WS.length + '개 (약 ' + f(r.pct, 0) + '%)', PAL[6]],
+          return [['글', TN[p.t]], ['목록', LS[p.l]],
+            ['칠한 단어', r.n + ' / ' + r.W.length + '개 (약 ' + f(r.pct, 0) + '%)', PAL[6]],
+            ['100개 목록으로 재면', r.n100 + ' / ' + r.W.length + '개 (약 ' + f(r.pct100, 0) + '%) — '
+              + (r.pct100 > 50 ? '절반이 넘어요' : '절반이 넘지 않아요'), r.pct100 > 50 ? PAL[1] : PAL[3]],
             ['자주 나온 칠한 단어', r.top.join(' · '), PAL[0]],
-            ['칠하지 않은 이야기 단어', r.story.join(', ')],
-            ['나의 예측 (100개 목록 기준)', PRED[p.g] + (r.hit ? ' — 맞았어요' : ' — 실제는 ' + r.n100 + '개, 절반이 넘어요'), r.hit ? PAL[1] : PAL[6]]];
+            ['칠하지 않은 낱말', r.story.join(', ')],
+            ['나의 예측 (100개 목록 기준)', PRED[p.g] + (r.hit ? ' — 맞았어요' : ' — 실제는 ' + PRED[r.ai].replace(/^[①②③④]\s*/, '') + '(' + f(r.pct100, 0) + '%)'), r.hit ? PAL[1] : PAL[6]]];
         },
-        columns: ['목록', '칠한 단어', '비율'],
-        record: function(p, r){ return {l:p.l, n:r.n, pct:r.pct}; },
-        row: function(d){ return [LS[d.l], d.n + '개', f(d.pct, 0) + '%']; },
+        columns: ['글', '목록', '칠한 단어', '비율', '절반 넘나?'],
+        record: function(p, r){ return {t:p.t, l:p.l, n:r.n, total:r.W.length, pct:r.pct, pct100:r.pct100}; },
+        row: function(d){ return [TN[d.t], LS[d.l], d.n + '/' + d.total, f(d.pct, 0) + '%', d.pct > 50 ? '넘음' : '안 넘음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('목록 크기별 칠한 비율', '<div id="sw1"></div><p class="ask">100개 목록이면 46단어 중 몇 개가 칠해졌나요? 어려운 단어투성이였나요, 쉬운 단어투성이였나요?</p>') +
-            card('여러 번 나온 단어', '<div id="sw2"></div><p class="ask">과제: 영어 그림책 한 쪽을 골라 the, a, and, I, is, to가 각각 몇 번 나오는지 바를 정(正) 자로 세어 보세요.</p>') + '</div>';
+            card('글·목록별 칠한 비율', '<div id="sw1"></div><p class="ask">같은 목록으로 재도 글에 따라 비율이 달랐나요? 어느 글에서 절반을 넘지 못했나요?</p>') +
+            card('글 종류에 따라 결론이 갈리나?', '<div id="sw2"></div><p class="ask">과제: 내 교과서에서 이야기글 한 쪽과 설명글 한 쪽을 골라 the, a, and, is, to 가 몇 번 나오는지 세어 비교해 보세요.</p>') + '</div>';
           var items = [];
-          LS.forEach(function(ln, i){ var g = rec.filter(function(d){ return d.l === i; }); if (!g.length) return;
-            items.push({label:ln, v:g[0].pct, color:PAL[[7, 5, 6][i]], text:g[0].n + '개 (' + f(g[0].pct, 0) + '%)'}); });
-          $('sw1').innerHTML = hbars(items, 100) + (items.length < 3 ? '<p class="msg">다른 목록 크기도 칠해 보세요.</p>' : '');
-          var fr = {}; WS.forEach(function(w){ var k = clean(w); fr[k] = (fr[k] || 0) + 1; });
-          var rows = Object.keys(fr).filter(function(k){ return fr[k] >= 2; }).sort(function(a, b){ return fr[b] - fr[a]; })
-            .map(function(k){ return [k === 'i' ? 'I' : k, fr[k] + '번', list(2).indexOf(k) >= 0 ? '목록에 있음' : '이야기 단어']; });
-          $('sw2').innerHTML = tableHTML(['단어', '나온 횟수', '100개 목록'], rows);
+          TEXTS.forEach(function(tx, ti){
+            LS.forEach(function(ln, i){
+              var g = rec.filter(function(d){ return d.l === i && d.t === ti; }); if (!g.length) return;
+              items.push({label:tx.nm + ' · ' + ln.replace('자주 쓰는 ', ''), v:g[0].pct, color:PAL[[7, 5, 6][i]], text:g[0].n + '개 (' + f(g[0].pct, 0) + '%)'});
+            });
+          });
+          $('sw1').innerHTML = hbars(items, 100) + (items.length < 3 ? '<p class="msg">글과 목록 크기를 바꿔 더 재어 보세요.</p>' : '');
+          /* 100개 목록으로 잰 글끼리 견주어, '절반이 넘는다'가 늘 맞는지 가린다 */
+          var rows = [], over = 0, under = 0;
+          TEXTS.forEach(function(tx, ti){
+            var g = rec.filter(function(d){ return d.t === ti; }); if (!g.length) return;
+            var pc = g[0].pct100, ov = pc > 50;
+            if (ov) over++; else under++;
+            rows.push([tx.nm, f(pc, 0) + '%', ov ? '절반 넘음' : '절반 못 넘음']);
+          });
+          var note;
+          if (rows.length < 2) note = '<p class="msg">글을 두 가지 이상 재면, 결론이 글에 따라 갈리는지 여기에서 가려 줍니다.</p>';
+          else if (over && under) note = '<p class="note"><b>결론이 갈렸습니다.</b> 쉬운 단어가 절반을 넘는 글도 있고, 넘지 못하는 글도 있어요. '
+            + '이야기글에는 the·and·I 같은 <b>이어 주는 말</b>이 많고, 설명글에는 그 주제에만 쓰이는 <b>어려운 낱말</b>이 많기 때문이에요. '
+            + '그러니 "영어 글은 쉬운 단어가 절반 넘는다"는 말은 <b>어떤 글이냐에 따라</b> 달라집니다.</p>';
+          else note = '<p class="note">지금까지 잰 글은 모두 ' + (over ? '절반을 넘었' : '절반을 넘지 못했') + '어요. '
+            + '<b>과학 설명글</b>처럼 어려운 낱말이 많은 글도 재어 결론이 갈리는지 확인해 보세요.</p>';
+          $('sw2').innerHTML = tableHTML(['글', '100개 목록 비율', '판정'], rows) + note;
         }
       };
     })();
@@ -500,7 +532,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

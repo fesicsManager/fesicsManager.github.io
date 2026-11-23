@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -307,7 +309,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -439,6 +441,9 @@ var LAB = (function(){
         {ko:['나는', '시간이', '없다'], u:[["I don't have time.", '○', '대체로 일치 — 구조가 같은 드문 경우'], ["I don't have time.", '○', '구 단위로도 같음'], ["I don't have time.", '○', '기능 단위로도 같음']], subj:'사람', sj:['사람 (I)', '사람 (I)', '사람 (I)']}
       ];
       var UN = ['단어 단위 (직역)', '구 단위', '문장 기능 단위 (영어식 구조)'];
+      /* 어디를 고쳐야 영어다워지는지 학생이 직접 골라 넣고 판정받는다 */
+      var FIX = ['고치지 않기', '짝이 되는 전치사·관사로', '감정은 -ed 꼴로', '사람을 주어로 세우기', '무생물을 주어로 세우기'];
+      var FIXOF = [1, 2, 3, 1, 3, 3, 0];   /* 문장마다 고쳐야 할 자리 */
       function wrap(c, s, x, y, maxW, lh, o){
         o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
         var ws = String(s).split(' '), line = '', n = 0;
@@ -447,37 +452,52 @@ var LAB = (function(){
         if (line){ txt(c, line, x, y + n * lh, o); n++; } return n;
       }
       return {
-        sceneHeight: 400,
+        sceneHeight: function (w){ return w < 560 ? 520 : 400; },
         idle: '한국어 문장과 번역 단위를 고른 뒤 <b>번역하기</b>를 누르세요.',
         shortHint: '한 문장을 세 단위로 모두 번역해 보고, 다른 문장에서도 반복해 보세요.',
         params: [
           {key:'s', type:'seg', label:'한국어 문장', cols:2, value:0, options:S.map(function(x){ return x.ko.join(' '); })},
-          {key:'u', type:'seg', label:'번역 단위', cols:3, value:0, options:UN}
+          {key:'u', type:'seg', label:'번역 단위', cols:3, value:0, options:UN},
+          {key:'fx', type:'seg', label:'어디를 고쳐 넣을까', cols:3, value:0, options:FIX}
         ],
-        compute: function(p){ var s = S[p.s], u = s.u[p.u]; return {en:u[0], v:u[1], why:u[2], nat:s.u[2][0], subj:s.sj[p.u]}; },
+        compute: function(p){ var s = S[p.s], u = s.u[p.u];
+          var need = FIXOF[p.s], fok = p.fx === need;
+          var already = u[1] === '○';
+          var fmsg = already && p.fx === 0 ? '이 번역은 이미 영어다워요 — 고칠 곳이 없습니다'
+            : p.fx === 0 ? (need === 0 ? '고칠 곳이 없는 문장이에요' : '고치지 않으면 어색함이 그대로 남아요')
+            : fok ? '맞게 골랐어요 — 그렇게 고치면 「' + s.u[2][0] + '」 처럼 영어다워집니다'
+            : '그 자리를 고쳐도 어색함이 남아요 — 고쳐야 할 곳은 「' + FIX[need] + '」 입니다';
+          return {en:u[0], v:u[1], why:u[2], nat:s.u[2][0], subj:s.sj[p.u],
+            need:need, fok:fok, fmsg:fmsg, fname:FIX[p.fx], needName:FIX[need]}; },
         draw: function(c, W, H, p, r, tau){
           var s = S[p.s], n = s.ko.length, bw = (W - 40) / n, k = r ? Math.min(tau / 0.6, 1) : 0;
-          s.ko.forEach(function(t, i){ c.fillStyle = PAL[[0, 3, 2][i % 3]]; c.fillRect(20 + i * bw + 4, 30, bw - 8, 50); txt(c, t, 20 + i * bw + bw / 2, 62, {align:'center', bold:true, color:'#fff'}); });
+          var narrow = W < 560, rh = 30, kb = narrow ? 30 + n * rh : 82;
+          if (narrow) s.ko.forEach(function(t, i){ c.fillStyle = PAL[[0, 3, 2][i % 3]]; c.fillRect(20, 30 + i * rh, W - 40, rh - 6); txt(c, t, W / 2, 30 + i * rh + rh * 0.62, {align:'center', bold:true, color:'#fff'}); });
+          else s.ko.forEach(function(t, i){ c.fillStyle = PAL[[0, 3, 2][i % 3]]; c.fillRect(20 + i * bw + 4, 30, bw - 8, 50); txt(c, t, 20 + i * bw + bw / 2, 62, {align:'center', bold:true, color:'#fff'}); });
           if (r){
             c.globalAlpha = k;
             var lines = p.u === 0 ? n : p.u === 1 ? Math.max(1, n - 1) : 1;
-            for (var i = 0; i < n; i++){ var tx = p.u === 2 ? W / 2 : 20 + (i + 0.5) * (W - 40) / n; seg(c, 20 + i * bw + bw / 2, 82, tx, 150, '#A8B4C2', 2, p.u === 2 ? [5, 4] : null); }
+            for (var i = 0; i < n; i++){ var tx = p.u === 2 ? W / 2 : 20 + (i + 0.5) * (W - 40) / n; seg(c, narrow ? W / 2 : 20 + i * bw + bw / 2, kb, tx, 150, '#A8B4C2', 2, p.u === 2 ? [5, 4] : null); }
             c.fillStyle = '#F7F9FC'; c.fillRect(20, 150, W - 40, 80);
             wrap(c, r.en, 32, 180, W - 64, 24, {bold:true});
             c.globalAlpha = 1;
             if (tau >= 0.7){ var col = r.v === '○' ? PAL[1] : r.v === '△' ? PAL[6] : PAL[4];
               txt(c, r.v + ' ' + UN[p.u], 20, 270, {bold:true, color:col});
-              wrap(c, r.why, 20, 300, W - 40, 22, {color:col}); if (p.u !== 2) wrap(c, '영어식 구조: ' + r.nat, 20, 350, W - 40, 22, {color:'#4A5868'}); }
+              var nw = wrap(c, r.why, 20, 300, W - 40, 22, {color:col}); if (p.u !== 2) wrap(c, '영어식 구조: ' + r.nat, 20, Math.max(350, 300 + nw * 22 + 10), W - 40, 22, {color:'#4A5868'}); }
             void lines;
           } else txt(c, '번역 단위: ' + UN[p.u], 20, 180, {color:'#8C99A8'});
         },
         stats: function(p, r){
           var col = r.v === '○' ? PAL[1] : r.v === '△' ? PAL[6] : PAL[4];
-          return [['한국어', S[p.s].ko.join(' ')], ['번역 (' + UN[p.u] + ')', r.en, col], ['판정', r.v + ' ' + r.why, col], ['영어식 구조의 번역', r.nat, PAL[1]], ['주어로 세운 것', r.subj]];
+          return [['한국어', S[p.s].ko.join(' ')], ['번역 (' + UN[p.u] + ')', r.en, col], ['판정', r.v + ' ' + r.why, col],
+            ['내가 고르 자리', r.fname],
+            ['고쳐 넣기 판정', r.fmsg, r.fok || (r.need === 0 && p.fx === 0) ? PAL[1] : PAL[4]],
+            ['영어식 구조의 번역', r.nat, PAL[1]], ['주어로 세운 것', r.subj]];
         },
-        columns: ['한국어', '단위', '영어', '판정'],
-        record: function(p, r){ return {s:p.s, u:p.u, v:r.v, en:r.en}; },
-        row: function(d){ return [S[d.s].ko.join(' '), ['단어', '구', '기능'][d.u], d.en, d.v]; },
+        columns: ['한국어', '단위', '영어', '판정', '고쳐 넣기'],
+        record: function(p, r){ return {s:p.s, u:p.u, fx:p.fx, v:r.v, en:r.en, fok:r.fok, need:r.need}; },
+        row: function(d){ return [S[d.s].ko.join(' '), ['단어', '구', '기능'][d.u], d.en, d.v,
+          d.fx == null ? '—' : (FIX[d.fx] + (d.fok ? ' ○' : ' ✕'))]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('번역 단위별 ○ 비율', '<div id="lt1"></div><p class="ask">단어 단위에서 기능 단위로 갈수록 ○가 늘었나요? 단어 단위로도 ○가 나온 문장은 어떤 특징이 있었나요?</p>') +
@@ -489,6 +509,8 @@ var LAB = (function(){
           var by = groupBy(rec, function(d){ return d.s; }), rows = [];
           Object.keys(by).forEach(function(k){ rows.push([S[k].ko.join(' ')].concat([0, 1, 2].map(function(u){ var d = by[k].filter(function(x){ return x.u === u; })[0]; return d ? d.v + ' ' + d.en : '·'; }))); });
           $('lt2').innerHTML = tableHTML(['한국어', '단어', '구', '기능'], rows);
+          var hit = rec.filter(function(d){ return d.fok; }).length;
+          $('lt1').innerHTML += '<p class="msg">고칠 자리를 맞게 고른 수: ' + hit + ' / ' + rec.length + '</p>';
         }
       };
     })();
@@ -497,7 +519,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

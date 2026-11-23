@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -310,7 +312,7 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.size || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
@@ -434,11 +436,15 @@ function hbars(items, max){
 var LAB = (function(){
       var EF = ['심폐 지구력', '근육량 유지', '골밀도', '혈당 조절', '관절 가동 범위', '낙상·부상 예방'];
       var WA = [3, 1, 2, 2, 0, 1], WS = [1, 3, 3, 2, 2, 3], WF = [0, 0, 0, 0, 3, 2];
+      /* 예측 보기 — 계산한 효과 지도와 맞춰 채점한다 */
+      var GU = ['빈 곳(50점 미만)이 없을 것', '근육량·골밀도 쪽이 빌 것', '심폐 지구력 쪽이 빌 것', '세 칸 이상 빌 것'];
+      /* 고강도는 같은 시간이 심폐에 1.5배로 세어진다고 본 교육용 모형값 */
       function eval_(p){
-        var da = Math.min(1, p.mv / 60), ds = Math.min(1, p.st / 3), df = p.fl ? 1 : 0, sc = [];
+        var hard = (p.inten ? 1.5 : 1);
+        var da = Math.min(1, p.mv * hard / 60), ds = Math.min(1, p.st / 3), df = p.fl ? 1 : 0, sc = [];
         for (var i = 0; i < 6; i++){ var mx = Math.max(WA[i], WS[i], WF[i]), v = Math.max(WA[i] * da, WS[i] * ds, WF[i] * df) + 0.25 * Math.min(WA[i] * da, WS[i] * ds); sc.push(Math.min(100, v / mx * 100)); }
         var ch;
-        if (p.g === 0) ch = [['중·고강도 활동 하루 평균 60분 이상', p.mv >= 60, p.mv + '분'], ['근육·뼈 강화 주 3일 이상', p.st >= 3, p.st + '일'], ['앉아 있는 시간 줄이기', p.sit <= 8, p.sit + '시간 (실험 기준: 8시간 이하)']];
+        if (p.g === 0) ch = [['중·고강도 활동 하루 평균 60분 이상', p.mv >= 60, p.mv + '분' + (p.inten ? ' (고강도)' : ' (중강도)')], ['근육·뼈 강화 주 3일 이상', p.st >= 3, p.st + '일'], ['앉아 있는 시간 줄이기', p.sit <= 8, p.sit + '시간 (실험 기준: 8시간 이하)']];
         else ch = [['중강도 유산소 주 150분 이상', p.mv * 7 >= 150, p.mv * 7 + '분/주 (권장 150~300분)'], ['근력 운동 주 2일 이상', p.st >= 2, p.st + '일'], ['앉아 있는 시간 줄이기', p.sit <= 8, p.sit + '시간 (실험 기준: 8시간 이하)']];
         return {sc:sc, ch:ch};
       }
@@ -451,35 +457,47 @@ var LAB = (function(){
           {key:'st', type:'range', label:'근력·뼈 강화 운동', min:0, max:5, step:1, value:0, fmt:function(v){ return '주 ' + v + '일'; }},
           {key:'sit', type:'range', label:'앉아 있는 시간 (하루, 수업 제외 아님)', min:4, max:14, step:1, value:10, fmt:function(v){ return v + '시간'; }},
           {key:'fl', type:'seg', label:'유연성·가동성 운동', cols:2, value:0, options:['거의 안 함', '주 2일 이상']},
+          {key:'inten', type:'seg', label:'유산소 강도', cols:2, value:0, options:['중강도 (빠르게 걷기)', '고강도 (달리기)']},
+          {key:'guess', type:'seg', label:'계산 전 예측 — 어느 효과 칸이 빌까요?', cols:2, value:0, options:GU},
           {key:'g', type:'seg', label:'적용할 지침', cols:2, value:0, options:['청소년 (5~17세)', '성인']}
         ],
         compute: function(p){
           var e = eval_(p), met = e.ch.filter(function(x){ return x[1]; }).length;
           var low = [], i; for (i = 0; i < 6; i++) if (e.sc[i] < 50) low.push(EF[i]);
-          return {sc:e.sc, ch:e.ch, met:met, low:low};
+          /* 빈 칸이 어디인지로 실제 답을 정한다: 0 없음 / 1 근육·골밀도 / 2 심폐 / 3 세 칸 이상 */
+          var muscle = (e.sc[1] < 50 || e.sc[2] < 50), cardio = (e.sc[0] < 50);
+          var real = low.length === 0 ? 0 : (low.length >= 3 ? 3 : (muscle && !cardio ? 1 : (cardio && !muscle ? 2 : 3)));
+          var gi = (p.guess == null ? 0 : p.guess);
+          return {sc:e.sc, ch:e.ch, met:met, low:low, real:real, guess:gi, ok:(gi === real), inten:!!p.inten};
         },
         draw: function(c, W, H, p, r, tau){
-          var x0 = 20, bw = W - 40, e = eval_(p), k = r ? Math.min(1, tau / 0.8) : 0;
+          var x0 = 20, bw = W - 40, e = eval_(p), k = r ? Math.min(1, tau / 0.8) : 0, nsz = W < 520 ? 12 : 18;
           txt(c, (p.g ? '성인' : '청소년') + ' 지침 점검', x0, 26, {bold:true});
           e.ch.forEach(function(x, i){ var y = 52 + i * 30, on = r && k > i / 4;
             txt(c, on ? (x[1] ? '✔' : '✘') : '·', x0, y, {bold:true, color:on ? (x[1] ? PAL[1] : PAL[4]) : '#8C99A8'});
-            txt(c, W < 520 ? x[0].replace('중·고강도 활동 ', '').replace('하루 평균 ', '하루 ') : x[0], x0 + 26, y, {color:'#1E2833'}); });
+            // 좁은 화면: 글씨를 줄여 왼쪽 표시와 겹치지 않게
+            txt(c, W < 520 ? x[0].replace('중·고강도 활동 ', '').replace('하루 평균 ', '하루 ') : x[0], x0 + 26, y, {color:'#1E2833', size:nsz}); });
           var top = 160, lw = W < 520 ? 110 : 150;
           EF.forEach(function(n, i){ var y = top + i * 42;
-            txt(c, n, x0, y + 20, {color:'#4A5868'});
+            txt(c, n, x0, y + 20, {color:'#4A5868', size:W < 520 ? 13 : 18});
             c.fillStyle = '#E6EBF1'; c.fillRect(x0 + lw, y, bw - lw, 28);
             var v = e.sc[i] * k; c.fillStyle = v >= 66 ? PAL[1] : v >= 34 ? PAL[6] : PAL[4]; if (r) c.fillRect(x0 + lw, y, (bw - lw) * v / 100, 28);
             if (r && k >= 1) txt(c, f(e.sc[i], 0), x0 + bw - 6, y + 20, {align:'right', bold:true}); });
         },
         stats: function(p, r){
           return [['지침 충족', r.met + ' / 3 항목', r.met === 3 ? PAL[1] : PAL[6]]].concat(r.ch.map(function(x){ return [x[0], x[2] + (x[1] ? ' ✔' : ' ✘'), x[1] ? PAL[1] : PAL[4]]; }))
-            .concat([['비어 있는 효과 (50점 미만)', r.low.length ? r.low.join(', ') : '없음', PAL[3]]]);
+            .concat([['비어 있는 효과 (50점 미만)', r.low.length ? r.low.join(', ') : '없음', PAL[3]],
+              ['유산소 강도', r.inten ? '고강도 — 같은 시간이 심폐에 1.5배로 세어집니다 (교육용 모형값)' : '중강도', PAL[6]],
+              ['내 예측', GU[r.guess], PAL[0]],
+              ['채점', (r.ok ? '맞혔습니다 — ' : '빗나갔습니다 — ') + '실제로는 “' + GU[r.real] + '” 쪽이었습니다', r.ok ? PAL[1] : PAL[4]]]);
         },
-        columns: ['유산소', '근력', '유연성', '앉은 시간', '지침 충족', '약한 효과'],
-        record: function(p, r){ return {mv:p.mv, st:p.st, fl:p.fl, sit:p.sit, g:p.g, met:r.met, sc:r.sc, low:r.low.length}; },
-        row: function(d){ return [d.mv + '분/일', '주 ' + d.st + '일', d.fl ? '주 2일+' : '거의 안 함', d.sit + '시간', d.met + '/3', d.low + '개']; },
+        columns: ['유산소', '강도', '근력', '지침 충족', '빈 칸', '예측 채점'],
+        record: function(p, r){ return {mv:p.mv, st:p.st, fl:p.fl, sit:p.sit, g:p.g, met:r.met, sc:r.sc, low:r.low.length,
+          inten:r.inten, guess:r.guess, real:r.real, ok:r.ok}; },
+        row: function(d){ return [d.mv + '분/일', d.inten ? '고강도' : '중강도', '주 ' + d.st + '일', d.met + '/3', d.low + '개', d.ok ? '맞힘' : '빗나감']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
+            card('내 예측은 맞았나', '<div id="ag3"></div><p class="ask">“유산소만 주 300분”처럼 한 종류만 늘린 주를 먼저 예측해 보고 맞혀 보세요. 강도를 고강도로 바꾸면 어느 칸이 달라졌나요?</p>') +
             card('기록별 효과 지도 평균 점수', '<div id="ag1"></div><p class="ask">유산소만 한 주와 근력을 섞은 주를 비교하면 어떤 효과 칸이 달라졌나요? 지침이 두 종류를 “나란히” 적어 둔 까닭을 설명해 보세요.</p>') +
             card('효과별 최고·최저 기록', '<div id="ag2"></div><p class="ask">과제: 나의 1주일 활동을 유산소·근력·유연성·앉아 있는 시간으로 나눠 기록하고, 지침과 비교해 부족한 항목을 채우는 계획을 세우세요. 통증·어지럼이 느껴지면 즉시 멈추고, 기저 질환이 있으면 먼저 전문가와 상담하세요.</p>') + '</div>';
           var items = rec.slice(-8).map(function(d){ var v = mean(d.sc); return {label:d.mv + '분·근력' + d.st + '일' + (d.fl ? '·유연' : ''), v:v, color:d.met === 3 ? PAL[1] : PAL[6], text:f(v, 0) + '점 · 지침 ' + d.met + '/3'}; });
@@ -487,6 +505,13 @@ var LAB = (function(){
           var EFN = ['심폐 지구력', '근육량 유지', '골밀도', '혈당 조절', '관절 가동 범위', '낙상·부상 예방'], rows = [];
           EFN.forEach(function(n, i){ var a = rec.map(function(d){ return d.sc[i]; }); rows.push([n, f(Math.min.apply(null, a), 0), f(Math.max.apply(null, a), 0)]); });
           $('ag2').innerHTML = tableHTML(['효과', '최저', '최고'], rows);
+          var hit = rec.filter(function(d){ return d.ok; }).length;
+          var gg = groupBy(rec, function(d){ return GU[d.real]; }), rows3 = [];
+          Object.keys(gg).forEach(function(k){ var a = gg[k];
+            rows3.push([k, a.length + '회', a.filter(function(d){ return d.ok; }).length + '회']); });
+          $('ag3').innerHTML = '<p class="msg">예측을 맞힌 기록 <b>' + hit + ' / ' + rec.length + '</b>회</p>' +
+            tableHTML(['실제로 빈 쪽', '기록', '맞힌 횟수'], rows3) +
+            '<p class="msg">유산소만 늘리면 심폐·혈당 칸은 차지만 <b>근육량·골밀도</b> 칸이 비어요. 근력만 늘리면 거꾸로 심폐 칸이 비어요. 지침이 두 종류를 나란히 적어 둔 까닭이에요. 강도를 고강도로 올리면 같은 시간으로도 심폐 칸이 더 차지만, 근육·골밀도 칸은 그대로예요.</p>';
         }
       };
     })();
@@ -495,7 +520,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

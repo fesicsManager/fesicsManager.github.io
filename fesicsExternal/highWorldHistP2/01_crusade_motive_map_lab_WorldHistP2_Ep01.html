@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -478,6 +480,7 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           ev:['카타리파를 ‘이단’으로 규정', '북프랑스 귀족이 남프랑스 영지를 차지', '크리스트교도 상대 전쟁에도 교황이 십자군 이름을 붙임', '두드러진 기록이 적음', '관계없음']}
       ];
       var MO = ['신앙', '땅', '교황권', '상업', '비잔티움 요청'], SC = ['작음', '보통', '큼'];
+      function scoreOf(p){ return [p.s0, p.s1, p.s2, p.s3, p.s4].map(function(v){ return (v || 0) + 1; }); }
       function JUD(C){ return C.kind === 'turn' ? '어긋남 — 목표 대신 같은 크리스트교 도시로 방향을 돌림' : C.kind === 'miss' ? '목표 미달 — 목표를 이루지 못함 (같은 크리스트교 도시를 치지는 않음)' : '목표대로 감'; }
       function drawMap(c, x, y, w, h, s){
         c.fillStyle = '#E4E9D6'; c.fillRect(x, y, w, h);
@@ -493,10 +496,22 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         shortHint: '다섯 원정을 모두 따라가고, 한 원정에서는 동기 렌즈 다섯 개를 모두 바꿔 점수를 매겨 보세요.',
         params: [
           {key:'c', type:'seg', label:'원정', cols:3, value:3, options:CR.map(function(x){ return x.n; })},
-          {key:'m', type:'seg', label:'동기 렌즈', cols:5, value:0, options:MO},
-          {key:'s', type:'seg', label:'나의 점수: 이 원정에서 이 동기는', cols:3, value:1, options:SC}
+          {key:'m', type:'seg', label:'근거를 읽을 동기', cols:5, value:0, options:MO},
+          {key:'s0', type:'seg', label:'점수 ① 신앙', cols:3, value:1, options:SC},
+          {key:'s1', type:'seg', label:'점수 ② 땅', cols:3, value:1, options:SC},
+          {key:'s2', type:'seg', label:'점수 ③ 교황권', cols:3, value:1, options:SC},
+          {key:'s3', type:'seg', label:'점수 ④ 상업', cols:3, value:1, options:SC},
+          {key:'s4', type:'seg', label:'점수 ⑤ 비잔티움 요청', cols:3, value:1, options:SC,
+            note:'다섯 동기에 한꺼번에 점수를 매기면 합산해서 순위와 신앙이 차지하는 몫을 계산해 줍니다. 점수를 바꾸면 순위가 바로 달라집니다.'}
         ],
-        compute: function(p){ var C = CR[p.c]; return {C:C, ev:C.ev[p.m], off:C.kind === 'turn', miss:C.kind === 'miss'}; },
+        compute: function(p){
+          var C = CR[p.c], sc = scoreOf(p), tot = sc.reduce(function(a, b){ return a + b; }, 0);
+          var ord = [0, 1, 2, 3, 4].sort(function(a, b){ return sc[b] - sc[a] || a - b; });
+          var tie = sc.filter(function(v){ return v === sc[ord[0]]; }).length > 1;
+          return {C:C, ev:C.ev[p.m], off:C.kind === 'turn', miss:C.kind === 'miss',
+            sc:sc, tot:tot, ord:ord, top:MO[ord[0]], tie:tie, faith:sc[0] / tot * 100,
+            rank:ord.map(function(i){ return MO[i] + ' ' + sc[i]; }).join(' > ')};
+        },
         draw: function(c, W, H, p, r, tau){
           var s = fz(W), C = CR[p.c], mx = 10, my = 10, mw = W - 20, mh = H - 80, k = r ? tau : 0;
           c.fillStyle = '#F7F9FC'; c.fillRect(0, 0, W, H);
@@ -509,23 +524,32 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
           for (var i = 0; i < segs; i++){ if (upto <= i) break; var a = P(C.path[i]), b = P(C.path[i + 1]), t = Math.min(1, upto - i);
             arrow(c, a.x, a.y, lerp(a.x, b.x, t), lerp(a.y, b.y, t), PAL[0], 3.5); }
           tx(c, C.n + ' — ' + MO[p.m], 14, H - 48, {bold:true, size:s});
-          if (r) wrapT(c, C.ev[p.m], 14, H - 24, W - 28, s + 3, {size:s - 1, max:1, color:'#4A5868'});
+          if (r){ wrapT(c, C.ev[p.m], 14, H - 26, W - 28, s + 3, {size:s - 1, max:1, color:'#4A5868'});
+            tx(c, '내 점수 1위 ' + r.top + (r.tie ? ' (공동)' : '') + ' · 신앙 몫 ' + f(r.faith, 0) + '%', 14, H - 6, {bold:true, size:s - 1, color:PAL[6]}); }
         },
         stats: function(p, r){ var C = r.C;
           return [['원정', C.n], ['원래 내건 목표', C.goalT], ['실제 공격 대상', C.tgt, r.off ? PAL[0] : r.miss ? PAL[6] : PAL[2]], ['목표와 결과', JUD(C), r.off ? PAL[0] : r.miss ? PAL[6] : PAL[2]], ['주도 세력', C.lead], ['얻은 것', C.gain],
-            ['동기 렌즈: ' + MO[p.m], C.ev[p.m], PAL[1]], ['나의 점수', SC[p.s], PAL[6]]]; },
-        columns: ['원정', '동기', '근거', '나의 점수'],
-        record: function(p, r){ return {c:p.c, m:p.m, s:p.s}; },
-        row: function(d){ return [CR[d.c].s, MO[d.m], CR[d.c].ev[d.m], SC[d.s]]; },
+            ['동기 렌즈: ' + MO[p.m], C.ev[p.m], PAL[1]],
+            ['내가 매긴 점수', MO.map(function(m, i){ return m + ' ' + r.sc[i]; }).join(' · ') + ' (합 ' + r.tot + ')', PAL[6]],
+            ['합산한 순위', r.rank, PAL[3]],
+            ['1위 동기', r.top + (r.tie ? ' — 공동 1위가 있어요' : ''), PAL[0]],
+            ['신앙이 차지하는 몫', f(r.faith, 0) + '% — 나머지 ' + f(100 - r.faith, 0) + '%는 신앙 밖의 동기', PAL[4]]]; },
+        columns: ['원정', '1위 동기', '신앙 몫', '점수 합', '순위'],
+        record: function(p, r){ return {c:p.c, m:p.m, sc:r.sc.slice(), top:r.top, faith:r.faith, tot:r.tot, rank:r.rank}; },
+        row: function(d){ return [CR[d.c].s, d.top, f(d.faith, 0) + '%', d.tot, d.rank]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('원정별 네 칸 표 (과제)', '<div id="h1a"></div><p class="ask">원래 내건 목표와 실제 공격 대상이 가장 크게 어긋난 원정은 무엇인가요? ‘십자군’이 장소가 아니라 교황이 붙여 준 자격증이었다는 말을 알비 십자군으로 설명해 보세요.</p>') +
             card('나의 동기 점수 (작음 1 · 보통 2 · 큼 3)', '<div id="h1b"></div><p class="ask">과제: 다섯 동기에 원정마다 점수를 매겨 막대그래프로 비교해 보세요. 친구의 점수와 다르다면, 어떤 근거를 더 무겁게 보았는지 이야기해 보세요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.c] = 1; });
           $('h1a').innerHTML = tableHTML(['원정', '원래 목표', '실제 공격 대상', '목표와 결과', '주도 세력', '얻은 것'], CR.map(function(C, i){ return seen[i] ? [C.s, C.goalT, C.tgt, JUD(C).split(' — ')[0], C.lead, C.gain] : [C.s, '—', '—', '—', '—', '—']; }));
-          var u = uniq(rec, function(d){ return d.c + '_' + d.m; }), items = [];
-          u.sort(function(a, b){ return a.c - b.c || a.m - b.m; }).forEach(function(d){ items.push({label:CR[d.c].s + ' · ' + MO[d.m], v:d.s + 1, color:[PAL[1], PAL[2], PAL[6], PAL[3], PAL[4]][d.m], text:SC[d.s]}); });
-          $('h1b').innerHTML = hbars(items, 3);
+          var u = uniq(rec, function(d){ return d.c; }), items = [];
+          u.sort(function(a, b){ return a.c - b.c; }).forEach(function(d){
+            MO.forEach(function(m, j){ items.push({label:CR[d.c].s + ' · ' + m, v:d.sc[j], color:[PAL[1], PAL[2], PAL[6], PAL[3], PAL[4]][j], text:SC[d.sc[j] - 1]}); }); });
+          var trows = u.sort(function(a, b){ return a.c - b.c; }).map(function(d){ return [CR[d.c].s, d.top, f(d.faith, 0) + '%', d.rank]; });
+          $('h1b').innerHTML = hbars(items, 3) +
+            '<p class="msg">원정별로 합산한 순위</p>' + tableHTML(['원정', '1위 동기', '신앙 몫', '순위'], trows) +
+            '<p class="msg">친구의 표와 견주어 보세요. 같은 근거를 읽고도 1위가 갈린다면 어느 근거를 더 무겁게 보았는지 이야기해 보세요.</p>';
         }
       };
     
@@ -535,7 +559,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

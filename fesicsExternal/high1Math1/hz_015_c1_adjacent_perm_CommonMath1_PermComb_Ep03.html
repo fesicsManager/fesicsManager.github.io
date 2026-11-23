@@ -151,12 +151,19 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="이웃 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="n">전체 인원 n <b><span id="n_v">5</span></b></label><input type="range" id="n" min="3" max="7" step="1" value="5"></div><div class="ctl"><label for="k">이웃해야 할 인원 k <b><span id="k_v">2</span></b></label><input type="range" id="k" min="2" max="4" step="1" value="2"></div><div class="row"><button class="btn go" id="goBtn">📦 묶어서 세어 보기</button></div>
+      <div class="ctl"><label for="n">전체 인원 n <b><span id="n_v">5</span></b></label><input type="range" id="n" min="3" max="7" step="1" value="5"></div><div class="ctl"><label for="k">조건에 걸린 인원 k <b><span id="k_v">2</span></b></label><input type="range" id="k" min="2" max="4" step="1" value="2"></div>
+      <div class="pick">어떤 조건인가요? <label><input type="radio" name="cd" value="adj" checked>k명이 이웃</label><label><input type="radio" name="cd" value="fix">k명이 이웃 + 그 안의 순서가 정해짐</label><label><input type="radio" name="cd" value="sep">k명이 서로 떨어짐</label></div>
+      <div class="pick" id="predBox">✍ <b>세기 전에 짚어 보기</b> — 바깥만 세고 끝내면, 정답을 얻으려면 몇 배를 더 곱해야 할까요?
+        <input type="number" id="predIn" min="0" max="2000" step="1" placeholder="?" style="width:5rem;background:#0f1727;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:.3rem .4rem">배
+        <button class="btn" id="predBtn" style="flex:0 0 auto">채점</button>
+        <div id="predRes" style="margin-top:.45rem">짚은 다음 아래 단추로 세어 보세요.</div></div>
+      <div class="row"><button class="btn go" id="goBtn">📦 묶어서 세어 보기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>전체 n</th><th>묶는 인원 k</th><th>덩어리 배열</th><th>덩어리 안</th><th>전체</th><th>묶기만 한 답</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>조건</th><th>n</th><th>k</th><th>바깥 배열</th><th>안쪽·사이</th><th>전체</th><th>곱해야 할 배수</th><th>내가 짚은 배수</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,36 +242,80 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function st(){var n=v('n'),k=Math.min(v('k'),v('n'));
-var outer=fact(n-k+1),inner=fact(k);
-return{n:n,k:k,outer:outer,inner:inner,tot:outer*inner,all:fact(n)};}
+var predVal=null,predHit=null;
+function condOf(){var e=document.querySelector('input[name="cd"]:checked');return e?e.value:'adj';}
+function condName(c){return c==='fix'?'이웃 + 순서 정해짐':c==='sep'?'서로 떨어짐':'이웃';}
+function st(){var n=v('n'),k=Math.min(v('k'),v('n')),c=condOf();
+var outer,inner;
+if(c==='sep'){outer=fact(n-k);inner=(n-k+1>=k)?nPr(n-k+1,k):0;}
+else{outer=fact(n-k+1);inner=(c==='fix')?1:fact(k);}
+var tot=outer*inner;
+return{n:n,k:k,c:c,outer:outer,inner:inner,tot:tot,all:fact(n),ratio:inner};}
+function gradePred(){var o=st(),el=$('predRes'),x=parseInt($('predIn').value,10);
+if(!isFinite(x)){predVal=null;predHit=null;el.innerHTML='먼저 칸에 몇 배일지 적어 보세요.';draw();return;}
+predVal=x;predHit=(x===o.ratio);
+el.innerHTML=(predHit?'✅ <b>맞혔어요.</b> ':'❌ <b>달라요.</b> ')
++(o.c==='adj'?('덩어리 안에서 '+o.k+'명을 줄 세우는 '+o.k+'! = <b>'+o.inner+'배</b>를 곱해야 해요.')
+:o.c==='fix'?('이 조건에서는 덩어리 안의 순서가 이미 정해져 있어서 <b>1배</b> — 바깥만 센 답이 그대로 정답이에요.')
+:('떨어뜨리는 조건이라 묶는 방법을 못 써요. 나머지 '+(o.n-o.k)+'명을 세운 뒤 사이 자리 '+(o.n-o.k+1)+'곳에서 '+o.k+'자리를 뽑아 세우는 <b>'+o.inner+'배</b>를 곱합니다.'))
++'<br>조건을 바꾸면 이 배수가 달라져요.';
+draw();}
 function draw(){clr();var o=st();
-label(o.n+'명 중 '+o.k+'명이 반드시 이웃하도록',W/2,32,'#e9eefb',18);
+label(o.n+'명 중 '+o.k+'명이 '+(o.c==='sep'?'서로 떨어지도록':o.c==='fix'?'이웃하고 순서까지 정해진 채로':'반드시 이웃하도록'),W/2,32,'#e9eefb',18);
 var Y0=76,bw=Math.min(44,(W-80)/o.n);
-var X0=(W-bw*(o.n-o.k+1)-10)/2;
-for(var i=0;i<o.n-o.k+1;i++){
-var isBox=(i===0);
+var nBox=(o.c==='sep')?o.n:(o.n-o.k+1);
+var X0=(W-bw*nBox-10)/2;
+for(var i=0;i<nBox;i++){
+var isBox=(i===0&&o.c!=='sep');
 var w=isBox?bw*o.k:bw;
 ctx.fillStyle=isBox?'rgba(255,184,107,.3)':'rgba(122,162,255,.25)';
 ctx.fillRect(X0,Y0,w-6,54);
 ctx.strokeStyle=isBox?'#ffb86b':'#7aa2ff';ctx.lineWidth=2;ctx.strokeRect(X0,Y0,w-6,54);
 label(isBox?'덩어리('+o.k+'명)':'개인',X0+(w-6)/2,Y0+27,'#e9eefb',isBox?13:12);
 X0+=w;}
-label('줄 세울 대상 = 덩어리 1개 + 나머지 '+(o.n-o.k)+'명 = '+(o.n-o.k+1)+'개',W/2,Y0+78,'#9db0d4',14);
+label(o.c==='sep'?('먼저 나머지 '+(o.n-o.k)+'명을 세우고 사이 '+(o.n-o.k+1)+'곳에 끼웁니다')
+:('줄 세울 대상 = 덩어리 1개 + 나머지 '+(o.n-o.k)+'명 = '+(o.n-o.k+1)+'개'),W/2,Y0+78,'#9db0d4',14);
 if(gr>0.4){panel(24,182,W-48,72);
-label('① 덩어리를 포함해 줄 세우기  ('+(o.n-o.k+1)+')! = '+o.outer,W/2,222,'#7aa2ff',17);}
+label(o.c==='sep'?('① 나머지 '+(o.n-o.k)+'명 줄 세우기  ('+(o.n-o.k)+')! = '+o.outer)
+:('① 덩어리를 포함해 줄 세우기  ('+(o.n-o.k+1)+')! = '+o.outer),W/2,222,'#7aa2ff',17);}
 if(gr>0.7){panel(24,264,W-48,72);
 var Y1=300,X1=(W-bw*o.k)/2;
 for(var j=0;j<o.k;j++){ctx.fillStyle='rgba(255,184,107,.4)';ctx.fillRect(X1+j*bw+3,Y1-20,bw-6,34);
 label(String.fromCharCode(65+j),X1+j*bw+bw/2,Y1-3,'#e9eefb',14);}
-label('② 덩어리 안에서 '+o.k+'명 줄 세우기  '+o.k+'! = '+o.inner,W/2,Y1+30,'#ffb86b',17);}
+label(o.c==='sep'?('② 사이 '+(o.n-o.k+1)+'곳에서 '+o.k+'자리 뽑아 세우기 = '+o.inner)
+:o.c==='fix'?('② 안의 순서가 이미 정해짐 → 곱할 것이 '+o.inner+'뿐')
+:('② 덩어리 안에서 '+o.k+'명 줄 세우기  '+o.k+'! = '+o.inner),W/2,Y1+30,'#ffb86b',17);}
 if(gr>0.9){panel(24,346,W-48,74);
 label('전체 = '+o.outer+' × '+o.inner+' = '+o.tot,W/2,378,'#5ee0c8',20);
-label('묶기만 하고 끝내면 '+o.outer+' — '+o.inner+'배 작습니다',W/2,406,'#ff7a8a',14);}
-ro(kv('덩어리 포함 배열',o.outer)+' &nbsp;'+kv('덩어리 안',o.inner)+'<br>'+kv('전체',o.tot)+' &nbsp;'+kv('전체 n!',o.all));}
+label(o.inner===1?'바깥만 센 '+o.outer+' 이 그대로 정답입니다'
+:'바깥만 세고 끝내면 '+o.outer+' — '+o.inner+'배 작습니다',W/2,406,o.inner===1?'#5ee0c8':'#ff7a8a',14);}
+ro(kv('조건',condName(o.c))+' &nbsp;'+kv('바깥 배열',o.outer)+' &nbsp;'+kv('안쪽·사이',o.inner)+'<br>'
++kv('전체',o.tot)+' &nbsp;'+kv('곱해야 할 배수',o.ratio+'배')+' &nbsp;'+kv('조건 없는 n!',o.all)
++(predVal===null?'':'<br>'+kv('내가 짚은 배수',predVal+'배 '+(predHit?'✅':'❌'))));
+whyBox(o);}
+function whyBox(o){var el=$('why');if(!el)return;
+if(o.c==='fix'){el.className='why diff';
+el.innerHTML='🎯 <b>이번엔 묶기만 해도 맞아요.</b><br>'
++'· '+o.k+'명이 이웃하되 <b>그 안의 순서가 이미 정해져</b> 있으면, 덩어리 안에서 더 셀 것이 없어요(1가지).<br>'
++'· 그래서 정답은 '+o.outer+' × 1 = <b>'+o.tot+'</b> — 바깥만 센 값과 같아요.<br>'
++'· “묶었으면 안쪽도 반드시 세야 한다”가 늘 맞는 말은 아니에요. <b>안쪽에 셀 것이 남아 있을 때만</b> 곱합니다.';
+return;}
+if(o.c==='sep'){el.className='why diff';
+el.innerHTML='↔ <b>떨어뜨리는 조건은 묶기로 풀 수 없어요.</b><br>'
++'· 먼저 조건에 걸리지 않은 '+(o.n-o.k)+'명을 세우고('+o.outer+'가지), 그 사이와 양끝 '+(o.n-o.k+1)+'곳 가운데 '+o.k+'곳을 골라 세웁니다('+o.inner+'가지).<br>'
++'· 전체 '+o.tot+'가지예요. 조건 없는 '+o.all+'가지에서 이웃하는 경우를 뺀 값과 같습니다.<br>'
++(o.inner===0?'· 지금은 사이 자리가 부족해 <b>0가지</b>예요 — 조건을 만족할 방법이 없습니다. n을 늘리거나 k를 줄여 보세요.<br>':'')
++'· 같은 n, k 인데도 조건이 ‘이웃’에서 ‘떨어짐’으로 바뀌면 세는 길과 답이 모두 달라집니다.';
+return;}
+el.className='why same';
+el.innerHTML='📦 <b>묶은 다음이 남아 있어요.</b><br>'
++'· 덩어리를 한 사람처럼 보고 '+(o.n-o.k+1)+'개를 세우면 '+o.outer+'가지, 덩어리 안에서 '+o.k+'명을 세우면 '+o.inner+'가지.<br>'
++'· 두 단계를 곱해 <b>'+o.tot+'가지</b>예요. 바깥만 세고 끝내면 '+o.inner+'배 작습니다.<br>'
++'· 조건을 <b>이웃 + 순서가 정해짐</b>으로 바꿔 보세요 — 그때는 안쪽에 셀 것이 없어 바깥만 센 값이 정답이 됩니다.';}
 function record(){var o=st();
-return{cells:[o.n,o.k,o.outer,o.inner,'<b>'+o.tot+'</b>',o.outer],
-outer:o.outer,inner:o.inner,tot:o.tot,ratio:o.inner,all:o.all};}
+return{cells:[condName(o.c),o.n,o.k,o.outer,o.inner,'<b>'+o.tot+'</b>',o.ratio+'배',
+(predVal===null?'—':predVal+'배 '+(predHit?'✅':'❌'))],
+outer:o.outer,inner:o.inner,tot:o.tot,ratio:o.inner,all:o.all,c:o.c,hit:predHit};}
 function analyze(){
 var t='<table><thead><tr><th>덩어리 배열</th><th>덩어리 안</th><th>전체</th><th>묶기만</th><th>몇 배</th></tr></thead><tbody>';
 rows.forEach(function(r){t+='<tr><td>'+r.outer+'</td><td>'+r.inner+'</td><td class="ok"><b>'+r.tot+'</b></td>'+
@@ -277,9 +328,23 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 '<p class="note">덩어리 안의 순서를 빠뜨린 답은 정확히 k!배만큼 작습니다.</p></div>'+
 '<div class="card"><h4>2. 전체와 비교하면</h4>'+
 '<p class="note">조건 없이 n명을 줄 세우면 n!입니다. 이웃 조건이 붙으면 그보다 훨씬 적어집니다 — 조건이 경우의 수를 줄인 것입니다.</p>'+
-'<p class="note">묶는 순간 <b>두 단계</b>가 생긴다고 기억하세요. 덩어리 밖 한 번, 덩어리 안 한 번.</p></div></div>';}
+'<p class="note">묶는 순간 <b>두 단계</b>가 생긴다고 기억하세요. 덩어리 밖 한 번, 덩어리 안 한 번. 다만 안쪽 순서가 이미 정해져 있으면 곱할 것이 1뿐입니다.</p></div>'+
+'<div class="card"><h4>3. 조건을 바꾼 기록</h4>'+condTab()+'</div></div>';}
+function condTab(){var seen={},one=0;
+var t='<table><thead><tr><th>조건</th><th>n, k</th><th>전체</th><th>배수</th></tr></thead><tbody>';
+rows.forEach(function(r){seen[r.c]=1;if(r.ratio===1)one++;
+t+='<tr><td>'+condName(r.c)+'</td><td>'+r.cells[1]+', '+r.cells[2]+'</td><td><b>'+r.tot+'</b></td><td class="'+(r.ratio===1?'ok':'no')+'">'+r.ratio+'배</td></tr>';});
+t+='</tbody></table>';
+var h=rows.filter(function(x){return x.hit===true;}).length,m=rows.filter(function(x){return x.hit===false;}).length;
+return t+'<p class="note">'+(one?'<span class="ok">'+one+'개</span>의 기록은 곱할 배수가 1이었습니다 — 바깥만 센 답이 그대로 정답이던 경우입니다.'
+:'아직 배수가 1인 기록이 없습니다. ‘이웃 + 순서가 정해짐’으로 바꿔 기록해 보세요.')+'</p>'+
+'<p class="note">'+((Object.keys(seen).length>=2)?'조건에 따라 세는 길 자체가 달라지는 것이 표에 보입니다.':'아직 조건을 한 가지만 기록했습니다.')+'</p>'+
+'<p class="note">'+((h+m===0)?'짚어 보기 기록이 아직 없습니다.':'짚어 보기: 맞춘 기록 '+h+'개, 빗나간 기록 '+m+'개.')+'</p>';}
 
 
+$('predBtn').addEventListener('click',gradePred);
+document.querySelectorAll('input[name="cd"]').forEach(function(e){e.addEventListener('change',function(){
+predVal=null;predHit=null;var pr=$('predRes');if(pr)pr.innerHTML='조건을 바꿨어요. 다시 짚어 적고 채점해 보세요.';draw();});});
 draw();sync();
 </script>
 <script id="fxPrincipleJs">

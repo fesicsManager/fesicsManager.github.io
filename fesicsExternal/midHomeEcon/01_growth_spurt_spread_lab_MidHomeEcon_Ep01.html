@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -301,9 +302,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,21 +445,84 @@ var LAB = (function(){
       var G = [{n:'여성 연구원 15명', s:'여성'}, {n:'남성 연구원 15명', s:'남성'}, {n:'전체 30명', s:'전체'}];
       var CF = '#E07A9A', CM = PAL[0];
       function cnt(g){ return B.map(function(_, i){ return g === 0 ? F[i] : g === 1 ? M[i] : F[i] + M[i]; }); }
+      var VIEW = ['시작 시기 분포', '해마다 키 곡선'];
+      var KQ = ['먼저 자란 쪽이 결국 더 크다', '시작 시기와 최종 키는 상관없다', '늦게 자란 쪽이 결국 더 크다'];
+      var START = [10.5, 12.5, 14.5, 16.5];
+      /* 교육용 모형값 — 위의 분포(여 15명·남 15명)를 그대로 써서 30명을 만들고,
+         해마다 키를 이어 그린다. 최종 키는 시작 시기와 따로 흩어지게 정했다.
+         (급성장이 일찍 시작한 것과 다 자란 키 사이에 또렷한 관계가 나타나지 않는다는
+          성장 연구의 경향을 단순화한 것이다. 실제 측정값이 아니다.) */
+      function people(){
+        var out = [], i, b, n;
+        for (b = 0; b < 4; b++){
+          for (n = 0; n < F[b]; n++) out.push({sex:0, b:b});
+          for (n = 0; n < M[b]; n++) out.push({sex:1, b:b});
+        }
+        for (i = 0; i < out.length; i++){
+          var h = (i * 2654435761) % 4294967296;                    /* 늘 같은 그림이 나오게 고정 */
+          out[i].fin = (out[i].sex === 0 ? 161 : 173.5) + ((h % 1301) / 1300 - 0.5) * 13;
+          out[i].start = START[out[i].b] + ((Math.floor(h / 128) % 101) / 100 - 0.5) * 1.2;
+          out[i].rise = 20 + (Math.floor(h / 8192) % 101) / 100 * 8;
+        }
+        return out;
+      }
+      function hAt(q, age){ var v = (q.fin - q.rise) + q.rise / (1 + Math.exp(-(age - q.start) / 1.1)); return isFinite(v) ? v : q.fin; }
+      function corr(a, b){
+        var n = a.length, ma = mean(a), mb = mean(b), sab = 0, sa = 0, sb = 0, i;
+        for (i = 0; i < n; i++){ var x = a[i] - ma, y = b[i] - mb; sab += x * y; sa += x * x; sb += y * y; }
+        var d = Math.sqrt(sa * sb); return d > 1e-9 ? sab / d : 0;
+      }
+      function curveBox(c, W, H, p, r, tau){
+        var P = people(), px = 64, py = 60, pw = W - px - 16, ph = H - py - 112;
+        if (pw < 40 || ph < 40) return;
+        var ax = plotBox(c, px, py, pw, ph, [9, 18, 3], [120, 190, 10], '나이 (살)', '키 (cm)');
+        var upto = 9 + 9 * (r ? Math.min(1, tau / 0.9) : 1);
+        P.forEach(function(q){
+          if (p.g === 0 && q.sex === 1) return;
+          if (p.g === 1 && q.sex === 0) return;
+          c.strokeStyle = q.b <= 1 ? 'rgba(224,122,154,.8)' : 'rgba(43,95,163,.8)';
+          c.lineWidth = 1.6; c.beginPath();
+          var first = true, a;
+          for (a = 9; a <= upto + 1e-9; a += 0.25){
+            var X = ax.X(a), Y = ax.Y(hAt(q, a));
+            if (!isFinite(X) || !isFinite(Y)) continue;
+            if (first){ c.moveTo(X, Y); first = false; } else c.lineTo(X, Y);
+          }
+          if (!first) c.stroke();
+        });
+        tfit(c, '분홍=먼저 자람', 16, 22, {color:CF, bold:true});
+        tfit(c, '파랑=늦게 자람', 16, 42, {color:CM, bold:true});
+        if (r && tau >= 1){
+          tfit(c, '상관 r = ' + f(r.rc, 2), 16, H - 40, {bold:true, color:Math.abs(r.rc) < 0.2 ? PAL[1] : PAL[4]});
+          tfit(c, '나의 예상 ' + (r.okK ? '맞음' : '다름'), 16, H - 14, {bold:true, color:r.okK ? PAL[1] : PAL[4]});
+        }
+      }
       return {
         sceneHeight: 400,
-        idle: '볼 연구원과 내 칸을 고른 뒤 <b>분포에 나를 놓아 보기</b>를 누르세요.',
-        shortHint: '여성·남성·전체를 모두 보고, 내 칸을 "16세 이후"로도 바꿔 보세요. 늦게 자란 칸에도 지금 평균 안팎인 사람이 있나요?',
+        idle: '볼 그림·연구원·내 칸·나의 예상을 고른 뒤 <b>분포에 나를 놓아 보기</b>를 누르세요.',
+        shortHint: '‘해마다 키 곡선’으로 바꿔 보세요. 먼저 자란 사람이 결국 더 큰지 내 예상을 채점해 줍니다.',
         params: [
+          {key:'view', type:'seg', label:'볼 그림', cols:2, value:0, options:VIEW,
+            note:'‘해마다 키 곡선’은 30명의 키를 9살부터 18살까지 이어 그립니다 — 교육용 모형값이에요.'},
           {key:'g', type:'seg', label:'볼 연구원', cols:3, value:2, options:G.map(function(x){ return x.n; })},
           {key:'a', type:'seg', label:'내가 가장 빨리 자란(자랄) 때', cols:4, value:2, options:B,
-            note:'아직 크게 자라지 않았다면 짐작되는 칸을 골라 보세요. 어느 칸도 틀린 칸은 없어요.'}
+            note:'아직 크게 자라지 않았다면 짐작되는 칸을 골라 보세요. 어느 칸도 틀린 칸은 없어요.'},
+          {key:'k', type:'seg', label:'먼저 자란 사람이 결국 더 클까? (나의 예상)', cols:3, value:1, options:KQ}
         ],
         compute: function(p){
           var c = cnt(p.g), n = 0, early = 0, late = 0, filled = 0, pk = 0;
           c.forEach(function(v, i){ n += v; if (i < p.a) early += v; if (i > p.a) late += v; if (v > 0) filled++; if (v > c[pk]) pk = i; });
-          return {c:c, n:n, mine:c[p.a], early:early, late:late, filled:filled, peak:pk, av:AV[p.a], tot:F[p.a] + M[p.a]};
+          var P = people();
+          var rc = corr(P.map(function(q){ return q.start; }), P.map(function(q){ return q.fin; }));
+          var eG = P.filter(function(q){ return q.b <= 1; }), lG = P.filter(function(q){ return q.b >= 2; });
+          var mE = eG.length ? mean(eG.map(function(q){ return q.fin; })) : 0;
+          var mL = lG.length ? mean(lG.map(function(q){ return q.fin; })) : 0;
+          var truth = Math.abs(rc) < 0.2 ? 1 : rc > 0 ? 0 : 2;
+          return {c:c, n:n, mine:c[p.a], early:early, late:late, filled:filled, peak:pk, av:AV[p.a], tot:F[p.a] + M[p.a],
+            rc:rc, mE:mE, mL:mL, truth:truth, okK:p.k === truth};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
+          if (p.view === 1){ curveBox(c, W, H, p, r, tau); return; }
           var cc = r ? r.c : cnt(p.g), x0 = 16, gw = W - 32, bw = gw / 4, y0 = H - 92, per = bw >= 96 ? 4 : 3, rad = Math.min(9, bw / (per * 2.6)), step = rad * 2 + 4;
           c.fillStyle = 'rgba(255,216,77,.35)'; c.fillRect(x0 + p.a * bw + 2, 44, bw - 4, y0 - 40);
           seg(c, x0, y0 + 4, x0 + gw, y0 + 4, '#8C99A8', 1.5);
@@ -489,22 +554,33 @@ var LAB = (function(){
             ['내 칸 (' + B[p.a] + ')', r.mine + '명 / ' + r.n + '명', '#A86825'], ['나보다 먼저 · 나중에 자란 사람', r.early + '명 · ' + r.late + '명'],
             ['이 칸에서 지금 키가 평균 안팎 (전체 기준)', r.av + '명 / ' + r.tot + '명', PAL[1]],
             ['가장 많은 칸', B[r.peak] + (p.g === 0 ? ' — 여성은 대체로 조금 먼저' : p.g === 1 ? ' — 남성은 대체로 조금 나중' : '')],
-            ['해석', interp, PAL[3]]];
+            ['해석', interp, PAL[3]],
+            ['먼저 자란 무리의 다 자란 키 (교육용 모형값)', f(r.mE, 1) + ' cm'],
+            ['늦게 자란 무리의 다 자란 키 (교육용 모형값)', f(r.mL, 1) + ' cm'],
+            ['시작 시기와 다 자란 키의 상관', 'r = ' + f(r.rc, 2) + ' — ' + (Math.abs(r.rc) < 0.2 ? '거의 관계가 없어요' : r.rc > 0 ? '먼저 자란 쪽이 조금 더 커요' : '늦게 자란 쪽이 조금 더 커요'), Math.abs(r.rc) < 0.2 ? PAL[1] : PAL[4]],
+            ['나의 예상', KQ[p.k] + (r.okK ? ' — 모형과 맞음' : ' — 모형과 다름. 모형의 답은 ‘' + KQ[r.truth] + '’'), r.okK ? PAL[1] : PAL[4]]];
         },
-        columns: ['연구원', '내 칸', '같은 칸', '먼저 · 나중', '평균 안팎(전체)'],
-        record: function(p, r){ return {g:p.g, a:p.a, mine:r.mine, n:r.n, early:r.early, late:r.late, av:r.av, tot:r.tot}; },
-        row: function(d){ return [G[d.g].s, B[d.a], d.mine + '/' + d.n + '명', d.early + ' · ' + d.late, d.av + '/' + d.tot + '명']; },
+        columns: ['그림', '연구원', '내 칸', '같은 칸', '먼저·나중', '나의 예상', '상관 r'],
+        record: function(p, r){ return {g:p.g, a:p.a, view:p.view, k:p.k, mine:r.mine, n:r.n, early:r.early, late:r.late, av:r.av, tot:r.tot, rc:r.rc, mE:r.mE, mL:r.mL, okK:r.okK}; },
+        row: function(d){ return [VIEW[d.view], G[d.g].s, B[d.a], d.mine + '/' + d.n + '명', d.early + ' · ' + d.late, KQ[d.k] + (d.okK ? ' ○' : ' ×'), f(d.rc, 2)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('가장 빨리 자란 나이 분포 (가상 조사 30명)', '<div id="g1a"></div><p class="ask">한 칸에 몰려 있나요, 퍼져 있나요? 여성과 남성 연구원의 가장 많은 칸을 비교하고, "같은 나이면 같은 때 자란다"는 말이 왜 맞지 않는지 설명해 보세요.</p>') +
-            card('칸별 지금 키가 평균 안팎인 사람', '<div id="g1b"></div><p class="ask">과제: 요즘 나에게 생긴 변화를 몸·생각·감정·관계 네 칸에 하나씩 적어 보세요. 그리고 스트레스를 받았을 때 나에게 맞는 회복 방법 세 가지(몸 돌보기·생각 바꿔 보기·도움 요청하기 중에서)를 골라 "나만의 회복 카드"를 만들어 보세요. 힘든 마음이 오래 이어지면 혼자 버티지 말고 보호자나 선생님께 말하세요.</p>') + '</div>';
+            card('먼저 자란 사람이 결국 더 큰가 (키 곡선 모형)', '<div id="g1b"></div><p class="ask">과제: 요즘 나에게 생긴 변화를 몸·생각·감정·관계 네 칸에 하나씩 적어 보세요. 그리고 스트레스를 받았을 때 나에게 맞는 회복 방법 세 가지(몸 돌보기·생각 바꿔 보기·도움 요청하기 중에서)를 골라 "나만의 회복 카드"를 만들어 보세요. 힘든 마음이 오래 이어지면 혼자 버티지 말고 보호자나 선생님께 말하세요.</p>') + '</div>';
           var seenG = uniq(rec.map(function(d){ return d.g; })), rows = [];
           [['여성 연구원', F], ['남성 연구원', M]].forEach(function(x, i){ rows.push([x[0] + (seenG.indexOf(i) >= 0 || seenG.indexOf(2) >= 0 ? '' : ' (아직 안 봄)')].concat(x[1].map(function(v){ return v + '명'; }))); });
           rows.push(['지금 평균 안팎'].concat(AV.map(function(v){ return v + '명'; })));
           $('g1a').innerHTML = tableHTML(['무리'].concat(B), rows);
           var seenA = uniq(rec.map(function(d){ return d.a; })).sort(), it = [];
           seenA.forEach(function(a){ var t = F[a] + M[a]; it.push({label:B[a] + ' 칸', v:AV[a] / t * 100, color:a >= 2 ? PAL[1] : PAL[6], text:AV[a] + '/' + t + '명'}); });
-          $('g1b').innerHTML = it.length ? hbars(it, 100) + '<p class="msg">막대 = 그 칸 사람 중 지금 키가 평균 안팎인 비율</p>' : '<p class="msg">내 칸을 바꿔 가며 실행해 보세요.</p>';
+          var last = rec[rec.length - 1];
+          var kcnt = [0, 0, 0]; rec.forEach(function(d){ kcnt[d.k]++; });
+          $('g1b').innerHTML = (it.length ? hbars(it, 100) + '<p class="msg">막대 = 그 칸 사람 중 지금 키가 평균 안팎인 비율</p>' : '<p class="msg">내 칸을 바꿔 가며 실행해 보세요.</p>') +
+            tableHTML(['먼저 자란 무리', '늦게 자란 무리', '차이', '상관 r'],
+              [[f(last.mE, 1) + ' cm', f(last.mL, 1) + ' cm', sgn(last.mE - last.mL, 1) + ' cm', f(last.rc, 2)]]) +
+            '<p class="msg">30명의 키 곡선(교육용 모형값)으로 재 보면 시작 시기와 다 자란 키의 상관은 <b>r = ' + f(last.rc, 2) + '</b>이에요. ' +
+            (Math.abs(last.rc) < 0.2 ? '먼저 자랐다고 결국 더 큰 것은 아니라는 뜻입니다 — <b>먼저 자란 것과 많이 자란 것은 다른 이야기</b>예요.' : '두 무리의 차이를 곡선에서 찾아 설명해 보세요.') +
+            ' 내 예상이 맞은 횟수: ' + rec.filter(function(d){ return d.okK; }).length + ' / ' + rec.length + '회.</p>';
         }
       };
     })();
@@ -513,7 +589,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

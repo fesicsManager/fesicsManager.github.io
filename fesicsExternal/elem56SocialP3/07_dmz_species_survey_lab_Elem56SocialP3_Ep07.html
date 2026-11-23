@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,7 +441,11 @@ var LAB = (function(){
       var KD = [{n:'새 종류', s:'새', c:PAL[5]}, {n:'포유류 종류', s:'포유류', c:PAL[2]}, {n:'멸종 위기 생물', s:'멸종 위기', c:PAL[4]}];
       var PG = ['구역 나가 더 많다', '두 구역이 비슷하다', '구역 나가 더 적다', '구역 나에는 하나도 없다'];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
-      function judge(k){ var a = ZN[0].v[k], b = ZN[1].v[k]; return b === 0 ? 3 : b > a ? 0 : b < a ? 2 : 1; }
+      /* 하루·기본 넓이에서 보이는 수가 전체의 약 63% 라고 보는 단순한 교육용 모형.
+         오래 보고 넓게 보면 못 본 종이 줄어든다. */
+      function tot(base){ return Math.round(base / (1 - Math.exp(-1))); }
+      function obsOf(base, days, area){ return Math.round(tot(base) * (1 - Math.exp(-days * area))); }
+      function judge(k, days, area){ var a = obsOf(ZN[0].v[k], days, area), b = obsOf(ZN[1].v[k], days, area); return b === 0 ? 3 : b > a ? 0 : b < a ? 2 : 1; }
       return {
         sceneHeight: 420,
         idle: '조사 구역, 셀 것, 예측을 고른 뒤 <b>하루 조사하기</b>를 누르세요.',
@@ -447,11 +453,16 @@ var LAB = (function(){
         params: [
           {key:'z', type:'seg', label:'조사 구역 (넓이 같음)', cols:2, value:1, options:ZN.map(function(x){ return x.n; })},
           {key:'k', type:'seg', label:'셀 것', cols:3, value:0, options:KD.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'예측: 구역 가와 견주면 구역 나는?', cols:2, value:3, options:PG, note:'비무장 지대는 풀 한 포기 없는 회색 띠일까요?'}
+          {key:'g', type:'seg', label:'예측: 구역 가와 견주면 구역 나는?', cols:2, value:3, options:PG, note:'비무장 지대는 풀 한 포기 없는 회색 띠일까요?'},
+          {key:'dy', type:'range', label:'조사한 날수', min:1, max:10, step:1, value:1, fmt:function(x){ return x + '일'; }},
+          {key:'ar', type:'range', label:'조사한 구역 넓이', min:5, max:30, step:5, value:10, fmt:function(x){ return (x / 10).toFixed(1) + '배'; }, note:'하루·1.0배에서 본 수는 전체의 일부예요. 날수와 넓이를 늘려 보며 "하루 조사만으로 단정해도 되나"를 따져 보세요. (단순한 교육용 모형)'}
         ],
         compute: function(p){
-          var z = ZN[p.z], n = z.v[p.k], o = ZN[1 - p.z].v[p.k], lk = judge(p.k);
-          return {z:z, kd:KD[p.k], n:n, o:o, lk:lk, ok:p.g === lk};
+          var z = ZN[p.z], days = p.dy, area = p.ar / 10;
+          var n = obsOf(z.v[p.k], days, area), o = obsOf(ZN[1 - p.z].v[p.k], days, area);
+          var S = tot(z.v[p.k]), miss = S - n, lk = judge(p.k, days, area);
+          var enough = (S === 0) || (n >= Math.round(S * 0.9));
+          return {z:z, kd:KD[p.k], n:n, o:o, S:S, miss:miss, enough:enough, days:days, area:area, lk:lk, ok:p.g === lk};
         },
         draw: function(c, W, H, p, r, tau){
           var narrow = W < 560, top = 30, mid = 78, bh = 22;
@@ -472,7 +483,7 @@ var LAB = (function(){
           if (p.z === 0){ c.fillStyle = '#9AA6B2'; for (var b = 0; b < 4; b++) c.fillRect(zx + 20 + b * 9, zy - 12 + (b % 2) * 4, 7, 18 - (b % 2) * 4); }
           var oy = 175, kd = KD[p.k], z = ZN[p.z];
           T(c, z.s + ' · ' + kd.n, 20, oy - 8, narrow ? 13 : 16, z.c, 'left', true);
-          var n = z.v[p.k], cs = narrow ? 24 : 30, per = Math.max(1, Math.floor((W - 40) / cs));
+          var n = obsOf(z.v[p.k], p.dy, p.ar / 10), cs = narrow ? 24 : 30, per = Math.max(1, Math.floor((W - 40) / cs));
           var show = r ? Math.floor(n * Math.min(1, tau / 0.75) + 1e-9) : 0;
           for (var i = 0; i < show; i++){
             var cx = 20 + (i % per) * cs + cs / 2, cy = oy + 12 + Math.floor(i / per) * cs + cs / 2;
@@ -486,23 +497,31 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['조사 구역', r.z.n], ['셀 것', r.kd.n],
-            ['관찰한 종류 (가상)', r.n + '종', r.kd.c], ['다른 구역', r.o + '종'],
+          return [['조사 구역', r.z.n], ['셀 것', r.kd.n], ['조사한 날수 · 넓이', r.days + '일 · ' + f(r.area, 1) + '배'],
+            ['관찰한 종류 (가상)', r.n + '종', r.kd.c], ['다른 구역 (같은 조건)', r.o + '종'],
+            ['아직 못 본 종 (어림)', r.S ? '약 ' + r.miss + '종 (여기 사는 종은 약 ' + r.S + '종으로 어림)' : '0종'],
+            ['이만큼 조사하고 단정해도 되나', r.enough ? '✅ 거의 다 본 셈이에요' : '❌ 아직 이릅니다 — 못 본 종이 약 ' + r.miss + '종 남았어요', r.enough ? PAL[1] : PAL[4]],
             ['구역 나 ÷ 구역 가', ZN[0].v[p.k] ? '약 ' + f(ZN[1].v[p.k] / ZN[0].v[p.k], 1) + '배' : '구역 가는 0종, 구역 나는 ' + ZN[1].v[p.k] + '종', PAL[1]],
             ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕ (' + PG[r.lk] + ')'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['구역', '셀 것', '종류', '내 예측'],
-        record: function(p, r){ return {z:p.z, k:p.k, n:r.n, ok:r.ok}; },
-        row: function(d){ return [ZN[d.z].s, KD[d.k].s, d.n + '종', d.ok ? '○' : '✕']; },
+        columns: ['구역', '셀 것', '날수', '넓이', '관찰한 종류', '못 본 종', '단정해도 되나', '내 예측'],
+        record: function(p, r){ return {z:p.z, k:p.k, n:r.n, ok:r.ok, days:r.days, area:r.area, S:r.S, miss:r.miss, enough:r.enough}; },
+        row: function(d){ return [ZN[d.z].s, KD[d.k].s, d.days + '일', f(d.area, 1) + '배', d.n + '종', '약 ' + d.miss + '종', d.enough ? '✅' : '❌', d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('두 구역에서 관찰한 생물 종류 (가상)', '<div id="dz1"></div><p class="ask">사람 발길이 거의 없는 구역 나는 구역 가보다 새가 몇 종 더 많았나요? 비무장 지대는 정말 "텅 빈 회색 띠"인가요?</p>') +
             card('비무장 지대 일대의 실제 모습', '<div id="dz2"></div><p class="ask">과제: 비무장 지대에 사는 동식물 세 가지를 찾아 그림 카드로 만들고, 그 생물이 그곳에 많이 사는 까닭을 한 줄씩 적어 보세요.</p>') + '</div>';
           var items = [];
           KD.forEach(function(kd, ki){ ZN.forEach(function(z, zi){
-            if (!rec.some(function(d){ return d.z === zi && d.k === ki; })) return;
-            items.push({label:kd.s + ' · ' + (zi ? '구역 나' : '구역 가'), v:z.v[ki], color:z.c, text:z.v[ki] + '종'}); }); });
-          $('dz1').innerHTML = hbars(items, 21) + (items.length < 6 ? '<p class="msg">아직 세지 않은 칸이 있어요.</p>' : '');
+            var x = rec.filter(function(d){ return d.z === zi && d.k === ki; }); if (!x.length) return;
+            var d = x[x.length - 1];
+            items.push({label:kd.s + ' · ' + (zi ? '구역 나' : '구역 가') + ' (' + d.days + '일 · ' + f(d.area, 1) + '배)', v:d.n, color:z.c, text:d.n + '종'}); }); });
+          $('dz1').innerHTML = hbars(items, 33) + (items.length < 6 ? '<p class="msg">아직 세지 않은 칸이 있어요.</p>' : '')
+            + (function(){ var byD = {}; rec.forEach(function(d){ if (d.z === 1 && d.k === 0) byD[d.days + '일 · ' + f(d.area, 1) + '배'] = d; });
+              var ks = Object.keys(byD);
+              if (ks.length < 2) return '<p class="msg">같은 구역·같은 생물을 <b>조사 날수</b>와 <b>넓이</b>만 바꿔 다시 세어 보세요. 하루 조사로 센 수가 그 구역에 사는 종의 전부가 아니라는 것이 보입니다.</p>';
+              var ok = rec.filter(function(d){ return d.enough; }), no = rec.filter(function(d){ return !d.enough; });
+              return '<p class="msg">구역 나의 새 — ' + ks.map(function(x){ return x + ' → ' + byD[x].n + '종' + (byD[x].enough ? ' ✅' : ' ❌ (못 본 종 약 ' + byD[x].miss + '종)'); }).join(' · ') + '. 단정해도 될 만큼 조사한 기록 ' + ok.length + '개 · 아직 이른 기록 <span class="no">' + no.length + '개</span>. 하루만 보고 “여기엔 없다”고 말하면 틀릴 수 있습니다 — <b>얼마나 오래, 얼마나 넓게</b> 봤는지를 함께 적어야 합니다. (단순한 교육용 모형)</p>'; })();
           $('dz2').innerHTML = tableHTML(['알아 둘 것', '내용'], [['생긴 때', '1953년 정전 협정'], ['넓이', '군사 분계선에서 남북으로 각각 2km'], ['사는 생물', '두루미, 산양 같은 멸종 위기 야생 생물'], ['사람이 사는 곳', '비무장 지대 안 남쪽 대성동 마을']]);
         }
       };
@@ -512,7 +531,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

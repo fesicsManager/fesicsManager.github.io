@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,12 +438,21 @@ var LAB = (function(){
       var CW = 900; function tfit(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width, al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; if (mw > 40 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       var DUR = ['며칠째', '2주 이상'];
       var FUN = ['일상은 대체로 유지', '수면·학업·관계에 지장'];
+      /* hv = 상태(일시적·지켜보기·지속)별 '도움으로 이어질 가능성' 교육용 모형값.
+         같은 반응도 상태에 따라 다르게 작용한다. BASE 는 아무 말도 하지 않을 때의 기준선(모형값). */
+      var BASE = 40;
       var RS = [
-        {name:'"의지가 약해서 그래, 긍정적으로 생각해!"', short:'의지 강조', good:false, help:20, note:'충고부터 하기 — 도움 요청을 부끄럽게 만들 수 있어요.'},
-        {name:'"다들 그래, 너만 힘든 거 아니야."', short:'일반화', good:false, help:30, note:'"다들 그래"는 치료가 필요한 상태를 가릴 수 있어요.'},
-        {name:'"언제부터 그랬어?" 듣고, 도움 경로를 함께 찾기', short:'경청·연결', good:true, help:85, note:'판단하지 않고 듣고, 함께 경로를 찾는 반응이에요.'},
-        {name:'"둘만의 비밀로 하자" 약속하기', short:'비밀 약속', good:false, help:35, note:'털어놓게는 하지만 도움 연결을 막아요. 위험해 보이면 연결이 우선이에요.'}
+        {name:'"의지가 약해서 그래, 긍정적으로 생각해!"', short:'의지 강조', good:false, hv:[30, 25, 20], note:'충고부터 하기 — 도움 요청을 부끄럽게 만들 수 있어요.',
+         byst:['가벼운 기분 변화라도 "의지" 탓으로 돌리면 다음에 말을 꺼내기 어려워져요.', '상태가 이어지는데 충고만 하면 도움 경로를 찾는 일이 늦어져요.', '지속되는 상태를 의지 문제로 돌리면 도움 요청이 가장 크게 막혀요.']},
+        {name:'"다들 그래, 너만 힘든 거 아니야."', short:'일반화', good:false, hv:[50, 40, 30], note:'"다들 그래"는 치료가 필요한 상태를 가릴 수 있어요.',
+         byst:['잠깐 외롭지 않게 느껴질 수는 있어요.', '"다들 그래"로 넘기면 지켜볼 기회를 놓쳐요.', '전문적인 평가가 필요한 상태를 평범한 일로 가려 버려요.']},
+        {name:'"언제부터 그랬어?" 듣고, 도움 경로를 함께 찾기', short:'경청·연결', good:true, hv:[80, 82, 85], note:'판단하지 않고 듣고, 함께 경로를 찾는 반응이에요.',
+         byst:['듣기만 해도 다음에 또 말할 수 있게 돼요.', '듣고 도움 경로를 미리 알아 두면 다음 단계가 쉬워져요.', '지속되는 상태에서 이 반응이 가장 크게 도와요.']},
+        {name:'"둘만의 비밀로 하자" 약속하기', short:'비밀 약속', good:false, hv:[55, 45, 35], note:'털어놓게는 하지만 도움 연결을 막아요. 위험해 보이면 연결이 우선이에요.',
+         byst:['털어놓게는 하지만 둘만의 비밀은 오래 지키기 어려워요.', '상태가 이어지면 비밀 약속이 도움 연결을 늦춰요.', '위험 신호가 있을 때 비밀 약속은 연결을 막아 위험해요.']}
       ];
+      var PRED = ['기준선보다 올라간다', '기준선보다 내려간다'];
+      var EFF = ['도움을 막는 쪽', '도움이 제한적', '도움이 되는 쪽'];
       function state(d, u){ return d === 1 && u === 1 ? 2 : d === 1 || u === 1 ? 1 : 0; }
       var SN = ['일시적인 기분 변화일 가능성', '지켜보며 도움 경로 알아 두기', '지속되는 상태 — 전문적인 평가 권장'];
       var NEXT = ['들어 주고, 며칠 뒤 다시 안부 묻기', '상태가 이어지면 학교 상담 교사·보건 교사와 이야기하도록 권하기', '혼자 감당하지 않게 믿을 만한 어른·학교 상담 교사·전문기관에 함께 연결하기'];
@@ -452,10 +463,16 @@ var LAB = (function(){
         params: [
           {key:'d', type:'seg', label:'힘든 기분이 이어진 기간', cols:2, value:1, options:DUR},
           {key:'u', type:'seg', label:'일상 기능', cols:2, value:1, options:FUN},
+          {key:'q', type:'seg', label:'먼저 예측 — 내 반응 뒤 "도움으로 이어질 가능성"은?', cols:2, value:0, options:PRED,
+            note:'아무 말도 하지 않을 때를 ' + BASE + '(교육용 모형값)으로 둡니다. 같은 반응도 친구의 상태에 따라 다르게 작용해요.'},
           {key:'r', type:'seg', label:'나의 반응', cols:2, value:0, options:RS.map(function(x){ return x.name; }),
             note:'정답을 외우기보다 "이 반응 뒤에 친구가 도움을 구할 수 있을까?"를 생각해 보세요.'}
         ],
-        compute: function(p){ var st = state(p.d, p.u), rs = RS[p.r]; return {st:st, rs:rs, help:rs.help}; },
+        compute: function(p){
+          var st = state(p.d, p.u), rs = RS[p.r], help = rs.hv[st], up = help > BASE;
+          return {st:st, rs:rs, help:help, up:up, hit:(p.q === 0) === up,
+            eff:help >= 70 ? 2 : help >= BASE ? 1 : 0, byst:rs.byst[st]};
+        },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var k = r ? tau : 0, L = [['생물', 30, PAL[5]], ['심리', 36, PAL[3]], ['사회', 34, PAL[2]]], lw = W < 600 ? W - 40 : W * 0.5 - 30, i;
           tfit(c, '함께 작용하는 요인 (가상 크기)', 20, 26, {bold:true});
@@ -471,30 +488,47 @@ var LAB = (function(){
           tfit(c, '도움으로 이어질 가능성 (가상)', rx, ry + 56, {color:'#4A5868'});
           c.fillStyle = '#E6EBF1'; c.fillRect(rx, ry + 66, rw, 24);
           c.fillStyle = r.rs.good ? PAL[1] : PAL[4]; c.fillRect(rx, ry + 66, rw * r.help / 100 * Math.min(1, k / 0.7), 24);
+          /* 기준선(아무 말도 하지 않을 때) — 글자 없이 눈금만 */
+          c.fillStyle = '#4A5868'; c.fillRect(rx + rw * BASE / 100 - 1, ry + 60, 2, 36);
           if (tau >= 1){
-            tfit(c, r.rs.good ? '도움이 되는 반응' : '피할 반응', rx, ry + 118, {bold:true, color:r.rs.good ? PAL[1] : PAL[4]});
+            tfit(c, (r.rs.good ? '도움이 되는 반응' : '피할 반응') + ' · ' + r.help + (r.up ? ' ↑' : ' ↓'), rx, ry + 118, {bold:true, color:r.rs.good ? PAL[1] : PAL[4]});
             if (r.st === 2) tfit(c, '→ 어른·전문가에게 연결', rx, ry + 146, {bold:true, color:PAL[0]});
           }
           tfit(c, '위급해 보이면 비밀보다 연결이 우선', 20, H - 16, {bold:true, color:'#4A5868'});
         },
         stats: function(p, r){
           return [['친구의 상태', DUR[p.d] + ' · ' + FUN[p.u]], ['상태 구분', SN[r.st], [PAL[1], PAL[6], PAL[4]][r.st]],
-            ['나의 반응', r.rs.name], ['반응 평가', (r.rs.good ? '도움이 되는 반응 — ' : '피할 반응 — ') + r.rs.note, r.rs.good ? PAL[1] : PAL[4]],
-            ['다음에 할 일', NEXT[r.st], PAL[0]], ['기억할 것', '진단은 전문가가 합니다. 연락처는 학교·공공기관의 최신 안내에서 확인하세요.']];
+            ['나의 반응', r.rs.name],
+            ['내 예측', PRED[p.q] + ' → 실제 ' + r.help + ' (기준선 ' + BASE + ', 모형값)' + (r.hit ? ' — 맞혔어요' : ' — 빗나갔어요'), r.hit ? PAL[1] : PAL[4]],
+            ['이 상태에서 이 반응은', EFF[r.eff] + ' — ' + r.byst, [PAL[4], PAL[6], PAL[1]][r.eff]],
+            ['반응 평가', (r.rs.good ? '도움이 되는 반응 — ' : '피할 반응 — ') + r.rs.note, r.rs.good ? PAL[1] : PAL[4]],
+            ['다음에 할 일', NEXT[r.st], PAL[0]],
+            ['기억할 것', '힘든 마음은 의지로 눌러 참는 것이 아니라 도움을 구해 다루는 것이에요. 진단은 전문가가 하고, 연락처는 학교·공공기관의 최신 안내에서 확인하세요.']];
         },
-        columns: ['기간', '일상', '상태 구분', '반응', '도움 연결(가상)'],
-        record: function(p, r){ return {d:p.d, u:p.u, r:p.r, st:r.st, help:r.help}; },
-        row: function(d){ return [DUR[d.d], FUN[d.u].split(' ')[0], ['일시적', '지켜보기', '지속 상태'][d.st], RS[d.r].short, d.help]; },
+        columns: ['기간', '일상', '상태 구분', '반응', '예측', '도움 연결(모형)'],
+        record: function(p, r){ return {d:p.d, u:p.u, r:p.r, st:r.st, help:r.help, q:p.q, hit:r.hit}; },
+        row: function(d){ return [DUR[d.d], FUN[d.u].split(' ')[0], ['일시적', '지켜보기', '지속 상태'][d.st], RS[d.r].short,
+          (d.hit == null ? '-' : d.hit ? '맞힘' : '빗나감'), d.help]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('반응별 "도움으로 이어질 가능성" (가상)', '<div id="hh5a"></div><p class="ask">"의지 강조"가 선의에서 나온 말인데도 피해야 하는 까닭을 세 층위 그림으로 설명해 보세요.</p>') +
-            card('상태 구분 기준', '<div id="hh5b"></div><p class="ask">과제: 학교와 지역에서 이용할 수 있는 상담·지원 창구를 조사해 운영 시간·이용 방법을 한 장으로 정리해 보세요. 연락처는 공식 안내에서 최신 정보를 확인하세요.</p>') + '</div>';
+            card('상태 구분 기준', '<div id="hh5b"></div><p class="ask">과제: 학교와 지역에서 이용할 수 있는 상담·지원 창구를 조사해 운영 시간·이용 방법을 한 장으로 정리해 보세요. 연락처는 공식 안내에서 최신 정보를 확인하세요.</p>') +
+            card('같은 반응, 상태에 따라 다르게', '<div id="hh5c"></div><p class="ask">같은 반응인데 상태에 따라 값이 달라진 것은 어느 반응이었나요? 차이가 가장 큰 반응과 그 까닭을 써 보세요.</p>') + '</div>';
           var items = RS.map(function(rs, i){ var g = rec.filter(function(d){ return d.r === i; });
-            return {label:rs.short + ' (' + g.length + '회)', v:rs.help, color:rs.good ? PAL[1] : PAL[4], text:g.length ? String(rs.help) : '기록 없음'}; });
-          $('hh5a').innerHTML = hbars(items, 100);
+            var av = g.length ? mean(g.map(function(d){ return d.help; })) : 0;
+            return {label:rs.short + ' (' + g.length + '회)', v:av, color:rs.good ? PAL[1] : PAL[4], text:g.length ? '내 기록 평균 ' + f(av, 0) : '기록 없음'}; });
+          $('hh5a').innerHTML = hbars(items, 100) + '<p class="msg">기준선(아무 말도 하지 않을 때)은 ' + BASE + '입니다 — 모두 교육용 모형값이에요.</p>';
           var rows = [[DUR[0], FUN[0], SN[0]], [DUR[0], FUN[1], SN[1]], [DUR[1], FUN[0], SN[1]], [DUR[1], FUN[1], SN[2]]].map(function(rw, i){
             var d = i >> 1, u = i & 1, n = rec.filter(function(x){ return x.d === d && x.u === u; }).length; return rw.concat([n + '회']); });
           $('hh5b').innerHTML = tableHTML(['기간', '일상', '구분', '기록'], rows);
+          var hit = rec.filter(function(d){ return d.hit; }).length, hn = rec.filter(function(d){ return d.hit != null; }).length;
+          var mrows = RS.map(function(rs){
+            return [rs.short].concat(rs.hv.map(function(v){ return String(v); })).concat([String(Math.max.apply(null, rs.hv) - Math.min.apply(null, rs.hv))]);
+          });
+          $('hh5c').innerHTML = tableHTML(['반응', '일시적', '지켜보기', '지속 상태', '차이'], mrows) +
+            '<p class="msg">예측 적중 ' + hit + ' / ' + (hn || rec.length) + '회. ' +
+            '"비밀 약속"처럼 가벼운 상태에서는 그럭저럭 통하던 반응이 지속되는 상태에서는 도움 연결을 막습니다. ' +
+            '어느 상태에서도 가장 높은 쪽은 <b>듣고 함께 도움 경로를 찾는 반응</b>이에요 — 의지로 버티게 하는 것이 답이 아닙니다.</p>';
         }
       };
     })();
@@ -503,7 +537,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

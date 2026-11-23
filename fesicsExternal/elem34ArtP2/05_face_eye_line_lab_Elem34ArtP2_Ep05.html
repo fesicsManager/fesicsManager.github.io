@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -237,6 +238,8 @@ tbody tr:hover{background:#F5F8FB}
 <p><span class="fx-formula">눈 높이 비율 = 꼭대기에서 눈까지 ÷ 꼭대기에서 턱까지</span> (어른 약 0.50, 어린이 약 0.54로 정한 대략값) · <span class="fx-formula">코끝 = 눈 + (1 − 눈) ÷ 2</span> · <span class="fx-formula">입 = 코끝 + (1 − 코끝) × 0.4</span></p>
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
 · 사람마다 조금씩 달라요. 그래서 그 사람 얼굴을 직접 재 보는 거예요.<br>
+· <b>긴 앞머리</b>는 이마를 덮어 얼굴 꼭대기가 아래로 내려 보이고, <b>모자</b>는 머리가 위로 솟아 보여요. 그래서 &lsquo;보이는 가운데&rsquo;가 옮겨 보여요 — 옮겨 보이는 양은 제로 랩의 <b>교육용 모형값</b>이에요.<br>
+· 그래도 <b>종이 띠로 잰 눈 자리는 바뀌지 않아요.</b> 눈으로 짐작하지 말고 재어 보아야 하는 까닭이에요.<br>
 · 잴 때는 종이 띠를 눈 가까이에 대지 않아요.</div>
 <h3>🌍 생활 속에서</h3>
 <ul><li>자리를 재고 그리면 진짜 얼굴처럼 보여요. 만화 캐릭터처럼 일부러 눈을 크게, 위로 그리는 것은 "재고 나서 고른" 표현이에요.</li></ul>
@@ -296,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,25 +440,47 @@ var LAB = (function(){
         if (maxW && w > maxW){ c.save(); c.translate(x, y); c.scale(maxW / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       function disc(c, x, y, r, fill){ c.fillStyle = fill; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
       var WHO = [{n:'어린이 얼굴', s:'어린이', eye:0.54}, {n:'어른 얼굴', s:'어른', eye:0.50}];
+      /* 머리 모양에 따라 얼굴 꼭대기가 어디로 보이는지 — 제로 랩의 교육용 모형값
+         dn: 앞머리가 이마를 덮어 꼭대기가 아래로 내려 보이는 양, up: 모자가 위로 솟아 보이는 양 */
+      var HAIR = [{n:'그대로', s:'그대로', up:0, dn:0}, {n:'긴 앞머리', s:'앞머리', up:0, dn:0.12}, {n:'모자 쓰기', s:'모자', up:0.10, dn:0}];
       var CLASS = [0.49, 0.5, 0.5, 0.51, 0.51, 0.52, 0.52, 0.52, 0.53, 0.53, 0.53, 0.54, 0.54, 0.54, 0.54, 0.55, 0.55, 0.55, 0.56, 0.56, 0.57, 0.57, 0.58, 0.59];
-      function calc(p){ var e = WHO[p.w].eye, nose = e + (1 - e) / 2, mouth = nose + (1 - nose) * 0.4, diff = p.e - e;
-        return {eye:e, nose:nose, mouth:mouth, diff:diff, ok:Math.abs(diff) <= 0.05, topQ:p.e <= 0.25}; }
+      function pc(v){ return Math.round(v * 100); }
+      function calc(p){
+        var e = WHO[p.w].eye, hr = HAIR[p.h], span = 1 + hr.up - hr.dn, tp = hr.dn - hr.up;
+        var looks = (e + hr.up - hr.dn) / span, vmid = (1 + tp) / 2;
+        var nose = e + (1 - e) / 2, mouth = nose + (1 - nose) * 0.4, diff = p.e - e, dlook = p.e - looks;
+        var ok = Math.abs(diff) <= 0.05, okLook = Math.abs(dlook) <= 0.05;
+        return {eye:e, nose:nose, mouth:mouth, diff:diff, ok:ok, looks:looks, vmid:vmid, dlook:dlook,
+          okLook:okLook, trick:p.h > 0, topQ:p.e <= 0.25, tp:tp};
+      }
+      function verdict(q, h){
+        if (q.ok) return h && !q.okLook ? '잰 자리와 거의 같아요! (눈에 보이는 느낌과는 달라요)' : '잰 자리와 거의 같아요!';
+        if (q.okLook) return '눈에 보이는 느낌대로 그렸어요 — 그런데 종이 띠로 재면 ' + pc(Math.abs(q.diff)) + '% 어긋나요';
+        return '잰 눈 자리보다 ' + pc(Math.abs(q.diff)) + '% ' + (q.diff < 0 ? '위' : '아래') + '에 그렸어요';
+      }
       return {
         sceneHeight: 420,
-        idle: '누구 얼굴인지와 내가 그릴 눈 높이를 고른 뒤 <b>종이 띠로 재기</b>를 누르세요.',
-        shortHint: '뭉치처럼 꼭대기(0.2~0.25)에 눈을 그려 보고, 가운데(0.5)로도 그려 비교해 보세요.',
+        idle: '누구 얼굴인지, 머리 모양, 내가 그릴 눈 높이를 고른 뒤 <b>종이 띠로 재기</b>를 누르세요.',
+        shortHint: '머리 모양을 그대로·긴 앞머리·모자로 바꾸어 보세요. 잰 눈 자리가 바뀌나요, 보이는 느낌만 바뀌나요?',
         params: [
           {key:'w', type:'seg', label:'누구 얼굴', cols:2, value:0, options:WHO.map(function(x){ return x.n; })},
-          {key:'e', type:'range', label:'내가 그릴 눈 높이 (꼭대기 0 → 턱 1)', min:0.2, max:0.7, step:0.05, value:0.25, fmt:function(v){ return '꼭대기에서 ' + Math.round(v * 100) + '%'; }}
+          {key:'h', type:'seg', label:'머리 모양 (눈을 속이는 것)', cols:3, value:0, options:HAIR.map(function(x){ return x.n; }),
+            note:'※ 보이는 가운데가 옮겨 보이는 양은 제로 랩의 교육용 모형값이에요. 종이 띠로 잰 눈 자리는 바뀌지 않아요.'},
+          {key:'e', type:'range', label:'내가 그릴 눈 높이 (꼭대기 0 → 턱 1)', min:0.2, max:0.7, step:0.05, value:0.25, fmt:function(v){ return '꼭대기에서 ' + pc(v) + '%'; }}
         ],
         compute: function(p){ return calc(p); },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#FBFAF7'; c.fillRect(0, 0, W, H);
-          var q = calc(p), top = 30, fh = 300, cx = Math.max(150, W * 0.45), fw = fh * 0.36, Y = function(v){ return top + fh * v; }, k = r ? Math.min(1, tau * 1.4) : 0;
+          var q = calc(p), top = 40, fh = 280, cx = Math.max(150, W * 0.45), fw = fh * 0.36, Y = function(v){ return top + fh * v; }, k = r ? Math.min(1, tau * 1.4) : 0;
           c.fillStyle = '#F1F4F8'; c.fillRect(cx - fw - 10, top, (fw + 10) * 2, fh * 0.25);
           c.fillStyle = '#F6D7B8'; c.beginPath(); c.ellipse(cx, top + fh / 2, fw, fh / 2, 0, 0, Math.PI * 2); c.fill();
           c.fillStyle = '#5A3E2B'; c.beginPath(); c.ellipse(cx, top + fh * 0.2, fw * 1.02, fh * 0.21, 0, Math.PI, Math.PI * 2); c.fill();
           c.fillRect(cx - fw * 1.02, top + fh * 0.2, fw * 0.25, fh * 0.12); c.fillRect(cx + fw * 0.77, top + fh * 0.2, fw * 0.25, fh * 0.12);
+          if (p.h === 1){ c.fillStyle = '#5A3E2B'; c.beginPath(); c.ellipse(cx, top, fw * 1.02, fh * 0.13, 0, 0, Math.PI * 2); c.fill(); }
+          if (p.h === 2){
+            c.fillStyle = '#2E6B9E'; c.beginPath(); c.ellipse(cx, top + fh * 0.03, fw * 0.95, fh * 0.12, 0, 0, Math.PI * 2); c.fill();
+            c.fillRect(cx - fw * 1.15, top + fh * 0.12, fw * 2.3, fh * 0.03);
+          }
           var ex = Y(r ? q.eye : p.e);
           disc(c, cx - fw * 0.42, ex, 8, '#26313D'); disc(c, cx + fw * 0.42, ex, 8, '#26313D');
           if (r){ seg(c, cx - 7, Y(q.nose) - 18, cx - 8, Y(q.nose), '#B07A55', 2); seg(c, cx - 8, Y(q.nose), cx + 5, Y(q.nose), '#B07A55', 2);
@@ -462,34 +488,53 @@ var LAB = (function(){
           var sx = 26; c.fillStyle = '#FFF8D6'; c.fillRect(sx, top, 22, fh); c.strokeStyle = '#C9B458'; c.lineWidth = 1.5; c.strokeRect(sx, top, 22, fh);
           if (r){ seg(c, sx - 4, Y(0.5), sx + 26, Y(0.5), PAL[6], 2, [4, 3]); txt(c, '반', sx + 30, Y(0.5) + 6, {color:PAL[6]}); }
           var lx1 = cx - fw - 20, lx2 = Math.min(W - 10, cx + fw + 60);
+          if (p.h > 0) seg(c, lx1, Y(q.vmid), lx2, Y(q.vmid), PAL[3], 2, [3, 5]);
           seg(c, lx1, Y(p.e), lx2, Y(p.e), PAL[4], 2.5, [6, 4]);
           if (r){ c.globalAlpha = k; seg(c, lx1, Y(q.eye), lx2, Y(q.eye), PAL[1], 3); c.globalAlpha = 1; }
           var tx = Math.min(W - 12, cx + fw + 64);
-          if (W >= 520){ txt(c, '내 눈 ' + Math.round(p.e * 100) + '%', tx, Y(p.e) + 6, {color:PAL[4], bold:true});
-            if (r){ txt(c, '잰 눈 약 ' + Math.round(q.eye * 100) + '%', tx, Y(q.eye) + (Math.abs(q.eye - p.e) < 0.05 ? 28 : 6), {color:PAL[1], bold:true});
-              txt(c, '코끝 약 ' + Math.round(q.nose * 100) + '%', tx, Y(q.nose) + 6, {color:'#8C99A8'}); txt(c, '입 약 ' + Math.round(q.mouth * 100) + '%', tx, Y(q.mouth) + 6, {color:'#8C99A8'}); } }
-          txtF(c, r ? (q.ok ? '잰 자리와 거의 같아요!' : '잰 눈 자리보다 ' + Math.round(Math.abs(q.diff) * 100) + '% ' + (q.diff < 0 ? '위' : '아래') + '에 그렸어요') : '예상: 접은 자리(반)에는 무엇이 있을까?', 12, H - 40, {bold:true, color:r ? (q.ok ? PAL[1] : PAL[4]) : '#1E2833'}, W - 24);
-          txtF(c, q.topQ ? '위 1/4 안에 눈을 그렸어요 — 이마가 없어져요' : WHO[p.w].n + ' · 내 눈 높이 ' + Math.round(p.e * 100) + '%', 12, H - 12, {color:'#4A5868'}, W - 24);
+          if (W >= 520){ txt(c, '내 눈 ' + pc(p.e) + '%', tx, Y(p.e) + 6, {color:PAL[4], bold:true});
+            if (r){ txt(c, '잰 눈 약 ' + pc(q.eye) + '%', tx, Y(q.eye) + (Math.abs(q.eye - p.e) < 0.05 ? 28 : 6), {color:PAL[1], bold:true});
+              txt(c, '코끝 약 ' + pc(q.nose) + '%', tx, Y(q.nose) + 6, {color:'#8C99A8'}); txt(c, '입 약 ' + pc(q.mouth) + '%', tx, Y(q.mouth) + 6, {color:'#8C99A8'}); } }
+          txtF(c, r ? verdict(q, p.h) : '예상: 접은 자리(반)에는 무엇이 있을까?', 12, H - 40, {bold:true, color:r ? (q.ok ? PAL[1] : (q.okLook ? PAL[3] : PAL[4])) : '#1E2833'}, W - 24);
+          txtF(c, q.topQ ? '위 1/4 안에 눈을 그렸어요 — 이마가 없어져요'
+            : (p.h > 0 ? HAIR[p.h].n + ': 보이는 가운데가 약 ' + pc(q.vmid) + '% 로 옮겨 보여요 · 내 눈 ' + pc(p.e) + '%'
+              : WHO[p.w].n + ' · 내 눈 높이 ' + pc(p.e) + '%'), 12, H - 12, {color:'#4A5868'}, W - 24);
         },
         stats: function(p, r){
-          return [['얼굴', WHO[p.w].n], ['내가 그린 눈 높이', '꼭대기에서 ' + Math.round(p.e * 100) + '%', PAL[4]],
-            ['종이 띠로 잰 눈 자리', '약 ' + Math.round(r.eye * 100) + '% (대략 가운데' + (p.w === 0 ? '보다 조금 아래)' : ')'), PAL[1]],
-            ['차이', r.ok ? '거의 같음' : Math.round(Math.abs(r.diff) * 100) + '% ' + (r.diff < 0 ? '너무 위' : '너무 아래'), r.ok ? PAL[1] : PAL[4]],
-            ['코끝 · 입 자리 (대략)', '약 ' + Math.round(r.nose * 100) + '% · 약 ' + Math.round(r.mouth * 100) + '%', PAL[7]]];
+          return [['얼굴', WHO[p.w].n], ['머리 모양', HAIR[p.h].n, PAL[3]],
+            ['내가 그린 눈 높이', '꼭대기에서 ' + pc(p.e) + '%', PAL[4]],
+            ['종이 띠로 잰 눈 자리', '약 ' + pc(r.eye) + '% (대략 가운데' + (p.w === 0 ? '보다 조금 아래)' : ')'), PAL[1]],
+            ['눈이 있어 보이는 자리 (착시, 모형)', r.trick ? '약 ' + pc(r.looks) + '% — 잰 자리와 ' + pc(Math.abs(r.looks - r.eye)) + '% 어긋나 보여요' : '약 ' + pc(r.looks) + '% — 잰 자리와 같아요', r.trick ? PAL[3] : PAL[7]],
+            ['차이 (잰 자리와)', r.ok ? '거의 같음' : pc(Math.abs(r.diff)) + '% ' + (r.diff < 0 ? '너무 위' : '너무 아래'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', verdict(r, p.h), r.ok ? PAL[1] : (r.okLook ? PAL[3] : PAL[4])],
+            ['코끝 · 입 자리 (대략)', '약 ' + pc(r.nose) + '% · 약 ' + pc(r.mouth) + '%', PAL[7]]];
         },
-        columns: ['얼굴', '내 눈 높이', '잰 눈 자리', '차이'],
-        record: function(p, r){ return {w:p.w, e:p.e, eye:r.eye, diff:r.diff, ok:r.ok}; },
-        row: function(d){ return [WHO[d.w].s, Math.round(d.e * 100) + '%', '약 ' + Math.round(d.eye * 100) + '%', d.ok ? '거의 같음' : (d.diff < 0 ? '위로 ' : '아래로 ') + Math.round(Math.abs(d.diff) * 100) + '%']; },
+        columns: ['얼굴', '머리 모양', '내 눈 높이', '잰 눈 자리', '보이는 자리', '차이'],
+        record: function(p, r){ return {w:p.w, h:p.h, e:p.e, eye:r.eye, looks:r.looks, diff:r.diff, ok:r.ok, okLook:r.okLook}; },
+        row: function(d){ return [WHO[d.w].s, HAIR[d.h].s, pc(d.e) + '%', '약 ' + pc(d.eye) + '%', '약 ' + pc(d.looks) + '%',
+          d.ok ? '거의 같음' : (d.okLook ? '보이는 느낌대로' : (d.diff < 0 ? '위로 ' : '아래로 ') + pc(Math.abs(d.diff)) + '%')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
+            card('머리 모양이 눈을 속일 때 (교육용 모형)', '<div id="a5c"></div><p class="ask">긴 앞머리와 모자를 썼을 때 <b>잰 눈 자리</b>가 바뀌었나요? <b>보이는 자리</b>는 어떻게 바뀌었나요? 그림을 그릴 때 왜 눈으로 짐작하지 말고 재어 보아야 할까요?</p>') +
             card('반 친구 24명의 눈 자리 (가상) vs 내가 그린 눈', '<div id="a5a"></div><p class="ask">위 1/4(25%) 안에 눈이 있는 친구가 있었나요? 내가 그린 눈 높이는 반 친구들의 눈 자리와 비교해 어땠나요?</p>') +
             card('내 기록', '<div id="a5b"></div><p class="ask">과제: 가족 한 명의 얼굴을 종이 띠로 재고 눈·코·입 자리를 표시한 뒤, 그 자리대로 얼굴을 그려 보세요. 잴 때는 띠를 눈 가까이에 대지 않기.</p>') + '</div>';
+          var rows = [];
+          WHO.forEach(function(wh, wi){
+            HAIR.forEach(function(hr, hi){
+              var q = calc({w:wi, h:hi, e:0.5});
+              rows.push([wh.s, hr.n, '약 ' + pc(q.eye) + '%', '약 ' + pc(q.looks) + '%', '약 ' + pc(q.vmid) + '%',
+                rec.some(function(d){ return d.w === wi && d.h === hi; }) ? '해 봄' : '·']);
+            });
+          });
+          $('a5c').innerHTML = tableHTML(['얼굴', '머리 모양', '잰 눈 자리', '보이는 눈 자리', '보이는 가운데', '나'], rows) +
+            '<p class="note">※ 보이는 자리는 제로 랩의 교육용 모형값이에요. 종이 띠로 잰 눈 자리는 머리 모양과 상관없이 늘 같아요.</p>';
           var bins = [['위 1/4 (25% 이하)', function(v){ return v <= 0.25; }], ['26~45%', function(v){ return v > 0.25 && v < 0.455; }], ['46~50%', function(v){ return v >= 0.455 && v < 0.505; }],
             ['51~55%', function(v){ return v >= 0.505 && v < 0.555; }], ['56~60%', function(v){ return v >= 0.555 && v < 0.605; }], ['61% 이상', function(v){ return v >= 0.605; }]], items = [];
           bins.forEach(function(b){ var n = CLASS.filter(b[1]).length, mine = rec.filter(function(d){ return b[1](d.e); }).length;
             items.push({label:b[0] + ' · 반', v:n, color:PAL[1], text:n + '명'}); if (mine) items.push({label:b[0] + ' · 내 그림', v:mine, color:PAL[4], text:mine + '번'}); });
           $('a5a').innerHTML = hbars(items, 24);
-          $('a5b').innerHTML = tableHTML(['얼굴', '내 눈 높이', '잰 눈 자리', '판정'], rec.slice(-8).map(function(d){ return [WHO[d.w].s, Math.round(d.e * 100) + '%', Math.round(d.eye * 100) + '%', d.ok ? '거의 같음' : '다름']; }));
+          $('a5b').innerHTML = tableHTML(['얼굴', '머리 모양', '내 눈 높이', '잰 눈 자리', '판정'], rec.slice(-8).map(function(d){
+            return [WHO[d.w].s, HAIR[d.h].s, pc(d.e) + '%', pc(d.eye) + '%', d.ok ? '거의 같음' : (d.okLook ? '보이는 느낌대로' : '다름')]; }));
         }
       };
     })();
@@ -498,7 +543,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

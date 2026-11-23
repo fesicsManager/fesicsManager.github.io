@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -432,7 +434,15 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var R = [17, 28, 37, 73, 104, 130, 414, 348, 142, 52, 51, 23];
+      /* 달마다 강수량 — 평년값을 교육용으로 어림한 값(mm) */
+      var CITY = [
+        {n:'서울', r:[17, 28, 37, 73, 104, 130, 414, 348, 142, 52, 51, 23]},
+        {n:'강릉', r:[83, 76, 83, 83, 85, 94, 230, 262, 220, 110, 87, 60]},
+        {n:'제주', r:[70, 65, 90, 95, 100, 185, 240, 280, 185, 85, 70, 60]},
+        {n:'대구', r:[20, 28, 45, 65, 75, 130, 220, 230, 130, 45, 35, 20]}
+      ];
+      var R = CITY[0].r;
+      function totOf(ci){ return CITY[ci].r.reduce(function(s, v){ return s + v; }, 0); }
       var SEA = [{n:'봄 (3~5월)', m:[2, 3, 4]}, {n:'여름 (6~8월)', m:[5, 6, 7]}, {n:'가을 (9~11월)', m:[8, 9, 10]}, {n:'겨울 (12~2월)', m:[11, 0, 1]}];
       var PRED = [{n:'약 5%', v:5}, {n:'약 15%', v:15}, {n:'약 25% (계절마다 같음)', v:25}, {n:'절반이 넘음 (약 60%)', v:60}];
       var TOT = R.reduce(function(s, v){ return s + v; }, 0);
@@ -443,52 +453,62 @@ var LAB = (function(){
         params: [
           {key:'s', type:'seg', label:'계절', cols:4, value:1, options:SEA.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'나의 예측 (1년 비 중 이 계절)', cols:2, value:2, options:PRED.map(function(x){ return x.n; }),
-            note:'뭉치는 "계절이 넷이니까 4분의 1씩!"이라고 했어요.'}
+            note:'뭉치는 "계절이 넷이니까 4분의 1씩!"이라고 했어요.'},
+          {key:'c', type:'seg', label:'도시', cols:4, value:0, options:CITY.map(function(x){ return x.n; }),
+            note:'도시를 바꾸면 같은 계절인데도 비율이 달라져요. 서울은 여름에 크게 쏠리고, 강릉은 가을·겨울에도 꽤 와요. ※ 달별 강수량은 평년값을 10mm 단위로 어림한 교육용 값이에요.'}
         ],
         compute: function(p){
-          var sum = SEA[p.s].m.reduce(function(s, i){ return s + R[i]; }, 0), pct = sum / TOT * 100, best = 0;
+          var RR = CITY[p.c].r, TT = totOf(p.c);
+          var sum = SEA[p.s].m.reduce(function(s, i){ return s + RR[i]; }, 0), pct = sum / TT * 100, best = 0;
           PRED.forEach(function(q, i){ if (Math.abs(q.v - pct) < Math.abs(PRED[best].v - pct)) best = i; });
-          return {sum:sum, pct:pct, best:best, ok:p.g === best};
+          var vd = pct >= 50 ? '1년 비의 절반이 넘게 이 계절에 와요' : pct >= 35 ? '이 계절에 많이 오지만 절반은 안 돼요'
+            : (pct >= 20 && pct <= 30) ? '네 계절 가운데 고른 편이에요' : '이 계절에는 적게 와요';
+          return {sum:sum, pct:pct, best:best, ok:p.g === best, ci:p.c, tot:TT, vd:vd, jan:RR[0], jul:RR[6]};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.85, 1) : 0, m = SEA[p.s].m, x0 = 44, bw = (W - x0 - 14) / 12, top = 30, bot = H - 140, sc = (bot - top) / 420;
+          var RR = CITY[p.c].r, TT = totOf(p.c);
           seg(c, x0, bot, W - 10, bot, '#9AA5B1', 1.5);
           [0, 200, 400].forEach(function(v){ var y = bot - v * sc; seg(c, x0 - 4, y, W - 10, y, '#E6EBF1', 1); txt(c, String(v), x0 - 8, y + 6, {align:'right', color:'#9AA5B1'}); });
           for (var i = 0; i < 12; i++){
-            var on = m.indexOf(i) >= 0, h = R[i] * sc;
+            var on = m.indexOf(i) >= 0, h = RR[i] * sc;
             c.fillStyle = on ? PAL[0] : '#B8C2CC'; c.fillRect(x0 + i * bw + 2, bot - h, bw - 4, h);
             if (bw > 24 || i % 2 === 0) txt(c, String(i + 1), x0 + i * bw + bw / 2, bot + 20, {align:'center', color:'#4A5868'});
           }
           txt(c, 'mm', 6, top - 8, {color:'#9AA5B1'}); txt(c, '월', W - 12, bot + 20, {align:'right', color:'#9AA5B1'});
+          txt(c, CITY[p.c].n, W - 12, top - 8, {align:'right', bold:true, color:PAL[0]});
           var sy = bot + 46, full = W - 30;
           if (r){
-            var a = r.sum / TOT * full * k, b = (TOT - r.sum) / TOT * full * k;
+            var a = r.sum / TT * full * k, b = (TT - r.sum) / TT * full * k;
             c.fillStyle = PAL[0]; c.fillRect(16, sy, a, 18);
             c.fillStyle = '#B8C2CC'; c.fillRect(16, sy + 26, b, 18);
             if (k >= 1){
               txt(c, SEA[p.s].n.split(' ')[0] + ' 약 ' + Math.round(r.sum / 10) * 10 + 'mm', 20 + Math.min(a, full - 150), sy + 15, {bold:true, color:a > full - 150 ? '#fff' : '#1E2833'});
-              txt(c, '나머지 약 ' + Math.round((TOT - r.sum) / 10) * 10 + 'mm', 20 + Math.min(b, full - 170), sy + 41, {color:b > full - 170 ? '#1E2833' : '#1E2833'});
+              txt(c, '나머지 약 ' + Math.round((TT - r.sum) / 10) * 10 + 'mm', 20 + Math.min(b, full - 170), sy + 41, {color:b > full - 170 ? '#1E2833' : '#1E2833'});
             }
           }
-          txt(c, r && k >= 1 ? '1년 비의 약 ' + Math.round(r.pct) + '%' + (r.ok ? ' — 예측 적중!' : ' — 예측과 달라요') : '1년 약 ' + Math.round(TOT / 100) * 100 + 'mm', 16, H - 14, {bold:true, color:r && k >= 1 ? (r.ok ? PAL[1] : PAL[4]) : '#1E2833'});
+          txt(c, r && k >= 1 ? '1년 비의 약 ' + Math.round(r.pct) + '%' + (r.ok ? ' — 예측 적중!' : ' — 예측과 달라요') : '1년 약 ' + Math.round(TT / 100) * 100 + 'mm', 16, H - 14, {bold:true, color:r && k >= 1 ? (r.ok ? PAL[1] : PAL[4]) : '#1E2833'});
         },
         stats: function(p, r){
-          return [['계절', SEA[p.s].n], ['석 달 강수량 합', '약 ' + Math.round(r.sum / 10) * 10 + 'mm'], ['1년 강수량', '약 ' + Math.round(TOT / 100) * 100 + 'mm'],
+          return [['도시', CITY[r.ci].n], ['계절', SEA[p.s].n], ['석 달 강수량 합', '약 ' + Math.round(r.sum / 10) * 10 + 'mm'], ['1년 강수량', '약 ' + Math.round(r.tot / 100) * 100 + 'mm'],
             ['1년 중 비율', '약 ' + Math.round(r.pct) + '%', r.pct > 50 ? PAL[4] : PAL[0]],
             ['나의 예측', PRED[p.g].n + (r.ok ? ' — 맞음' : ' — 실제에 가까운 것은 ' + PRED[r.best].n), r.ok ? PAL[1] : PAL[4]],
-            ['1월과 7월', '약 20mm 대 약 410mm — 스무 배쯤']];
+            ['1월과 7월', '약 ' + Math.round(r.jan / 10) * 10 + 'mm 대 약 ' + Math.round(r.jul / 10) * 10 + 'mm — 약 ' + f(r.jul / Math.max(1, r.jan), 1) + '배'],
+            ['판정', r.vd, r.pct >= 50 ? PAL[4] : r.pct >= 20 && r.pct <= 30 ? PAL[1] : PAL[6]]];
         },
-        columns: ['계절', '강수량 합', '비율', '나의 예측', '맞음'],
-        record: function(p, r){ return {s:p.s, g:p.g, sum:r.sum, pct:r.pct, ok:r.ok}; },
-        row: function(d){ return [SEA[d.s].n.split(' ')[0], '약 ' + Math.round(d.sum / 10) * 10 + 'mm', '약 ' + Math.round(d.pct) + '%', PRED[d.g].n.split(' (')[0], d.ok ? '○' : '✕']; },
+        columns: ['도시', '계절', '강수량 합', '비율', '나의 예측', '맞음'],
+        record: function(p, r){ return {s:p.s, g:p.g, c:p.c, sum:r.sum, pct:r.pct, ok:r.ok}; },
+        row: function(d){ return [CITY[d.c].n, SEA[d.s].n.split(' ')[0], '약 ' + Math.round(d.sum / 10) * 10 + 'mm', '약 ' + Math.round(d.pct) + '%', PRED[d.g].n.split(' (')[0], d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('계절별 비율 (서울 평년값 어림)', '<div id="rn1"></div><p class="ask">"계절마다 4분의 1씩(25%)"과 실제는 얼마나 달랐나요? 비가 가장 적은 계절은 언제인가요?</p>') +
             card('나의 예측 기록', '<div id="rn2"></div><p class="ask">과제: 기상청 누리집에서 우리 지역의 월별 강수량을 찾아 막대그래프를 그리고, 여름 석 달이 1년의 몇 %인지 계산해 보세요.</p>') + '</div>';
-          var seen = {}, items = [];
-          rec.forEach(function(d){ if (seen[d.s]) return; seen[d.s] = 1; items.push({label:SEA[d.s].n.split(' ')[0], v:d.pct, color:d.s === 1 ? PAL[0] : PAL[7], text:'약 ' + Math.round(d.pct) + '%'}); });
+          var seen = {}, items = [], cs = {};
+          rec.forEach(function(d){ var key = d.c + '|' + d.s; if (seen[key]) return; seen[key] = 1; cs[d.s] = 1;
+            items.push({label:CITY[d.c].n + ' ' + SEA[d.s].n.split(' ')[0], v:d.pct, color:d.s === 1 ? PAL[0] : PAL[7], text:'약 ' + Math.round(d.pct) + '%'}); });
           items.push({label:'뭉치 생각', v:25, color:PAL[6], text:'25%'});
-          $('rn1').innerHTML = hbars(items, 100) + (Object.keys(seen).length < 4 ? '<p class="msg">아직 해 보지 않은 계절이 있어요.</p>' : '');
+          $('rn1').innerHTML = hbars(items, 100) + (Object.keys(cs).length < 4 ? '<p class="msg">아직 해 보지 않은 계절이 있어요.</p>' : '')
+            + '<p class="msg">같은 여름이라도 도시마다 비율이 달라요. 여름 쏠림은 <b>지역에 따라</b> 세기가 달라요.</p>';
           var ok = rec.filter(function(d){ return d.ok; }).length;
           $('rn2').innerHTML = tableHTML(['기록', '맞힌 예측', '적중률'], [[rec.length + '번', ok + '번', f(ok / rec.length * 100, 0) + '%']]);
         }
@@ -499,7 +519,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

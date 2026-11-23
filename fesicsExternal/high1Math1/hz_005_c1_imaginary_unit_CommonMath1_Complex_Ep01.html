@@ -151,12 +151,18 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="허수 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="x">실수 x <b><span id="x_v">2.0</span></b></label><input type="range" id="x" min="-4" max="4" step="0.5" value="2" data-fmt="1"></div><div class="ctl"><label for="n">i를 몇 번 곱할까 <b><span id="n_v">1</span></b></label><input type="range" id="n" min="0" max="4" step="1" value="1"></div><div class="row"><button class="btn go" id="goBtn">🔄 i를 곱해 돌려 보기</button></div>
+      <div class="ctl"><label for="x">처음 수의 실수부 x <b><span id="x_v">2.0</span></b></label><input type="range" id="x" min="-4" max="4" step="0.5" value="2" data-fmt="1"></div><div class="ctl"><label for="y">처음 수의 허수부 y <b><span id="y_v">0.0</span></b> <span style="font-size:.85rem">(0이면 수직선 위의 실수)</span></label><input type="range" id="y" min="-4" max="4" step="0.5" value="0" data-fmt="1"></div><div class="ctl"><label for="n">i를 몇 번 곱할까 <b><span id="n_v">1</span></b></label><input type="range" id="n" min="0" max="4" step="1" value="1"></div>
+      <div class="pick" id="predBox">✍ <b>돌리기 전에 짚어 보기</b> — i를 다 곱한 점은 어디에 있을까요?
+        <select id="predIn" style="background:#0f1727;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:.35rem .4rem"><option value="">고르기</option><option value="q1">1사분면</option><option value="q2">2사분면</option><option value="q3">3사분면</option><option value="q4">4사분면</option><option value="rx">실수축 위</option><option value="ry">허수축 위</option><option value="o">원점</option></select>
+        <button class="btn" id="predBtn" style="flex:0 0 auto">채점</button>
+        <div id="predRes" style="margin-top:.45rem">고른 다음 아래 단추로 돌려 보세요.</div></div>
+      <div class="row"><button class="btn go" id="goBtn">🔄 i를 곱해 돌려 보기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>처음 수</th><th>제곱</th><th>실수 범위에서 가능?</th><th>i를 곱한 결과</th><th>회전각</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>처음 수 z</th><th>z²</th><th>z²가 음수?</th><th>i를 곱한 결과</th><th>회전각</th><th>점이 놓인 자리</th><th>내가 짚은 것</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,13 +241,33 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function st(){var x=v('x'),n=v('n');var pts=[[x,0]];
+var predPick='',predHit=null;
+function zone(p){var x=p[0],y=p[1],ez=1e-9;
+if(Math.abs(x)<ez&&Math.abs(y)<ez)return 'o';
+if(Math.abs(y)<ez)return 'rx';
+if(Math.abs(x)<ez)return 'ry';
+return (x>0?(y>0?'q1':'q4'):(y>0?'q2':'q3'));}
+function zoneName(k){return ({o:'원점',rx:'실수축 위',ry:'허수축 위',q1:'1사분면',q2:'2사분면',q3:'3사분면',q4:'4사분면'})[k]||'?';}
+function st(){var x=v('x'),y=v('y'),n=v('n');var pts=[[x,y]];
 for(var i=0;i<4;i++){var p=pts[pts.length-1];pts.push([-p[1],p[0]]);}
-return{x:x,n:n,pts:pts,cur:pts[n],ang:n*90};}
+var sr=x*x-y*y,si=2*x*y,ez=1e-9;
+var kind=(Math.abs(si)>ez)?'cx':((sr<-ez)?'neg':'pos');
+return{x:x,y:y,n:n,pts:pts,cur:pts[n],ang:n*90,r:Math.sqrt(x*x+y*y),
+sr:sr,si:si,kind:kind,negSq:(kind==='neg'),
+sqText:(kind==='cx')?'실수가 아닌 복소수':(kind==='neg')?'음수 실수':'0 이상인 실수',
+zn:zone(pts[n])};}
+function gradePred(){var o=st(),el=$('predRes'),g=$('predIn').value;
+if(!g){predPick='';predHit=null;el.innerHTML='먼저 자리를 하나 골라 보세요.';draw();return;}
+predPick=g;predHit=(g===o.zn);
+el.innerHTML=(predHit?'✅ <b>맞혔어요.</b> ':'❌ <b>달라요.</b> ')
++'i를 '+o.n+'번 곱하면 '+(o.n*90)+'° 돌아가서 '+cstr(o.cur[0],o.cur[1],1)+' — <b>'+zoneName(o.zn)+'</b>예요.'
++(predHit?'':' 고른 것은 '+zoneName(g)+'였어요.')
++'<br>허수부 y 를 바꾸면 같은 횟수로도 다른 자리로 갑니다.';
+draw();}
 function draw(){clr();var o=st();
 var pl=plot(-5,5,-5,5,44);axes(pl,'실수축','허수축');
 ctx.strokeStyle='#2b3550';ctx.lineWidth=1;
-ctx.beginPath();ctx.arc(pl.X(0),pl.Y(0),Math.abs(pl.X(o.x)-pl.X(0)),0,7);ctx.stroke();
+ctx.beginPath();ctx.arc(pl.X(0),pl.Y(0),Math.abs(pl.X(o.r)-pl.X(0)),0,7);ctx.stroke();
 var shown=Math.max(0,Math.min(o.n,Math.floor(gr*o.n+1e-9)));
 for(var i=0;i<=shown;i++){var p=o.pts[i];
 dot(pl.X(p[0]),pl.Y(p[1]),i===shown?8:5,i===shown?'#5ee0c8':'#3d5cab');
@@ -249,26 +275,63 @@ if(i===shown)label(cstr(p[0],p[1],1),pl.X(p[0])+(p[0]>=0?26:-26),pl.Y(p[1])-14,'
 arrow([pl.X(0),pl.Y(0)],[pl.X(o.pts[shown][0]),pl.Y(o.pts[shown][1])],'#7aa2ff',2.5);
 label('i를 '+o.n+'번 곱함  →  '+(o.n*90)+'° 회전',W/2,28,'#e9eefb',17);
 panel(24,H-78,W-48,62);
-label('x = '+nf(o.x,1)+' 의 제곱 = '+nf(o.x*o.x,2)+'  (실수의 제곱은 언제나 0 이상)',W/2,H-50,'#ffb86b',15);
-label('i² = −1 이 되려면 수직선 밖으로 나가야 합니다',W/2,H-24,'#9db0d4',14);
-ro(kv('x²',nf(o.x*o.x,2))+' &nbsp;'+kv('x²가 음수?','아니오')+'<br>'+kv('x·i^'+o.n,cstr(o.cur[0],o.cur[1],2))+' &nbsp;'+kv('회전각',o.ang+'°'));}
+label('z = '+cstr(o.x,o.y,1)+' 의 제곱 = '+cstr(o.sr,o.si,2)+'  ('+o.sqText+')',W/2,H-50,'#ffb86b',15);
+label(o.negSq?'수직선 밖으로 나오니 제곱이 음수가 되었습니다'
+:(o.kind==='cx'?'실수부와 허수부가 둘 다 있으면 제곱도 복소수입니다'
+:'i² = −1 이 되려면 수직선 밖으로 나가야 합니다'),W/2,H-24,'#9db0d4',14);
+ro(kv('z',cstr(o.x,o.y,1))+' &nbsp;'+kv('z²',cstr(o.sr,o.si,2))+'<br>'
++kv('z²가 음수?',o.negSq?'예 — 음수가 됐어요':(o.kind==='cx'?'실수가 아니에요':'아니오'))+'<br>'
++kv('z·i^'+o.n,cstr(o.cur[0],o.cur[1],2))+' &nbsp;'+kv('회전각',o.ang+'°')+' &nbsp;'+kv('자리',zoneName(o.zn))
++(predHit===null?'':'<br>'+kv('내가 짚은 자리',zoneName(predPick)+' '+(predHit?'✅':'❌'))));
+whyBox(o);}
+function whyBox(o){var el=$('why');if(!el)return;
+if(o.negSq){el.className='why diff';
+el.innerHTML='🎯 <b>제곱이 음수가 됐어요!</b><br>'
++'· 지금 z = '+cstr(o.x,o.y,1)+' 는 허수부만 있는 수예요. 제곱하면 '+cstr(o.sr,o.si,2)+' — <b>음수</b>입니다.<br>'
++'· 수직선(실수) 안에서는 제곱이 절대 음수가 못 돼요. 세로축으로 나오면 가능해집니다. 이것이 i 를 만든 이유예요.<br>'
++'· 허수부 y 를 '+nf(o.y,1)+'에서 0으로 돌려 보세요. 제곱이 다시 0 이상이 됩니다.';
+return;}
+if(o.kind==='cx'){el.className='why';
+el.innerHTML='🔎 <b>실수부와 허수부가 둘 다 있어요.</b><br>'
++'· z = '+cstr(o.x,o.y,1)+' 의 제곱은 '+cstr(o.sr,o.si,2)+' 로 <b>실수도 아니에요</b>. 음수냐 아니냐를 따질 수조차 없어요.<br>'
++'· 실수부를 0으로 맞추면(x = 0) 제곱이 <b>음수</b>가 됩니다. 한번 해 보세요.';
+return;}
+el.className='why same';
+el.innerHTML='✅ <b>제곱이 0 이상이에요.</b><br>'
++'· 지금은 허수부가 0이라 z 가 수직선 위의 실수예요. 실수는 제곱하면 늘 0 이상입니다 ('+nf(o.x,1)+'² = '+nf(o.sr,2)+').<br>'
++'· 허수부 y 를 0이 아닌 값으로 올리고 실수부 x 를 0으로 내려 보세요. <b>제곱이 음수가 되는 경우</b>를 직접 만들 수 있어요.';}
 function record(){var o=st();
-return{cells:[nf(o.x,1),nf(o.x*o.x,2),o.x*o.x<0?'가능':'불가능(0 이상)',cstr(o.cur[0],o.cur[1],2),o.ang+'°'],
-sq:o.x*o.x,n:o.n,back:(o.n%4===0),neg:(o.n===2)};}
-function analyze(){var anyNeg=rows.some(function(r){return r.sq<0;});
+return{cells:[cstr(o.x,o.y,1),cstr(o.sr,o.si,2),
+o.negSq?'<span class="ok">예 (음수!)</span>':(o.kind==='cx'?'실수가 아님':'아니오 (0 이상)'),
+cstr(o.cur[0],o.cur[1],2),o.ang+'°',zoneName(o.zn),
+(predHit===null?'—':zoneName(predPick)+' '+(predHit?'✅':'❌'))],
+sq:o.sr,n:o.n,back:(o.n%4===0),negSq:o.negSq,kind:o.kind,zn:o.zn,hit:predHit};}
+function analyze(){var negs=rows.filter(function(r){return r.negSq;}).length;
+var reals=rows.filter(function(r){return r.kind==='pos';}).length;
+var anyNeg=negs>0;
 var b=rows.filter(function(r){return r.back;}).length;
-var t='<table><thead><tr><th>x²</th><th>음수인가</th><th>i 곱한 횟수</th><th>제자리</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>'+nf(r.sq,2)+'</td><td class="no">×</td><td>'+r.n+'</td><td class="'+(r.back?'ok':'')+'">'+(r.back?'○':'—')+'</td></tr>';});
+var t='<table><thead><tr><th>z²</th><th>음수인가</th><th>i 곱한 횟수</th><th>제자리</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+r.cells[1]+'</td><td class="'+(r.negSq?'ok':'no')+'">'+(r.negSq?'○':'×')+'</td><td>'+r.n+'</td><td class="'+(r.back?'ok':'')+'">'+(r.back?'○':'—')+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
-'<div class="card"><h4>1. 실수의 제곱</h4>'+t+'<p class="note">'+
-(anyNeg?'':'<span class="ok">제곱이 음수가 된 기록은 한 개도 없습니다.</span> 수직선 위에서는 아무리 찾아도 없습니다 — 그래서 축을 하나 더 세웁니다.')+
+'<div class="card"><h4>1. 제곱이 음수가 되는 자리</h4>'+t+'<p class="note">'+
+(anyNeg?'<span class="ok">'+negs+'개</span>에서 제곱이 음수가 되었습니다 — 모두 허수부만 있는 수였습니다. 실수부가 0이 아니면 제곱이 음수가 되지 않습니다.'
+:'<span class="ok">제곱이 음수가 된 기록은 한 개도 없습니다.</span> 허수부가 0인 실수('+reals+'개)만 넣었다면 당연합니다. 실수부를 0으로, 허수부를 0이 아닌 값으로 두고 다시 기록해 보세요.')+
 '</p></div><div class="card"><h4>2. i를 곱하면 돌아간다</h4>'+
 '<p class="big">네 번 곱해 제자리로 온 기록 <span class="ok">'+b+'개</span></p>'+
 '<p class="note">i를 한 번 곱하면 90°, 두 번이면 180° — 180° 돌아간 자리가 바로 −1입니다. i²=−1은 “돌려서 반대편”이라는 뜻입니다.</p>'+
-'<p class="note">√(−1)을 오류라고 하면 음수를 처음 배울 때 “3에서 5를 뺄 수 없다”고 한 것과 같습니다. 필요해서 수의 범위를 넓힌 것입니다.</p></div></div>';}
+'<p class="note">√(−1)을 오류라고 하면 음수를 처음 배울 때 “3에서 5를 뺄 수 없다”고 한 것과 같습니다. 필요해서 수의 범위를 넓힌 것입니다.</p></div>'+
+'<div class="card"><h4>3. 자리 짚어 보기</h4>'+znTab()+'</div></div>';}
+function znTab(){var h=rows.filter(function(r){return r.hit===true;}).length,m=rows.filter(function(r){return r.hit===false;}).length;
+var cnt={},t='<table><thead><tr><th>i 곱한 횟수</th><th>점이 놓인 자리</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+r.n+'번</td><td>'+zoneName(r.zn)+'</td></tr>';cnt[r.zn]=1;});
+t+='</tbody></table>';
+return t+'<p class="note">'+((h+m===0)?'아직 짚어 본 기록이 없습니다. 돌리기 전에 자리를 골라 채점해 보세요.'
+:'짚어 보기: 맞춘 기록 '+h+'개, 빗나간 기록 '+m+'개.')+'</p>'+
+'<p class="note">같은 횟수를 곱해도 처음 수의 허수부에 따라 도착하는 자리가 달라집니다 — 자리는 회전 횟수만으로 정해지지 않습니다.</p>';}
 
 
+$('predBtn').addEventListener('click',gradePred);
 draw();sync();
 </script>
 <script id="fxPrincipleJs">

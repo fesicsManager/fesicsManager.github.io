@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -436,20 +438,31 @@ function hbars(items, max){
 var LAB = (function(){
 
 var STEP = [1, 2, 5], SN = ['1씩', '2씩', '5씩'];
-function calc(a, b, si){ var st = STEP[si], hist = [], sum = 0, n = 0; for (var i = a; i <= b; i += st){ sum += i; n++; hist.push({i:i, sum:sum}); } return {a:a, b:b, st:st, sum:sum, n:n, hist:hist, linesLoop:3, linesHand:n, formula:si === 0 ? (a + b) * n / 2 : null}; }
+function calc(a, b, si, guess){ var st = STEP[si], hist = [], sum = 0, n = 0, last = a - st;
+  for (var i = a; i <= b; i += st){ sum += i; n++; last = i; hist.push({i:i, sum:sum}); }
+  /* 두 가지 공식을 함께 재어, 어느 쪽이 어긋나는지 가린다 */
+  var fSchool = b * (b + 1) / 2;                 /* 1 부터 1씩 더할 때만 맞는 n(n+1)/2 */
+  var fArith = n ? n * (a + last) / 2 : 0;       /* 등차수열의 합 — 시작·증가가 무엇이든 맞음 */
+  var g = (guess == null ? 0 : guess);
+  return {a:a, b:b, st:st, sum:sum, n:n, hist:hist, linesLoop:3, linesHand:n, last:last,
+    formula:si === 0 ? (a + b) * n / 2 : null,
+    fSchool:fSchool, fArith:fArith,
+    okSchool:(fSchool === sum), okArith:(Math.abs(fArith - sum) < 1e-9),
+    guess:g, diff:(g ? g - sum : null)}; }
 return {
   sceneHeight: 400,
-  idle: '시작·끝·증가를 정한 뒤 <b>반복 돌리기</b>를 누르세요.',
+  idle: '시작·끝·증가를 정하고 합계를 먼저 짐작해 적은 뒤 <b>반복 돌리기</b>를 누르세요. 2씩·5씩일 때 어느 공식이 어긋나는지 확인하세요.',
   shortHint: '자유 탐구 탭에서 끝 값을 10, 20, 50, 100으로 바꿔 가며 기록하세요.',
   params: [
     {key:'a', type:'range', label:'시작', min:0, max:20, step:1, value:1, fmt:function(v){ return v; }},
     {key:'b', type:'range', label:'끝', min:5, max:100, step:5, value:10, fmt:function(v){ return v; }},
+    {key:'g', type:'range', label:'계산 전 내 짐작 — 합계는 얼마쯤일까 (0 은 짐작 안 함)', min:0, max:3000, step:50, value:0, fmt:function(v){ return v ? v.toLocaleString() : '짐작 안 함'; }},
     {key:'s', type:'seg', label:'증가', cols:3, value:0, options:SN,
       note:'합계는 0에서 시작해 반복마다 i를 더합니다. 시작이 끝보다 크면 한 번도 반복하지 않습니다.'}
   ],
-  compute: function(p){ return calc(p.a, p.b, p.s); },
+  compute: function(p){ return calc(p.a, p.b, p.s, p.g); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.a, p.b, p.s), cur = Math.floor(C.n * k), lx = 16, ly = 36, cw = Math.min(250, W * 0.42);
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.a, p.b, p.s, p.g), cur = Math.floor(C.n * k), lx = 16, ly = 36, cw = Math.min(250, W * 0.42);
     c.fillStyle = '#26313D'; c.fillRect(lx, ly, cw, 100); c.font = '16px Consolas, monospace'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
     ['합계 = 0', 'for i in range(' + C.a + ', ' + (C.b + 1) + (C.st > 1 ? ', ' + C.st : '') + '):', '    합계 = 합계 + i'].forEach(function(s, i){ c.fillStyle = (i === 2 && cur > 0 && cur < C.n) ? '#FFE08A' : '#7CF0B0'; c.fillText(s, lx + 10, ly + 28 + i * 26); });
     var tx = lx, ty = ly + 120; txt(c, 'i     합계', tx + 10, ty, {color:'#4A5868'}); var show = Math.min(cur, 7); for (var j = 0; j < show; j++){ var hh = C.hist[cur - show + j]; txt(c, hh.i + '  →  ' + hh.sum, tx + 10, ty + 24 + j * 22, {color:j === show - 1 ? '#2B5FA3' : '#1E2833', bold:j === show - 1}); }
@@ -457,19 +470,33 @@ return {
     txt(c, cur + '번 반복 · 합계 ' + (cur ? C.hist[cur - 1].sum : 0), 12, H - 14, {bold:true});
   },
   stats: function(p, r){
-    return [['범위 · 증가', r.a + ' ~ ' + r.b + ' · ' + r.st + '씩'], ['반복 횟수', r.n + '번', PAL[0]], ['합계', r.sum.toLocaleString(), PAL[1]], ['처음 5번의 합계', r.hist.slice(0, 5).map(function(h){ return h.sum; }).join(' → ')], ['반복문 코드 줄 수', r.linesLoop + '줄', PAL[1]], ['손으로 한 줄씩 쓰면', r.linesHand + '줄', PAL[4]], ['공식 (처음+끝)×개수÷2', r.formula != null ? r.formula.toLocaleString() + ' — 같음!' : '(1씩일 때만)']];
+    return [['범위 · 증가', r.a + ' ~ ' + r.b + ' · ' + r.st + '씩'], ['반복 횟수', r.n + '번', PAL[0]], ['합계', r.sum.toLocaleString(), PAL[1]], ['처음 5번의 합계', r.hist.slice(0, 5).map(function(h){ return h.sum; }).join(' → ')], ['반복문 코드 줄 수', r.linesLoop + '줄', PAL[1]], ['손으로 한 줄씩 쓰면', r.linesHand + '줄', PAL[4]],
+      ['내 짐작과 차이', r.guess ? r.guess.toLocaleString() + ' → 실제 ' + r.sum.toLocaleString() + ' (차이 ' + sgn(r.diff, 0) + ')' : '짐작을 적지 않았습니다', r.guess ? (Math.abs(r.diff) <= Math.max(5, r.sum * 0.05) ? PAL[1] : PAL[4]) : PAL[7]],
+      ['흔히 쓰는 공식  끝×(끝+1)÷2', r.fSchool.toLocaleString() + (r.okSchool ? ' — 맞음' : ' — 어긋남 (실제 ' + r.sum.toLocaleString() + ')'), r.okSchool ? PAL[1] : PAL[4]],
+      ['등차수열의 합  개수×(처음+마지막)÷2', r.n + '×(' + r.a + '+' + r.last + ')÷2 = ' + r.fArith.toLocaleString() + (r.okArith ? ' — 맞음' : ' — 어긋남'), r.okArith ? PAL[1] : PAL[4]],
+      ['어긋나는 까닭', r.okSchool ? '시작이 1 이고 1씩 더해서 두 공식이 같아졌습니다.'
+        : '끝×(끝+1)÷2 는 <b>1 부터 1씩</b> 더한 합입니다. 지금은 ' + r.a + '부터 ' + r.st + '씩이라 더하는 수가 다릅니다. 이때는 개수×(처음+마지막)÷2 를 써야 합니다.', PAL[3]]];
   },
-  columns: ['시작', '끝', '증가', '반복', '합계', '손으로 줄 수'],
-  record: function(p, r){ return {a:r.a, b:r.b, st:r.st, n:r.n, sum:r.sum, hand:r.linesHand}; },
-  row: function(d){ return [d.a, d.b, d.st, d.n, d.sum.toLocaleString(), d.hand]; },
+  columns: ['범위', '증가', '합계', '끝×(끝+1)÷2', '등차 공식', '내 짐작'],
+  record: function(p, r){ return {a:r.a, b:r.b, st:r.st, n:r.n, sum:r.sum, hand:r.linesHand,
+    fSchool:r.fSchool, fArith:r.fArith, okSchool:r.okSchool, okArith:r.okArith, guess:r.guess, diff:r.diff}; },
+  row: function(d){ return [d.a + '~' + d.b, d.st + '씩', d.sum.toLocaleString(),
+    d.fSchool.toLocaleString() + (d.okSchool ? ' ○' : ' ✕'), d.fArith.toLocaleString() + (d.okArith ? ' ○' : ' ✕'),
+    d.guess ? d.guess.toLocaleString() + ' (' + sgn(d.diff, 0) + ')' : '—']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('끝 값과 합계', '<canvas class="chart" id="ch1" role="img" aria-label="끝 값에 따른 합계"></canvas><ul class="readout" id="ro1"></ul><p class="ask">끝 값이 2배가 되면 합계는 몇 배가 되나요(약 4배)? 반복 횟수는 몇 배인가요?</p>') +
+      card('어느 공식이 어긋나나', '<div id="ro3"></div><p class="ask">2씩·5씩일 때 끝×(끝+1)÷2 는 왜 어긋났나요? 더하는 수들이 무엇이었는지 적어 보고, 개수×(처음+마지막)÷2 가 왜 늘 맞는지 설명해 보세요.</p>') +
       card('줄 수 비교', '<div id="ro2"></div><p class="ask">반복문 코드는 끝 값이 바뀌어도 3줄인 까닭은? 손으로 쓸 때 실수할 가능성은 어디서 커지나요?</p>') + '</div>';
     var byS = groupBy(rec, function(d){ return d.st; }), s1 = [], r1 = [];
     Object.keys(byS).forEach(function(k, i){ var g = byS[k]; s1.push({color:PAL[i], pts:g.map(function(d){ return {x:d.b, y:d.sum}; })}); r1.push('<li>' + dot(PAL[i]) + k + '씩: 기록 ' + g.length + '개</li>'); });
     drawScatter($('ch1'), {xLabel:'끝 값', yLabel:'합계', series:s1});
     $('ro1').innerHTML = r1.join('');
+    var rows3 = rec.map(function(d){ return [d.a + '~' + d.b + ' (' + d.st + '씩)', d.sum.toLocaleString(),
+      d.fSchool.toLocaleString() + (d.okSchool ? ' ○' : ' ✕'), d.fArith.toLocaleString() + (d.okArith ? ' ○' : ' ✕')]; });
+    $('ro3').innerHTML = tableHTML(['범위', '실제 합계', '끝×(끝+1)÷2', '개수×(처음+마지막)÷2'], rows3) +
+      '<p class="msg">끝×(끝+1)÷2 가 맞은 기록은 ' + rec.filter(function(d){ return d.okSchool; }).length + '개, 등차 공식이 맞은 기록은 ' +
+      rec.filter(function(d){ return d.okArith; }).length + '개예요. 공식은 <b>어떤 수들을 더하는지</b>가 맞아야 쓸 수 있어요. 1씩이 아니면 더하는 수가 아예 달라져요.</p>';
     $('ro2').innerHTML = tableHTML(['범위', '반복 횟수', '반복문 줄 수', '손으로 줄 수', '합계'], rec.map(function(d){ return [d.a + '~' + d.b + ' (' + d.st + '씩)', d.n + '번', '3줄', d.hand + '줄', d.sum.toLocaleString()]; }));
   }
 };
@@ -479,7 +506,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

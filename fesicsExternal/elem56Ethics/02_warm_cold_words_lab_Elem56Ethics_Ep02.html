@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,17 +441,29 @@ var LAB = (function(){
         {n:'목록 다: 장점 먼저', s:'장점 먼저', words:ORD.slice(), key:0, tone:1, ref:null},
         {n:'목록 라: 단점 먼저', s:'단점 먼저', words:ORD.slice().reverse(), key:0, tone:-1, ref:null}
       ];
+      var OM = ['원래 순서', '뒤에서부터', '가운데부터'];
+      /* 같은 목록을 순서만 바꿔 여러 번 매겨 보려고 — 단어는 그대로, 들려주는 차례만 바꾼다 */
+      function reorder(words, key, mode){
+        var n = words.length, idx = [], i;
+        for (i = 0; i < n; i++) idx.push(i);
+        if (mode === 1) idx.reverse();
+        else if (mode === 2){ var mid = Math.floor(n / 2), out = []; for (i = 0; i < n; i++) out.push(idx[(mid + i) % n]); idx = out; }
+        return {words:idx.map(function(j){ return words[j]; }), key:idx.indexOf(key)};
+      }
+      function listOf(p){ var l = L[p.l], r2 = reorder(l.words, l.key, p.om || 0);
+        return {n:l.n, s:l.s, words:r2.words, key:r2.key, tone:l.tone, ref:l.ref}; }
       return {
         sceneHeight: 420,
-        idle: '목록과 내 인상 점수를 고른 뒤 <b>목록 듣고 점수 매기기</b>를 누르세요.',
+        idle: '목록·순서·내 인상 점수를 고른 뒤 <b>목록 듣고 점수 매기기</b>를 누르세요. 같은 목록을 순서만 바꿔 여러 번 매겨 보세요.',
         shortHint: '목록 가와 나를 들어 보고, 바뀐 단어가 몇 개인지 세어 보세요.',
         params: [
           {key:'l', type:'seg', label:'들려줄 목록', cols:2, value:0, options:L.map(function(x){ return x.n; })},
+          {key:'om', type:'seg', label:'들려줄 순서 (단어는 그대로)', cols:3, value:0, options:OM},
           {key:'s', type:'range', label:'내 인상 점수 (1 = 별로, 5 = 아주 좋음)', min:1, max:5, step:1, value:3, fmt:function(v){ return v + '점'; }}
         ],
-        compute: function(p){ var l = L[p.l]; return {l:l, diff:p.l <= 1 ? '단어 1개' : '순서'}; },
+        compute: function(p){ var l = listOf(p); return {l:l, om:(p.om || 0), diff:p.l <= 1 ? '단어 1개' : '순서'}; },
         draw: function(c, W, H, p, r, tau){
-          var l = L[p.l], n = l.words.length, cols = W < 520 ? 2 : 4, cw = (W - 40) / cols, i;
+          var l = (r && r.l) ? r.l : listOf(p), n = l.words.length, cols = W < 520 ? 2 : 4, cw = (W - 40) / cols, i;
           var shown = r ? Math.min(n, Math.floor(tau * (n + 2))) : n, spread = r ? Math.min(Math.max((tau - 0.6) / 0.4, 0), 1) : 0;
           var warm = l.tone > 0, tint = warm ? 'rgba(232,140,60,' : 'rgba(60,120,200,';
           for (i = 0; i < n; i++){
@@ -470,26 +484,39 @@ var LAB = (function(){
               else if (bw * l.ref / 100 >= lw + 12) txt(c, ls, lx - 12, by + 19, {bold:true, align:'right', color:'#fff'});
               else txt(c, ls, W - 4, by - 6, {bold:true, align:'right'}); }
           } else txt(c, warm ? '좋은 말을 먼저 들었어요' : '나쁜 말을 먼저 들었어요', 20, by + 18, {color:'#4A5868'});
-          txt(c, r ? '내 인상 점수: ' + p.s + '점' : l.n, 20, H - 14, {bold:true});
+          txt(c, r ? ('내 인상 점수: ' + p.s + '점 · ' + OM[r.om] + '로 들음') : (l.n + ' · ' + OM[p.om || 0]), 20, H - 14, {bold:true});
         },
         stats: function(p, r){
-          return [['들은 목록', r.l.words.join(', ')], ['다른 목록과 다른 점', r.diff, PAL[3]],
+          return [['들은 목록', r.l.words.join(', ')], ['들려준 순서', OM[r.om], PAL[3]], ['다른 목록과 다른 점', r.diff, PAL[3]],
             ['내 인상 점수', p.s + '점 / 5점', PAL[0]],
             ['연구 참고치 (1946, 대략)', r.l.ref !== null ? '"너그러운 사람"으로 본 비율 약 ' + r.l.ref + '%' : '좋은 말을 먼저 들은 쪽이 더 좋게 평가하는 경향', PAL[6]],
             ['살펴보기', p.l <= 1 ? '나머지 여섯 단어는 똑같아요. 한 단어가 나머지의 색깔을 바꿨는지 생각해 보세요.' : '단어는 같고 순서만 달라요. 처음 들은 단어가 뒤의 단어를 물들였나요?', PAL[3]]];
         },
-        columns: ['목록', '다른 점', '내 점수'],
-        record: function(p, r){ return {l:p.l, s:p.s}; },
-        row: function(d){ return [L[d.l].s, d.l <= 1 ? '단어 1개' : '순서', d.s + '점']; },
+        columns: ['목록', '순서', '다른 점', '내 점수'],
+        record: function(p, r){ return {l:p.l, s:p.s, om:r.om}; },
+        row: function(d){ return [L[d.l].s, OM[d.om || 0], d.l <= 1 ? '단어 1개' : '순서', d.s + '점']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('연구: 단어 하나의 효과', '<div id="wc1"></div><p class="ask">일곱 단어 중 여섯이 같았는데 결과가 이렇게 갈린 까닭은 무엇일까요?</p>') +
+            card('같은 목록, 순서만 바꿔 매긴 내 점수', '<div id="wc3"></div><p class="ask">같은 단어를 순서만 바꿔 들었을 때 내 점수가 얼마나 흔들렸나요? 흔들린 폭이 0 이 아니라면, 내 인상이 <b>단어 말고 무엇</b>에 흔들린 것일까요?</p>') +
             card('이 기기에서 매긴 내 점수 (목록별 평균)', '<div id="wc2"></div><p class="ask">과제: 상상의 인물 소개문을 만들어 보세요. 장점 셋, 단점 셋을 넣고 순서만 바꾼 두 가지로 만들어, 가족 두 사람에게 하나씩 들려주고 인상 점수(1~5점)를 비교해요.</p>') + '</div>';
           $('wc1').innerHTML = hbars([{label:'따뜻한 → 너그럽다', v:91, color:'#E88C3C', text:'약 91%'}, {label:'차가운 → 너그럽다', v:8, color:'#3C78C8', text:'약 8%'}], 100) + '<p class="msg">애쉬(1946) 연구의 대략값이에요.</p>';
           var g = groupBy(rec, function(d){ return d.l; }), items = [];
           L.forEach(function(l, i){ var a = g[i]; if (!a) return; var v = mean(a.map(function(d){ return d.s; }));
             items.push({label:l.s, v:v, color:l.tone > 0 ? '#E88C3C' : '#3C78C8', text:f(v, 1) + '점 (' + a.length + '회)'}); });
           $('wc2').innerHTML = hbars(items, 5) + '<p class="msg">정답 점수는 없어요. 목록에 따라 내 점수가 달라졌는지만 봐요.</p>';
+          var rows3 = [];
+          L.forEach(function(l, i){ var a = g[i]; if (!a) return;
+            var byO = groupBy(a, function(d){ return (d.om || 0); });
+            var ks = Object.keys(byO).map(Number).sort(function(x, y){ return x - y; });
+            var sc = ks.map(function(k){ return mean(byO[k].map(function(d){ return d.s; })); });
+            var spread = sc.length > 1 ? (Math.max.apply(null, sc) - Math.min.apply(null, sc)) : 0;
+            rows3.push([l.s, ks.map(function(k, j){ return OM[k] + ' ' + f(sc[j], 1) + '점'; }).join(' · '),
+              ks.length + '가지', sc.length > 1 ? f(spread, 1) + '점' : '순서를 더 바꿔 보세요']); });
+          $('wc3').innerHTML = rows3.length
+            ? tableHTML(['목록', '순서별 내 점수', '해 본 순서', '흔들린 폭'], rows3) +
+              '<p class="msg">단어는 하나도 바뀌지 않았어요. 그래도 점수가 흔들렸다면, 내 인상이 <b>먼저 들은 말</b>에 물든 것이에요. 폭이 0 이면 순서에 흔들리지 않은 것이니 그것도 기록이에요.</p>'
+            : '<p class="msg">같은 목록을 순서만 바꿔 두 번 이상 매겨 보세요.</p>';
         }
       };
     })();
@@ -498,7 +525,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

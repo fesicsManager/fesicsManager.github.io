@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>문학은 지어낸 말이라 쓸모없는가</h1>
-    <p>같은 장소·계절을 담은 두 카드 — <b>(A) 대동강 남포 안내문</b>과 <b>(B) 정지상의 한시 「송인」</b> — 를 연구원 20명씩에게 읽혔습니다. 측정 항목을 하나씩 골라 어느 카드가 앞설지 먼저 예측하고, 두 결과를 나란히 비교해 보세요.<br><span style="font-size:.9em;color:#a86825">※ (A) 안내문과 응답 수는 제로 랩의 가상 자료입니다. 「송인」의 본문과 작가는 실제예요.</span></p>
+    <p>같은 장소·계절을 담은 두 카드 — <b>(A) 대동강 남포 안내문</b>과 <b>(B) 정지상의 한시 「송인」</b> — 를 연구원 20명씩에게 읽혔습니다. 측정 항목을 하나씩 골라 어느 카드가 앞설지 먼저 예측하고, <b>(B)에 비유·이미지를 몇 줄 남길지</b>도 바꿔 보세요. 줄을 줄이면 (B)는 같은 내용을 사실만 늘어놓은 글로 고쳐 쓴 셈이 되어, 흐려진 줄은 연한 색으로 보입니다.<br><span style="font-size:.9em;color:#a86825">※ 「송인」의 본문과 작가는 실제예요. 응답 수는 <b>교육용 모형값</b>입니다 — 비유를 한 줄도 남기지 않았을 때의 값과 네 줄 모두 남겼을 때의 값 사이를 줄 수에 따라 고르게 계산해요. 실제 반응은 읽는 사람과 상황에 따라 달라집니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -468,62 +470,112 @@ var LAB = (function anonymous(
   function say(t, lang, rate){ try { var SS = window.speechSynthesis, U = window.SpeechSynthesisUtterance; if (!SS || !U) return false; SS.cancel(); var u = new U(t); u.lang = lang || 'ko-KR'; u.rate = rate || 0.9; u.volume = 0.8; SS.speak(u); return true; } catch(e){ return false; } }
 
 return (function(){
+      /* b0 = (B) 쪽에서 비유·이미지를 모두 빼고 사실만 늘어놓았을 때의 값,
+         b4 = 네 줄 모두 비유·이미지로 남겼을 때의 값 (교육용 모형값).
+         (B) 값 = b0 + (b4 − b0) × 남긴 줄 수 / 4 */
       var IT = [
-        {n:'사실 문항 3개 평균 정답 수', sh:'사실 기억', a:2.7, b:2.1, max:3, u:'개', d:1, kind:'정보'},
-        {n:'‘보내는 사람의 마음’을 한 문장으로 쓴 사람', sh:'마음 이해', a:6, b:17, max:20, u:'명', d:0, kind:'이해'},
-        {n:'자기 이별 경험을 떠올린 사람', sh:'자기 성찰', a:3, b:14, max:20, u:'명', d:0, kind:'성찰'},
-        {n:'일주일 뒤 한 구절 이상 떠올린 사람', sh:'오래 남음', a:2, b:11, max:20, u:'명', d:0, kind:'울림'}
+        {n:'사실 문항 3개 평균 정답 수', sh:'사실 기억', a:2.7, b0:2.65, b4:2.1, max:3, u:'개', d:1, kind:'정보'},
+        {n:'‘보내는 사람의 마음’을 한 문장으로 쓴 사람', sh:'마음 이해', a:6, b0:5, b4:17, max:20, u:'명', d:0, kind:'이해'},
+        {n:'자기 이별 경험을 떠올린 사람', sh:'자기 성찰', a:3, b0:2, b4:14, max:20, u:'명', d:0, kind:'성찰'},
+        {n:'일주일 뒤 한 구절 이상 떠올린 사람', sh:'오래 남음', a:2, b0:1, b4:11, max:20, u:'명', d:0, kind:'울림'}
       ];
+      function bOf(x, fig){ var v = x.b0 + (x.b4 - x.b0) * fig / 4; return x.d ? Math.round(v * 10) / 10 : Math.round(v); }
       var PR = ['(A) 안내문이 앞선다', '(B) 「송인」이 앞선다'];
       var POEM = ['雨歇長堤草色多', '送君南浦動悲歌', '大同江水何時盡', '別淚年年添綠波'];
       return {
-        sceneHeight: 450,
-        idle: '측정 항목과 나의 예측을 고른 뒤 <b>이 항목으로 비교하기</b>를 누르세요.',
-        shortHint: '네 항목을 모두 비교해 보세요. 안내문이 앞선 항목도 있나요?',
+        sceneHeight: function(w){ return w < 560 ? 720 : 450; },
+        idle: '측정 항목, (B)에 남길 비유·이미지 줄 수, 나의 예측을 고른 뒤 <b>이 항목으로 비교하기</b>를 누르세요.',
+        shortHint: '같은 항목에서 비유 줄 수를 4줄과 0줄로 바꿔 보고, 네 항목도 모두 비교해 보세요.',
         params: [
           {key:'i', type:'seg', label:'측정 항목', cols:2, value:0, options:IT.map(function(x){ return x.n; })},
+          {key:'fig', type:'range', label:'(B)에 비유·이미지로 남긴 줄 (4줄 중)', min:0, max:4, step:1, value:4, fmt:function(v){ return v + '줄'; }},
           {key:'g', type:'seg', label:'나의 예측', cols:2, value:1, options:PR}
         ],
-        compute: function(p){ var x = IT[p.i], win = x.a > x.b ? 0 : 1; return {x:x, win:win, ok:p.g === win}; },
+        compute: function(p){
+          var x = IT[p.i], b = bOf(x, p.fig), win = x.a > b ? 0 : 1;
+          return {x:x, a:x.a, b:b, fig:p.fig, win:win, ok:p.g === win};
+        },
         draw: function(c, W, H, p, r, tau){
-          var x = IT[p.i], half = (W - 50) / 2;
-          rbox(c, 20, 14, half, 170, '#F7F9FC', '#D3DAE3', 1);
-          tx(c, '(A) 안내문', 32, 38, {bold:true, size:15, color:PAL[0]});
-          wrapT(c, '대동강 남포는 고려 때 평양 사람들이 떠나는 이를 배웅하던 나루였다. 비가 그친 뒤 강둑에 풀이 짙어지는 봄철에 이별이 잦았다.', 32, 62, half - 24, half < 200 ? 15 : 19, {size:half < 200 ? 12 : 13});
-          rbox(c, 30 + half, 14, half, 170, '#FFF8E6', '#E5C77A', 1);
-          tx(c, '(B) 「송인」 정지상', 42 + half, 38, {bold:true, size:half < 200 ? 13 : 15, color:PAL[2]});
-          POEM.forEach(function(l, i){ tx(c, l, 42 + half, 68 + i * 28, {size:Math.min(18, Math.floor((half - 24) / 7.4)), bold:true}); });
+          var x = IT[p.i], narrow = W < 560, half = (W - 50) / 2, y0;
+          var ATXT = '대동강 남포는 고려 때 평양 사람들이 떠나는 이를 배웅하던 나루였다. 비가 그친 뒤 강둑에 풀이 짙어지는 봄철에 이별이 잦았다.';
+          if (narrow){
+            /* 좁은 화면: (A)·(B) 를 위아래로 쌓고 글 줄 수만큼 상자 높이를 잡는다 */
+            var fw = W - 40, mw = fw - 24, alh = 19;
+            var an = lines(c, ATXT, mw, {size:13}).length, ah = 34 + an * alh + 8;
+            rbox(c, 20, 14, fw, ah, '#F7F9FC', '#D3DAE3', 1);
+            tx(c, '(A) 안내문', 32, 38, {bold:true, size:15, color:PAL[0]});
+            wrapT(c, ATXT, 32, 62, mw, alh, {size:13});
+            var psz = Math.max(12, Math.min(18, Math.floor(mw / 7.4))), plh = psz + 9;
+            var by = 14 + ah + 12, bh = 30 + 4 * plh + 8;
+            rbox(c, 20, by, fw, bh, '#FFF8E6', '#E5C77A', 1);
+            tx(c, '(B) 「송인」 정지상', 32, by + 24, {bold:true, size:14, color:PAL[2]});
+            POEM.forEach(function(l, i){ tx(c, l, 32, by + 46 + i * plh, {size:psz, bold:true, color:i < p.fig ? '#1E2833' : '#C2CAD4'}); });
+            y0 = by + bh + 34;
+          } else {
+            rbox(c, 20, 14, half, 170, '#F7F9FC', '#D3DAE3', 1);
+            tx(c, '(A) 안내문', 32, 38, {bold:true, size:15, color:PAL[0]});
+            wrapT(c, ATXT, 32, 62, half - 24, 19, {size:13});
+            rbox(c, 30 + half, 14, half, 170, '#FFF8E6', '#E5C77A', 1);
+            tx(c, '(B) 「송인」 정지상', 42 + half, 38, {bold:true, size:15, color:PAL[2]});
+            POEM.forEach(function(l, i){ tx(c, l, 42 + half, 68 + i * 28, {size:Math.min(18, Math.floor((half - 24) / 7.4)), bold:true, color:i < p.fig ? '#1E2833' : '#C2CAD4'}); });
+            y0 = 222;
+          }
           if (!r){ tx(c, '나의 예측: ' + PR[p.g], 20, H - 18, {color:'#4A5868'}); return; }
-          var a = ph(tau, 0, 0.6), y0 = 222, bw = W - 170;
-          wrapT(c, x.n + ' (' + x.kind + ')', 20, y0 - 12, W - 40, 20, {size:15, bold:true, color:'#4A5868'});
-          [['(A) 안내문', x.a, PAL[0]], ['(B) 「송인」', x.b, PAL[2]]].forEach(function(q, i){
-            var yy = y0 + 22 + i * 50;
-            tx(c, q[0], 20, yy + 17, {size:15, bold:true});
-            pbar(c, 110, yy, bw - 40, 26, q[1] / x.max * a, q[2]);
-            tx(c, f(q[1] * a, x.d) + x.u + (x.max === 3 ? ' / 3' : ' / 20'), 120 + bw - 40, yy + 19, {bold:true, size:16});
+          var a = ph(tau, 0, 0.6), bw = W - 170;
+          var hn = wrapT(c, x.n + ' (' + x.kind + ')', 20, y0 - 12, W - 40, 20, {size:15, bold:true, color:'#4A5868'});
+          var rowTop = y0 - 12 + hn * 20 + 4, rowH = narrow ? 62 : 50;
+          [['(A) 안내문', r.a, PAL[0]], ['(B) 「송인」', r.b, PAL[2]]].forEach(function(q, i){
+            var yy = rowTop + i * rowH;
+            if (narrow){
+              tx(c, q[0], 20, yy + 12, {size:14, bold:true});
+              pbar(c, 20, yy + 20, W - 104, 22, q[1] / x.max * a, q[2]);
+              tx(c, f(q[1] * a, x.d) + x.u + (x.max === 3 ? ' / 3' : ' / 20'), W - 78, yy + 37, {bold:true, size:14});
+            } else {
+              tx(c, q[0], 20, yy + 17, {size:15, bold:true});
+              pbar(c, 110, yy, bw - 40, 26, q[1] / x.max * a, q[2]);
+              tx(c, f(q[1] * a, x.d) + x.u + (x.max === 3 ? ' / 3' : ' / 20'), 120 + bw - 40, yy + 19, {bold:true, size:16});
+            }
           });
           if (tau > 0.85){
-            wrapT(c, (r.win ? '(B) 시가 앞섬 — ' : '(A) 안내문이 앞섬 — ') + (r.win ? '정보문이 못 하는 일' : '사실 정보는 정보문이 더 잘 전함'), 20, y0 + 140, W - 100, 20, {size:15, bold:true, color:r.win ? PAL[2] : PAL[0]});
-            mark(c, W - 46, y0 + 140, 24, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4], ph(tau, 0.85, 1));
+            var vy = rowTop + 2 * rowH + (narrow ? 14 : 40);
+            var vmsg = r.win ? '(B) 시가 앞섬 — 정보문이 못 하는 일'
+              : r.fig === 0 ? '(A) 안내문이 앞섬 — 비유를 빼면 시의 꼴만 남는다'
+              : '(A) 안내문이 앞섬 — 사실 정보는 정보문이 더 잘 전함';
+            var vn = wrapT(c, vmsg, 20, vy, narrow ? W - 40 : W - 100, 20, {size:15, bold:true, color:r.win ? PAL[2] : PAL[0]});
+            if (narrow) mark(c, W / 2, vy + vn * 20 + 14, 16, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4], ph(tau, 0.85, 1));
+            else mark(c, W - 46, vy, 24, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4], ph(tau, 0.85, 1));
           }
         },
         stats: function(p, r){
           var x = r.x;
-          return [['측정 항목', x.n], ['(A) 안내문', f(x.a, x.d) + x.u, PAL[0]], ['(B) 「송인」', f(x.b, x.d) + x.u, PAL[2]], ['문학이 하는 일', x.kind],
-            ['나의 예측', PR[p.g]], ['판정', r.ok ? '맞혔어요' : '달라요', r.ok ? PAL[1] : PAL[4]]];
+          var judge = r.fig === 0
+            ? '비유·이미지를 모두 빼면 (B)는 사실만 늘어놓은 글이 되어 ' + (r.win ? '겨우 앞섭니다' : '안내문에 뒤집니다') + ' — 지어낸 말이라서가 아니라 비유가 하던 일이었어요'
+            : r.fig <= 2
+              ? '비유를 ' + r.fig + '줄만 남기면 차이가 줄어듭니다 — 몇 줄부터 뒤집히는지 찾아보세요'
+              : '비유를 네 줄 모두 살리면 사실 전달 말고 세 항목에서 (B)가 앞섭니다';
+          return [['측정 항목', x.n], ['(B)에 남긴 비유·이미지', r.fig + '줄 / 4줄', PAL[2]],
+            ['(A) 안내문', f(r.a, x.d) + x.u, PAL[0]], ['(B) 「송인」', f(r.b, x.d) + x.u, PAL[2]], ['문학이 하는 일', x.kind],
+            ['모형의 판단', judge, r.fig === 0 ? PAL[4] : PAL[2]],
+            ['나의 예측', PR[p.g]], ['예측 채점', r.ok ? '맞혔어요' : '달라요', r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['항목', '(A)', '(B)', '앞선 쪽', '맞음'],
-        record: function(p, r){ return {i:p.i, g:p.g, ok:r.ok}; },
-        row: function(d){ var x = IT[d.i]; return [x.sh, f(x.a, x.d) + x.u, f(x.b, x.d) + x.u, x.a > x.b ? '(A)' : '(B)', d.ok ? '예' : '아니오']; },
+        columns: ['항목', '비유 줄', '(A)', '(B)', '앞선 쪽', '맞음'],
+        record: function(p, r){ return {i:p.i, g:p.g, fig:r.fig, a:r.a, b:r.b, ok:r.ok}; },
+        row: function(d){ var x = IT[d.i]; return [x.sh, d.fig + '줄', f(d.a, x.d) + x.u, f(d.b, x.d) + x.u, d.a > d.b ? '(A)' : '(B)', d.ok ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('두 저울 — 정보와 마음', '<div id="lt1a"></div><p class="ask">사실 문항은 안내문이 앞섰고 나머지 셋은 시가 앞섰어요. ‘시는 지어낸 말이라 쓸모없다’와 ‘시가 모든 면에서 낫다’를 이 표로 각각 반박해 보세요.</p>') +
-            card('항목별 (A)·(B) 비율 비교', '<div id="lt1b"></div><p class="ask">과제: 같은 장면(졸업, 이사, 첫눈 등)을 정보문 세 문장과 짧은 시 네 줄로 각각 써서 친구 다섯 명에게 읽히고, ‘사실 기억’과 ‘마음 이해’를 따로 물어 비교해 보세요.</p>') + '</div>';
-          var g = groupBy(rec, function(d){ return d.i; });
-          $('lt1a').innerHTML = tableHTML(['항목', '하는 일', '(A) 안내문', '(B) 「송인」', '내 예측'], IT.map(function(x, i){ var a = g[i]; return [x.sh, x.kind, f(x.a, x.d) + x.u, f(x.b, x.d) + x.u, a ? a.map(function(d){ return (d.g ? '(B)' : '(A)') + (d.ok ? ' ○' : ' ✕'); }).filter(function(v, k, arr){ return arr.indexOf(v) === k; }).join(', ') : '<span style="color:#8C99A8">—</span>']; }));
-          var items = [];
-          IT.forEach(function(x){ items.push({label:x.sh + ' · (A)', v:x.a / x.max * 100, color:PAL[0], text:f(x.a / x.max * 100, 0) + '%'}); items.push({label:x.sh + ' · (B)', v:x.b / x.max * 100, color:PAL[2], text:f(x.b / x.max * 100, 0) + '%'}); });
-          $('lt1b').innerHTML = hbars(items, 100) + '<p class="msg">사실 기억은 3문항 중 평균 정답 비율, 나머지는 20명 중 비율입니다.</p>';
+            card('비유 줄 수에 따라 뒤집히는 저울', '<div id="lt1a"></div><p class="ask">같은 「송인」인데 비유를 빼면 어느 쪽이 앞서나요? ‘시는 지어낸 말이라 쓸모없다’와 ‘시라는 이름만 붙으면 낫다’를 이 기록으로 각각 반박해 보세요.</p>') +
+            card('내가 기록한 (A)·(B) 비율', '<div id="lt1b"></div><p class="ask">과제: 같은 장면(졸업, 이사, 첫눈 등)을 정보문 세 문장과 짧은 시 네 줄로 각각 써서 친구 다섯 명에게 읽히고, ‘사실 기억’과 ‘마음 이해’를 따로 물어 비교해 보세요.</p>') + '</div>';
+          $('lt1a').innerHTML = tableHTML(['항목', '하는 일', '비유 줄', '(A) 안내문', '(B) 「송인」', '앞선 쪽', '내 예측'],
+            rec.map(function(d){ var x = IT[d.i]; return [x.sh, x.kind, d.fig + '줄', f(d.a, x.d) + x.u, f(d.b, x.d) + x.u,
+              d.a > d.b ? '(A)' : '(B)', (d.g ? '(B)' : '(A)') + (d.ok ? ' ○' : ' ✕')]; }));
+          var items = rec.map(function(d){ var x = IT[d.i];
+            return {label:x.sh + ' · 비유 ' + d.fig + '줄', v:d.b / x.max * 100, color:d.b > d.a ? PAL[2] : PAL[4],
+              text:'(B) ' + f(d.b / x.max * 100, 0) + '% vs (A) ' + f(d.a / x.max * 100, 0) + '%'}; });
+          var zero = rec.filter(function(d){ return d.fig === 0 && d.a > d.b; }).length;
+          var msg = zero
+            ? '비유를 0줄로 한 기록 ' + zero + '건에서는 안내문이 앞섰어요. (B)가 앞선 까닭은 ‘시’라는 이름이 아니라 비유·이미지였습니다.'
+            : '비유 줄 수를 0줄로도 재 보세요. 같은 시인데도 앞선 쪽이 뒤집히는지 확인할 수 있어요.';
+          $('lt1b').innerHTML = hbars(items, 100) + '<p class="msg">' + msg + '</p>';
         }
       };
     })();
@@ -533,7 +585,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

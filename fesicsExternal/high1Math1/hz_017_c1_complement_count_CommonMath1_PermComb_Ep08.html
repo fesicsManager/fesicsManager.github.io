@@ -151,12 +151,19 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="반대편 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="n">자리 수 n (0~9에서 중복 허용) <b><span id="n_v">3</span></b></label><input type="range" id="n" min="1" max="5" step="1" value="3"></div><div class="ctl"><label for="m">조건: 숫자 m 이 적어도 하나 <b><span id="m_v">7</span></b></label><input type="range" id="m" min="0" max="9" step="1" value="7"></div><div class="row"><button class="btn go" id="goBtn">🔁 두 방향으로 세어 보기</button></div>
+      <div class="ctl"><label for="n">자리 수 n (0~9에서 중복 허용) <b><span id="n_v">3</span></b></label><input type="range" id="n" min="1" max="5" step="1" value="3"></div><div class="ctl"><label for="m">조건에 쓰는 숫자 m <b><span id="m_v">7</span></b></label><input type="range" id="m" min="0" max="9" step="1" value="7"></div>
+      <div class="pick">어떤 조건으로 셀까요? <label><input type="radio" name="cd" value="atleast1" checked>적어도 하나</label><label><input type="radio" name="cd" value="atleast2">적어도 둘</label><label><input type="radio" name="cd" value="exactly1">정확히 하나</label></div>
+      <div class="pick" id="predBox">✍ <b>세기 전에 짚어 보기</b> — 정면으로 세면 더해야 할 항이 몇 개일까요?
+        <input type="number" id="predIn" min="0" max="10" step="1" placeholder="?" style="width:4.4rem;background:#0f1727;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:.3rem .4rem">개
+        <button class="btn" id="predBtn" style="flex:0 0 auto">채점</button>
+        <div id="predRes" style="margin-top:.45rem">짚은 다음 아래 단추로 세어 보세요.</div></div>
+      <div class="row"><button class="btn go" id="goBtn">🔁 두 방향으로 세어 보기</button></div>
       <div class="readout" id="readout"></div>
+      <div class="why" id="why" aria-live="polite"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n자리</th><th>조건</th><th>정면으로 센 수</th><th>전체</th><th>반대 경우</th><th>전체 − 반대</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>n자리</th><th>조건</th><th>정면으로 센 수</th><th>전체</th><th>반대 경우 합</th><th>전체 − 반대</th><th>정면 항 수</th><th>반대 항 수</th><th>어느 쪽이 짧나</th><th>내가 짚은 항 수</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,43 +242,91 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function st(){var n=v('n'),m=v('m');
+var predVal=null,predHit=null;
+function condOf(){var e=document.querySelector('input[name="cd"]:checked');return e?e.value:'atleast1';}
+function condName(c){return c==='atleast2'?'적어도 둘':c==='exactly1'?'정확히 하나':'적어도 하나';}
+function hitCond(c,cnt){return c==='atleast2'?(cnt>=2):c==='exactly1'?(cnt===1):(cnt>=1);}
+function st(){var n=v('n'),m=v('m'),c=condOf(),k;
 var all=Math.pow(10,n),none=Math.pow(9,n);
-// 정면으로: k개 포함하는 경우를 더함
-var terms=[],direct=0;
-for(var k=1;k<=n;k++){var t=nCr(n,k)*Math.pow(9,n-k);terms.push({k:k,v:t});direct+=t;}
-// 실제로 모든 n자리 수(앞자리 0 허용)를 만들어 숫자 m이 들어간 것을 센다
-var key=n+','+m,brute;
-if(st.cache&&st.cache.key===key)brute=st.cache.v;else{brute=0;var ms=String(m);
-for(var x=0;x<all;x++){var s=String(x);while(s.length<n)s='0'+s;if(s.indexOf(ms)>=0)brute++;}
+var ex=[];for(k=0;k<=n;k++)ex.push(nCr(n,k)*Math.pow(9,n-k));
+var terms=[],neg=[],direct=0,negSum=0;
+if(c==='atleast1'){for(k=1;k<=n;k++){terms.push({k:k,v:ex[k]});direct+=ex[k];}
+neg.push({lab:'하나도 없음 9^'+n,v:ex[0]});negSum=ex[0];}
+else if(c==='atleast2'){for(k=2;k<=n;k++){terms.push({k:k,v:ex[k]});direct+=ex[k];}
+neg.push({lab:'하나도 없음',v:ex[0]});negSum=ex[0];
+neg.push({lab:'정확히 하나',v:ex[1]});negSum+=ex[1];}
+else{terms.push({k:1,v:ex[1]});direct=ex[1];
+neg.push({lab:'하나도 없음',v:ex[0]});negSum=ex[0];
+for(k=2;k<=n;k++){neg.push({lab:'정확히 '+k+'개',v:ex[k]});negSum+=ex[k];}}
+var key=n+','+m+','+c,brute;
+if(st.cache&&st.cache.key===key)brute=st.cache.v;else{brute=0;var ms=String(m),ci,cnt;
+for(var x=0;x<all;x++){var s=String(x);while(s.length<n)s='0'+s;
+cnt=0;for(ci=0;ci<s.length;ci++)if(s.charAt(ci)===ms)cnt++;
+if(hitCond(c,cnt))brute++;}
 st.cache={key:key,v:brute};}
-return{n:n,m:m,all:all,none:none,direct:direct,sub:all-none,terms:terms,brute:brute};}
+var nd=terms.length,nn=neg.length;
+return{n:n,m:m,c:c,all:all,none:none,negSum:negSum,direct:direct,sub:all-negSum,
+terms:terms,neg:neg,brute:brute,nd:nd,nn:nn,
+shorter:(nd<nn?'direct':(nd>nn?'comp':'tie'))};}
+function gradePred(){var o=st(),el=$('predRes'),x=parseInt($('predIn').value,10);
+if(!isFinite(x)){predVal=null;predHit=null;el.innerHTML='먼저 칸에 항이 몇 개일지 적어 보세요.';draw();return;}
+predVal=x;predHit=(x===o.nd);
+el.innerHTML=(predHit?'✅ <b>맞혔어요.</b> ':'❌ <b>달라요.</b> ')
++'정면으로는 <b>'+o.nd+'개</b> 항을 더하고, 반대편은 <b>'+o.nn+'개</b> 항을 빼요.'
++'<br>'+(o.shorter==='comp'?'이번엔 <b>반대편이 짧습니다</b>.':o.shorter==='direct'?'이번엔 <b>정면이 짧습니다</b> — 반대편으로 돌아갈 이유가 없어요.':'이번엔 <b>길이가 같습니다</b>.')
++' 조건과 자리 수를 바꾸면 짧은 쪽이 뒤집혀요.';
+draw();}
 function draw(){clr();var o=st();
 label('0~9를 중복 허용해 만든 '+o.n+'자리 수',W/2,30,'#9db0d4',15);
-label('숫자 '+o.m+'이 적어도 하나 들어간 것은 몇 개?',W/2,58,'#e9eefb',18);
+label('숫자 '+o.m+'이 '+condName(o.c)+' 들어간 것은 몇 개?',W/2,58,'#e9eefb',18);
 panel(24,82,W-48,150);
 label('방법 ①  정면으로 세기',44,108,'#ffb86b',15,'left');
 var yy=134;
-var shown=Math.round(gr*o.n+1e-9);
+var shown=Math.round(gr*o.terms.length+1e-9);
 for(var i=0;i<o.terms.length;i++){
 if(i<shown){var t=o.terms[i];
 label('정확히 '+t.k+'개 : C('+o.n+','+t.k+') × 9^'+(o.n-t.k)+' = '+t.v,60,yy,'#c8d5ef',14,'left');}
 yy+=24;if(yy>212)break;}
-if(shown>=o.n)label('합 = '+o.direct,60,Math.min(yy+4,222),'#ffb86b',16,'left');
+if(shown>=o.terms.length)label('항 '+o.nd+'개의 합 = '+o.direct,60,Math.min(yy+4,222),'#ffb86b',16,'left');
 panel(24,244,W-48,110);
 label('방법 ②  반대편에서 빼기',44,270,'#5ee0c8',15,'left');
 label('전체 10^'+o.n+' = '+o.all,60,300,'#c8d5ef',15,'left');
-label(o.m+'이 하나도 없음 9^'+o.n+' = '+o.none,60,326,'#c8d5ef',15,'left');
-if(gr>0.6){var _rt='= '+o.all+' − '+o.none+' = '+o.sub;ctx.font='15px sans-serif';var _lw=ctx.measureText(o.m+'이 하나도 없음 9^'+o.n+' = '+o.none).width;ctx.font='18px sans-serif';var _rw=ctx.measureText(_rt).width;
+label(o.neg.length===1?(o.m+'이 '+o.neg[0].lab+' = '+o.negSum)
+:('반대 '+o.nn+'가지를 더하면 = '+o.negSum),60,326,'#c8d5ef',15,'left');
+if(gr>0.6){var _rt='= '+o.all+' − '+o.negSum+' = '+o.sub;ctx.font='15px sans-serif';var _lw=ctx.measureText(o.neg.length===1?(o.m+'이 '+o.neg[0].lab+' = '+o.negSum):('반대 '+o.nn+'가지를 더하면 = '+o.negSum)).width;ctx.font='18px sans-serif';var _rw=ctx.measureText(_rt).width;
 if(60+_lw+12<W-60-_rw)label(_rt,W-60,326,'#5ee0c8',18,'right');else label(_rt,W-44,346,'#5ee0c8',16,'right');}
 panel(24,364,W-48,56);
 var agree=(o.direct===o.sub&&o.sub===o.brute);
-label(agree?o.all+'개를 모두 직접 세어도 '+o.brute+'개 — 답이 같습니다':'차이: 정면 '+o.direct+', 빼기 '+o.sub+', 직접 셈 '+o.brute,
+label(agree?('답은 '+o.brute+'개 — 정면·빼기·직접 셈이 모두 같습니다'):('차이: 정면 '+o.direct+', 빼기 '+o.sub+', 직접 셈 '+o.brute),
 W/2,398,agree?'#5ee0c8':'#ff7a8a',16);
-ro(kv('정면으로',o.direct)+' &nbsp;'+kv('전체 − 반대',o.sub)+' &nbsp;'+kv('직접 센 개수',o.brute)+'<br>'+kv('정면 계산 항 수',o.n+'개')+' &nbsp;'+kv('반대 계산 항 수','1개'));}
+ro(kv('조건',condName(o.c))+' &nbsp;'+kv('정면으로',o.direct)+' &nbsp;'+kv('전체 − 반대',o.sub)+' &nbsp;'+kv('직접 센 개수',o.brute)+'<br>'
++kv('정면 항 수',o.nd+'개')+' &nbsp;'+kv('반대 항 수',o.nn+'개')+' &nbsp;'
++kv('짧은 쪽',o.shorter==='comp'?'반대편':o.shorter==='direct'?'정면':'같음')
++(predVal===null?'':'<br>'+kv('내가 짚은 항 수',predVal+'개 '+(predHit?'✅':'❌'))));
+whyBox(o);}
+function whyBox(o){var el=$('why');if(!el)return;
+if(o.shorter==='direct'){el.className='why diff';
+el.innerHTML='🔄 <b>이번엔 정면이 더 짧아요.</b><br>'
++'· 조건이 ‘'+condName(o.c)+'’라서 정면으로는 항이 <b>'+o.nd+'개</b>뿐인데, 반대편은 <b>'+o.nn+'개</b>를 모아 빼야 해요.<br>'
++'· 반대편이 여러 갈래로 쪼개지면 돌아가는 길이 오히려 길어져요. <b>반대가 한 가지로 딱 떨어질 때만</b> 빼기가 이득이에요.<br>'
++'· 조건을 ‘적어도 하나’로 돌리고 자리 수를 늘려 보세요 — 다시 반대편이 짧아집니다.';
+return;}
+if(o.shorter==='tie'){el.className='why';
+el.innerHTML='⚖ <b>두 길의 길이가 같아요.</b><br>'
++'· 정면 '+o.nd+'개 항, 반대편 '+o.nn+'개 항 — 어느 쪽으로 가도 비슷한 품이 들어요.<br>'
++'· 자리 수 n 을 늘리면 정면 쪽 항만 늘어나니, 그때는 반대편이 유리해집니다. 한번 늘려 보세요.';
+return;}
+el.className='why same';
+el.innerHTML='✅ <b>반대편이 훨씬 짧아요.</b><br>'
++'· 정면으로는 '+o.nd+'개 항을 더해야 하는데, 반대편은 '+o.nn+'개만 빼면 끝이에요: '+o.all+' − '+o.negSum+' = <b>'+o.sub+'</b>.<br>'
++'· 그렇다고 늘 반대편이 짧은 것은 아니에요. 조건을 <b>‘정확히 하나’</b>로 바꿔 보세요 — 반대가 여러 갈래로 쪼개져 <b>정면이 더 짧아집니다</b>.';}
 function record(){var o=st();
-return{cells:[o.n,'숫자 '+o.m+' 적어도 하나',o.direct,o.all,o.none,'<b>'+o.sub+'</b>'],
-n:o.n,direct:o.direct,sub:o.sub,same:(o.direct===o.sub&&o.sub===o.brute),terms:o.n};}
+return{cells:[o.n,'숫자 '+o.m+' '+condName(o.c),o.direct,o.all,o.negSum,'<b>'+o.sub+'</b>',
+o.nd+'개',o.nn+'개',
+o.shorter==='comp'?'<span class="ok">반대편</span>':o.shorter==='direct'?'<span class="no">정면</span>':'같음',
+(predVal===null?'—':predVal+'개 '+(predHit?'✅':'❌'))],
+n:o.n,direct:o.direct,sub:o.sub,same:(o.direct===o.sub&&o.sub===o.brute),terms:o.nd,
+nd:o.nd,nn:o.nn,c:o.c,shorter:o.shorter,hit:predHit};}
 function analyze(){var ok=rows.every(function(r){return r.same;});
 var maxt=Math.max.apply(null,rows.map(function(r){return r.terms;}));
 var t='<table><thead><tr><th>자리</th><th>정면</th><th>전체−반대</th><th>같나</th><th>정면 항 수</th></tr></thead><tbody>';
@@ -284,9 +339,22 @@ $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 �
 '정면으로 세면 자리 수만큼 항이 늘어나 최대 '+maxt+'개를 더해야 했지만, 반대편은 언제나 <b>한 줄</b>이었습니다.</p></div>'+
 '<div class="card"><h4>2. 언제 반대편을 보나</h4>'+
 '<p class="note">“적어도 하나”, “모두 ~는 아니다”처럼 <b>반대가 한 가지로 딱 떨어질 때</b>입니다. 반대편도 여러 갈래면 굳이 돌아갈 필요가 없습니다.</p>'+
-'<p class="note">정면으로 세다 빠뜨리는 실수가 가장 잦은 자리이기도 합니다. 계산이 길어지면 반대편을 한 번 떠올려 보세요.</p></div></div>';}
+'<p class="note">정면으로 세다 빠뜨리는 실수가 가장 잦은 자리이기도 합니다. 계산이 길어지면 반대편을 한 번 떠올려 보세요.</p></div>'+
+'<div class="card"><h4>3. 짧은 쪽이 뒤집힌 기록</h4>'+shortTab()+'</div></div>';}
+function shortTab(){var d=rows.filter(function(r){return r.shorter==='direct';}).length;
+var t='<table><thead><tr><th>조건</th><th>자리</th><th>정면 항</th><th>반대 항</th><th>짧은 쪽</th></tr></thead><tbody>';
+rows.forEach(function(r){t+='<tr><td>'+condName(r.c)+'</td><td>'+r.n+'</td><td>'+r.nd+'</td><td>'+r.nn+'</td>'+
+'<td class="'+(r.shorter==='comp'?'ok':r.shorter==='direct'?'no':'')+'">'+(r.shorter==='comp'?'반대편':r.shorter==='direct'?'정면':'같음')+'</td></tr>';});
+t+='</tbody></table>';
+var h=rows.filter(function(x){return x.hit===true;}).length,m=rows.filter(function(x){return x.hit===false;}).length;
+return t+'<p class="note">'+(d?'<span class="no">'+d+'개</span>의 기록에서는 <b>정면이 더 짧았습니다</b>. 반대편이 여러 갈래로 쪼개지는 조건이었기 때문입니다 — 빼기가 늘 이득인 것은 아닙니다.'
+:'아직 정면이 짧은 기록이 없습니다. 조건을 ‘정확히 하나’로 바꿔 기록해 보세요.')+'</p>'+
+'<p class="note">'+((h+m===0)?'짚어 보기 기록이 아직 없습니다.':'짚어 보기: 맞춘 기록 '+h+'개, 빗나간 기록 '+m+'개.')+'</p>';}
 
 
+$('predBtn').addEventListener('click',gradePred);
+document.querySelectorAll('input[name="cd"]').forEach(function(e){e.addEventListener('change',function(){
+predVal=null;predHit=null;var pr=$('predRes');if(pr)pr.innerHTML='조건을 바꿨어요. 다시 짚어 적고 채점해 보세요.';draw();});});
 draw();sync();
 </script>
 <script id="fxPrincipleJs">

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -458,10 +460,19 @@ var LAB = (function(){
           {key:'s', type:'seg', label:'정보원 (가상)', cols:2, value:1, options:SRC.map(function(x){ return x.name; })},
           {key:'m', type:'seg', label:'판단 방법', cols:2, value:1, options:MT,
             note:'조회수가 많은 글이 맞는 글일까요? 두 방법의 순위를 비교해 보세요.'}
-        ],
+        ].concat(IT.map(function(nm, i){
+          return {key:'c' + i, type:'seg', label:'내 판정 ' + (i + 1) + '. ' + nm, cols:2, value:0, options:['통과', '경고'],
+            note:i === 5 ? '여섯 칸을 먼저 직접 찍고 평가하기를 누르면 몇 칸 맞혔는지, 조회수 순위와 점검 순위가 몇 칸 어긋나는지 알려 줘요.' : null};
+        })),
         compute: function(p){
           var s = SRC[p.s], sc = s.ck.reduce(function(a, b){ return a + b; }, 0);
-          return {s:s, sc:sc, g:grade(sc), rv:rankViews(p.s), rs:rankScore(p.s)};
+          var my = IT.map(function(nm, i){ return p['c' + i] === 0 ? 1 : 0; });   /* 0번 단추=통과(1), 1번 단추=경고(0) */
+          var hits = 0, miss = [];
+          my.forEach(function(v, i){ if (v === s.ck[i]) hits++; else miss.push(IT[i]); });
+          var rv = rankViews(p.s), rs = rankScore(p.s);
+          var myWarn = my.filter(function(v){ return v === 0; }).length, realWarn = 6 - sc;
+          return {s:s, sc:sc, g:grade(sc), rv:rv, rs:rs, my:my, hits:hits, miss:miss,
+            gap:Math.abs(rv - rs), myWarn:myWarn, realWarn:realWarn};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var s = SRC[p.s], k = r ? tau : 0, i;
@@ -474,33 +485,37 @@ var LAB = (function(){
           if (p.m === 0){
             if (k > 0.3) tfit(c, '조회수 순위: 6개 중 ' + r.rv + '위', 20, 130, {bold:true, color:PAL[6]});
             if (k > 0.6) tfit(c, '→ 많이 본 글 = 믿을 만한 글?', 20, 164, {color:'#4A5868'});
-            if (tau >= 1) tfit(c, '여섯 항목 점검에서는 ' + r.rs + '위', 20, 200, {bold:true, color:PAL[3]});
+            if (tau >= 1) tfit(c, '점검 순위는 ' + r.rs + '위 — ' + r.gap + '칸 어긋남', 20, 200, {bold:true, color:PAL[3]});
           } else {
             var cw = (W - 40 - 5 * 6) / 3;
             for (i = 0; i < 6; i++){
               var x = 20 + (i % 3) * (cw + 6), y = 100 + Math.floor(i / 3) * 62, on = k > 0.1 + i * 0.1;
               c.fillStyle = on ? (s.ck[i] ? '#DDF2E8' : '#FBE3E1') : '#F2F4F7'; c.fillRect(x, y, cw, 54);
               tfit(c, IT[i], x + cw / 2, y + 24, {align:'center', bold:true});
-              if (on) tfit(c, s.ck[i] ? '통과' : '경고', x + cw / 2, y + 46, {align:'center', color:s.ck[i] ? PAL[1] : PAL[4]});
+              if (on) tfit(c, (s.ck[i] ? '통과' : '경고') + (r.my[i] === s.ck[i] ? ' ✓' : ' ✗'), x + cw / 2, y + 46, {align:'center', color:s.ck[i] ? PAL[1] : PAL[4]});
             }
             if (k > 0.75 && s.flags.length) tfit(c, '🚩 ' + s.flags.join(' · '), 20, 250, {color:PAL[4]});
-            if (tau >= 1) tfit(c, '점수 ' + r.sc + ' / 6 · 조회수 ' + r.rv + '위 vs 점검 ' + r.rs + '위', 20, 290, {bold:true});
+            if (tau >= 1) tfit(c, '내 판정 ' + r.hits + '/6 · 순위 ' + r.rv + '위 vs ' + r.rs + '위 (' + r.gap + '칸)', 20, 290, {bold:true});
           }
           if (tau >= 1) tfit(c, GN[r.g], 20, H - 18, {bold:true, color:[PAL[1], PAL[6], PAL[4]][r.g]});
         },
         stats: function(p, r){
           return [['정보원', r.s.name], ['판단 방법', MT[p.m]], ['조회수 순위 (가상)', '6개 중 ' + r.rv + '위', PAL[6]],
+            ['내 판정 채점', r.hits + ' / 6 칸 맞힘' + (r.miss.length ? ' (어긋난 칸: ' + r.miss.join('·') + ')' : ' — 여섯 칸 모두 맞혔어요'), r.hits === 6 ? PAL[1] : r.hits >= 4 ? PAL[6] : PAL[4]],
+            ['내가 센 경고 수', r.myWarn + '개 → 실제 ' + r.realWarn + '개', r.myWarn === r.realWarn ? PAL[1] : PAL[4]],
             ['여섯 항목 점수', r.sc + ' / 6 (' + IT.filter(function(x, i){ return !r.s.ck[i]; }).join('·') + (r.sc === 6 ? '모두 통과' : ' 경고') + ')', PAL[0]],
+            ['두 순위가 어긋난 칸 수', '조회수 ' + r.rv + '위 vs 점검 ' + r.rs + '위 → ' + r.gap + '칸' + (r.gap === 0 ? ' (두 방법이 같은 자리)' : ''), r.gap >= 3 ? PAL[4] : r.gap ? PAL[6] : PAL[1]],
             ['경고 신호', r.s.flags.length ? r.s.flags.join(', ') : '없음', r.s.flags.length ? PAL[4] : PAL[1]],
             ['판정', GN[r.g], [PAL[1], PAL[6], PAL[4]][r.g]]];
         },
-        columns: ['정보원', '방법', '조회수 순위', '점검 점수', '판정'],
-        record: function(p, r){ return {s:p.s, m:p.m, rv:r.rv, sc:r.sc, g:r.g}; },
-        row: function(d){ return [SRC[d.s].short, MT[d.m], d.rv + '위', d.sc + '/6', GN[d.g]]; },
+        columns: ['정보원', '방법', '조회수 순위', '점검 점수', '내 판정', '순위 차', '판정'],
+        record: function(p, r){ return {s:p.s, m:p.m, rv:r.rv, rs:r.rs, sc:r.sc, g:r.g, hits:r.hits, gap:r.gap}; },
+        row: function(d){ return [SRC[d.s].short, MT[d.m], d.rv + '위', d.sc + '/6', (d.hits == null ? '-' : d.hits + '/6'), (d.gap == null ? '-' : d.gap + '칸'), GN[d.g]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('조회수 순위 vs 여섯 항목 점수', '<div id="hh3a"></div><p class="ask">조회수 상위 정보원의 점검 점수는 어땠나요? 체험담이 설득력 있게 느껴지는데도 근거로 약한 이유를 설명해 보세요.</p>') +
-            card('정보원별 여섯 항목 결과', '<div id="hh3b"></div><p class="ask">과제: 같은 건강 주제를 다룬 웹 페이지 세 곳을 골라 여섯 항목으로 평가하고, 가장 신뢰할 만한 순서와 이유를 적어 보세요.</p>') + '</div>';
+            card('정보원별 여섯 항목 결과', '<div id="hh3b"></div><p class="ask">과제: 같은 건강 주제를 다룬 웹 페이지 세 곳을 골라 여섯 항목으로 평가하고, 가장 신뢰할 만한 순서와 이유를 적어 보세요.</p>') +
+            card('두 순위는 몇 칸 어긋났나', '<div id="hh3c"></div><p class="ask">조회수 순위와 점검 순위가 가장 많이 어긋난 정보원은 무엇인가요? 내 판정이 자주 틀린 칸은 어느 항목이었나요?</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.s] = d; });
           var ids = Object.keys(seen).sort(function(a, b){ return SRC[b].views - SRC[a].views; });
           var items = [];
@@ -508,6 +523,15 @@ var LAB = (function(){
             items.push({label:s.short + ' · 조회수 ' + rankViews(+i) + '위', v:sc, color:sc >= 5 ? PAL[1] : sc >= 3 ? PAL[6] : PAL[4], text:sc + ' / 6'}); });
           $('hh3a').innerHTML = hbars(items, 6) + '<p class="msg">위에서부터 조회수가 많은 순서</p>';
           $('hh3b').innerHTML = tableHTML(['정보원'].concat(IT), ids.map(function(i){ return [SRC[i].short].concat(SRC[i].ck.map(function(x){ return x ? '○' : '✗'; })); }));
+          var grows = [], gsum = 0, hsum = 0, hn = 0;
+          ids.forEach(function(i){ var d = seen[i];
+            grows.push([SRC[i].short, rankViews(+i) + '위', rankScore(+i) + '위', (d.gap == null ? '-' : d.gap + '칸'), (d.hits == null ? '-' : d.hits + ' / 6')]);
+            if (d.gap != null) gsum += d.gap;
+            if (d.hits != null){ hsum += d.hits; hn++; } });
+          $('hh3c').innerHTML = tableHTML(['정보원', '조회수 순위', '점검 순위', '어긋난 칸', '내 판정'], grows) +
+            '<p class="msg">내가 점검한 정보원들의 어긋남을 모두 더하면 <b>' + gsum + '칸</b>' +
+            (hn ? ' · 내 판정은 평균 ' + (hsum / hn).toFixed(1) + ' / 6 칸 맞혔어요.' : '') +
+            ' 두 방법의 순위가 어긋난다는 것은 조회수가 신뢰도의 근거가 아니라는 뜻이에요.</p>';
         }
       };
     })();
@@ -516,7 +540,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

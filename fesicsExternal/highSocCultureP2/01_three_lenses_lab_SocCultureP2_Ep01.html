@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -300,9 +301,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -480,15 +482,29 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
         {n:'갈등론', s:'갈등론', lv:'거시', q:'누가 이익을 보고 누가 불리해지나?', weak:'협력과 합의를 작게 볼 위험', data:'소득·지역·성별 집단 비교 통계', tool:'양적', col:PAL[0]},
         {n:'상징적 상호 작용론', s:'상호작용론', lv:'미시', q:'사람들은 어떤 의미를 붙이나?', weak:'거시적 구조의 영향을 놓치기 쉬움', data:'면접·참여 관찰 기록', tool:'질적', col:PAL[2]}
       ];
+      var DT = [
+        {n:'통계 자료만', s:'통계', tool:'양적'},
+        {n:'면접·관찰만', s:'면접', tool:'질적'},
+        {n:'둘 다 모으기', s:'둘 다', tool:'둘'}
+      ];
+      var MIC = 2;   /* 상징적 상호 작용론 = 질적 렌즈 */
+      function conclude(a, ln, dt){
+        var l = LN[ln], other = l.tool === '양적' ? MIC : 0;
+        if (dt === 2) return {v:'엇갈림', t:'통계는 「' + a.v[ln === MIC ? 0 : ln] + '」 쪽을, 면접·관찰은 「' + a.v[MIC] + '」 쪽을 가리킵니다. 두 자료가 같은 결론으로 모이지 않으면 렌즈를 하나로 정할 수 없습니다.', c:PAL[6]};
+        if (DT[dt].tool === l.tool) return {v:'확인됨', t:'고른 자료가 이 렌즈의 질문에 답할 수 있습니다. 「' + a.v[ln] + '」을(를) 자료로 확인해 볼 수 있습니다.', c:PAL[1]};
+        return {v:'확인 못 함', t:'이 자료로는 「' + a.v[ln] + '」을(를) 확인할 수 없습니다. 대신 「' + a.v[other] + '」이(가) 드러나 다른 렌즈의 결론으로 끌려갑니다.', c:PAL[4]};
+      }
       return {
         sceneHeight: 400,
-        idle: '현상과 렌즈를 고른 뒤 <b>이 렌즈로 보기</b>를 누르세요.',
+        idle: '현상·렌즈·모을 자료를 고른 뒤 <b>이 렌즈로 보기</b>를 누르세요.',
         shortHint: '한 현상을 세 렌즈로 모두 본 뒤, 다른 현상도 보세요. 9칸 가운데 4칸 이상을 채워야 비교할 수 있어요.',
         params: [
           {key:'ph', type:'seg', label:'현상 카드', cols:3, value:0, options:PH.map(function(x){ return x.n; })},
-          {key:'ln', type:'seg', label:'렌즈(관점)', cols:3, value:0, options:LN.map(function(x){ return x.n; }), note:'렌즈를 바꿔도 현상(시험 점수 자체)은 바뀌지 않습니다. 바뀌는 것은 질문과 보이는 것이에요.'}
+          {key:'ln', type:'seg', label:'렌즈(관점)', cols:3, value:0, options:LN.map(function(x){ return x.n; }), note:'렌즈를 바꿔도 현상(시험 점수 자체)은 바뀌지 않습니다. 바뀌는 것은 질문과 보이는 것이에요.'},
+          {key:'dt', type:'seg', label:'모을 자료', cols:3, value:0, options:DT.map(function(x){ return x.n; }),
+            note:'렌즈와 자료가 어긋나면 결론이 다른 쪽으로 끌려갑니다. 같은 현상·같은 렌즈라도 자료를 바꾸면 결론이 달라집니다.'}
         ],
-        compute: function(p){ var a = PH[p.ph], l = LN[p.ln]; return {a:a, l:l, see:a.v[p.ln]}; },
+        compute: function(p){ var a = PH[p.ph], l = LN[p.ln], cc = conclude(a, p.ln, p.dt); return {a:a, l:l, dt:DT[p.dt], see:a.v[p.ln], cc:cc}; },
         draw: function(c, W, H, p, r, tau){
           var a = PH[p.ph], l = LN[p.ln], k = r ? ease(tau / 0.7) : 0, s = fz(W);
           c.fillStyle = '#F7F9FC'; c.fillRect(0, 0, W, H);
@@ -509,29 +525,36 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
             var y = wrapT(c, l.q, px, 74, pw, s + 5, {bold:true, size:s, color:l.col, max:3});
             tx(c, '보이는 것', px, y + 18, {size:s - 2, color:'#7A8794'});
             y = wrapT(c, r.see, px, y + 40, pw, s + 5, {size:s, max:4});
-            tx(c, '필요한 자료 (' + l.tool + ')', px, y + 18, {size:s - 2, color:'#7A8794'});
-            wrapT(c, l.data, px, y + 40, pw, s + 5, {size:s - 1, max:3});
+            tx(c, '모은 자료 — ' + r.dt.n, px, y + 18, {size:s - 2, color:'#7A8794'});
+            wrapT(c, '결론: ' + r.cc.v, px, y + 40, pw, s + 5, {bold:true, size:s - 1, color:r.cc.c, max:2});
             c.globalAlpha = 1;
           } else wrapT(c, '렌즈를 끼우면 여기에 보입니다', px, H * 0.5, pw, s + 4, {size:s - 1, color:'#8C99A8', max:3});   /* 좁은 화면: 남은 폭에 맞춰 줄바꿈 */
           tx(c, '같은 현상 · 다른 질문', W / 2, H - 16, {align:'center', size:s - 2, color:'#7A8794'});
         },
         stats: function(p, r){
           return [['현상', r.a.n], ['렌즈', r.l.n + ' (' + r.l.lv + '적 관점)', r.l.col], ['먼저 묻는 질문', r.l.q],
-            ['이 렌즈로 보이는 것', r.see, PAL[3]], ['확인에 필요한 자료', r.l.data + ' — ' + r.l.tool + ' 연구'], ['이 렌즈의 약점', r.l.weak, PAL[6]]];
+            ['이 렌즈로 보이는 것', r.see, PAL[3]], ['확인에 필요한 자료', r.l.data + ' — ' + r.l.tool + ' 연구'],
+            ['내가 모은 자료', r.dt.n], ['이 자료로 내릴 수 있는 결론', r.cc.v + ' — ' + r.cc.t, r.cc.c],
+            ['이 렌즈의 약점', r.l.weak, PAL[6]]];
         },
-        columns: ['현상', '관점', '거시/미시', '보이는 것', '필요한 자료'],
-        record: function(p, r){ return {ph:p.ph, ln:p.ln}; },
-        row: function(d){ var l = LN[d.ln]; return [PH[d.ph].s, l.s, l.lv, PH[d.ph].v[d.ln], l.tool]; },
+        columns: ['현상', '관점', '모은 자료', '결론', '보이는 것'],
+        record: function(p, r){ return {ph:p.ph, ln:p.ln, dt:p.dt, v:r.cc.v}; },
+        row: function(d){ var l = LN[d.ln]; return [PH[d.ph].s, l.s, DT[d.dt].s, d.v, PH[d.ph].v[d.ln]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('현상 × 관점 9칸 표 (내가 채운 칸)', '<div id="v1a"></div><p class="ask">한 현상을 세 렌즈로 보았을 때, 한 렌즈가 놓친 것을 다른 렌즈가 보여 준 예를 하나 말해 보세요.</p>') +
-            card('관점이 정하는 자료 종류', '<div id="v1b"></div><p class="ask">과제: 학교 안 현상 하나를 골라 세 관점으로 각각 설명하고, 각 설명을 확인하려면 어떤 자료(통계·면접·관찰)가 필요한지 적어 보세요.</p>') + '</div>';
+            card('자료를 바꾸면 결론이 어떻게 달라졌나', '<div id="v1b"></div><p class="ask">과제: 학교 안 현상 하나를 골라 세 관점으로 각각 설명하고, 각 설명을 확인하려면 어떤 자료(통계·면접·관찰)가 필요한지 적어 보세요.</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.ph + '_' + d.ln] = 1; });
           var rows = PH.map(function(a, i){ return [a.n].concat(LN.map(function(l, j){ return seen[i + '_' + j] ? a.v[j] : '—'; })); });
           var n = Object.keys(seen).length;
           $('v1a').innerHTML = tableHTML(['현상', '기능론', '갈등론', '상호 작용론'], rows) + '<p class="msg">채운 칸 ' + n + ' / 9' + (n < 9 ? ' — 빈칸을 더 채워 보세요.' : ' — 모두 채웠어요.') + '</p>';
-          var q = rec.filter(function(d){ return LN[d.ln].tool === '양적'; }).length, ql = rec.length - q;
-          $('v1b').innerHTML = hbars([{label:'양적(통계)', v:q, color:PAL[1], text:q + '회'}, {label:'질적(면접·관찰)', v:ql, color:PAL[2], text:ql + '회'}], Math.max(1, rec.length)) +
+          var vs = ['확인됨', '확인 못 함', '엇갈림'], vc = [PAL[1], PAL[4], PAL[6]];
+          var bars = vs.map(function(v, i){ var k = rec.filter(function(d){ return d.v === v; }).length; return {label:v, v:k, color:vc[i], text:k + '회'}; });
+          var seen2 = {}, crows = [];
+          rec.forEach(function(d){ var k = d.ph + '_' + d.ln + '_' + d.dt; if (seen2[k]) return; seen2[k] = 1;
+            crows.push([PH[d.ph].s, LN[d.ln].s, DT[d.dt].s, d.v]); });
+          $('v1b').innerHTML = hbars(bars, Math.max(1, rec.length)) +
+            tableHTML(['현상', '렌즈', '모은 자료', '결론'], crows) +
             tableHTML(['관점', '약점'], LN.map(function(l){ return [l.n, l.weak]; }));
         }
       };
@@ -542,7 +565,8 @@ function uniq(rec, keyf){ var o = {}, out = []; rec.forEach(function(d){ var k =
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

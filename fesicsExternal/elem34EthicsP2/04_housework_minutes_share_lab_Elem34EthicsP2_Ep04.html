@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>집안일은 금방 끝나나</h1>
-    <p>가상 가족의 하루 집안일 기록표를 하나씩 <b>더해</b> 봐요. 나눠 맡는 식구 수를 고르고 결과를 짐작한 뒤 버튼을 누르면, 시간 막대가 쌓이고 식구 수만큼 나뉩니다.<br><span style="font-size:.9em;color:#a86825">※ 집안일 시간(식사 준비 약 60분, 설거지 약 30분, 빨래 약 20분, 청소 약 20분, 분리배출 약 10분)은 한 가족의 <b>가상 기록</b>이에요. 집마다 달라요.</span></p>
+    <p>가상 가족의 하루 집안일 기록표를 하나씩 <b>더해</b> 봐요. <b>오늘 한 집안일</b>과 나눠 맡는 식구 수를 고르고 결과를 짐작한 뒤 버튼을 누르면, 시간 막대가 쌓이고 식구 수만큼 나뉩니다.<br><span style="font-size:.9em;color:#a86825">※ 집안일 시간(식사 준비 약 60분, 설거지 약 30분, 빨래 약 20분, 청소 약 20분, 분리배출 약 10분)은 한 가족의 <b>가상 기록</b>이에요. 집마다 달라요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,33 +436,48 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var CH = [{n:'식사 준비', m:60, c:'#C8463D'}, {n:'설거지', m:30, c:'#3A8FB7'}, {n:'빨래', m:20, c:'#7657B3'}, {n:'청소', m:20, c:'#2E9E78'}, {n:'분리배출', m:10, c:'#D98E04'}];
-      var GU = ['① 약 10분', '② 약 30분', '③ 2시간이 넘는다', '④ 저절로 되니까 0분'];
+      var GU = ['① 10분쯤', '② 30분쯤', '③ 1시간 안팎', '④ 2시간이 넘는다'];
+      /* 오늘 한 집안일 묶음 — 켜고 끌 일을 미리 묶어 두었다 */
+      var JB = [
+        {n:'다섯 가지 모두 한 날', s:'모두', on:[1, 1, 1, 1, 1]},
+        {n:'사 먹어서 식사 준비 없는 날', s:'식사 준비 빼기', on:[0, 1, 1, 1, 1]},
+        {n:'청소·분리배출을 안 한 날', s:'청소·배출 빼기', on:[1, 1, 1, 0, 0]},
+        {n:'설거지와 빨래만 한 날', s:'설거지·빨래만', on:[0, 1, 1, 0, 0]}
+      ];
       function hm(m){ var h = Math.floor(m / 60), r2 = Math.round(m - h * 60); return h ? h + '시간' + (r2 ? ' ' + r2 + '분' : '') : r2 + '분'; }
       return {
         sceneHeight: function(w){ return w < 500 ? 380 : 400; },
-        idle: '식구 수와 나의 짐작을 고른 뒤 <b>기록표 더하기</b>를 누르세요.',
-        shortHint: '먼저 한 사람이 다 맡을 때(1명)를 보고, 식구 수를 늘려 보세요. 한 사람 몫이 어떻게 바뀌나요?',
+        idle: '오늘 한 집안일·식구 수·나의 짐작을 고른 뒤 <b>기록표 더하기</b>를 누르세요.',
+        shortHint: '집안일 묶음 네 가지를 해 보고, 식구 수도 1명에서 4명까지 늘려 보세요.',
         params: [
+          {key:'j', type:'seg', label:'오늘 한 집안일', cols:2, value:0, options:JB.map(function(x){ return x.n; })},
           {key:'n', type:'range', label:'나눠 맡는 식구 수', min:1, max:4, step:1, value:1, fmt:function(v){ return v + '명'; }},
           {key:'g', type:'seg', label:'나의 짐작 — 하루 집안일을 모두 더하면?', cols:2, value:0, options:GU,
             note:'뭉치는 "하루 10분이면 충분해!"라고 했어요.'}
         ],
         compute: function(p){
-          var tot = CH.reduce(function(s, x){ return s + x.m; }, 0);
-          return {tot:tot, per:tot / p.n, ok:p.g === 2};
+          var on = JB[p.j].on;
+          var tot = CH.reduce(function(s, x, i){ return s + (on[i] ? x.m : 0); }, 0);
+          /* 합계에 가장 가까운 짐작이 맞는 답 */
+          var right = tot < 15 ? 0 : tot < 45 ? 1 : tot <= 120 ? 2 : 3;
+          return {tot:tot, per:tot / p.n, on:on, ok:p.g === right, right:right};
         },
         draw: function(c, W, H, p, r, tau){
-          var x0 = 16, bl = W - 32, tot = 140, sc = bl / 150, y1 = 60, k = r ? Math.min(tau / 0.75, 1) : 0;
+          var on = r ? r.on : JB[p.j].on;
+          var x0 = 16, bl = W - 32, tot = CH.reduce(function(s, x, i){ return s + (on[i] ? x.m : 0); }, 0), sc = bl / 150, y1 = 60, k = r ? Math.min(tau / 0.75, 1) : 0;
           txt(c, '하루 집안일 (가상 가족)', x0, 30, {bold:true});
           c.fillStyle = '#EEF1F5'; c.fillRect(x0, y1, bl, 40);
           var acc = 0, upto = tot * k;
-          CH.forEach(function(x){
+          CH.forEach(function(x, xi){
+            if (!on[xi]) return;
             var w = Math.max(0, Math.min(x.m, upto - acc)); if (w > 0){ c.fillStyle = x.c; c.fillRect(x0 + acc * sc, y1, w * sc, 40);
               if (w >= x.m && x.m * sc > 44) txt(c, x.m >= 20 || W > 500 ? x.n.slice(0, x.m * sc > 80 ? 5 : 2) : '', x0 + (acc + x.m / 2) * sc, y1 + 26, {align:'center', color:'#fff', bold:true}); }
             acc += x.m;
           });
           seg(c, x0 + 10 * sc, y1 - 10, x0 + 10 * sc, y1 + 50, PAL[4], 2, [4, 3]); txt(c, '10분', x0 + 10 * sc + 4, y1 - 12, {color:PAL[4]});
-          seg(c, x0 + 120 * sc, y1 + 40, x0 + 120 * sc, y1 + 52, '#9AA5B1', 1); txt(c, '2시간', x0 + 120 * sc, y1 + 70, {align:'center', color:'#9AA5B1'});
+          var narrow = W < 560;
+          if (narrow){ seg(c, x0 + 120 * sc, y1 - 10, x0 + 120 * sc, y1 + 50, '#9AA5B1', 1, [4, 3]); txt(c, '2시간', x0 + 120 * sc, y1 - 12, {align:'center', color:'#9AA5B1'}); }
+          else { seg(c, x0 + 120 * sc, y1 + 40, x0 + 120 * sc, y1 + 52, '#9AA5B1', 1); txt(c, '2시간', x0 + 120 * sc, y1 + 70, {align:'center', color:'#9AA5B1'}); }
           if (r) txt(c, '합계 ' + hm(Math.round(upto)), x0, y1 + 70, {bold:true, color:k >= 1 ? PAL[3] : '#26313D'});
           var y2 = y1 + 110, rowH = Math.min(36, (H - y2 - 20) / p.n);
           txt(c, '한 사람 몫 (' + p.n + '명이 나누면)', x0, y2 - 10, {bold:true});
@@ -478,20 +495,20 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['하루 집안일 합계', '약 ' + hm(r.tot) + ' (' + r.tot + '분)', PAL[3]]].concat(CH.map(function(x){ return [x.n, '약 ' + x.m + '분', x.c]; })).concat([
+          return [['오늘 한 집안일', JB[p.j].n], ['하루 집안일 합계', '약 ' + hm(r.tot) + ' (' + r.tot + '분)', PAL[3]]].concat(CH.map(function(x, i){ return [x.n, r.on[i] ? '약 ' + x.m + '분' : '— (안 함)', r.on[i] ? x.c : '#C5CDD6']; })).concat([
             ['나눠 맡는 식구', p.n + '명'], ['한 사람 몫', '약 ' + hm(r.per), PAL[0]],
             ['뭉치의 10분과 비교', '약 ' + f(r.tot / 10, 0) + '배'],
             ['나의 짐작', GU[p.g] + (r.ok ? ' — 기록표와 맞음' : ' — 기록표와 다름'), r.ok ? PAL[1] : PAL[4]]]);
         },
-        columns: ['식구 수', '합계', '한 사람 몫', '나의 짐작', '맞음'],
-        record: function(p, r){ return {n:p.n, tot:r.tot, per:r.per, g:p.g, ok:r.ok}; },
-        row: function(d){ return [d.n + '명', d.tot + '분', '약 ' + hm(d.per), GU[d.g].slice(0, 1), d.ok ? '○' : '✕']; },
+        columns: ['한 집안일', '식구 수', '합계', '한 사람 몫', '맞음'],
+        record: function(p, r){ return {j:p.j, n:p.n, tot:r.tot, per:r.per, g:p.g, ok:r.ok}; },
+        row: function(d){ return [JB[d.j].s, d.n + '명', d.tot + '분', '약 ' + hm(d.per), d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('식구 수에 따른 한 사람 몫', '<div id="hk1"></div><p class="ask">한 사람이 다 맡을 때와 네 식구가 나눌 때, 한 사람 몫은 몇 배 차이 나나요? 내가 맡을 수 있는 일은 무엇일까요?</p>') +
-            card('하루 집안일 (가상 기록)', '<div id="hk2"></div><p class="ask">과제: 우리 집 하루 집안일을 가족과 함께 적고, 하나씩 걸리는 시간을 어림해 더해 보세요. 내가 맡을 수 있는 일 두 가지를 정해 일주일 동안 해 보고 표에 표시해 보세요.</p>') + '</div>';
+            card('한 집안일·식구 수에 따른 한 사람 몫', '<div id="hk1"></div><p class="ask">식사 준비를 빼면 합계가 얼마나 줄었나요? 한 사람이 다 맡을 때와 네 식구가 나눌 때는 몇 배 차이 나나요?</p>') +
+            card('항목별 하루 집안일 (가상 기록)', '<div id="hk2"></div><p class="ask">과제: 우리 집 하루 집안일을 가족과 함께 적고, 하나씩 걸리는 시간을 어림해 더해 보세요. 내가 맡을 수 있는 일 두 가지를 정해 일주일 동안 해 보고 표에 표시해 보세요.</p>') + '</div>';
           var seen = {}, items = [];
-          rec.slice().sort(function(a, b){ return a.n - b.n; }).forEach(function(d){ if (seen[d.n]) return; seen[d.n] = 1; items.push({label:d.n + '명이 나누면', v:d.per, color:PAL[0], text:'약 ' + hm(d.per)}); });
+          rec.slice().sort(function(a, b){ return (a.j - b.j) || (a.n - b.n); }).forEach(function(d){ var key = d.j + '_' + d.n; if (seen[key]) return; seen[key] = 1; items.push({label:JB[d.j].s + ' · ' + d.n + '명', v:d.per, color:PAL[0], text:'약 ' + hm(d.per)}); });
           $('hk1').innerHTML = hbars(items, 140);
           $('hk2').innerHTML = hbars(CH.map(function(x){ return {label:x.n, v:x.m, color:x.c, text:'약 ' + x.m + '분'}; }), 60);
         }
@@ -502,7 +519,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

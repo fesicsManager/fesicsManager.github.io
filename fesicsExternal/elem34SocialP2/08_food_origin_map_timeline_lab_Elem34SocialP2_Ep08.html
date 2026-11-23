@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -448,11 +450,15 @@ var LAB = (function(){
         params: [
           {key:'i', type:'seg', label:'음식 재료', cols:4, value:0, options:IG.map(function(x){ return x.n; })},
           {key:'g', type:'seg', label:'나의 짐작 — 처음 기른 곳', cols:2, value:0, options:GO,
-            note:'뭉치는 "김치는 우리 거니까 고추도 아주 먼 옛날부터 우리 땅에만 있었다"고 했어요.'}
+            note:'뭉치는 "김치는 우리 거니까 고추도 아주 먼 옛날부터 우리 땅에만 있었다"고 했어요.'},
+          {key:'gy', type:'range', label:'내가 연표에 놓을 자리', min:0, max:800, step:20, value:400, fmt:function(v){ return v + '년 전 (' + (v / 10) + 'cm)'; },
+            note:'보라색 점선이 내가 놓은 자리예요. 버튼을 누르면 실제 자리가 나오니, 어긋나면 손잡이를 옮겨 고쳐 놓아 보세요. ※ 들어온 때는 교육용 어림값이에요.'}
         ],
         compute: function(p){
-          var it = IG[p.i];
-          return {it:it, ok:p.g === it.h, cm:it.ago / 10, after:it.ago > 0 && it.ago < 580};
+          var it = IG[p.i], err = Math.abs(p.gy - it.ago);
+          var vd = it.ago === 0 ? '콩은 띠 밖(아주 먼 옛날)이라 자리를 놓을 수 없어요'
+            : err <= 40 ? '연표 자리를 거의 맞혔어요' : err <= 120 ? '조금 어긋났어요 — 손잡이를 옮겨 고쳐 보세요' : '많이 어긋났어요 — 자료를 보고 고쳐 보세요';
+          return {it:it, ok:p.g === it.h, cm:it.ago / 10, after:it.ago > 0 && it.ago < 580, gy:p.gy, err:err, vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
           var mh = H * 0.56, k = r ? Math.min(tau / 0.7, 1) : 0;
@@ -472,7 +478,11 @@ var LAB = (function(){
           var ty = H - 70, x0 = 16, x1 = W - 16, span = x1 - x0, mxcm = 80;
           c.fillStyle = '#FFF4D6'; c.fillRect(x0, ty - 10, span, 20);
           c.fillStyle = PAL[4]; c.fillRect(x1 - 3, ty - 18, 6, 36); txt(c, '오늘', x1, ty + 38, {align:'right', bold:true, color:PAL[4]});
-          txt(c, '← 80cm (800년 전)', x0, ty + 38, {color:'#9AA5B1'});
+          if (W < 560){ c.font = '13px ' + FONT; c.fillStyle = '#9AA5B1'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText('← 80cm (800년 전)', x0, ty + 38); }
+          else txt(c, '← 80cm (800년 전)', x0, ty + 38, {color:'#9AA5B1'});
+          var gcm = Math.min(p.gy / 10, mxcm), gx2 = x1 - span * gcm / mxcm;
+          seg(c, gx2, ty - 24, gx2, ty + 24, '#7657B3', 2, [5, 4]);
+          c.fillStyle = '#7657B3'; c.beginPath(); c.moveTo(gx2 - 6, ty - 24); c.lineTo(gx2 + 6, ty - 24); c.lineTo(gx2, ty - 13); c.closePath(); c.fill();
           var hx = x1 - span * 58 / mxcm; c.fillStyle = PAL[0]; c.beginPath(); c.arc(hx, ty, 7, 0, Math.PI * 2); c.fill();
           txt(c, '훈민정음 58cm', hx, ty - 18, {align:'center', color:PAL[0]});
           if (r && tau >= 0.7){
@@ -485,11 +495,14 @@ var LAB = (function(){
         stats: function(p, r){
           return [['재료', r.it.n], ['처음 기른 곳', r.it.home, PAL[2]], ['우리나라에 들어온 때', r.it.came, PAL[4]],
             ['연표 (1cm = 10년)', r.it.ago ? '약 ' + f(r.cm, 0) + 'cm — 훈민정음(58cm)보다 ' + (r.after ? '오늘 쪽' : '먼 쪽') : '띠(80cm) 밖 아주 먼 옛날부터'],
-            ['나의 짐작', GO[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]]];
+            ['내가 놓은 자리', r.gy + '년 전 (' + f(r.gy / 10, 0) + 'cm)', '#7657B3'],
+            ['실제와의 차이', r.it.ago ? '약 ' + r.err + '년 (' + f(r.err / 10, 0) + 'cm)' : '띠 밖이라 견줄 수 없음', r.err <= 40 ? PAL[1] : PAL[4]],
+            ['나의 짐작', GO[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.it.ago && r.err <= 40 ? PAL[1] : PAL[4]]];
         },
-        columns: ['재료', '처음 기른 곳', '들어온 때', '나의 짐작', '맞음'],
-        record: function(p, r){ return {i:p.i, g:p.g, ok:r.ok}; },
-        row: function(d){ return [IG[d.i].n, IG[d.i].home, IG[d.i].came, GO[d.g], d.ok ? '○' : '✕']; },
+        columns: ['재료', '처음 기른 곳', '들어온 때', '내가 놓은 자리', '차이', '나의 짐작', '맞음'],
+        record: function(p, r){ return {i:p.i, g:p.g, gy:r.gy, err:r.err, ok:r.ok}; },
+        row: function(d){ return [IG[d.i].n, IG[d.i].home, IG[d.i].came, d.gy + '년 전', IG[d.i].ago ? d.err + '년' : '—', GO[d.g], d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('재료별 고향과 들어온 때', '<div id="fo1"></div><p class="ask">고추가 들어오기 전에도 김치가 있었다면, 그때 김치는 어떤 모습이었을까요? "처음부터 우리 것"과 "들어와서 우리 것이 된 것"을 나눠 보세요.</p>') +
@@ -498,8 +511,9 @@ var LAB = (function(){
           rec.forEach(function(d){ if (seen[d.i]) return; seen[d.i] = 1; var x = IG[d.i]; rows.push([x.n, x.home, x.came]); });
           $('fo1').innerHTML = tableHTML(['재료', '처음 기른 곳', '들어온 때'], rows) + (rows.length < 4 ? '<p class="msg">재료 네 가지를 모두 놓아 보세요.</p>' : '');
           var items = [{label:'훈민정음', v:58, color:PAL[0], text:'58cm'}];
-          IG.forEach(function(x, i){ if (!seen[i] || !x.ago) return; items.push({label:x.n, v:x.ago / 10, color:PAL[4], text:f(x.ago / 10, 0) + 'cm'}); });
-          $('fo2').innerHTML = hbars(items, 80);
+          IG.forEach(function(x, i){ if (!seen[i] || !x.ago) return; items.push({label:x.n + ' 실제', v:x.ago / 10, color:PAL[4], text:f(x.ago / 10, 0) + 'cm'});
+            var g = rec.filter(function(d){ return d.i === i; }); if (g.length) items.push({label:x.n + ' 내 짐작', v:Math.min(80, g[g.length - 1].gy / 10), color:'#7657B3', text:f(g[g.length - 1].gy / 10, 0) + 'cm'}); });
+          $('fo2').innerHTML = hbars(items, 80) + '<p class="msg">보라색이 내가 놓은 자리예요. 실제와 어긋난 만큼이 고쳐야 할 거리예요.</p>';
         }
       };
     })();
@@ -508,7 +522,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

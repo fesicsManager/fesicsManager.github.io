@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -435,8 +437,9 @@ var LAB = (function(){
       var CW = 900;
       function tw(c, s, x, y, mw, o){ o = o || {}; s = String(s); c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(s).width; if (mw > 20 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       function tfit(c, s, x, y, o){ o = o || {}; var al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; tw(c, s, x, y, mw, o); }
-      var V = ['통과 (같은 뜻으로 이어짐)', '연결 끊김 (애매어 오류)', '판정 보류 (숨은 전제·추가 정보 필요)'];
-      var VS = ['통과', '연결 끊김', '판정 보류'];
+      var V = ['통과 (같은 뜻으로 이어짐)', '연결 끊김 (애매어 오류)', '판정 보류 (숨은 전제·추가 정보 필요)', '이어지지만 전제가 거짓이 됨'];
+      var VS = ['통과', '연결 끊김', '판정 보류', '전제가 거짓'];
+      var DW = ['첫째 뜻 (왼쪽)', '둘째 뜻 (오른쪽)'];
       var AR = [
         {short:'별 → 반장', w:'별', p1:'별은 하늘에서 빛난다', p2:'반장은 학교의 별이다', con:'반장은 하늘에서 빛난다', m1:'스스로 빛나는 천체', m2:'인기 있는 사람', v:1,
           note:'"천체"와 "인기 있는 사람"은 다른 말이에요. 두 전제가 이어지지 않아요.'},
@@ -458,12 +461,27 @@ var LAB = (function(){
         shortHint: '여섯 논증 가운데 네 개 이상을 검사해 보세요. 통과·끊김·보류가 모두 나오도록요.',
         params: [
           {key:'a', type:'seg', label:'검사할 논증', cols:3, value:0, options:AR.map(function(x){ return x.short + ' — ' + x.con; })},
+          {key:'d1', type:'seg', label:'전제 1에 넣을 뜻', cols:2, value:0, options:DW},
+          {key:'d2', type:'seg', label:'전제 2에 넣을 뜻', cols:2, value:1, options:DW,
+            note:'두 전제에 같은 뜻을 넣어 보고, 다른 뜻을 넣어 보세요. 어느 조합에서 연결이 끊기고, 어느 조합에서 전제가 거짓이 되는지 직접 만들어 보세요.'},
           {key:'j', type:'seg', label:'나의 판정', cols:1, value:1, options:V,
             note:'단어가 같은지가 아니라, 뜻풀이로 바꿨을 때 두 전제가 같은 말로 이어지는지를 보세요.'}
         ],
-        compute: function(p){ var a = AR[p.a]; return {a:a, ok:p.j === a.v}; },
+        compute: function(p){
+          var a = AR[p.a];
+          var natural = (p.d1 === 0 && p.d2 === 1);
+          /* 자연스러운 읽기(각 전제를 그 전제의 뜻으로)일 때는 본래 판정을 쓰고,
+             두 전제에 같은 뜻을 억지로 넣으면 연결은 이어지지만 전제 하나가 거짓이 된다. */
+          var same = (p.d1 === p.d2);
+          var vv = natural ? a.v : (same ? (a.v === 0 ? 0 : 3) : 1);
+          var badP = same ? (p.d1 === 0 ? 2 : 1) : null;
+          var mm1 = p.d1 === 0 ? a.m1 : a.m2, mm2 = p.d2 === 0 ? a.m1 : a.m2;
+          return {a:a, vv:vv, natural:natural, same:same, badP:badP, mm1:mm1, mm2:mm2, d1:p.d1, d2:p.d2, ok:p.j === vv};
+        },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var a = AR[p.a], bw = (W - 52) / 2, k = r ? tau : 0, col = a.v === 0 ? PAL[1] : a.v === 1 ? PAL[4] : PAL[6];
+          var a = AR[p.a], bw = (W - 52) / 2, k = r ? tau : 0, vv = r ? r.vv : a.v;
+          var col = vv === 0 ? PAL[1] : vv === 1 ? PAL[4] : PAL[6];
+          var mm1 = r ? r.mm1 : a.m1, mm2 = r ? r.mm2 : a.m2;
           box(c, 20, 20, bw, 70, '#F7F9FC', '#C9D3DE'); box(c, 32 + bw, 20, bw, 70, '#F7F9FC', '#C9D3DE');
           tw(c, '전제 1', 30, 44, bw - 20, {color:'#4A5868'}); tw(c, a.p1, 30, 72, bw - 20, {bold:true});
           tw(c, '전제 2', 42 + bw, 44, bw - 20, {color:'#4A5868'}); tw(c, a.p2, 42 + bw, 72, bw - 20, {bold:true});
@@ -471,37 +489,45 @@ var LAB = (function(){
           if (r && k > 0.25){
             c.globalAlpha = Math.min(1, (k - 0.25) / 0.25);
             box(c, 20, 150, bw, 70, '#EEF3FB', PAL[0]); box(c, 32 + bw, 150, bw, 70, '#EEF3FB', PAL[0]);
-            tw(c, '"' + a.w + '" = ' + a.m1, 30, 192, bw - 20, {bold:true, color:PAL[0]});
-            tw(c, '"' + a.w + '" = ' + a.m2, 42 + bw, 192, bw - 20, {bold:true, color:PAL[0]});
+            tw(c, '"' + a.w + '" = ' + mm1, 30, 192, bw - 20, {bold:true, color:PAL[0]});
+            tw(c, '"' + a.w + '" = ' + mm2, 42 + bw, 192, bw - 20, {bold:true, color:PAL[0]});
             c.globalAlpha = 1;
           }
           if (r && k > 0.55){
             var y = 250, x1 = 20 + bw / 2, x2 = 32 + bw * 1.5;
-            if (a.v === 0) seg(c, x1, 222, x1, y, col, 3), seg(c, x2, 222, x2, y, col, 3), seg(c, x1, y, x2, y, col, 4);
-            else if (a.v === 1){ seg(c, x1, 222, x1, y, col, 3); seg(c, x2, 222, x2, y, col, 3); seg(c, x1, y, W / 2 - 22, y, col, 4); seg(c, W / 2 + 22, y, x2, y, col, 4); tw(c, '✂', W / 2, y + 7, 40, {align:'center', bold:true, color:col}); }
+            if (vv === 0 || vv === 3) seg(c, x1, 222, x1, y, col, 3), seg(c, x2, 222, x2, y, col, 3), seg(c, x1, y, x2, y, col, 4);
+            else if (vv === 1){ seg(c, x1, 222, x1, y, col, 3); seg(c, x2, 222, x2, y, col, 3); seg(c, x1, y, W / 2 - 22, y, col, 4); seg(c, W / 2 + 22, y, x2, y, col, 4); tw(c, '✂', W / 2, y + 7, 40, {align:'center', bold:true, color:col}); }
             else { seg(c, x1, 222, x1, y, col, 3, [5, 5]); seg(c, x2, 222, x2, y, col, 3, [5, 5]); seg(c, x1, y, x2, y, col, 3, [5, 5]); tw(c, '?', W / 2, y - 8, 40, {align:'center', bold:true, color:col}); }
-            box(c, 20, 280, W - 40, 56, a.v === 0 ? '#E7F5EE' : a.v === 1 ? '#FBEAEA' : '#FFF6E8', col);
+            box(c, 20, 280, W - 40, 56, vv === 0 ? '#E7F5EE' : vv === 1 ? '#FBEAEA' : '#FFF6E8', col);
             tw(c, '결론: ' + a.con, 30, 315, W - 60, {bold:true});
           }
           if (!r){ tfit(c, '실행하면 단어가 뜻풀이로 바뀌어요', 20, H - 18, {color:'#4A5868'}); return; }
           if (tau >= 1){
-            tfit(c, '판정: ' + VS[a.v], 20, H - 60, {bold:true, color:col});
+            tfit(c, '판정: ' + VS[vv] + (r.badP ? ' (전제 ' + r.badP + ' 가 거짓)' : ''), 20, H - 60, {bold:true, color:col});
             tfit(c, '나: ' + VS[p.j] + (r.ok ? ' ✓' : ' ✗'), 20, H - 30, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
           }
         },
         stats: function(p, r){
           var a = r.a;
           return [['논증', a.p1 + ' / ' + a.p2 + ' → ' + a.con], ['수상한 단어', a.w, PAL[3]],
-            ['전제 1의 뜻', a.m1, PAL[0]], ['전제 2의 뜻', a.m2, PAL[0]],
-            ['검사 판정', V[a.v], a.v === 0 ? PAL[1] : a.v === 1 ? PAL[4] : PAL[6]], ['설명', a.note],
+            ['내가 넣은 뜻 — 전제 1', r.mm1, PAL[0]], ['내가 넣은 뜻 — 전제 2', r.mm2, PAL[0]],
+            ['검사 판정', V[r.vv], r.vv === 0 ? PAL[1] : r.vv === 1 ? PAL[4] : PAL[6]],
+            ['왜 그렇게 되나', r.same
+              ? (r.vv === 3 ? '두 전제를 한 뜻으로 고정하니 연결은 이어집니다. 그런데 그 뜻에서는 전제 ' + r.badP + ' 가 참이 아니게 됩니다 — 애매어 오류는 이렇게 숨습니다.'
+                            : '두 뜻이 사실상 같은 말이라 한 뜻으로 고정해도 전제가 그대로 참입니다.')
+              : (r.natural ? a.note : '서로 다른 뜻을 넣었으니 두 전제가 같은 말로 이어지지 않습니다.'), PAL[3]],
+            ['본래(자연스러운) 판정', V[a.v]],
             ['나의 판정', VS[p.j] + (r.ok ? ' — 일치' : ' — 다름'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['논증', '단어', '검사 판정', '나의 판정', '일치'],
-        record: function(p, r){ return {a:p.a, j:p.j, ok:r.ok}; },
-        row: function(d){ var a = AR[d.a]; return [a.short, a.w, VS[a.v], VS[d.j], d.ok ? '예' : '아니오']; },
+        columns: ['논증', '단어', '넣은 뜻', '검사 판정', '나의 판정', '일치'],
+        record: function(p, r){ return {a:p.a, j:p.j, ok:r.ok, vv:r.vv, d1:r.d1, d2:r.d2, same:r.same, badP:r.badP}; },
+        row: function(d){ var a = AR[d.a]; return [a.short, a.w,
+          d.d1 == null ? '−' : ((d.d1 === 0 ? '첫째' : '둘째') + ' / ' + (d.d2 === 0 ? '첫째' : '둘째')),
+          VS[d.vv == null ? a.v : d.vv], VS[d.j], d.ok ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('판정 유형별 나의 일치율', '<div id="lp3a"></div><p class="ask">"그건 이론일 뿐이다"라는 말을 들으면, 정의 치환 검사로 어떻게 반박할 수 있을까요? 물 100°C 논증에서 드러난 숨은 조건은 무엇이었나요?</p>') +
+            card('뜻을 바꿔 넣어 본 조합', '<div id="lp3c"></div><p class="ask">같은 뜻을 넣었을 때는 왜 "연결은 되지만 전제가 거짓"이 되었나요? 애매어 오류가 어느 쪽으로도 빠져나갈 수 없는 까닭을 두 문장으로 적어 보세요.</p>') +
             card('검사한 논증의 뜻풀이', '<div id="lp3b"></div><p class="ask">과제: 광고나 기사에서 애매어나 모호어가 핵심 역할을 하는 문장 세 개를 찾아 정의 치환 검사를 하고, 판정 결과와 바꿔 쓴 문장을 적어 보세요.</p>') + '</div>';
           var items = [];
           VS.forEach(function(nm, i){
@@ -513,6 +539,20 @@ var LAB = (function(){
           var seen = {}, rows = [];
           rec.forEach(function(d){ if (seen[d.a]) return; seen[d.a] = 1; var a = AR[d.a]; rows.push([a.short, a.m1, a.m2, VS[a.v]]); });
           $('lp3b').innerHTML = tableHTML(['논증', '전제 1의 뜻', '전제 2의 뜻', '판정'], rows);
+          (function(){
+            var gr = rec.filter(function(d){ return d.d1 != null; });
+            if (!gr.length){ $('lp3c').innerHTML = '<p class="msg">전제마다 뜻을 골라 넣고 실행하면 여기에서 조합을 모아 줍니다.</p>'; return; }
+            var sameN = gr.filter(function(d){ return d.same; }).length;
+            var seen2 = {}, rows2 = [];
+            gr.forEach(function(d){
+              var k = d.a + '|' + d.d1 + d.d2; if (seen2[k]) return; seen2[k] = 1;
+              rows2.push([AR[d.a].short, (d.d1 === 0 ? '첫째' : '둘째') + ' / ' + (d.d2 === 0 ? '첫째' : '둘째'),
+                d.same ? '같은 뜻' : '다른 뜻', VS[d.vv] + (d.badP ? ' (전제 ' + d.badP + ')' : '')]);
+            });
+            $('lp3c').innerHTML = tableHTML(['논증', '넣은 뜻', '같은 뜻인가', '결과'], rows2, 'wrap') +
+              (sameN ? '<p class="msg">같은 뜻을 넣은 기록이 <b>' + sameN + '개</b> 있습니다. 그때는 연결이 이어지는 대신 <b>전제 하나가 거짓</b>이 되었습니다 — 끊기거나 거짓이 되거나, 어느 쪽으로도 빠져나갈 수 없습니다.</p>'
+                     : '<p class="msg">두 전제에 <b>같은 뜻</b>을 넣어 보세요. 연결은 이어지지만 전제가 거짓이 되는 자리를 직접 만들 수 있습니다.</p>');
+          })();
         }
       };
     })();
@@ -521,7 +561,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,9 +442,12 @@ var LAB = (function(){
       var VW = ['정의 전쟁론', '평화주의', '현실주의'];
       var CASE = [['가', '나'], ['다', '라']];
       var JW = [['정의 전쟁론의 조건을 갖춤', '정당한 전쟁을 부정의하게 수행'], ['부정의한 전쟁(수행 방식과 별개)', '두 칸 모두 위반']];
-      function view(v, s, d){
-        if (v === 0) return JW[s][d];
-        if (v === 1) return '어떤 전쟁도 정당화될 수 없음' + (d ? (s ? ' — 침략에 민간인 공격까지 더해 더욱 비판' : ' — 민간인 공격은 더욱 비판') : (s ? ' — 침략 전쟁은 더욱 분명히 거부' : ' — 시작 칸이 충족되어도 전쟁 자체를 거부'));
+      /* 둘째 변수: 군사 목표만 겨눈 공격에서도 생기는 민간인 부수 피해. 비례성 기준(교육용 모형값 200명)을
+         넘으면 '민간인을 의도적으로 겨누지 않았다'는 것만으로는 수행의 정의가 충족되지 않는다. */
+      var PROP = 200;
+      function view(v, s, d, prop){
+        if (v === 0) return (prop && !d) ? JW[s][d] + ' — 다만 부수 피해가 비례성 기준을 넘어 수행의 정의는 충족되지 않음' : JW[s][d];
+        if (v === 1) return '어떤 전쟁도 정당화될 수 없음' + (d ? (s ? ' — 침략에 민간인 공격까지 더해 더욱 비판' : ' — 민간인 공격은 더욱 비판') : (s ? ' — 침략 전쟁은 더욱 분명히 거부' : ' — 시작 칸이 충족되어도 전쟁 자체를 거부')) + (prop && !d ? ' (부수 피해는 거부 근거를 더 키움)' : '');
         return '국익과 힘의 문제로 봄 — 도덕 판단의 대상으로 보지 않음';
       }
       var Q = ['두 칸은 서로를 대신하지 않는다', '조건을 정하면 전쟁에 "정당하다"는 이름을 붙여 주는 것 아닌가?', '생존이 걸린 상황에서 규칙을 지키는 쪽만 불리해지는 것 아닌가?'];
@@ -454,10 +459,19 @@ var LAB = (function(){
         params: [
           {key:'s', type:'seg', label:'시작의 정의', cols:2, value:0, options:ST},
           {key:'d', type:'seg', label:'수행의 정의', cols:2, value:1, options:CD},
+          {key:'cv', type:'range', label:'군사 목표를 공격할 때 생기는 민간인 부수 피해 (가상 사례, 명)', min:0, max:500, step:50, value:0, fmt:function(x){ return f(x, 0); }},
+          {key:'qj', type:'seg', label:'예측: 정의 전쟁론은 이 사례를 어떻게 볼까?', cols:2, value:0, options:['조건을 갖춤 (허용 쪽)', '부정의하다 (금지 쪽)'],
+            note:'조합을 정한 뒤 세 관점의 답을 먼저 찍고 평가해 보세요. 맞히는 것은 "각 관점이 어떤 답을 내는가"일 뿐, 어느 입장이 옳은지가 아니에요.'},
+          {key:'qp', type:'seg', label:'예측: 평화주의는?', cols:2, value:0, options:['정당할 수 있다', '정당화될 수 없다']},
+          {key:'qr', type:'seg', label:'예측: 현실주의는?', cols:2, value:0, options:['도덕으로 판단한다', '도덕 판단의 대상이 아니라고 본다']},
           {key:'v', type:'seg', label:'관점', cols:3, value:0, options:VW}
         ],
         compute: function(p){
-          return {cs:CASE[p.s][p.d], me:view(p.v, p.s, p.d), all:[0, 1, 2].map(function(v){ return view(v, p.s, p.d); }), ihl:p.d === 1};
+          var prop = p.cv > PROP;
+          var aj = (p.s === 0 && p.d === 0 && !prop) ? 0 : 1, ap = 1, ar = 1;
+          var hit = (p.qj === aj ? 1 : 0) + (p.qp === ap ? 1 : 0) + (p.qr === ar ? 1 : 0);
+          return {cs:CASE[p.s][p.d], me:view(p.v, p.s, p.d, prop), all:[0, 1, 2].map(function(v){ return view(v, p.s, p.d, prop); }),
+            ihl:p.d === 1 || prop, prop:prop, aj:aj, ap:ap, ar:ar, hit:hit, okj:p.qj === aj, okp:p.qp === ap, okr:p.qr === ar};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, gs = Math.min(W * 0.42, 180), gx = 16, gy = 40, cw = gs / 2;
@@ -484,17 +498,25 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['사례', r.cs + ' — ' + ST[p.s] + ' · ' + CD[p.d]],
+            ['민간인 부수 피해 (가상 사례)', f(p.cv, 0) + '명 — 비례성 기준 ' + PROP + '명(교육용 모형값)을 ' + (r.prop ? '넘음' : '넘지 않음'), r.prop ? PAL[4] : PAL[7]],
+            ['내 예측 채점', r.hit + ' / 3 맞음 — 정의 전쟁론 ' + (r.okj ? '맞음' : '다름') + ' · 평화주의 ' + (r.okp ? '맞음' : '다름') + ' · 현실주의 ' + (r.okr ? '맞음' : '다름'), r.hit === 3 ? PAL[1] : PAL[4]],
             ['정의 전쟁론', r.all[0], p.v === 0 ? PAL[4] : null], ['평화주의', r.all[1], p.v === 1 ? PAL[4] : null], ['현실주의', r.all[2], p.v === 2 ? PAL[4] : null],
+            ['조건에 따라 답이 바뀌는 관점', '세 관점 가운데 부수 피해에 따라 답이 바뀐 것은 정의 전쟁론뿐이었어요. 평화주의와 현실주의는 조건을 바꿔도 같은 답을 냅니다 — 왜 그런지 설명해 보세요.', PAL[3]],
             ['고른 관점의 질문', Q[p.v], PAL[1]],
-            ['국제 인도법', r.ihl ? '민간인과 전투원 구별 원칙 위반 — 시작의 정당성과 관계없이 금지' : '민간인과 전투원 구별 원칙을 지킴(수행 칸)', r.ihl ? PAL[4] : PAL[2]]];
+            ['국제 인도법', r.ihl ? (p.d === 1 ? '민간인과 전투원 구별 원칙 위반 — 시작의 정당성과 관계없이 금지' : '구별은 지켰지만 부수 피해가 비례성 기준을 넘음 — 비례성도 함께 따져야 해요') : '민간인과 전투원 구별 원칙을 지킴(수행 칸)', r.ihl ? PAL[4] : PAL[2]]];
         },
-        columns: ['사례', '시작', '수행', '관점', '평가'],
-        record: function(p, r){ return {s:p.s, d:p.d, v:p.v, cs:r.cs, me:r.me}; },
-        row: function(d){ return [d.cs, d.s ? '위반' : '충족', d.d ? '위반' : '충족', VW[d.v], d.me]; },
+        columns: ['사례', '시작', '수행', '부수 피해', '관점', '예측', '평가'],
+        record: function(p, r){ return {s:p.s, d:p.d, v:p.v, cv:p.cv, cs:r.cs, me:r.me, prop:r.prop, hit:r.hit, qj:p.qj, aj:r.aj}; },
+        row: function(d){ return [d.cs, d.s ? '위반' : '충족', (d.d ? '위반' : '충족') + (d.prop ? ' (비례성 넘음)' : ''), f(d.cv, 0) + '명', VW[d.v], d.hit + '/3', d.me]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('정의 전쟁론으로 본 네 칸', '<div id="jw1"></div><p class="ask">사례 "나"는 이유가 정당해도 어느 칸에서 따로 걸렸나요? 두 칸은 서로를 대신할 수 있나요?</p>') +
+            card('내 예측과 세 관점의 답', '<div id="jw3"></div><p class="ask">어느 관점에서 예측이 자주 틀렸나요? 부수 피해를 키웠을 때 답이 바뀐 관점은 하나뿐이었는데, 그것이 무엇을 뜻하나요?</p>') +
             card('같은 칸, 세 관점', '<div id="jw2"></div><p class="ask">과제: 역사 속 전쟁 하나를 골라 시작의 정의와 수행의 정의를 따로 평가하고, 두 평가가 엇갈리는 지점이 있다면 어떤 자료가 더 필요한지 적어 보세요.</p>') + '</div>';
+          var tot = rec.reduce(function(a, x){ return a + x.hit; }, 0);
+          $('jw3').innerHTML = tableHTML(['사례 · 부수 피해', '정의 전쟁론 예측', '정의 전쟁론 답', '세 관점 맞힌 수'],
+            rec.slice(-8).map(function(x){ return [x.cs + ' · ' + f(x.cv, 0) + '명', x.qj === 0 ? '조건을 갖춤' : '부정의하다', x.aj === 0 ? '조건을 갖춤' : '부정의하다', x.hit + ' / 3']; }), 'wrap') +
+            '<p class="msg">모두 ' + tot + ' / ' + (rec.length * 3) + '개 맞혔어요. 비례성 기준 ' + PROP + '명은 교육용 모형값이고, 어느 입장이 옳은지는 채점하지 않아요.</p>';
           var rows = [];
           [0, 1].forEach(function(s){ [0, 1].forEach(function(d){ var g = rec.filter(function(x){ return x.s === s && x.d === d && x.v === 0; }); rows.push([CASE[s][d], s ? '위반' : '충족', d ? '위반' : '충족', g.length ? JW[s][d] : '(아직 기록 없음)']); }); });
           $('jw1').innerHTML = tableHTML(['사례', '시작', '수행', '정의 전쟁론 평가'], rows);
@@ -509,7 +531,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

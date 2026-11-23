@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,15 +446,19 @@ var LAB = (function(){
       function pop(y){ if (y <= PP[0][0]) return PP[0][1]; for (var i = 1; i < PP.length; i++){ if (y <= PP[i][0]){ var a = PP[i - 1], b = PP[i]; return a[1] + (b[1] - a[1]) * (y - a[0]) / (b[0] - a[0]); } } return PP[PP.length - 1][1]; }
       return {
         sceneHeight: 430,
-        idle: '기술을 고르고 등장 연도를 예측한 뒤 <b>예측 확인하기</b>를 누르세요.',
-        shortHint: '여섯 기술을 모두 예측해 보고, 어느 기술을 가장 크게 틀렸는지 확인하세요.',
+        idle: '기술을 고르고 등장 연도를 예측한 뒤, 「이 기술이 없다면」 가정도 정해서 <b>예측 확인하기</b>를 누르세요.',
+        shortHint: '여섯 기술을 모두 예측해 보고, 어느 기술을 가장 크게 틀렸는지 확인하세요. 가정 몫을 바꿔 가며 그래프의 가로선이 어떻게 내려가는지도 보세요.',
         params: [
           {key:'t', type:'seg', label:'화학 기술', cols:3, value:2, options:T.map(function(x){ return x.name; })},
-          {key:'y', type:'range', label:'나의 예측: 이 기술이 등장한 해', min:1800, max:2000, step:5, value:1900, fmt:function(v){ return v + '년'; }}
+          {key:'y', type:'range', label:'나의 예측: 이 기술이 등장한 해', min:1800, max:2000, step:5, value:1900, fmt:function(v){ return v + '년'; }},
+          {key:'sh', type:'range', label:'가정: 이 기술이 없다면 2020년 인구 가운데 뒷받침되지 못할 몫', min:0, max:60, step:5, value:20, fmt:function(v){ return v + ' %'; },
+            note:'정해진 답이 없는 칸입니다. 내가 세운 가정으로 계산해 보는 <b>교육용 모형값</b>이에요. 하버-보슈 암모니아 합성에 대해서는 「오늘 인구의 약 절반이 합성 비료에 기대고 있다」는 연구 추정이 있습니다. 다른 기술은 이런 추정값이 없으니, 가정을 바꿔 가며 결과가 얼마나 흔들리는지 살펴보세요.'}
         ],
         compute: function(p){
-          var t = T[p.t], err = p.y - t.year;
-          return {t:t, err:err, popA:pop(t.year), popP:pop(p.y), grow:pop(2020) / pop(t.year)};
+          var t = T[p.t], err = p.y - t.year, now = pop(2020);
+          var lose = now * p.sh / 100, keep = now - lose;
+          return {t:t, err:err, popA:pop(t.year), popP:pop(p.y), grow:pop(2020) / pop(t.year),
+            sh:p.sh, now:now, lose:lose, keep:keep};
         },
         draw: function(c, W, H, p, r, tau){
           var t = T[p.t], k = r ? Math.min(tau / 0.7, 1) : 0;
@@ -460,6 +466,9 @@ var LAB = (function(){
           c.strokeStyle = PAL[5]; c.lineWidth = 2.5; c.beginPath();
           for (var y = 1800; y <= 2020; y += 2){ if (y === 1800) c.moveTo(g.X(y), g.Y(pop(y))); else c.lineTo(g.X(y), g.Y(pop(y))); }
           c.stroke();
+          /* 내가 가정한 「이 기술이 없을 때 뒷받침되는 인구」 — 글자 없이 가로 점선으로만 표시(측정 결과 칸에 숫자가 나옴) */
+          var nowP = pop(2020), keepP = nowP * (1 - p.sh / 100);
+          if (p.sh > 0) seg(c, g.X(1800), g.Y(keepP), g.X(2020), g.Y(keepP), PAL[6], 2, [5, 5]);
           seg(c, g.X(p.y), 60, g.X(p.y), H - 90, PAL[3], 2, [6, 5]);
           txt(c, '예측 ' + p.y, g.X(p.y) + (p.y > 1960 ? -6 : 6), 80, {align:p.y > 1960 ? 'right' : 'left', color:PAL[3], bold:true});
           txt(c, t.eq.length > 22 && W < 600 ? t.short : t.eq, 20, 30, {bold:true});
@@ -478,15 +487,19 @@ var LAB = (function(){
           return [['기술', r.t.name + ' (' + r.t.field + ')'], ['실제 기준 연도', r.t.year + '년 — ' + r.t.note, PAL[4]], ['나의 예측', p.y + '년', PAL[3]],
             ['예측 오차', sgn(r.err, 0) + '년' + (Math.abs(r.err) <= 10 ? ' — 거의 맞힘' : r.err < 0 ? ' — 실제보다 이르게 예측' : ' — 실제보다 늦게 예측')],
             ['그해 세계 인구 (대략)', '약 ' + f(r.popA, 0) + '억 명 → 2020년 약 78억 명 (' + f(r.grow, 1) + '배)', PAL[5]],
-            ['핵심 반응', r.t.eq], ['이 기술이 없다면?', r.t.without]];
+            ['핵심 반응', r.t.eq], ['이 기술이 없다면?', r.t.without],
+            ['내 가정 (교육용 모형값)', '2020년 78억 가운데 ' + r.sh + ' %가 뒷받침되지 못한다고 가정', PAL[6]],
+            ['그 가정대로라면', '뒷받침되는 인구 약 ' + f(r.keep, 1) + '억 명 — 모자라는 인구 약 ' + f(r.lose, 1) + '억 명', PAL[6]],
+            ['가정을 점검하려면', '이 기술을 대신할 다른 방법이 있었을까? 그 방법으로는 몇 사람분을 댈 수 있었을까? 가정 몫을 0 %부터 60 %까지 밀어 보며 결론이 얼마나 흔들리는지 확인하세요.']];
         },
-        columns: ['기술', '예측 (년)', '실제 (년)', '오차 (년)', '그해 인구 (억)'],
-        record: function(p, r){ return {t:p.t, y:p.y, err:r.err, popA:r.popA}; },
-        row: function(d){ return [T[d.t].short, d.y, T[d.t].year, sgn(d.err, 0), f(d.popA, 0)]; },
+        columns: ['기술', '예측 (년)', '실제 (년)', '오차 (년)', '그해 인구 (억)', '내 가정 (%)', '모자라는 인구 (억)'],
+        record: function(p, r){ return {t:p.t, y:p.y, err:r.err, popA:r.popA, sh:r.sh, lose:r.lose}; },
+        row: function(d){ return [T[d.t].short, d.y, T[d.t].year, sgn(d.err, 0), f(d.popA, 0), d.sh, f(d.lose, 1)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('기술별 예측 오차 (마지막 기록)', '<div id="h2c1a"></div><p class="ask">가장 크게 틀린 기술은 무엇인가요? 생각보다 오래되었거나 최근인 기술이 있었나요?</p>') +
-            card('기술이 등장한 뒤 인구는 몇 배?', '<div id="h2c1b"></div><p class="ask">과제: 오늘 사용한 물건 다섯 가지를 적고, 각각 어떤 화학 기술(반응)이 필요했는지 찾아 보세요. 그 기술의 부작용도 한 가지씩 적어 보세요.</p>') + '</div>';
+            card('기술이 등장한 뒤 인구는 몇 배?', '<div id="h2c1b"></div><p class="ask">과제: 오늘 사용한 물건 다섯 가지를 적고, 각각 어떤 화학 기술(반응)이 필요했는지 찾아 보세요. 그 기술의 부작용도 한 가지씩 적어 보세요.</p>') +
+            card('내가 세운 가정 — 이 기술이 없다면', '<div id="h2c1c"></div><p class="ask">같은 기술에 가정 몫을 다르게 넣어 보았나요? 결론이 가정에 얼마나 민감한지 말해 보세요. 어떤 자료를 더 찾아보면 가정을 좁힐 수 있을까요?</p>') + '</div>';
           var last = {}; rec.forEach(function(d){ last[d.t] = d; });
           var items = [], rows = [];
           T.forEach(function(t, i){
@@ -496,6 +509,14 @@ var LAB = (function(){
           });
           $('h2c1a').innerHTML = hbars(items, 120) + (items.length < T.length ? '<p class="msg">아직 예측하지 않은 기술이 ' + (T.length - items.length) + '개 있어요.</p>' : '');
           $('h2c1b').innerHTML = tableHTML(['기술', '등장', '그해 인구', '2020년까지', '분야'], rows) + '<p class="msg">인구 증가에는 여러 원인이 함께 작용합니다. 기술 하나의 효과로 단정하지 마세요.</p>';
+          var shRows = [], shSeen = {};
+          rec.forEach(function(d){ var k = d.t + '|' + d.sh; if (shSeen[k]) return; shSeen[k] = 1;
+            shRows.push([T[d.t].short, d.sh + ' %', '약 ' + f(78 * (1 - d.sh / 100), 1) + '억', '약 ' + f(d.lose, 1) + '억']); });
+          var spread = {}; rec.forEach(function(d){ (spread[d.t] = spread[d.t] || {})[d.sh] = 1; });
+          var multi = Object.keys(spread).filter(function(k){ return Object.keys(spread[k]).length > 1; }).length;
+          $('h2c1c').innerHTML = tableHTML(['기술', '내 가정', '뒷받침되는 인구', '모자라는 인구'], shRows) +
+            '<p class="msg">이 칸의 숫자는 <b>교육용 모형값</b>입니다 — 내가 넣은 가정에서 바로 나온 값이고, 조사된 사실이 아닙니다.' +
+            (multi ? ' 같은 기술에 가정을 둘 이상 넣어 본 것이 ' + multi + '개 있습니다. 가정이 바뀌면 결론이 몇 억 명씩 움직이는 것을 눈여겨보세요.' : ' 같은 기술에 가정 몫을 다르게 넣어 다시 기록해 보면, 결론이 가정에 얼마나 흔들리는지 바로 보입니다.') + '</p>';
         }
       };
     })();
@@ -504,7 +525,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

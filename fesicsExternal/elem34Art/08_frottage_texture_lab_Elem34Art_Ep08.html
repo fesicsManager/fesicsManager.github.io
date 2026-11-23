@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -289,9 +290,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -427,6 +429,11 @@ function hbars(items, max){
 var LAB = (function(){
       var OB = [{name:'나뭇잎', pat:'잎맥 선'}, {name:'나무껍질', pat:'굵은 세로 줄'}, {name:'보도블록', pat:'작은 점'}, {name:'바구니', pat:'엇갈린 격자'}, {name:'사포', pat:'고른 모래알'}, {name:'매끈한 책상', pat:'무늬 없음'}];
       var PN = ['연필을 눕혀서', '연필을 세워서'];
+      /* 종이 두께(mm). 기본값 0.1mm · 세기 3 이면 배수가 1이 되어 예전 결과가 그대로 나온다.
+         ※ 아래 숫자는 교육용 모형값이에요. */
+      var TK = [{n:'얇은 종이 (0.05 mm)', s:'얇음', v:0.05}, {n:'보통 종이 (0.1 mm)', s:'보통', v:0.1}, {n:'두꺼운 종이 (0.2 mm)', s:'두꺼움', v:0.2}];
+      function amp(p){ return Math.max(0.05, Math.min(1.6, (p.pr / 3) * (0.1 / TK[p.tk].v))); }
+      var CCUT = 0.25;   /* 무늬 대비가 이보다 작으면 눈에 잘 안 띈다 */
       function hs(i, j){ var s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); }
       function relief(o, u, v){
         if (o === 0){
@@ -448,9 +455,15 @@ var LAB = (function(){
         shortHint: '여섯 물건을 모두 연필을 눕혀서 문질러 보세요. 한 번은 연필을 세워서도 해 보세요.',
         params: [
           {key:'o', type:'seg', label:'종이 밑 물건', cols:3, value:0, options:OB.map(function(x){ return x.name; })},
-          {key:'n', type:'seg', label:'연필 잡는 법', cols:2, value:0, options:PN}
+          {key:'n', type:'seg', label:'연필 잡는 법', cols:2, value:0, options:PN},
+          {key:'pr', type:'range', label:'문지르는 세기', min:1, max:5, step:1, value:3, fmt:function(v){ return v + ' 단계'; }},
+          {key:'tk', type:'seg', label:'종이 두께', cols:3, value:1, options:TK.map(function(x){ return x.n; }), note:'진하기 = (세기 ÷ 3) × (0.1 ÷ 종이 두께) 를 곱한 교육용 모형값이에요. 대비가 0.25 보다 작으면 무늬가 잘 안 보입니다.'}
         ],
-        compute: function(p){ var show = p.o !== 5 && p.n === 0; return {show:show, pat:show ? OB[p.o].pat : p.o === 5 ? '무늬 없음 (매끈함)' : '잘 안 보임 (선만 그어짐)'}; },
+        compute: function(p){
+          var a = amp(p), con = 0.72 * a;                     /* 볼록한 곳과 오목한 곳의 진하기 차이 */
+          var show = p.o !== 5 && p.n === 0 && con >= CCUT;
+          var why = p.n !== 0 ? '잘 안 보임 (선만 그어짐)' : p.o === 5 ? '무늬 없음 (매끈함)' : con < CCUT ? '너무 연해서 잘 안 보임' : OB[p.o].pat;
+          return {show:show, pat:why, a:a, con:con, dark:Math.min(0.95, 0.8 * a)}; },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#F4F1EA'; c.fillRect(0, 0, W, H);
           var pw = Math.min(W - 130, 440), ph = H - 70, x0 = 16, y0 = 40, cs = 5, k = r ? Math.min(tau / 0.85, 1) : 0;
@@ -460,8 +473,8 @@ var LAB = (function(){
             var lim = pw * k;
             for (var x = 0; x < lim; x += cs){
               for (var y = 0; y < ph; y += cs){
-                var u = x / pw, v = y / ph, h = relief(p.o, u, v), d;
-                if (p.n === 0) d = 0.08 + 0.72 * h;
+                var u = x / pw, v = y / ph, h = relief(p.o, u, v), d, aa = amp(p);
+                if (p.n === 0) d = Math.min(0.95, (0.08 + 0.72 * h) * aa);
                 else d = (Math.floor((x + y * 0.3) / 14) % 2 === 0 && hs(Math.floor(x / cs), Math.floor(y / 30)) > 0.3) ? 0.45 + 0.08 * h : 0.03;
                 c.fillStyle = 'rgba(40,44,52,' + d.toFixed(3) + ')'; c.fillRect(x0 + x, y0 + y, cs, cs);
               }
@@ -476,15 +489,24 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['물건', OB[p.o].name], ['연필', PN[p.n]], ['떠오른 무늬', r.pat, r.show ? PAL[1] : PAL[4]],
-            ['왜?', r.show ? '볼록한 곳만 진하게 칠해졌어요' : p.o === 5 ? '튀어나온 곳이 없어 고르게 칠해졌어요' : '연필 끝만 닿아 선만 그어졌어요', PAL[7]]];
+          return [['물건', OB[p.o].name], ['연필', PN[p.n]],
+            ['세기 · 종이', p.pr + ' 단계 · ' + TK[p.tk].n],
+            ['진하기 배수 (계산)', '×' + f(r.a, 2) + ' = (' + p.pr + '÷3) × (0.1÷' + TK[p.tk].v + ')', PAL[3]],
+            ['무늬 대비 (계산)', f(r.con, 2) + ' (0.25보다 커야 보여요)', r.con >= CCUT ? PAL[1] : PAL[4]],
+            ['떠오른 무늬', r.pat, r.show ? PAL[1] : PAL[4]],
+            ['왜?', r.show ? '볼록한 곳만 진하게 칠해졌어요'
+              : p.n !== 0 ? '연필 끝만 닿아 선만 그어졌어요'
+              : p.o === 5 ? '튀어나온 곳이 없어 고르게 칠해졌어요'
+              : '종이가 두껍거나 세기가 약해서 볼록·오목의 차이가 거의 안 남았어요', PAL[7]]];
         },
-        columns: ['물건', '연필', '무늬'],
-        record: function(p, r){ return {o:p.o, n:p.n, show:r.show}; },
-        row: function(d){ return [OB[d.o].name, d.n ? '세움' : '눕힘', d.show ? OB[d.o].pat : (d.o === 5 ? '없음' : '잘 안 보임')]; },
+        columns: ['물건', '연필', '세기', '종이', '대비', '무늬'],
+        record: function(p, r){ return {o:p.o, n:p.n, pr:p.pr, tk:p.tk, show:r.show, con:r.con}; },
+        row: function(d){ return [OB[d.o].name, d.n ? '세움' : '눕힘', (d.pr || 3) + '단계', TK[d.tk == null ? 1 : d.tk].s,
+          f(d.con == null ? 0.72 : d.con, 2), d.show ? OB[d.o].pat : (d.o === 5 ? '없음' : '잘 안 보임')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('나의 문지르기 채집표 (연필 눕혀서)', '<div id="fr1"></div><p class="ask">여섯 물건 중 몇 개에서 무늬가 떠올랐나요? 무늬가 없던 물건은 어떤 질감인가요?</p>') +
+            card('세기와 종이 두께로 계산한 진하기', '<div id="fr3"></div><p class="ask">같은 나뭇잎인데도 무늬가 사라진 때가 있었나요? 대비가 0.25보다 작아진 것은 세기 몇 단계, 종이 두께 얼마일 때였나요?</p>') +
             card('연필 잡는 법 비교', '<div id="fr2"></div><p class="ask">과제: 집 안에서 서로 다른 질감 다섯 가지를 문지르기로 채집해 이름표를 붙이고, 그중 두 가지를 오려 붙여 작은 그림을 완성해 보세요.</p>') + '</div>';
           var lay = rec.filter(function(d){ return d.n === 0; }), got = {};
           lay.forEach(function(d){ got[d.o] = 1; });
@@ -494,6 +516,15 @@ var LAB = (function(){
           var g = groupBy(rec.filter(function(d){ return d.o !== 5; }), function(d){ return d.n; }), items = [];
           [0, 1].forEach(function(n){ if (g[n]){ var s = g[n].filter(function(d){ return d.show; }).length / g[n].length * 100; items.push({label:PN[n].replace('연필을 ', ''), v:s, color:n ? PAL[4] : PAL[1], text:f(s, 0) + '% 무늬'}); } });
           $('fr2').innerHTML = items.length ? hbars(items, 100) : '<p class="msg">무늬 있는 물건으로 문지른 기록이 아직 없어요.</p>';
+          /* 대비가 작은 것부터 늘어놓고 '안 보이는 경계'를 내 기록으로 찾는다 */
+          var mine = rec.filter(function(x){ return x.n === 0 && x.o !== 5 && x.con != null; }).slice().sort(function(a, b){ return a.con - b.con; });
+          var rows3 = mine.map(function(x){ return [OB[x.o].name, x.pr + '단계', TK[x.tk].s, f(x.con, 2), x.show ? '보임' : '안 보임']; });
+          var lastHide = null, firstShow = null;
+          mine.forEach(function(x){ if (!x.show) lastHide = x.con; else if (firstShow === null) firstShow = x.con; });
+          $('fr3').innerHTML = (rows3.length ? tableHTML(['물건', '세기', '종이', '대비', '무늬'], rows3) : '')
+            + '<p class="msg">' + (lastHide !== null && firstShow !== null
+              ? '대비 <b>' + f(lastHide, 2) + '</b> 까지는 무늬가 안 보였고 <b>' + f(firstShow, 2) + '</b> 부터는 보였어요. 무늬가 떠오를지는 물건만으로 정해지지 않고, 세기와 종이 두께가 함께 정합니다.'
+              : '세기를 1단계로 낮추고 종이를 두껍게 해 보세요. 같은 물건에서도 무늬가 사라지는 지점을 찾을 수 있어요.') + '</p>';
         }
       };
     })();
@@ -502,7 +533,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

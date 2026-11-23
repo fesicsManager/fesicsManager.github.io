@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -450,7 +452,7 @@ var LAB = (function(){
         if (line) txt(c, line, x, yy, o); return yy;
       }
       return {
-        sceneHeight: 430,
+        sceneHeight: function(w){ return w < 560 ? 500 : 430; },
         idle: '네 칸과 판단하는 말을 넣거나 빼고 <b>이 말로 말하기</b>를 누르세요.',
         shortHint: '웹툰의 (가)는 "판단하는 말만", (나)는 "본 것·느낌·부탁"이에요. 둘 다 해 보세요.',
         params: [
@@ -469,26 +471,29 @@ var LAB = (function(){
           return {b:b, n:n, rec:rec, reply:reply, judge:p.j === 0};
         },
         draw: function(c, W, H, p, r, tau){
-          var b = build(p), bw = (W - 40) / 4, i, k = r ? Math.min(tau / 0.4, 1) : 1;
+          var narrow = W < 560, dy2 = narrow ? 48 : 0;
+          var b = build(p), bw = (narrow ? (W - 40) / 2 : (W - 40) / 4), i, k = r ? Math.min(tau / 0.4, 1) : 1;
           for (i = 0; i < 4; i++){
-            var on = b.on[i]; c.fillStyle = on ? '#E4F4EC' : '#F3F5F8'; c.fillRect(20 + i * bw + 2, 20, bw - 4, 40);
-            txt(c, BX[i].n, 20 + i * bw + bw / 2, 46, {align:'center', bold:on, color:on ? PAL[1] : '#9AA6B2'});
+            var bcol = narrow ? i % 2 : i, brow = narrow ? Math.floor(i / 2) : 0, bx = 20 + bcol * bw, by = 20 + brow * 44;
+            var on = b.on[i]; c.fillStyle = on ? '#E4F4EC' : '#F3F5F8'; c.fillRect(bx + 2, by, bw - 4, 40);
+            c.font = (on ? '700 ' : '') + (narrow ? 13 : 18) + 'px ' + FONT; c.fillStyle = on ? PAL[1] : '#9AA6B2';
+            c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(BX[i].n, bx + bw / 2, by + 26, bw - 10);
           }
-          if (p.j === 0){ c.fillStyle = '#FBE7E5'; c.fillRect(20, 68, W - 40, 30); txt(c, '판단하는 말 들어감', W / 2, 89, {align:'center', bold:true, color:PAL[4]}); }
+          if (p.j === 0){ c.fillStyle = '#FBE7E5'; c.fillRect(20, 68 + dy2, W - 40, 30); txt(c, '판단하는 말 들어감', W / 2, 89 + dy2, {align:'center', bold:true, color:PAL[4]}); }
           var s = b.s || '(아무 말도 없음)', shown = r ? s.slice(0, Math.ceil(s.length * k)) : s;
-          c.fillStyle = '#EAF1FA'; c.fillRect(20, 108, W - 40, 110);
-          wrap(c, '나: ' + shown, 30, 136, W - 60, 26, {});
+          c.fillStyle = '#EAF1FA'; c.fillRect(20, 108 + dy2, W - 40, 110);
+          wrap(c, '나: ' + shown, 30, 136 + dy2, W - 60, 26, {});
           if (r && !r.fail && tau > 0.45){
-            c.fillStyle = '#FFF4DE'; c.fillRect(20, 228, W - 40, 60);
-            wrap(c, '친구: ' + r.reply, 30, 254, W - 60, 24, {bold:true, color:r.judge ? PAL[4] : '#1E2833'});
+            c.fillStyle = '#FFF4DE'; c.fillRect(20, 228 + dy2, W - 40, 60);
+            wrap(c, '친구: ' + r.reply, 30, 254 + dy2, W - 60, 24, {bold:true, color:r.judge ? PAL[4] : '#1E2833'});
           }
           if (r && !r.fail && r.rec && tau > 0.6){
             var cw = (W - 40) / 10, u = Math.min((tau - 0.6) / 0.4, 1);
-            for (i = 0; i < 10; i++){ if (i >= Math.ceil(10 * u)) break; c.fillStyle = i < r.rec.sol ? PAL[1] : '#9AA6B2'; c.beginPath(); c.arc(20 + cw * i + cw / 2, 320, Math.min(12, cw / 2 - 2), 0, Math.PI * 2); c.fill(); }
+            for (i = 0; i < 10; i++){ if (i >= Math.ceil(10 * u)) break; c.fillStyle = i < r.rec.sol ? PAL[1] : '#9AA6B2'; c.beginPath(); c.arc(20 + cw * i + cw / 2, 320 + dy2, Math.min(12, cw / 2 - 2), 0, Math.PI * 2); c.fill(); }
             var rA = '역할극 10쌍(가상):', rB = '해결 먼저 ' + r.rec.sol + ' · 변명 먼저 ' + r.rec.exc; c.font = '18px ' + FONT;
-            if (20 + c.measureText(rA + ' ' + rB).width > W - 8){ txt(c, rA, 20, 360, {color:'#4A5868'}); txt(c, rB, 20, 384, {color:'#4A5868'}); } // 좁은 화면: 두 줄
-            else txt(c, rA + ' ' + rB, 20, 362, {color:'#4A5868'});
-          } else if (r && !r.fail && tau > 0.6) txt(c, '이 조합은 역할극 기록이 없어요', 20, 330, {color:'#9AA6B2'});
+            if (20 + c.measureText(rA + ' ' + rB).width > W - 8){ txt(c, rA, 20, 360 + dy2, {color:'#4A5868'}); txt(c, rB, 20, 384 + dy2, {color:'#4A5868'}); } // 좁은 화면: 두 줄
+            else txt(c, rA + ' ' + rB, 20, 362 + dy2, {color:'#4A5868'});
+          } else if (r && !r.fail && tau > 0.6) txt(c, '이 조합은 역할극 기록이 없어요', 20, 330 + dy2, {color:'#9AA6B2'});
           txt(c, '네 칸 중 ' + b.on.filter(function(x){ return x; }).length + '칸', 20, H - 12, {bold:true});
         },
         stats: function(p, r){
@@ -517,7 +522,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

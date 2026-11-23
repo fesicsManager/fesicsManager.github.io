@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -463,16 +465,38 @@ var PLANT = [
 ];
 var COLD = [10, 20, 30];
 var POUT = 1000;
+var WAYS = ['증기를 25 °C 올리기', '냉각수를 10 °C 낮추기'];
+/* 어느 쪽을 고쳐야 효율이 더 오르나 — 두 경우를 모두 계산해서 견준다 */
+function effOf(pi, hDeg, cIdx){
+  var P = PLANT[pi], Th = hDeg + 273.15, Tc = COLD[cIdx] + 273.15;
+  if (hDeg <= COLD[cIdx] + 20) return 0;
+  return (1 - Tc / Th) * P.k;
+}
+function ways(p){
+  var base = effOf(p.p, p.h, p.c);
+  var hUp = Math.min(650, p.h + 25), cDn = Math.max(0, p.c - 1);
+  var a = {n:WAYS[0], can:hUp > p.h, eff:effOf(p.p, hUp, p.c), to:hUp + ' °C'};
+  var b = {n:WAYS[1], can:cDn < p.c, eff:effOf(p.p, p.h, cDn), to:COLD[cDn] + ' °C'};
+  a.gain = a.can ? a.eff - base : 0; b.gain = b.can ? b.eff - base : 0;
+  return {base:base, a:a, b:b};
+}
 return {
   sceneHeight: 460,
   minRec: 4,
-  idle: '발전 방식과 증기 온도, 냉각수 온도를 정하고 <b>발전소 돌리기</b>를 누르세요.',
+  get idle(){
+    var P = (typeof p.p === 'number') ? PLANT[p.p] : null;
+    return '발전 방식과 증기 온도, 냉각수 온도를 정하고 <b>발전소 돌리기</b>를 누르세요.<br><br>' +
+      '🔎 <b>먼저 고르기</b> — ' + (P ? P.n + '에서 ' : '') + '효율을 올리려면 <b>증기를 25 °C 더 뜨겁게</b> 하는 쪽이 나을까요, <b>냉각수를 10 °C 더 차게</b> 하는 쪽이 나을까요?<br>' +
+      '조작 칸 맨 아래에서 먼저 고르고 돌리면, 두 경우를 모두 계산해 채점해요. 증기 온도가 낮은 발전소와 높은 발전소에서 답이 같을지 생각해 보세요.';
+  },
   shortHint: '자유 탐구 탭에서 증기 온도와 냉각수 온도를 바꿔 가며 기록하세요.',
   params: [
     {key:'p', type:'seg', label:'발전 방식', cols:4, value:0, options:PLANT.map(function(x){ return x.n + '<small>' + x.co2 + ' g/kWh</small>'; })},
     {key:'h', type:'range', label:'증기(고온부) 온도', min:150, max:650, step:25, value:550, fmt:function(v){ return v + ' °C'; }},
     {key:'c', type:'seg', label:'냉각수 온도', cols:3, value:1, options:COLD.map(function(v){ return v + ' °C'; }),
-      note:'전기 출력은 1 000 MW로 맞췄습니다. 방식마다 실제로 쓰는 증기 온도 범위가 달라 그 밖으로 나가면 안내가 뜹니다.'}
+      note:'전기 출력은 1 000 MW로 맞췄습니다. 방식마다 실제로 쓰는 증기 온도 범위가 달라 그 밖으로 나가면 안내가 뜹니다.'},
+    {key:'q', type:'seg', label:'예상 — 효율을 올리려면 어느 쪽?', cols:2, value:0, options:WAYS,
+      note:'증기 온도 650 °C, 냉각수 10 °C는 더 올리거나 내릴 수 없는 한도라 그때는 그쪽 이득이 0입니다. 두 이득이 같으면 어느 쪽을 골라도 맞음으로 봅니다.'}
   ],
   compute: function(p){
     var P = PLANT[p.p], Th = p.h + 273.15, Tc = COLD[p.c] + 273.15;
@@ -481,8 +505,12 @@ return {
     var qin = POUT / eff, waste = qin - POUT;
     var inRange = p.h >= P.th[0] && p.h <= P.th[1];
     var kwhYr = POUT * 1000 * 8760 * 0.8;               // kWh/년 (이용률 80 %)
+    var wy = ways(p);
+    var tie = Math.abs(wy.a.gain - wy.b.gain) < 1e-6;
+    var ansW = tie ? -1 : (wy.a.gain > wy.b.gain ? 0 : 1);
     return {P:P, Th:p.h, Tc:COLD[p.c], ThK:Th, TcK:Tc, ratio:Tc / Th, carnot:carnot, eff:eff,
-      qin:qin, waste:waste, inRange:inRange, co2:P.co2 * kwhYr / 1e12, wasteFrac:waste / qin};
+      qin:qin, waste:waste, inRange:inRange, co2:P.co2 * kwhYr / 1e12, wasteFrac:waste / qin,
+      wA:wy.a, wB:wy.b, q:p.q, ansW:ansW, qOk:(tie || p.q === ansW)};
   },
   draw: function(c, W, H, p, r, tau){
     var P = PLANT[p.p];
@@ -550,20 +578,29 @@ return {
       ['넣은 열', Math.round(r.qin).toLocaleString() + ' MW'],
       ['전기 출력', '1 000 MW'], ['버려지는 열', Math.round(r.waste).toLocaleString() + ' MW', PAL[4]],
       ['버려지는 몫', f(r.wasteFrac * 100, 1) + ' %'],
-      ['1년 이산화 탄소(어림)', f(r.co2, 2) + ' 백만 t'], ['메모', r.P.note]];
+      ['1년 이산화 탄소(어림)', f(r.co2, 2) + ' 백만 t'], ['메모', r.P.note],
+      ['증기 25 °C 올리면', r.wA.can ? f(r.wA.eff * 100, 2) + ' % (' + sgn(r.wA.gain * 100, 2) + ' %p)' : '한도라 올릴 수 없음', PAL[4]],
+      ['냉각수 10 °C 낮추면', r.wB.can ? f(r.wB.eff * 100, 2) + ' % (' + sgn(r.wB.gain * 100, 2) + ' %p)' : '한도라 낮출 수 없음', PAL[5]],
+      ['내 예상 / 더 나은 쪽', WAYS[r.q] + ' / ' + (r.ansW < 0 ? '두 쪽이 같음' : WAYS[r.ansW]), PAL[3]],
+      ['채점', r.qOk ? '맞음 ✔' : '아쉬움 ✘', r.qOk ? PAL[1] : PAL[4]]];
   },
-  columns: ['방식', 'T고온 (°C)', 'T저온 (°C)', 'Tc÷Th', '카르노 (%)', '실제 (%)', '넣은 열 (MW)', '폐열 (MW)'],
+  columns: ['방식', 'T고온 (°C)', 'T저온 (°C)', 'Tc÷Th', '카르노 (%)', '실제 (%)', '넣은 열 (MW)', '폐열 (MW)', '증기↑ 이득 (%p)', '냉각수↓ 이득 (%p)', '내 예상', '더 나은 쪽', '채점'],
   record: function(p, r){
     return {pi:p.p, plant:r.P.n, Th:r.Th, Tc:r.Tc, ratio:r.ratio, carnot:r.carnot, eff:r.eff,
-      qin:r.qin, waste:r.waste, co2:r.co2, k:r.P.k, co2f:r.P.co2};
+      qin:r.qin, waste:r.waste, co2:r.co2, k:r.P.k, co2f:r.P.co2,
+      gA:r.wA.gain, gB:r.wB.gain, q:r.q, ansW:r.ansW, qOk:r.qOk};
   },
   row: function(d){ return [d.plant, d.Th, d.Tc, f(d.ratio, 3), f(d.carnot * 100, 1), f(d.eff * 100, 1),
-    Math.round(d.qin).toLocaleString(), Math.round(d.waste).toLocaleString()]; },
+    Math.round(d.qin).toLocaleString(), Math.round(d.waste).toLocaleString(),
+    d.gA == null ? '—' : f(d.gA * 100, 2), d.gB == null ? '—' : f(d.gB * 100, 2),
+    d.q == null ? '—' : WAYS[d.q], d.ansW == null ? '—' : (d.ansW < 0 ? '같음' : WAYS[d.ansW]),
+    d.q == null ? '—' : (d.qOk ? '맞음' : '아쉬움')]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('온도비와 최대 효율', '<canvas class="chart" id="ch1" role="img" aria-label="온도비와 카르노 효율 산점도"></canvas><ul class="readout" id="ro1"></ul><p class="ask">기울기가 −1인 직선이 나옵니다. 효율을 100 %로 만들려면 어떤 조건이 필요할까요? 그것이 가능할까요?</p>') +
       card('효율과 버려지는 열', '<canvas class="chart" id="ch2" role="img" aria-label="효율과 폐열 산점도"></canvas><ul class="readout" id="ro2"></ul><p class="ask">같은 1 000 MW를 내면서 폐열을 줄이려면 무엇을 바꿔야 할까요?</p>') +
-      card('방식별 비교', '<div id="ro3"></div><p class="ask">효율이 높은 것과 배출이 적은 것이 늘 같지는 않습니다. 무엇을 기준으로 발전 방식을 고를지 생각해 보세요.</p>') + '</div>';
+      card('방식별 비교', '<div id="ro3"></div><p class="ask">효율이 높은 것과 배출이 적은 것이 늘 같지는 않습니다. 무엇을 기준으로 발전 방식을 고를지 생각해 보세요.</p>') +
+      card('증기를 올릴까, 냉각수를 낮출까 — 채점', '<div id="ro4"></div><p class="ask">같은 질문인데 발전소에 따라 답이 갈립니다. 왜 증기 온도가 낮은 발전소에서는 증기를 올리는 쪽이 더 이득인지 식 1 − Tc ÷ Th로 설명해 보세요.</p>') + '</div>';
     var pts1 = rec.map(function(d){ return {x:d.ratio, y:d.carnot}; });
     drawScatter($('ch1'), {xLabel:'T저온 ÷ T고온', yLabel:'카르노 최대 효율', tightX:true, tightY:true, series:[{color:PAL[0], pts:pts1}]});
     var r1 = [];
@@ -591,6 +628,22 @@ return {
     });
     $('ro3').innerHTML = tableHTML(['방식', '실제 증기 온도', '기술 계수', 'CO₂(수명 주기)', '내 기록 평균 효율', '메모'], rows, 'wrap') +
       '<p class="note">원자력은 효율이 낮지만 배출이 적고, 석탄은 효율이 비교적 높아도 배출이 가장 많아요. 태양광·풍력은 열기관이 아니라 카르노 한계를 받지 않아요.</p>';
+    var qr = rec.filter(function(d){ return d.q != null; });
+    if (!qr.length){
+      $('ro4').innerHTML = '<p class="note">조작 칸에서 어느 쪽을 고칠지 먼저 고르고 돌리면 여기에 채점표가 쌓여요.</p>';
+    } else {
+      var hit = qr.filter(function(d){ return d.qOk; }).length;
+      var winA = qr.filter(function(d){ return d.ansW === 0; }), winB = qr.filter(function(d){ return d.ansW === 1; });
+      $('ro4').innerHTML = tableHTML(['방식', '증기 (°C)', '냉각수 (°C)', '증기↑ 이득 (%p)', '냉각수↓ 이득 (%p)', '더 나은 쪽', '내 예상', '채점'],
+        qr.map(function(d){ return [d.plant, String(d.Th), String(d.Tc), f(d.gA * 100, 2), f(d.gB * 100, 2),
+          d.ansW < 0 ? '같음' : WAYS[d.ansW], WAYS[d.q], d.qOk ? '맞음 ✔' : '아쉬움 ✘']; }), 'wrap') +
+        '<p class="note"><b>' + hit + ' / ' + qr.length + '</b> 번 맞혔어요.</p>' +
+        '<p class="note">' +
+        ((winA.length && winB.length)
+          ? '내 기록에서 <b>증기를 올리는 쪽</b>이 나은 경우(' + winA.map(function(d){ return d.plant + ' ' + d.Th + ' °C'; }).join(', ') + ')와 <b>냉각수를 낮추는 쪽</b>이 나은 경우(' + winB.map(function(d){ return d.plant + ' ' + d.Th + ' °C'; }).join(', ') + ')가 모두 나왔어요. 하나의 정답이 아니라 <b>조건에 따라 갈려요</b>.'
+          : '지열(150~250 °C)처럼 증기 온도가 낮은 발전소와 천연가스(400~620 °C)처럼 높은 발전소를 모두 기록해 보면 답이 갈리는 것을 볼 수 있어요.') +
+        ' 효율은 1 − Tc ÷ Th이므로, 증기를 올리면 분모가 커지는 이득이고 냉각수를 낮추면 분자가 작아지는 이득이에요. 증기 온도가 낮을 때는 분모를 키우는 효과가 더 커요.</p>';
+    }
   }
 };
 })();
@@ -599,7 +652,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

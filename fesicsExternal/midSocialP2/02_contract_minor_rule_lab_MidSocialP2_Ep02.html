@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,23 +439,48 @@ var LAB = (function(){
         {n:'계약서를 쓰고 도장도 찍었다', s:'계약서 작성', offer:true, accept:true, paper:true}
       ];
       var PT = [
-        {n:'성인끼리 중고 거래', s:'성인끼리', minor:false, need:'해당 없음(성인)', cancel:'민법 제5조로 취소할 수는 없음', law:'—'},
-        {n:'중학생이 부모 몰래 고가 게임기를 할부로 구매', s:'부모 몰래 할부', minor:true, need:'필요 — 동의 없음', cancel:'취소할 수 있음', law:'민법 제5조 ②'},
-        {n:'받은 용돈 범위에서 문구 구매', s:'용돈 범위', minor:true, need:'용돈은 쓰라고 허락한 돈', cancel:'원칙적으로 취소 어려움', law:'민법 제6조'},
-        {n:'아무 조건 없이 선물을 받음', s:'선물 받음', minor:true, need:'필요 없음(권리만 얻음)', cancel:'해당 없음', law:'민법 제5조 ① 단서'},
-        {n:'신분증을 위조해 성인이라고 속이고 계약', s:'속이고 계약', minor:true, need:'없음', cancel:'취소할 수 없음(속임수)', law:'민법 제17조'}
+        {n:'성인끼리 중고 거래', s:'성인끼리', minor:false, k:'adult'},
+        {n:'중학생이 부모 몰래 할부로 구매', s:'부모 몰래 할부', minor:true, k:'secret'},
+        {n:'중학생이 받은 용돈으로 구매', s:'용돈으로', minor:true, k:'allow'},
+        {n:'아무 조건 없이 선물을 받음', s:'선물 받음', minor:true, k:'gift'},
+        {n:'신분증을 위조해 성인이라고 속이고 계약', s:'속이고 계약', minor:true, k:'fraud'}
       ];
+      function won(v){ return Math.round(v).toLocaleString() + '원'; }
+      function judge(k, price, allow){
+        var within = price <= allow;
+        if (k === 'adult') return {need:'해당 없음(성인)', cancel:'민법 제5조로 취소할 수는 없음', law:'—', within:null,
+          why:'성인끼리의 거래라 미성년자 보호 규정이 쓰이지 않습니다.'};
+        if (k === 'gift') return {need:'필요 없음(권리만 얻음)', cancel:'해당 없음', law:'민법 제5조 ① 단서', within:null,
+          why:'빚이 생기지 않고 권리만 얻는 계약은 혼자서도 할 수 있습니다.'};
+        if (k === 'fraud') return {need:'없음', cancel:'취소할 수 없음(속임수)', law:'민법 제17조', within:null,
+          why:'속임수를 썼으면 보호해 주지 않습니다. 값이 얼마든 결과는 같아요.'};
+        if (k === 'secret') return {need:'필요 — 동의 없음', cancel:'취소할 수 있음', law:'민법 제5조 ②', within:within,
+          why:'할부로 빚을 지는 것은 용돈을 쓰라고 허락한 범위를 넘는다고 봅니다. ' +
+            (within ? '값이 용돈 안이어도 빚을 지는 쪽이라 결과는 같아요.' : '값도 용돈 범위를 넘습니다.')};
+        return within
+          ? {need:'필요 없음 — 용돈은 쓰라고 허락한 재산', cancel:'원칙적으로 취소 어려움', law:'민법 제6조', within:true,
+             why:won(price) + '은 한 달 용돈 ' + won(allow) + ' 안이라, 쓰라고 허락받은 돈을 쓴 셈입니다.'}
+          : {need:'필요 — 용돈 범위를 넘음', cancel:'취소할 수 있음', law:'민법 제5조 ②', within:false,
+             why:won(price) + '은 한 달 용돈 ' + won(allow) + ' 을 넘습니다. 허락받은 범위를 벗어났으니 동의가 필요해요.'};
+      }
       return {
         sceneHeight: 400,
-        idle: '단계와 당사자 상황을 고른 뒤 <b>계약 판정하기</b>를 누르세요.',
-        shortHint: '"말로 합의"와 "계약서 작성"을 비교해 보세요. 성립 여부가 달라지나요? 그다음 미성년자 사례 네 가지를 바꿔 보세요.',
+        idle: '단계·당사자 상황·<b>물건값과 용돈</b>을 고른 뒤 <b>계약 판정하기</b>를 누르세요.',
+        shortHint: '“용돈으로 구매”에서 <b>물건값을 용돈 위아래로</b> 바꿔 가며 기록하세요. 판정이 뒤집히는 경계를 찾는 것이 핵심입니다.',
         params: [
           {key:'s', type:'seg', label:'거래 단계', cols:3, value:1, options:ST.map(function(x){ return x.n; })},
-          {key:'t', type:'seg', label:'당사자 상황 (가상)', cols:2, value:0, options:PT.map(function(x){ return x.n; })}
+          {key:'t', type:'seg', label:'당사자 상황 (가상)', cols:2, value:0, options:PT.map(function(x){ return x.n; })},
+          {key:'allow', type:'range', label:'한 달 용돈 (쓰라고 허락받은 돈)', min:0, max:100000, step:5000, value:30000,
+            fmt:function(v){ return won(v); }},
+          {key:'price', type:'range', label:'물건값', min:1000, max:500000, step:1000, value:5000,
+            fmt:function(v){ return won(v); },
+            note:'물건값이 용돈 범위 안인지 밖인지에 따라 “동의가 필요한가·취소할 수 있는가”가 갈립니다(민법 제6조 ↔ 제5조 ②).'}
         ],
         compute: function(p){
-          var st = ST[p.s], pt = PT[p.t], formed = st.offer && st.accept;
-          return {st:st, pt:pt, formed:formed, proof:st.paper ? '쉬움 — 문서가 있음' : (formed ? '어려움 — 말로만 함' : '—')};
+          var st = ST[p.s], pt = PT[p.t], formed = st.offer && st.accept, j = judge(pt.k, p.price, p.allow);
+          return {st:st, pt:pt, formed:formed, price:p.price, allow:p.allow,
+            need:j.need, cancel:j.cancel, law:j.law, within:j.within, why:j.why,
+            proof:st.paper ? '쉬움 — 문서가 있음' : (formed ? '어려움 — 말로만 함' : '—')};
         },
         draw: function(c, W, H, p, r, tau){
           var st = ST[p.s], k = r ? Math.min(tau / 0.6, 1) : 0, y = 120, lw = Math.min(170, W * 0.42);
@@ -464,7 +491,7 @@ var LAB = (function(){
             c.strokeStyle = PAL[4]; c.lineWidth = 3; c.beginPath(); c.arc(W / 2 + 36, y + 92, 12, 0, Math.PI * 2); c.stroke(); }
           if (r && k >= 1){
             txt(c, r.formed ? '계약 성립' : '아직 성립 전', W / 2, 40, {align:'center', bold:true, color:r.formed ? PAL[1] : PAL[7]});
-            var t1 = '동의: ' + r.pt.need, t2 = '취소: ' + (r.formed ? r.pt.cancel : '성립 전이라 따질 것 없음');
+            var t1 = '동의: ' + r.need, t2 = '취소: ' + (r.formed ? r.cancel : '성립 전이라 따질 것 없음');
             var wl = function(t, o){ txt(c, '', 0, 0, o); var ws = t.split(' '), ls = [ws[0]]; for (var j = 1; j < ws.length; j++){ var t3 = ls[ls.length - 1] + ' ' + ws[j]; if (c.measureText(t3).width <= W - 56) ls[ls.length - 1] = t3; else ls.push(ws[j]); } return ls; };
             var L1 = wl(t1, {}), L2 = wl(t2, {bold:true});
             if (L1.length + L2.length > 2){ var bh2 = 30 + (L1.length + L2.length - 1) * 24 + 26, by = H - 30 - bh2; c.fillStyle = '#F4F6F9'; c.fillRect(16, by, W - 32, bh2);
@@ -475,22 +502,42 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['거래 단계', r.st.n], ['계약 성립', r.formed ? '성립 — 청약과 승낙이 맞음' + (r.st.paper ? '' : ' (계약서 없어도 성립)') : '아직 — 승낙이 없음', r.formed ? PAL[1] : PAL[7]],
+          var s = [['거래 단계', r.st.n], ['계약 성립', r.formed ? '성립 — 청약과 승낙이 맞음' + (r.st.paper ? '' : ' (계약서 없어도 성립)') : '아직 — 승낙이 없음', r.formed ? PAL[1] : PAL[7]],
             ['합의 증명', r.proof], ['당사자 상황', r.pt.n],
-            ['법정대리인 동의', r.pt.need, PAL[0]], ['취소할 수 있나', r.formed ? r.pt.cancel : '성립 전이라 따질 것 없음', PAL[3]], ['근거 조문', r.pt.law, PAL[2]]];
+            ['물건값 · 한 달 용돈', won(r.price) + ' · ' + won(r.allow)]];
+          if (r.within !== null) s.push(['용돈 범위 안인가', r.within ? '안 — 허락받은 돈으로 치를 수 있음' : '밖 — 용돈으로는 치를 수 없음', r.within ? PAL[1] : PAL[4]]);
+          else s.push(['용돈 범위', '이 사례에서는 값과 상관없이 결과가 같아요.']);
+          s.push(['법정대리인 동의', r.need, PAL[0]],
+            ['취소할 수 있나', r.formed ? r.cancel : '성립 전이라 따질 것 없음', PAL[3]],
+            ['근거 조문', r.law, PAL[2]], ['왜 그렇게 되나', r.why]);
+          return s;
         },
-        columns: ['단계', '당사자', '성립', '취소'],
-        record: function(p, r){ return {s:p.s, t:p.t, formed:r.formed}; },
-        row: function(d){ return [ST[d.s].s, PT[d.t].s, d.formed ? '성립' : '전', d.formed ? PT[d.t].cancel : '—']; },
+        columns: ['단계', '당사자', '물건값', '용돈', '범위', '성립', '동의', '취소', '조문'],
+        record: function(p, r){ return {s:p.s, t:p.t, formed:r.formed, price:r.price, allow:r.allow, within:r.within, need:r.need, cancel:r.cancel, law:r.law}; },
+        row: function(d){ return [ST[d.s].s, PT[d.t].s, won(d.price), won(d.allow),
+          d.within === null ? '—' : (d.within ? '안' : '밖'), d.formed ? '성립' : '전',
+          d.need, d.formed ? d.cancel : '—', d.law]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('단계별 계약 성립', '<div id="cq1"></div><p class="ask">계약서와 도장이 없던 "말로 합의"는 성립했나요? 계약서는 무엇을 더해 주나요?</p>') +
-            card('미성년자 사례 판정 (민법 제5조·제6조·제17조)', '<div id="cq2"></div><p class="ask">과제: 오늘 하루 내가 맺은 계약을 모두 찾아 적고(교통카드, 편의점, 앱 결제 등), 각각 언제 청약과 승낙이 이루어졌는지 표시해 보세요. 그중 법정대리인 동의가 필요했을 만한 것이 있는지 민법 제5조로 판단해 보세요.</p>') + '</div>';
+            card('미성년자 사례 판정 (민법 제5조·제6조·제17조)', '<div id="cq2"></div><p class="ask">과제: 오늘 하루 내가 맺은 계약을 모두 찾아 적고(교통카드, 편의점, 앱 결제 등), 각각 언제 청약과 승낙이 이루어졌는지 표시해 보세요. 그중 법정대리인 동의가 필요했을 만한 것이 있는지 민법 제5조로 판단해 보세요.</p>') +
+            card('판정이 뒤집히는 경계', '<div id="cq3"></div><p class="ask">같은 “용돈으로 구매”인데 왜 어떤 값에서는 취소할 수 없고 어떤 값에서는 취소할 수 있나요? 용돈을 올리면 경계는 어느 쪽으로 움직일까요?</p>') + '</div>';
           var rows = ST.map(function(st, i){ var g = rec.filter(function(d){ return d.s === i; }); return [st.s, g.length ? (g[0].formed ? '성립' : '성립 전') : '—', st.paper ? '쉬움' : (st.accept ? '어려움' : '—')]; });
           $('cq1').innerHTML = tableHTML(['단계', '성립', '증명'], rows);
-          var r2 = [];
-          PT.forEach(function(pt, i){ if (!pt.minor) return; if (!rec.some(function(d){ return d.t === i && d.formed; })) return; r2.push([pt.s, pt.need, pt.cancel]); });
-          $('cq2').innerHTML = r2.length ? tableHTML(['사례', '동의', '취소'], r2) : '<p class="msg">성립한 미성년자 사례 기록이 아직 없어요.</p>';
+          var r2 = rec.filter(function(d){ return PT[d.t].minor && d.formed; })
+            .map(function(d){ return [PT[d.t].s, won(d.price) + ' / ' + won(d.allow), d.within === null ? '—' : (d.within ? '안' : '밖'), d.need, d.cancel, d.law]; });
+          $('cq2').innerHTML = r2.length ? tableHTML(['사례', '물건값 / 용돈', '범위', '동의', '취소', '조문'], r2) : '<p class="msg">성립한 미성년자 사례 기록이 아직 없어요.</p>';
+          var bd = rec.filter(function(d){ return d.within !== null; });
+          var inB = bd.filter(function(d){ return d.within; }), outB = bd.filter(function(d){ return !d.within; });
+          var al = rec.filter(function(d){ return PT[d.t].k === 'allow'; });
+          var alIn = al.filter(function(d){ return d.within; }), alOut = al.filter(function(d){ return !d.within; });
+          $('cq3').innerHTML = tableHTML(['용돈 범위', '기록 수', '동의가 필요했나', '취소할 수 있었나'],
+            [['안 (물건값 ≤ 용돈)', alIn.length, alIn.length ? alIn[0].need : '—', alIn.length ? alIn[0].cancel : '—'],
+             ['밖 (물건값 > 용돈)', alOut.length, alOut.length ? alOut[0].need : '—', alOut.length ? alOut[0].cancel : '—']]) +
+            '<p>' + (alIn.length && alOut.length
+              ? '같은 사례인데 <b>물건값이 용돈을 넘는 순간</b> 판정이 뒤집혔습니다. 경계는 민법 제6조(처분을 허락한 재산)와 제5조 ②(동의 없는 법률행위) 사이예요.'
+              : '“용돈으로 구매”에서 물건값을 용돈보다 싸게 한 번, 비싸게 한 번 기록하면 경계가 보입니다.') + '</p>' +
+            '<p class="msg">값을 바꿔도 결과가 같았던 기록: ' + (bd.length - al.length) + '개 (속임수·선물처럼 값과 무관한 사례)</p>';
         }
       };
     })();
@@ -499,7 +546,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

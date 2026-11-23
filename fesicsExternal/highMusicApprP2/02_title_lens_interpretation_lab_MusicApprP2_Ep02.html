@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -502,13 +504,22 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         {n:'"검은 옷의 사람들이 천천히 걷는다"', s:'행렬', kind:1, tie:2},
         {n:'"작곡가는 이 곡을 쓸 때 슬펐다"', s:'작곡가의 감정', kind:2}];
       var KN = ['소리가 뒷받침하는 해석', '제목이 이끈 해석', '소리로 확인할 수 없는 주장'];
+      /* 내가 떠올린 장면. 0번(아직 고르지 않음)이 기본값이라 예전 결과가 그대로 나온다.
+         tie 는 그 장면이 어느 제목과 같은 방향인지(1=달빛, 2=장례 행렬, 0=어느 쪽도 아님) */
+      var SC = [{n:'아직 고르지 않음', s:'—', tie:-1},
+        {n:'반짝이는 물결의 밤 호수', s:'물결·호수', tie:1},
+        {n:'검은 옷의 사람들이 걷는 행렬', s:'행렬', tie:2},
+        {n:'커다란 기계가 천천히 돌아감', s:'기계', tie:0},
+        {n:'장면은 떠오르지 않고 소리만 들림', s:'소리만', tie:0}];
       function judge(p){ var s = SEN[p.s], t = TI[p.t], w = WHO[p.w];
         if (s.kind === 0) return {k:0, why:'소리에서 직접 들을 수 있는 특징(' + s.feat + ')을 말함 — 어떤 제목에서도 유지되는 근거', col:PAL[1]};
         if (s.kind === 2) return {k:2, why:'작곡가의 마음은 소리만으로 확인할 수 없음 — 편지·기록 같은 다른 자료가 필요', col:PAL[4]};
         if (p.t === 0) return {k:1, why:'제목이 없는데도 떠오른 이미지 — 어떤 소리 특징에서 그렇게 들렸는지 함께 말해야 근거가 됨', col:PAL[6]};
         if (s.tie === p.t) return {k:1, why:'제목과 같은 방향의 해석 — ' + (p.w === 0 ? '작곡가의 표제라 의도 자료가 되지만, 맞는 소리 특징도 함께 대야 함' : '한 사람의 해석이 이름이 된 것일 수 있음. 제목이 시킨 해석과 소리 근거를 나눠야 함'), col:PAL[6]};
         return {k:1, why:'지금 제목과도 어긋나는 이미지 — 제목 렌즈가 다른 쪽을 가리고 있지 않은지, 소리의 어떤 특징에서 나왔는지 확인', col:PAL[6]}; }
-      function calc(p){ var t = TI[p.t], j = judge(p); return {t:t, j:j, n:t.share == null ? null : Math.round(t.share / 100 * 20)}; }
+      function calc(p){ var t = TI[p.t], j = judge(p);
+        var sc = SC[p.sc], same = p.sc === 0 ? null : (p.t === 0 ? null : sc.tie === p.t);
+        return {t:t, j:j, n:t.share == null ? null : Math.round(t.share / 100 * 20), sc:p.sc, same:same}; }
       return {
         sceneHeight: 440,
         idle: '소개할 제목, 제목을 붙인 사람, 판정할 비평 문장을 고른 뒤 <b>제목 붙여 들려주기</b>를 누르세요.',
@@ -516,7 +527,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         params: [
           {key:'t', type:'seg', label:'소개한 제목', cols:3, value:0, options:TI.map(function(x){ return x.n; })},
           {key:'w', type:'seg', label:'제목을 붙인 사람', cols:2, value:0, options:WHO.map(function(x){ return x.n; })},
-          {key:'s', type:'seg', label:'판정할 비평 문장', cols:1, value:0, options:SEN.map(function(x){ return x.n; })}
+          {key:'s', type:'seg', label:'판정할 비평 문장', cols:1, value:0, options:SEN.map(function(x){ return x.n; })},
+          {key:'sc', type:'seg', label:'내가 떠올린 장면', cols:1, value:0, options:SC.map(function(x){ return x.n; }), note:'먼저 "제목 없음"으로 듣고 고른 뒤, 제목을 붙여 다시 듣고 바꿔 보세요. 아래 비율은 내가 고른 것만으로 계산합니다.'}
         ],
         compute: function(p){
           var r = calc(p), S = session(2, 0.17), W2 = [1, 0.5, 0.22, 0.1], b = 0.38;
@@ -553,14 +565,19 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           return [['소개한 제목', r.t.n + (p.t === 0 ? ' · 붙인 사람 없음' : ' · ' + WHO[p.w].n), PAL[r.t.col]], ['많이 나온 묘사 (수업용 예시)', r.t.desc],
             ['제목과 같은 방향 묘사', r.t.share == null ? '— (제목 없음)' : r.t.share + '% (20명 중 약 ' + r.n + '명)', PAL[6]],
             ['소리의 특징', '느린 빠르기 · 반복되는 아래 음 · 점점 내려가는 음역 · 단조'],
-            ['비평 문장', SEN[p.s].n], ['판정', KN[r.j.k], r.j.col], ['까닭', r.j.why]];
+            ['비평 문장', SEN[p.s].n], ['판정', KN[r.j.k], r.j.col], ['까닭', r.j.why],
+            ['내가 떠올린 장면', r.sc === 0 ? '아직 고르지 않았어요 — 조작에서 골라 보세요.'
+              : SC[r.sc].n + (r.same === null ? ' (제목이 없으니 견줄 방향이 없어요)' : r.same ? ' → 지금 제목과 같은 방향' : ' → 지금 제목과 다른 방향'),
+              r.sc === 0 ? null : (r.same === null ? PAL[7] : r.same ? PAL[6] : PAL[1])]];
         },
-        columns: ['제목', '붙인 사람', '제목 방향', '문장', '판정'],
-        record: function(p, r){ return {t:p.t, w:p.w, s:p.s, k:r.j.k}; },
-        row: function(d){ return [TI[d.t].s, d.t === 0 ? '—' : WHO[d.w].s, TI[d.t].share == null ? '—' : TI[d.t].share + '%', SEN[d.s].s, KN[d.k]]; },
+        columns: ['제목', '붙인 사람', '내 장면', '제목 방향', '문장', '판정'],
+        record: function(p, r){ return {t:p.t, w:p.w, s:p.s, k:r.j.k, sc:r.sc, same:r.same}; },
+        row: function(d){ return [TI[d.t].s, d.t === 0 ? '—' : WHO[d.w].s, d.sc ? SC[d.sc].s : '—',
+          d.same === null || d.same === undefined ? '—' : (d.same ? '같은 방향' : '다른 방향'), SEN[d.s].s, KN[d.k]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('제목이 묘사를 끌어당긴 정도 (수업용 예시)', '<div id="h2a"></div><p class="ask">제목이 없을 때 학생들은 무엇을 묘사했나요? 제목이 생기자 사라진 묘사는 무엇인가요?</p>') +
+            card('내 답은 제목을 따라 옮겨 갔나 (내가 고른 것만으로 계산)', '<div id="h2c"></div><p class="ask">제목 없이 들었을 때 고른 장면과 제목을 붙인 뒤 고른 장면이 달라졌나요? 달라졌다면 바꾼 것은 소리인가요, 제목인가요?</p>') +
             card('문장 × 제목 판정', '<div id="h2b"></div><p class="ask">과제: 별칭이 붙은 기악곡 하나를 골라 그 별칭을 누가 언제 붙였는지 찾고, 별칭을 모른다고 가정했을 때 소리만으로 쓸 수 있는 묘사 다섯 개를 적어 보세요.</p>') + '</div>';
           var gt = groupBy(rec, function(d){ return d.t; }), items = [];
           TI.forEach(function(t, i){ if (!gt[i]) return; items.push({label:t.s, v:t.share == null ? 0 : t.share, color:PAL[t.col], text:t.share == null ? '비율 없음 — ' + t.desc : t.share + '%'}); });
@@ -569,6 +586,22 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           SEN.forEach(function(s, i){ if (!gs[i]) return; var ks = {}; gs[i].forEach(function(d){ ks[TI[d.t].s] = KN[d.k]; });
             rows.push([s.s, Object.keys(ks).map(function(k){ return k + ': ' + ks[k]; }).join(' / ')]); });
           $('h2b').innerHTML = tableHTML(['문장', '제목별 판정'], rows);
+          /* 미리 적힌 80·75% 와 달리, 이것은 내가 고른 장면만으로 센 값이다 */
+          var mine = rec.filter(function(x){ return x.sc; });
+          var rows3 = TI.map(function(t, i){
+            var g2 = mine.filter(function(x){ return x.t === i; });
+            if (!g2.length) return [t.s, '—', '—'];
+            var names = {}; g2.forEach(function(x){ names[SC[x.sc].s] = 1; });
+            var sm = g2.filter(function(x){ return x.same; }).length;
+            return [t.s, Object.keys(names).join(', '), i === 0 ? '— (제목 없음)' : sm + '/' + g2.length + ' = ' + f(sm / g2.length * 100, 0) + '%'];
+          });
+          var noT = mine.filter(function(x){ return x.t === 0; }), yesT = mine.filter(function(x){ return x.t > 0; });
+          var moved = noT.length && yesT.length && yesT.some(function(y){ return noT.every(function(n){ return n.sc !== y.sc; }); });
+          $('h2c').innerHTML = tableHTML(['소개한 제목', '내가 고른 장면', '제목과 같은 방향'], rows3)
+            + '<p class="msg">' + (!mine.length
+              ? '조작에서 "내가 떠올린 장면"을 고르고 다시 들어 보면, 내 비율이 여기에 계산됩니다.'
+              : (moved ? '제목이 붙자 내가 고른 장면이 <b>옮겨 갔습니다</b>. 소리는 한 번도 바뀌지 않았는데도요 — 제목은 뜻을 알려 준 것이 아니라 들을 곳을 가리킨 것입니다.'
+                : '제목이 바뀌어도 내가 고른 장면은 그대로였습니다. 그렇다면 그 장면은 어떤 소리 특징에서 나왔는지 적어 보세요 — 그것이 근거입니다.')) + '</p>';
         }
       };
     })();
@@ -577,7 +610,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

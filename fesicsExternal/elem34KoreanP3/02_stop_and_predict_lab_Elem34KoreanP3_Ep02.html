@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -239,8 +240,9 @@ tbody tr:hover{background:#F5F8FB}
 <li><b>읽은 뒤</b>: 내 예측과 실제 이야기를 견주기</li>
 </ul>
 <div class="fx-model"><b>📌 실험과 실제의 차이</b><br>
-· 시간과 맞힌 수는 제로 랩의 가상 조사이고 모둠 평균이에요.<br>
-· 이 실험은 나의 예측이 무엇이든 맞힌 수를 똑같이 보여 줘요. 웹툰에서 "예측이 틀린 친구들도 많이 맞혔다"고 했기 때문이에요.</div>
+· 읽은 시간과 맞힌 수는 <b>멈춘 횟수</b>로 계산한 제로 랩의 <b>교육용 모형값</b>이에요. 실제로 해 보면 다르게 나올 수 있어요.<br>
+· 멈출 때마다 맞힌 수가 조금 늘지만 3회쯤에서 가장 높고, 더 자주 멈추면 이야기 흐름이 끊겨 되레 줄어들어요.<br>
+· 나의 예측이 맞았는지는 맞힌 수를 바꾸지 않아요. 웹툰에서 "예측이 틀린 친구들도 많이 맞혔다"고 했기 때문이에요.</div>
 </div>
 </section>
 
@@ -297,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -432,8 +435,7 @@ function hbars(items, max){
 }
 
 /* ================= 실험별 설정 ================= */
-var LAB = (function anonymous(
-) {
+var LAB = (function(){
 
   function T(c, s, x, y, o){
     o = o || {}; var sz = o.size || 18, fw = o.bold ? '700 ' : '';
@@ -464,84 +466,101 @@ var LAB = (function anonymous(
     if (fill){ c.fillStyle = fill; c.fill(); } if (stroke){ c.strokeStyle = stroke; c.lineWidth = lw || 2; c.stroke(); }
   }
   function ease(t){ return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); }
-  function kid(c, x, y, col, s){
-    s = s || 1; c.fillStyle = col; c.beginPath(); c.arc(x, y - 22 * s, 8 * s, 0, Math.PI * 2); c.fill();
-    c.fillRect(x - 7 * s, y - 12 * s, 14 * s, 18 * s);
-  }
-
 
       var STORY = ['다람쥐 토리는 가을마다 도토리를 땅에 묻었다.', '그런데 겨울이 오자, 어디에 묻었는지 하나도 생각나지 않았다.'];
       var END = '잊어버린 도토리 몇 알은 봄에 싹이 텄다.';
-      var RM = [{n:'쭉 읽기', min:5, score:2}, {n:'세 번 멈춰 질문하며 읽기', min:7, score:4}];
       var PR = ['친구에게 도와 달라고 한다', '땅을 다 파 본다', '도토리를 포기한다'];
+      /* SC: 멈춘 횟수 0~5회에 따라 내용 질문 5개 중 맞힌 수 — 제로 랩의 교육용 모형값
+         멈출 때마다 조금씩 늘지만, 너무 자주 멈추면 이야기 흐름이 끊겨 되레 줄어든다 */
+      var SC = [2.0, 3.0, 3.6, 4.0, 3.9, 3.5];
+      var MAXQ = 3;
+      function mins(q){ return 5 + q * 2 / 3; }
+      function sc(q){ return SC[q]; }
+      function per(q){ return sc(q) / mins(q); }
+      function msg(q){
+        if (q === 0) return '멈추지 않아 가장 빨랐지만, 맞힌 질문이 가장 적어요.';
+        if (q <= 3) return '멈춰 질문하니 시간은 조금 더 들고 맞힌 질문이 늘었어요.';
+        return '너무 자주 멈춰서 이야기 흐름이 끊겼어요 — 맞힌 질문이 되레 줄었어요.';
+      }
       return {
-        sceneHeight: 440,
-        idle:'읽는 방법과 나의 예측을 고른 뒤 <b>이 방법으로 읽기</b>를 누르세요.',
-        shortHint:'쭉 읽기와 멈춰 읽기를 모두 해 보세요. 예측을 바꾸어도 맞힌 수가 달라지는지 보세요.',
+        sceneHeight: 460,
+        idle:'멈출 횟수와 나의 예측을 고른 뒤 <b>이 방법으로 읽기</b>를 누르세요.',
+        shortHint:'멈춘 횟수를 0회·1회·3회·5회로 바꾸어 보세요. 시간과 맞힌 질문이 어떻게 맞바뀌나요?',
         params:[
-          {key:'m', type:'seg', label:'읽는 방법', cols:2, value:0, options:RM.map(function(x){ return x.n; })},
+          {key:'q', type:'range', label:'읽는 중에 멈춰 질문할 횟수', min:0, max:5, step:1, value:0, fmt:function(v){ return v + '회'; }},
           {key:'g', type:'seg', label:'멈췄을 때 나의 예측: "토리는 이제 어떻게 할까?"', cols:3, value:0, options:PR,
-            note:'쭉 읽기를 고르면 멈추지 않으니 예측을 적지 않고 지나가요.'}
+            note:'※ 0회를 고르면 멈추지 않으니 예측을 적지 않고 지나가요. 시간과 맞힌 질문은 제로 랩의 교육용 모형값이에요.'}
         ],
         compute:function(p){
-          var m = RM[p.m];
-          return {m:m, per:m.score / m.min, pred:p.m === 1 ? PR[p.g] : '(멈추지 않아 적지 않음)'};
+          var q = p.q;
+          return {q:q, min:mins(q), sc:sc(q), per:per(q), msg:msg(q),
+            best:q === MAXQ, pred:q >= 1 ? PR[p.g] : '(멈추지 않아 적지 않음)'};
         },
         draw:function(c, W, H, p, r, tau){
-          var m = RM[p.m], k = r ? ease(tau / 0.8) : 0, sz = W < 500 ? 14 : 16;
+          var k = r ? ease(tau / 0.8) : 0, sz = W < 500 ? 14 : 16;
           rbox(c, 14, 10, W - 28, 150, '#FFF8E6', '#E5C77A', 1.5);
-          T(c, '📖 다람쥐 토리 (가상 이야기)', 26, 32, {size:14, bold:true, color:'#A86825'});
+          T(c, '📖 다람쥐 토리 (가상 이야기)', 26, 32, {size:14, bold:true, color:'#A86825', max:W - 50});
           var yy = 56;
           STORY.forEach(function(s){ yy += wrap(c, s, 26, yy, W - 56, sz + 5, {size:sz}) * (sz + 5); });
-          if (r && p.m === 1 && k > 0.35){
+          if (r && p.q >= 1 && k > 0.35){
             rbox(c, 26, yy - 4, W - 52, 30, '#EDE7F7', PAL[3], 1.5);
-            T(c, '✋ 멈춤! 나의 예측: ' + PR[p.g], 34, yy + 16, {size:14, bold:true, color:PAL[3], max:W - 70});
+            T(c, '✋ 멈춤 ' + p.q + '회 · 나의 예측: ' + PR[p.g], 34, yy + 16, {size:14, bold:true, color:PAL[3], max:W - 70});
             yy += 34;
           }
           if (r && k > 0.7) T(c, '… ' + END, 26, yy + 18, {size:sz, bold:true, color:PAL[1], max:W - 52});
-          var by = 200, bw = W - 150;
-          T(c, '⏱ 읽은 시간', 18, by, {size:15, bold:true, color:'#4A5868'});
-          RM.forEach(function(x, i){
-            var y = by + 14 + i * 34, on = r && i === p.m;
-            T(c, x.n.length > 6 ? '멈춰 읽기' : x.n, 18, y + 18, {size:13, color:'#4A5868'});
+          var by = 200, bw = Math.max(60, W - 150);
+          T(c, '⏱ 읽은 시간 (최대 9분)', 18, by, {size:15, bold:true, color:'#4A5868', max:W - 36});
+          var rows = [{lb:'멈춤 0회', q:0}, {lb:'멈춤 ' + p.q + '회', q:p.q}];
+          rows.forEach(function(x, i){
+            var y = by + 14 + i * 34, on = r && i === 1;
+            T(c, x.lb, 18, y + 18, {size:13, color:'#4A5868', max:86});
             c.fillStyle = '#E6EBF1'; c.fillRect(110, y, bw, 22);
-            c.fillStyle = on ? PAL[0] : '#C9D3DF'; c.fillRect(110, y, bw * x.min / 8 * (on ? k : 1), 22);
-            T(c, '약 ' + x.min + '분', 116 + bw * x.min / 8, y + 17, {size:14, bold:on});
+            c.fillStyle = on ? PAL[0] : '#C9D3DF'; c.fillRect(110, y, bw * mins(x.q) / 9 * (on ? k : 1), 22);
+            T(c, '약 ' + f(mins(x.q), 1) + '분', 116 + bw * mins(x.q) / 9, y + 17, {size:14, bold:on, max:W - 120 - bw * mins(x.q) / 9});
           });
           var sy = by + 110;
-          T(c, '내용 질문 5개 중 맞힌 수 (모둠 평균, 가상)', 18, sy, {size:15, bold:true, color:'#4A5868', max:W - 30});
+          T(c, '내용 질문 5개 중 맞힌 수 (교육용 모형)', 18, sy, {size:15, bold:true, color:'#4A5868', max:W - 36});
           var k2 = r ? Math.max(0, Math.min(1, (tau - 0.8) / 0.2)) : 0;
-          for (var j = 0; j < 5; j++){ var on2 = r && k2 > 0 && j < m.score; T(c, on2 ? '★' : '☆', 22 + j * 30, sy + 34, {size:26, color:on2 ? PAL[6] : '#C9D3DF'}); }
-          if (r && k2 > 0) T(c, '약 ' + m.score + '개', 180, sy + 30, {size:18, bold:true, color:PAL[0]});
-          if (r && k2 >= 1 && p.m === 1) T(c, '예측이 이야기와 달라도 질문을 품고 읽어서 많이 맞혔어요.', 18, H - 18, {size:14, bold:true, color:PAL[3], max:W - 30});
+          var sgap = Math.min(30, Math.max(18, (W - 110) / 5));
+          var full = r ? Math.round(sc(p.q)) : 0;
+          for (var j = 0; j < 5; j++){ var on2 = r && k2 > 0 && j < full; T(c, on2 ? '★' : '☆', 22 + j * sgap, sy + 34, {size:26, color:on2 ? PAL[6] : '#C9D3DF'}); }
+          if (r && k2 > 0) T(c, f(sc(p.q), 1) + '개', W - 14, sy + 30, {size:18, bold:true, align:'right', color:PAL[0]});
+          if (r && k2 >= 1) T(c, r.msg, 18, H - 18, {size:14, bold:true, color:p.q >= 4 ? PAL[4] : (p.q === 0 ? '#4A5868' : PAL[1]), max:W - 36});
         },
         stats:function(p, r){
-          return [['읽는 방법', r.m.n], ['읽은 시간 (가상)', '약 ' + r.m.min + '분'], ['맞힌 질문 수 (5개 중, 가상)', '약 ' + r.m.score + '개', r.m.score >= 4 ? PAL[1] : PAL[4]],
-            ['1분에 맞힌 질문', '약 ' + f(r.per, 1) + '개 (' + r.m.score + ' ÷ ' + r.m.min + ')', PAL[0]], ['나의 예측', r.pred, PAL[3]], ['실제 이야기', END]];
+          return [['멈춰 질문한 횟수', r.q + '회', PAL[3]], ['읽은 시간 (교육용 모형)', '약 ' + f(r.min, 1) + '분'],
+            ['맞힌 질문 수 (5개 중, 모형)', '약 ' + f(r.sc, 1) + '개', r.sc >= 3.6 ? PAL[1] : PAL[4]],
+            ['1분에 맞힌 질문', '약 ' + f(r.per, 2) + '개', PAL[0]],
+            ['멈추지 않고 읽을 때와 견주면', r.q === 0 ? '지금이 멈추지 않고 읽기예요' : '맞힌 질문 ' + f(r.sc - sc(0), 1) + '개 늘고, 시간 ' + f(r.min - mins(0), 1) + '분 더 걸렸어요', r.sc > sc(0) ? PAL[1] : PAL[4]],
+            ['가장 많이 맞히는 횟수 (모형)', MAXQ + '회 (약 ' + f(sc(MAXQ), 1) + '개)' + (r.best ? ' — 지금이 그 횟수예요' : ''), r.best ? PAL[1] : PAL[3]],
+            ['나의 예측', r.pred, PAL[3]], ['실제 이야기', END], ['알게 된 것', r.msg]];
         },
-        columns:['읽는 방법', '읽은 시간', '맞힌 질문', '나의 예측'],
-        record:function(p, r){ return {m:p.m, g:p.g}; },
-        row:function(d){ return [d.m ? '멈춰 읽기' : '쭉 읽기', '약 ' + RM[d.m].min + '분', '약 ' + RM[d.m].score + '개', d.m ? PR[d.g] : '—']; },
+        columns:['멈춘 횟수', '읽은 시간', '맞힌 질문', '1분에', '나의 예측'],
+        record:function(p, r){ return {q:p.q, g:p.g}; },
+        row:function(d){ return [d.q + '회', '약 ' + f(mins(d.q), 1) + '분', '약 ' + f(sc(d.q), 1) + '개', f(per(d.q), 2) + '개', d.q >= 1 ? PR[d.g] : '—']; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('두 읽기 방법 견주기 (제로 랩의 가상 조사)', '<div id="e3b1"></div><p class="ask">멈춘 모둠은 2분 더 걸렸어요. 그런데 맞힌 수는 몇 배가 되었나요? 그 까닭을 "질문"이라는 말을 넣어 말해 보세요.</p>') +
+            card('멈춘 횟수에 따라 달라지는 시간과 이해 (교육용 모형)', '<div id="e3b1"></div><p class="ask">멈출수록 시간은 늘어요. 그런데 맞힌 질문은 몇 회까지 늘다가 어떻게 되었나요? <b>너무 자주 멈추면</b> 왜 되레 줄어들까요?</p>') +
             card('나의 예측과 실제 이야기', '<div id="e3b2"></div><p class="ask">과제: 책을 한 권 골라 읽기 전에 제목을 보고 질문 하나를 적어 보세요. 읽는 중에 두 번 멈춰 "다음에 어떻게 될까?"를 쓰고, 다 읽은 뒤 맞았는지 확인해 보세요.</p>') + '</div>';
-          $('e3b1').innerHTML = tableHTML(['읽는 방법', '읽은 시간', '맞힌 질문', '1분에 맞힌 질문', '나'], RM.map(function(m, i){
-            return [m.n, '약 ' + m.min + '분', '약 ' + m.score + '개', '약 ' + f(m.score / m.min, 1) + '개', rec.some(function(d){ return d.m === i; }) ? '해 봄' : '·'];
-          }));
-          var mine = rec.filter(function(d){ return d.m === 1; });
-          $('e3b2').innerHTML = (mine.length ? tableHTML(['나의 예측', '실제 이야기와 같나', '맞힌 질문'], PR.filter(function(x, i){ return mine.some(function(d){ return d.g === i; }); }).map(function(x){ return [x, '다름', '약 4개']; }))
-            : '<p class="msg">아직 멈춰 읽기를 하지 않았어요.</p>') + '<p class="note">실제 이야기: ' + END + '</p>';
+          var qs = [0, 1, 2, 3, 4, 5];
+          $('e3b1').innerHTML = tableHTML(['멈춘 횟수', '읽은 시간', '맞힌 질문 (5개 중)', '1분에 맞힌 질문', '나'], qs.map(function(q){
+            return [q + '회', '약 ' + f(mins(q), 1) + '분', '약 ' + f(sc(q), 1) + '개', f(per(q), 2) + '개', rec.some(function(d){ return d.q === q; }) ? '해 봄' : '·'];
+          })) + hbars(qs.map(function(q){
+            return {label:q + '회', v:sc(q), color:q === MAXQ ? PAL[1] : (q >= 4 ? PAL[4] : PAL[0]), text:f(sc(q), 1) + '개'};
+          }), 5) + '<p class="note">※ 위 숫자는 제로 랩의 교육용 모형값이에요. 실제로 해 보면 다르게 나올 수 있어요.</p>';
+          var mine = rec.filter(function(d){ return d.q >= 1; });
+          $('e3b2').innerHTML = (mine.length ? tableHTML(['나의 예측', '실제 이야기와 같나', '그때 맞힌 질문'], mine.slice(-6).map(function(d){ return [PR[d.g], '다름', '약 ' + f(sc(d.q), 1) + '개']; }))
+            : '<p class="msg">아직 멈춰 읽기를 하지 않았어요. 멈출 횟수를 1회 이상으로 해 보세요.</p>') + '<p class="note">실제 이야기: ' + END + '</p>';
         }
       };
-    
 })();
 
 /* ================= 엔진 ================= */
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -475,24 +477,33 @@ return (function(){
         ana:'몸은 우산 모양의 갓과 그 아래 늘어진 촉수로 이루어진다.'
       };
       var TAG = {def:'정의', ex:'예시', cmp:'비교·대조', cls:'분류', ana:'분석'};
+      /* 같은 안내판도 읽는 사람이 바뀌면 점수가 달라진다.
+         0번(처음 듣는 독자)은 예전과 똑같은 값이고, 1번은 새로 넣은 교육용 모형값이다. */
+      var RD = ['해파리를 처음 듣는 독자', '해파리를 이미 아는 독자'];
+      var RDS = ['처음 듣는 독자', '아는 독자'];
       var BD = [
-        {n:'A. 정의만', k:['def'], sc:1.1, want:2},
-        {n:'B. 정의 + 예시', k:['def', 'ex'], sc:1.9, want:5},
-        {n:'C. 정의 + 비교·대조', k:['def', 'cmp'], sc:2.4, want:7},
-        {n:'D. 다섯 가지 모두, 한 문단에', k:['def', 'ex', 'cmp', 'cls', 'ana'], sc:1.6, want:3}
+        {n:'A. 정의만', k:['def'], sc:1.1, want:2, sc2:0.8, want2:2},
+        {n:'B. 정의 + 예시', k:['def', 'ex'], sc:1.9, want:5, sc2:1.5, want2:4},
+        {n:'C. 정의 + 비교·대조', k:['def', 'cmp'], sc:2.4, want:7, sc2:1.6, want2:4},
+        {n:'D. 다섯 가지 모두, 한 문단에', k:['def', 'ex', 'cmp', 'cls', 'ana'], sc:1.6, want:3, sc2:2.6, want2:8}
       ];
+      function scOf(b, d){ return d ? b.sc2 : b.sc; }
+      function wantOf(b, d){ return d ? b.want2 : b.want; }
+      function bestOf(d){ var k = 0; for (var i = 1; i < BD.length; i++){ if (scOf(BD[i], d) > scOf(BD[k], d)) k = i; } return k; }
       var TC = {def:PAL[0], ex:PAL[1], cmp:PAL[3], cls:PAL[6], ana:PAL[2]};
       return {
         sceneHeight: 450,
-        idle: '안내판과 나의 예상 점수를 고른 뒤 <b>이 안내판 읽히기</b>를 누르세요.',
-        shortHint: '네 판을 모두 읽혀 보세요. 방법이 가장 많은 판이 가장 높았나요?',
+        idle: '안내판과 읽는 사람, 나의 예상 점수를 고른 뒤 <b>이 안내판 읽히기</b>를 누르세요.',
+        shortHint: '네 판을 두 독자에게 모두 읽혀 보세요. 가장 높은 판이 독자에 따라 바뀌나요?',
         params: [
           {key:'b', type:'seg', label:'안내판 (쓴 설명 방법)', cols:2, value:0, options:BD.map(function(x){ return x.n; })},
+          {key:'d', type:'seg', label:'읽는 사람', cols:2, value:0, options:RD,
+            note:'※ 퀴즈 점수와 사람 수는 실제 조사가 아니라 교육용 모형값이에요.'},
           {key:'e', type:'range', label:'나의 예상 — 퀴즈 맞힌 평균 (3문제 중)', min:0, max:3, step:0.1, value:1.5, fmt:function(v){ return f(v, 1) + '개'; }}
         ],
         compute: function(p){
-          var b = BD[p.b];
-          return {b:b, nm:b.k.length, err:Math.abs(p.e - b.sc), best:p.b === 2};
+          var b = BD[p.b], sc = scOf(b, p.d), want = wantOf(b, p.d), bi = bestOf(p.d);
+          return {b:b, nm:b.k.length, sc:sc, want:want, err:Math.abs(p.e - sc), bi:bi, best:p.b === bi};
         },
         draw: function(c, W, H, p, r, tau){
           var b = BD[p.b], a = r ? ph(tau, 0, 0.4) : 1, x0 = 20, w0 = W - 40;
@@ -512,36 +523,42 @@ return (function(){
             });
           }
           c.globalAlpha = 1;
-          if (!r){ tx(c, '나의 예상: ' + f(p.e, 1) + '개', 20, H - 18, {color:'#4A5868'}); return; }
+          if (!r){ tx(c, '나의 예상: ' + f(p.e, 1) + '개 · ' + RDS[p.d], 20, H - 18, {color:'#4A5868'}); return; }
           var d = ph(tau, 0.4, 0.85), y1 = Math.max(y + 18, 250);
-          tx(c, '퀴즈 맞힌 평균 (3문제 중)', 20, y1, {color:'#4A5868'});
-          pbar(c, 20, y1 + 10, w0 - 80, 22, b.sc / 3 * d, PAL[1]);
+          tx(c, RDS[p.d] + ' — 퀴즈 맞힌 평균 (3문제 중)', 20, y1, {color:'#4A5868'});
+          pbar(c, 20, y1 + 10, w0 - 80, 22, r.sc / 3 * d, PAL[1]);
           var ex = 20 + (w0 - 80) * Math.min(1, p.e / 3); seg(c, ex, y1 + 4, ex, y1 + 38, PAL[4], 3, [4, 3]);
-          tx(c, f(b.sc * d, 1), W - 52, y1 + 28, {bold:true, size:22, color:PAL[1]});
+          tx(c, f(r.sc * d, 1), W - 52, y1 + 28, {bold:true, size:22, color:PAL[1]});
           tx(c, '빨간 점선 = 내 예상 ' + f(p.e, 1), 20, y1 + 56, {size:15, color:PAL[4]});
-          var y2 = y1 + 86, k = Math.round(b.want * d);
+          var y2 = y1 + 86, k = Math.round(r.want * d);
           tx(c, '‘더 알고 싶다’ ' + k + '명 / 10명', 20, y2, {color:'#4A5868'});
           crowd(c, 24, y2 + 26, Math.min(W - 48, 10 * 23), 10, k, PAL[3], '#CBD3DD', 18);
         },
         stats: function(p, r){
-          return [['안내판', r.b.n], ['쓴 설명 방법', r.b.k.map(function(k){ return TAG[k]; }).join(' + ') + ' (' + r.nm + '가지)'],
-            ['퀴즈 맞힌 평균', f(r.b.sc, 1) + '개 / 3문제', PAL[1]], ['내 예상과의 차이', f(r.err, 1) + '개 (내 예상 ' + f(p.e, 1) + '개)', r.err <= 0.3 ? PAL[1] : PAL[6]],
-            ['‘더 알고 싶다’', r.b.want + '명 / 10명', PAL[3]],
-            ['읽기', r.best ? '이미 아는 것(물고기)에 견주어 낯선 것이 잡혔어요' : r.nm >= 5 ? '방법이 많아도 한 문단에 몰리면 오히려 덜 남아요' : r.nm === 1 ? '‘자포동물’을 모르는 독자에게는 뜻이 잘 안 잡혀요' : '보기가 크기를 그려 주지만, 낯선 정체는 아직 덜 잡혀요']];
+          return [['안내판', r.b.n], ['읽는 사람', RD[p.d]], ['쓴 설명 방법', r.b.k.map(function(k){ return TAG[k]; }).join(' + ') + ' (' + r.nm + '가지)'],
+            ['퀴즈 맞힌 평균', f(r.sc, 1) + '개 / 3문제 (다른 독자 ' + f(scOf(r.b, p.d ? 0 : 1), 1) + '개)', PAL[1]],
+            ['내 예상과의 차이', f(r.err, 1) + '개 (내 예상 ' + f(p.e, 1) + '개)', r.err <= 0.3 ? PAL[1] : PAL[6]],
+            ['‘더 알고 싶다’', r.want + '명 / 10명', PAL[3]],
+            ['이 독자에게 가장 높은 판', BD[r.bi].n + (r.best ? ' — 지금 고른 판이에요' : ''), r.best ? PAL[1] : PAL[6]],
+            ['읽기', p.d === 0
+              ? (r.best ? '이미 아는 것(물고기)에 견주어 낯선 것이 잡혔어요' : r.nm >= 5 ? '방법이 많아도 한 문단에 몰리면 오히려 덜 남아요' : r.nm === 1 ? '‘자포동물’을 모르는 독자에게는 뜻이 잘 안 잡혀요' : '보기가 크기를 그려 주지만, 낯선 정체는 아직 덜 잡혀요')
+              : (r.best ? '이미 아는 독자에게는 분류·분석이 새 정보를 더해 줘요' : r.nm === 1 ? '아는 독자에게 정의만 다시 해 주면 새로 얻는 것이 거의 없어요' : '아는 독자에게는 견주기보다 쪼개어 보여 주는 쪽이 더 남아요')]];
         },
-        columns: ['판', '방법 수', '퀴즈 평균', '더 알고 싶다', '내 예상'],
-        record: function(p, r){ return {b:p.b, e:p.e}; },
-        row: function(d){ var b = BD[d.b]; return [b.n.charAt(0), b.k.length + '가지', f(b.sc, 1), b.want + '명', f(d.e, 1)]; },
+        columns: ['판', '독자', '방법 수', '퀴즈 평균', '더 알고 싶다', '내 예상'],
+        record: function(p, r){ return {b:p.b, d:p.d, e:p.e}; },
+        row: function(x){ var b = BD[x.b], dd = x.d || 0; return [b.n.charAt(0), RDS[dd], b.k.length + '가지', f(scOf(b, dd), 1), wantOf(b, dd) + '명', f(x.e, 1)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('판별 퀴즈 맞힌 평균 (3문제 중)', '<div id="mq4a"></div><p class="ask">C판이 가장 높고 D판이 B판보다 낮았어요. ‘대상과 독자에 맞는 방법’이라는 말로 그 까닭을 설명해 보세요.</p>') +
-            card('방법 수 vs 점수, 그리고 나의 예상', '<div id="mq4b"></div><p class="ask">과제: 우리 학교의 한 장소를 처음 오는 전학생에게 설명하는 글을 쓰되, 설명 방법을 두 가지만 고르세요. 왜 그 두 가지를 골랐는지도 한 줄로 적어 보세요.</p>') + '</div>';
+            card('판별 퀴즈 맞힌 평균 — 처음 듣는 독자 (3문제 중)', '<div id="mq4a"></div><p class="ask">C판이 가장 높고 D판이 B판보다 낮았어요. ‘대상과 독자에 맞는 방법’이라는 말로 그 까닭을 설명해 보세요.</p>') +
+            card('독자가 바뀌면 — 두 독자의 점수', '<div id="mq4b"></div><p class="ask">처음 듣는 독자에게는 C판, 아는 독자에게는 D판이 가장 높았어요. 같은 글이 왜 독자에 따라 갈릴까요? 과제: 우리 학교의 한 장소를 처음 오는 전학생에게 설명하는 글을 쓰되, 설명 방법을 두 가지만 고르세요. 왜 그 두 가지를 골랐는지도 한 줄로 적어 보세요.</p>') + '</div>';
           var items = BD.map(function(b, i){ var tried = rec.some(function(d){ return d.b === i; });
             return {label:b.n, v:b.sc, color:tried ? (i === 2 ? PAL[1] : PAL[0]) : '#CBD3DD', text:f(b.sc, 1) + '개' + (tried ? '' : ' (아직)')}; });
           $('mq4a').innerHTML = hbars(items, 3);
           var rows = BD.map(function(b, i){ var mine = rec.filter(function(d){ return d.b === i; });
-            return [b.n.charAt(0), b.k.length + '가지', f(b.sc, 1), b.want + '명', mine.length ? f(mean(mine.map(function(d){ return d.e; })), 1) : '—']; });
-          $('mq4b').innerHTML = tableHTML(['판', '방법 수', '퀴즈 평균', '더 알고 싶다', '내 예상(평균)'], rows);
+            return [b.n.charAt(0), b.k.length + '가지', f(b.sc, 1), f(b.sc2, 1), (b.sc2 - b.sc > 0 ? '+' : '') + f(b.sc2 - b.sc, 1), mine.length ? f(mean(mine.map(function(d){ return d.e; })), 1) : '—']; });
+          var tried2 = rec.filter(function(d){ return d.d === 1; }).length;
+          $('mq4b').innerHTML = tableHTML(['판', '방법 수', '처음 듣는 독자', '아는 독자', '차이', '내 예상(평균)'], rows) +
+            '<p class="msg">' + (tried2 ? '‘아는 독자’로 ' + tried2 + '회 재 봤어요. 가장 높은 판이 C에서 D로 바뀝니다.' : '‘아는 독자’로도 재 보면 가장 높은 판이 바뀌는 것을 볼 수 있어요.') + '</p>';
         }
       };
     })();
@@ -551,7 +568,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

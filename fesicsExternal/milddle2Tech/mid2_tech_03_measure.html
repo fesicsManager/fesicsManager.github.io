@@ -91,7 +91,7 @@ tbody tr:nth-child(even){background:#fafcff}
 <div class="wrap">
   <header class="lab">
     <h1>두 번 재고 한 번 자르기</h1>
-    <p>같은 길이를 여러 번 재면 값이 얼마나 흔들릴까요? 직접 잰 값을 넣어 내 측정의 퍼짐을 확인해 보세요. (3화 · 측정과 가공)</p>
+    <p>같은 길이를 여러 번 재면 값이 얼마나 흔들릴까요? 직접 잰 값을 넣거나, 도구가 없으면 <b>가상 측정(모형)</b>으로 눈금 읽기 오차를 흉내 내어 누적 측정과 비교해 보세요. (3화 · 측정과 가공)</p>
   </header>
 
   <div class="tabs">
@@ -111,6 +111,8 @@ tbody tr:nth-child(even){background:#fafcff}
         <div id="controls"><div class="ctrl"><label for="how">측정 방식</label><select id="how"><option>한 기준에서 재기</option><option>이어서 재기(누적)</option></select></div>
 <div class="ctrl"><label for="tool">도구</label><select id="tool"><option>자(1mm 눈금)</option><option>버니어캘리퍼스(0.05mm)</option></select></div>
 <div class="ctrl"><label for="tg">목표 치수 <span class="val" id="vT">60.0</span>mm</label><input type="range" id="tg" min="20" max="200" step="5" value="60"></div>
+<div class="ctrl"><label for="md">값을 얻는 방법</label><select id="md"><option>내가 직접 잼</option><option>가상 측정(모형)</option></select></div>
+<div class="ctrl"><label for="nseg">이어서 잴 구간 수 <span class="val" id="vN">4</span>개</label><input type="range" id="nseg" min="2" max="8" step="1" value="4"></div>
 <div class="ctrl"><label for="mv">실제로 잰 값 <span class="val" id="vM">60.0</span>mm</label><input type="range" id="mv" min="15" max="210" step="0.05" value="60"></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">측정값 찍기</button>
@@ -123,7 +125,7 @@ tbody tr:nth-child(even){background:#fafcff}
             <tbody id="tbody"></tbody>
           </table>
         </div>
-        <div class="note">자·버니어캘리퍼스로 같은 대상을 여러 번 재어 넣으세요. 이어서 재는 방식(누적)과 한 기준에서 재는 방식을 각각 기록하면 차이가 보입니다.</div>
+        <div class="note">자·버니어캘리퍼스로 같은 대상을 여러 번 재어 넣으세요. 이어서 재는 방식(누적)과 한 기준에서 재는 방식을 각각 기록하면 차이가 보입니다. <b>가상 측정(모형)</b>은 ‘목표 + 도구의 읽기 오차 × 흔들림’으로 값을 만들고, 이어서 재기에서는 오차가 쌓여 퍼짐이 √(구간 수)배가 되는 <b>교육용 모형값</b>이에요(자 0.6mm · 캘리퍼스 0.1mm 기준).</div>
       </div>
     </div>
   </section>
@@ -143,11 +145,29 @@ var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 var rows=[];
 var LAB=(function(){
 var out,c,cvv,pts=[];
-var how=document.getElementById('how'),tool=document.getElementById('tool'),tg=document.getElementById('tg'),mv=document.getElementById('mv');
-tg.oninput=function(){document.getElementById('vT').textContent=Number(tg.value).toFixed(1);draw();};
+var how=document.getElementById('how'),tool=document.getElementById('tool'),tg=document.getElementById('tg'),mv=document.getElementById('mv'),md=document.getElementById('md'),nseg=document.getElementById('nseg');
+/* 가상 측정 — 교육용 모형값: 도구의 읽기 오차 × 흔들림, 이어서 재면 √(구간 수)배로 쌓인다 */
+var SPREAD={'자(1mm 눈금)':0.6,'버니어캘리퍼스(0.05mm)':0.1};
+var WOB=[0.5,-0.3,0.1,-0.5,0.4,-0.2,0.0,0.3], simI=0;
+function isSim(){return md.value==='가상 측정(모형)';}
+function simV(){
+  var T=Number(tg.value), s=SPREAD[tool.value]||0.6, n=Number(nseg.value);
+  var f=(how.selectedIndex===1)?Math.sqrt(n):1;
+  return Math.round((T+s*f*WOB[simI%WOB.length])*100)/100;
+}
+function curV(){return isSim()?Number(mv.value):Number(mv.value);}
+function syncSim(){
+  document.getElementById('vN').textContent=nseg.value;
+  if(isSim()){mv.step=0.01;mv.disabled=true;mv.value=String(Math.min(210,Math.max(15,simV())));}
+  else{mv.disabled=false;mv.step=(tool.selectedIndex===0?1:0.05);}
+  document.getElementById('vM').textContent=Number(mv.value).toFixed(2);
+  if(c)draw();
+}
+tg.oninput=function(){document.getElementById('vT').textContent=Number(tg.value).toFixed(1);syncSim();};
 mv.oninput=function(){document.getElementById('vM').textContent=Number(mv.value).toFixed(tool.selectedIndex===0?1:2);draw();};
 /* 도구에 맞는 눈금: 자는 1mm 단위, 버니어캘리퍼스는 0.05mm 단위로만 읽을 수 있다 */
-tool.onchange=function(){var st=tool.selectedIndex===0?1:0.05;mv.step=st;mv.value=(Math.round(Number(mv.value)/st)*st).toFixed(2);document.getElementById('vM').textContent=Number(mv.value).toFixed(tool.selectedIndex===0?1:2);if(c)draw();};
+tool.onchange=function(){var st=tool.selectedIndex===0?1:0.05;mv.step=st;mv.value=(Math.round(Number(mv.value)/st)*st).toFixed(2);document.getElementById('vM').textContent=Number(mv.value).toFixed(tool.selectedIndex===0?1:2);syncSim();};
+how.onchange=syncSim;md.onchange=syncSim;nseg.oninput=syncSim;
 mv.step=1;
 function draw(){
   c.clearRect(0,0,cvv.width,cvv.height);
@@ -190,18 +210,19 @@ function draw(){
 }
 return {
   columns:['방식','도구','목표(mm)','측정(mm)','차이(mm)'],
-  init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw();
-    out.innerHTML='실제로 잰 값을 넣고 <b>측정값 찍기</b>를 눌러 보세요. 같은 대상을 5회 이상 재면 퍼짐이 보입니다.';},
+  init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw();syncSim();
+    out.innerHTML='실제로 잰 값을 넣거나 <b>가상 측정(모형)</b>을 고른 뒤 <b>측정값 찍기</b>를 눌러 보세요. 같은 대상을 5회 이상 재면 퍼짐이 보입니다.';},
   run:function(done){
-    pts.push({v:Number(mv.value),t:Number(tg.value),h:how.value});
+    pts.push({v:curV(),t:Number(tg.value),h:how.value});
+    if(isSim())simI++;
     var t=0,iv=setInterval(function(){t++;draw();
       if(t>=5){clearInterval(iv);
-        out.innerHTML='측정 '+pts.length+'개. 방식과 도구를 바꿔 가며 기록해 보세요.';
-        done();}},70);
+        out.innerHTML='측정 '+pts.length+'개'+(isSim()?' (가상 측정 · 구간 '+nseg.value+'개'+(how.selectedIndex===1?' 이어서 재기 → 퍼짐 '+Math.sqrt(Number(nseg.value)).toFixed(1)+'배':' 한 기준 → 구간 수와 무관')+')':'')+'. 방식과 도구를 바꿔 가며 기록해 보세요.';
+        done();syncSim();}},70);
   },
   record:function(){
-    var d=Number(mv.value)-Number(tg.value);
-    return {cells:[how.value,tool.value,Number(tg.value).toFixed(1),Number(mv.value).toFixed(tool.selectedIndex===0?1:2),d.toFixed(2)],
+    var d=curV()-Number(tg.value);
+    return {cells:[how.value,tool.value,Number(tg.value).toFixed(1),curV().toFixed(2),d.toFixed(2)],
             raw:{h:how.value,t:tool.value,d:d}};
   },
   verify:function(rs){
@@ -235,6 +256,7 @@ return {
        '<li>눈금이 더 촘촘한 도구를 쓰면 퍼짐이 줄었나요?</li>'+
        '<li>평균이 0이 아니라면 그것은 무엇을 뜻할까요? (치우침)</li>'+
        '<li>자른 것은 되돌릴 수 없습니다. 그래서 규칙이 \'두 번 재고 한 번 자른다\'인 이유는?</li></ol>'+
+       '<p style="font-size:1.03rem;line-height:1.85">가상 측정으로 모았다면, 구간 수를 2개와 8개로 바꿔 ‘이어서 재기’를 다시 기록해 보세요. <b>퍼짐이 √(구간 수)배로 커집니다</b>(교육용 모형값).</p>'+
        '<p style="font-size:1.03rem;line-height:1.85">도면에 <b>공차</b>를 적는 이유가 여기 있습니다. \'정확히 60mm\'는 만들 수 없으니 \'60±0.1\'로 약속합니다.</p></div></div>'+
        '<div class="note">측정은 자르기보다 먼저입니다. 기준을 하나로 잡으면 오차가 쌓이지 않습니다.</div>';
     return h;

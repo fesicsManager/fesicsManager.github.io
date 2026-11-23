@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -308,8 +310,8 @@ function axisFrom(lo, hi){
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
 }
 function txt(c, s, x, y, o){
-  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
-  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + (o.fs || 18) + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; if (o.mw > 0) c.fillText(s, x, y, o.mw); else c.fillText(s, x, y);
 }
 function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
 function meter(c, x, y, w, s){
@@ -406,13 +408,17 @@ function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
   c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
   var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
   c.textAlign = 'center'; c.textBaseline = 'top';
-  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  var tkR = -1e9;
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke();
+    var tkS = f(v, decOf(xr[2])), tkW = c.measureText(tkS).width / 2;
+    if (X(v) - tkW > tkR + 4){ c.fillText(tkS, X(v), y + h + 6); tkR = X(v) + tkW; } }
   c.textAlign = 'right'; c.textBaseline = 'middle';
   for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
   c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
   if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
   if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
-  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; var xlCx = x + w / 2, xlCv = c.canvas.width / (c.getTransform().a || 1);
+  c.fillText(xLabel, xlCx, y + h + 30, Math.max(60, 2 * Math.min(xlCx, xlCv - xlCx) - 8));
   c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
   c.textBaseline = 'alphabetic';
   return {X:X, Y:Y};
@@ -445,15 +451,25 @@ var LAB = (function(){
         {w:'컴퓨터', cat:2, info:'영어 computer', route:['영어 computer', '한국어 컴퓨터']}
       ];
       var CAT = ['고유어', '한자어', '외래어'], CC = [PAL[1], PAL[0], PAL[2]];
+      var FL = ['우리말처럼 느껴짐', '외국에서 온 말 같음'];
       return {
         sceneHeight: 420,
         idle: '낱말과 나의 예측을 고른 뒤 <b>사전으로 확인하기</b>를 누르세요.',
         shortHint: '세 갈래에서 낱말을 골고루 확인해 보세요. 특히 ‘우리말 같은데?’ 싶은 낱말을 골라 보세요.',
         params: [
           {key:'w', type:'seg', label:'낱말', cols:4, value:6, options:WD.map(function(x){ return x.w; })},
-          {key:'g', type:'seg', label:'나의 예측', cols:3, value:0, options:CAT}
+          {key:'g', type:'seg', label:'나의 예측', cols:3, value:0, options:CAT},
+          {key:'fl', type:'seg', label:'느낌 — 이 말은 어떻게 들리나요?', cols:2, value:0, options:FL,
+            note:'갈래 예측과 따로, 그냥 "우리말처럼 느껴지는지"를 고르세요. 여러 낱말을 연달아 판정하면 느낌과 실제가 얼마나 엇갈리는지 데이터 검증에서 세어 줘요.'}
         ],
-        compute: function(p){ var d = WD[p.w]; return {d:d, ok:d.cat === p.g}; },
+        compute: function(p){
+          var d = WD[p.w], ok = d.cat === p.g, fl = p.fl;
+          var vd = fl === 0 && d.cat === 2 ? '우리말처럼 느껴지지만 실제로는 외래어예요'
+            : fl === 0 && d.cat === 1 ? '우리말처럼 느껴지지만 한자어예요'
+            : fl === 1 && d.cat === 0 ? '외국 말 같지만 예부터 써 온 고유어예요'
+            : '느낌과 실제 갈래가 맞아떨어졌어요';
+          return {d:d, ok:ok, fl:fl, vd:vd};
+        },
         draw: function(c, W, H, p, r, tau){
           var d = WD[p.w], cw = Math.min(220, W - 80), cx = W / 2 - cw / 2, cy = 24;
           var flip = r ? Math.abs(Math.cos(Math.min(1, tau / 0.35) * Math.PI)) : 1, shown = r && tau > 0.175;
@@ -476,11 +492,12 @@ var LAB = (function(){
           if (r && d.route.length && tau > 0.6){
             c.globalAlpha = Math.min(1, (tau - 0.6) / 0.3);
             var n = d.route.length, rw = (W - 40) / n, ry = 150;
+            var nRt = rw < 110;
             d.route.forEach(function(s, j){
-              var rx = 20 + j * rw;
-              c.fillStyle = '#FFF4E3'; c.fillRect(rx + 4, ry, rw - 22, 44);
-              c.font = '15px ' + FONT; c.fillStyle = '#6B4A17'; c.textAlign = 'center'; c.fillText(s, rx + 4 + (rw - 22) / 2, ry + 28); c.textAlign = 'left';
-              if (j < n - 1) arrow(c, rx + rw - 16, ry + 22, rx + rw + 2, ry + 22, PAL[2], 2);
+              var rx = nRt ? 20 : 20 + j * rw, rry = nRt ? ry + j * 36 : ry, rbw = nRt ? W - 44 : rw - 22, rbh = nRt ? 26 : 44;
+              c.fillStyle = '#FFF4E3'; c.fillRect(rx + 4, rry, rbw, rbh);
+              c.font = (nRt ? '13px ' : '15px ') + FONT; c.fillStyle = '#6B4A17'; c.textAlign = 'center'; c.fillText(s, rx + 4 + rbw / 2, rry + (nRt ? 18 : 28)); c.textAlign = 'left';
+              if (j < n - 1){ if (nRt) arrow(c, rx + 4 + rbw / 2, rry + rbh, rx + 4 + rbw / 2, rry + 36, PAL[2], 2); else arrow(c, rx + rw - 16, ry + 22, rx + rw + 2, ry + 22, PAL[2], 2); }
             });
             txt(c, '들어온 경로', 20, ry - 10, {color:'#4A5868'});
             c.globalAlpha = 1;
@@ -488,12 +505,13 @@ var LAB = (function(){
           if (r && tau > 0.85) txt(c, r.ok ? '예측 적중!' : '예측과 달라요', W / 2, by - 30, {align:'center', bold:true, color:r.ok ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
-          return [['낱말', r.d.w], ['나의 예측', CAT[p.g]], ['사전의 갈래', CAT[r.d.cat], CC[r.d.cat]], ['어원', r.d.info, PAL[3]],
-            ['결과', r.ok ? '예측 적중' : '예측과 다름 — 느낌과 어원은 다를 수 있어요', r.ok ? PAL[1] : PAL[4]]];
+          return [['낱말', r.d.w], ['나의 예측', CAT[p.g]], ['나의 느낌', FL[r.fl]], ['사전의 갈래', CAT[r.d.cat], CC[r.d.cat]], ['어원', r.d.info, PAL[3]],
+            ['결과', r.ok ? '예측 적중' : '예측과 다름 — 느낌과 어원은 다를 수 있어요', r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.fl === 0 && r.d.cat !== 0 ? PAL[4] : PAL[1]]];
         },
-        columns: ['낱말', '나의 예측', '실제 갈래', '적중'],
-        record: function(p, r){ return {w:p.w, g:p.g, cat:r.d.cat, ok:r.ok}; },
-        row: function(d){ return [WD[d.w].w, CAT[d.g], CAT[d.cat], d.ok ? '○' : '✕']; },
+        columns: ['낱말', '나의 예측', '나의 느낌', '실제 갈래', '적중'],
+        record: function(p, r){ return {w:p.w, g:p.g, fl:r.fl, cat:r.d.cat, ok:r.ok}; },
+        row: function(d){ return [WD[d.w].w, CAT[d.g], FL[d.fl].split(' ')[0], CAT[d.cat], d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('갈래별 나의 예측 적중률', '<div id="wo1"></div><p class="ask">어느 갈래에서 예측이 가장 많이 빗나갔나요? ‘우리말 같다’는 느낌은 무엇에서 생기는지 써 보세요.</p>') +
@@ -504,10 +522,13 @@ var LAB = (function(){
             var ok = a.filter(function(d){ return d.ok; }).length / a.length * 100;
             items.push({label:CAT[cat], v:ok, color:CC[cat], text:f(ok, 0) + '% (' + a.length + '회)'});
           });
-          $('wo1').innerHTML = hbars(items, 100);
+          var feel = rec.filter(function(d){ return d.fl === 0; }), fr = feel.filter(function(d){ return d.cat !== 0; }).length;
+          $('wo1').innerHTML = hbars(items, 100)
+            + (feel.length ? '<p class="msg">"우리말처럼 느껴짐"으로 고른 ' + feel.length + '개 가운데 ' + fr + '개(' + f(fr / feel.length * 100, 0) + '%)는 실제로 한자어나 외래어였어요.</p>'
+              : '<p class="msg">느낌도 함께 골라 기록하면 느낌과 실제가 얼마나 엇갈리는지 세어 줘요.</p>');
           var miss = {}; rec.forEach(function(d){ if (!d.ok) miss[d.w] = d; });
-          var rows = Object.keys(miss).map(function(k){ var d = miss[k]; return [WD[d.w].w, CAT[d.g], CAT[d.cat], WD[d.w].info]; });
-          $('wo2').innerHTML = rows.length ? tableHTML(['낱말', '내 느낌', '실제', '어원'], rows) : '<p class="msg">아직 빗나간 예측이 없어요. ‘생각’, ‘냄비’, ‘빵’을 골라 보세요.</p>';
+          var rows = Object.keys(miss).map(function(k){ var d = miss[k]; return [WD[d.w].w, CAT[d.g], FL[d.fl].split(' ')[0], CAT[d.cat], WD[d.w].info]; });
+          $('wo2').innerHTML = rows.length ? tableHTML(['낱말', '내 예측', '내 느낌', '실제', '어원'], rows) : '<p class="msg">아직 빗나간 예측이 없어요. ‘생각’, ‘냄비’, ‘빵’을 골라 보세요.</p>';
         }
       };
     })();
@@ -516,7 +537,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

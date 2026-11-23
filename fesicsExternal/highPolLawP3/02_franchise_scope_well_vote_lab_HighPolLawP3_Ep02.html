@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -303,9 +304,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,24 +446,44 @@ var LAB = (function(){
       var GR = [['재산 있는 성인 남성', 120, 89], ['그 밖의 성인 남성', 180, 76], ['성인 여성', 300, 69], ['미성년', 400, 0]];
       var SC = ['재산 있는 성인 남성', '모든 성인 남성', '모든 성인'];
       var REF = ['시장 옆 74%', '시장 옆 55%', '주거지 옆 61%'];
-      var EV = [[1832, '영국 선거법 개정 — 재산 기준 완화 시작'], [1848, '프랑스 성인 남성 보통 선거'], [1893, '뉴질랜드 여성 참정권'], [1918, '영국 일부 여성 참정권'], [1920, '미국 수정 헌법 제19조'], [1928, '영국 남녀 동등한 선거권'], [1948, '대한민국 남녀 보통 선거']];
+      /* 안건마다 집단별 찬성 비율이 다르다 — 교육용 모형값.
+         우물 안건의 비율은 웹툰 #4 표의 찬성 인원(89·76·69명)과 똑같아지도록 잡았다. */
+      var AGENDA = [
+        {n:'우물을 어디에 둘까', a:'시장 옆', b:'주거지 옆', rate:[0.742, 0.422, 0.230], ref:true},
+        {n:'성벽을 고칠까 (세금 더 내기)', a:'고친다', b:'고치지 않는다', rate:[0.30, 0.55, 0.72], ref:false},
+        {n:'축제를 열까', a:'연다', b:'열지 않는다', rate:[0.56, 0.54, 0.55], ref:false}
+      ];
+      function rateOf(ai, gi, wAdj){
+        var v = AGENDA[ai].rate[gi] + (gi === 2 ? wAdj / 100 : 0);
+        return Math.max(0, Math.min(1, v));
+      }
+      var EV =[[1832, '영국 선거법 개정 — 재산 기준 완화 시작'], [1848, '프랑스 성인 남성 보통 선거'], [1893, '뉴질랜드 여성 참정권'], [1918, '영국 일부 여성 참정권'], [1920, '미국 수정 헌법 제19조'], [1928, '영국 남녀 동등한 선거권'], [1948, '대한민국 남녀 보통 선거']];
       return {
         sceneHeight: 400,
-        idle: '투표권 범위와 연도를 고른 뒤 <b>투표하기</b>를 누르세요.',
-        shortHint: '범위를 재산 있는 남성 → 모든 성인 남성 → 모든 성인으로 넓혀 가며 투표해 보세요. 결정이 언제 뒤집히나요?',
+        idle: '안건과 투표권 범위를 고른 뒤 <b>투표하기</b>를 누르세요. 찬성 인원은 집단별 찬성 비율로 계산합니다 — 안건을 바꾸면 범위를 넓혔을 때 결정이 뒤집히는지도 달라집니다.',
+        shortHint: '안건을 바꿔 가며, 범위를 재산 있는 남성 → 모든 성인 남성 → 모든 성인으로 넓혀 보세요. 어떤 안건에서 뒤집히고 어떤 안건에서 그대로인가요?',
         params: [
+          {key:'a', type:'seg', label:'무엇을 정할까 (안건)', cols:3, value:0, options:AGENDA.map(function(x){ return x.n; })},
           {key:'s', type:'seg', label:'투표권 범위', cols:3, value:0, options:SC},
+          {key:'w', type:'range', label:'성인 여성 집단의 찬성 비율 바꿔 보기', min:-30, max:30, step:5, value:0, fmt:function(v){ return (v > 0 ? '+' : '') + v + ' %p'; },
+            note:'찬성 인원 = 집단 인원 × 그 집단의 찬성 비율. 비율은 교육용 모형값이고, 이 막대로 성인 여성 집단의 비율만 바꿔 볼 수 있어요.'},
           {key:'y', type:'range', label:'연표 보기 (연도)', min:1800, max:1960, step:1, value:1830, fmt:function(v){ return v + '년'; }}
         ],
         compute: function(p){
-          var n = 0, m = 0; for (var i = 0; i <= p.s; i++){ n += GR[i][1]; m += GR[i][2]; }
-          var pm = m / n * 100, win = pm > 50 ? '시장 옆' : '주거지 옆';
-          return {n:n, m:m, h:n - m, pm:pm, ph:100 - pm, win:win, evs:EV.filter(function(e){ return e[0] <= p.y; })};
+          var A = AGENDA[p.a], n = 0, m = 0, yes = [], rates = [];
+          for (var i = 0; i < 3; i++){
+            var rt = rateOf(p.a, i, p.w), cnt = i <= p.s ? Math.round(GR[i][1] * rt) : 0;
+            rates.push(rt); yes.push(cnt);
+            if (i <= p.s){ n += GR[i][1]; m += cnt; }
+          }
+          var pm = m / n * 100, win = pm > 50 ? A.a : A.b;
+          return {n:n, m:m, h:n - m, pm:pm, ph:100 - pm, win:win, A:A, ai:p.a, w:p.w,
+                  yes:yes, rates:rates, evs:EV.filter(function(e){ return e[0] <= p.y; })};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var cols = 20, cs = Math.min((W - 40) / cols, 26), gx = (W - cs * cols) / 2, gy = 40, k = r ? Math.min(1, tau / 0.8) : 0, idx = 0;
           GR.forEach(function(g, gi){
-            var cells = g[1] / 10, mk = Math.round(g[2] / 10);
+            var cells = g[1] / 10, mk = r && r.yes[gi] != null ? Math.round(r.yes[gi] / 10) : 0;
             for (var j = 0; j < cells; j++){
               var x = gx + (idx % cols) * cs, y = gy + Math.floor(idx / cols) * cs, can = gi <= p.s;
               c.fillStyle = !r || !can ? (can ? '#9FB3C8' : '#E1E6EC') : (j < mk ? PAL[0] : PAL[1]);
@@ -470,6 +492,7 @@ var LAB = (function(){
           });
           var ty = gy + Math.ceil(idx / cols) * cs + 26;
           tf(c, '투표권: ' + SC[p.s] + (r ? ' (' + r.n + '명)' : ''), 16, ty, {bold:true});
+          tf(c, '안건: ' + AGENDA[p.a].n + (p.w ? ' · 여성 찬성 ' + (p.w > 0 ? '+' : '') + p.w + '%p' : ''), 16, ty + 24, {bold:true, color:'#26313D'});
           var L = 20, R = W - 20, ly = H - 54; seg(c, L, ly, R, ly, '#A8B4C2', 4);
           function X(yr){ return L + (R - L) * (yr - 1800) / 160; }
           EV.forEach(function(e){ c.fillStyle = e[0] <= p.y ? PAL[6] : '#C3CBD5'; c.beginPath(); c.arc(X(e[0]), ly, 6, 0, Math.PI * 2); c.fill(); });
@@ -478,23 +501,48 @@ var LAB = (function(){
           else tf(c, p.y + '년까지 사건 ' + EV.filter(function(e){ return e[0] <= p.y; }).length + '개', 16, H - 14, {color:'#4A5868'});
         },
         stats: function(p, r){
-          return [['투표권 범위', SC[p.s] + ' — ' + r.n + '명 / 주민 1,000명', PAL[3]],
-            ['시장 옆', r.m + '명 (' + f(r.pm, 1) + '%)', PAL[0]], ['주거지 옆', r.h + '명 (' + f(r.ph, 1) + '%)', PAL[1]],
-            ['결정', r.win + ' — 웹툰 표: ' + REF[p.s], r.pm > 50 ? PAL[0] : PAL[1]],
+          var det = [0, 1, 2].map(function(i){
+            return GR[i][0] + ' ' + GR[i][1] + '명 × ' + f(r.rates[i] * 100, 1) + '% = ' + (i <= p.s ? r.yes[i] + '명' : '투표 못 함');
+          }).join(' · ');
+          return [['안건', r.A.n + ' — ' + r.A.a + ' / ' + r.A.b, PAL[6]],
+            ['투표권 범위', SC[p.s] + ' — ' + r.n + '명 / 주민 1,000명', PAL[3]],
+            ['찬성 인원 계산', det],
+            [r.A.a, r.m + '명 (' + f(r.pm, 1) + '%)', PAL[0]], [r.A.b, r.h + '명 (' + f(r.ph, 1) + '%)', PAL[1]],
+            ['결정', r.win + (r.A.ref && r.w === 0 ? ' — 웹툰 표: ' + REF[p.s] : ' — 웹툰 표에 없는 경우(교육용 모형값으로 계산)'), r.pm > 50 ? PAL[0] : PAL[1]],
             ['투표에서 빠진 사람', (1000 - r.n) + '명 — 이들의 필요는 결정에 들어가지 않음', PAL[4]],
             [p.y + '년까지의 연표', r.evs.length ? r.evs.map(function(e){ return e[0] + ' ' + e[1]; }).join(' · ') : '아직 표의 사건 없음']];
         },
-        columns: ['투표권 범위', '투표권자', '시장 옆', '주거지 옆', '결정'],
-        record: function(p, r){ return {s:p.s, n:r.n, pm:r.pm, win:r.win}; },
-        row: function(d){ return [SC[d.s], d.n + '명', f(d.pm, 0) + '%', f(100 - d.pm, 0) + '%', d.win]; },
+        columns: ['안건', '투표권 범위', '투표권자', '찬성', '반대', '결정'],
+        record: function(p, r){ return {a:p.a, w:p.w, s:p.s, n:r.n, pm:r.pm, win:r.win}; },
+        row: function(d){ return [AGENDA[d.a || 0].n.split(' ')[0] + (d.w ? ' (여성 ' + (d.w > 0 ? '+' : '') + d.w + ')' : ''), SC[d.s], d.n + '명', f(d.pm, 0) + '%', f(100 - d.pm, 0) + '%', d.win]; },
         minRec: 3,
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('투표권 범위별 결과 (웹툰 #4 표와 비교)', '<div id="fw1"></div><p class="ask">누가 투표하느냐만 바꿨는데 결정이 뒤집혔습니다. 참정권 확대가 &lsquo;숫자를 늘리는 일&rsquo;만이 아닌 까닭을 이 결과로 설명해 보세요.</p>') +
-            card('시장 옆 찬성 비율 (내 기록)', '<div id="fw2"></div><p class="ask">과제: 우리나라 선거권 연령이 어떻게 바뀌어 왔는지 공직선거법 개정 연표로 정리해 보세요(가장 최근은 2019년 개정으로 18세). 각 변화 때 제시된 찬반 근거를 적되, 어느 쪽이 옳은지는 판정하지 말 것.</p>') + '</div>';
-          $('fw1').innerHTML = tableHTML(['투표권 범위', '투표권자', '웹툰 표', '내 기록'], SC.map(function(s, i){ var g = rec.filter(function(d){ return d.s === i; }); var n = 0; for (var j = 0; j <= i; j++) n += GR[j][1]; return [s, n + '명', REF[i], g.length ? g[g.length - 1].win + ' ' + f(Math.max(g[g.length - 1].pm, 100 - g[g.length - 1].pm), 0) + '%' : '아직']; }));
-          var seen = {}; rec.forEach(function(d){ seen[d.s] = d; });
-          $('fw2').innerHTML = hbars(Object.keys(seen).map(function(k){ var d = seen[k]; return {label:SC[d.s], v:d.pm, color:d.pm > 50 ? PAL[0] : PAL[1], text:f(d.pm, 0) + '%'}; }), 100) + '<p class="msg">50%를 넘으면 시장 옆, 넘지 못하면 주거지 옆으로 결정됩니다.</p>';
+            card('범위를 넓히면 늘 뒤집히나', '<div id="fw3"></div>') +
+            card('찬성 비율 (내 기록)', '<div id="fw2"></div><p class="ask">과제: 우리나라 선거권 연령이 어떻게 바뀌어 왔는지 공직선거법 개정 연표로 정리해 보세요(가장 최근은 2019년 개정으로 18세). 각 변화 때 제시된 찬반 근거를 적되, 어느 쪽이 옳은지는 판정하지 말 것.</p>') + '</div>';
+          var well = rec.filter(function(d){ return (d.a || 0) === 0 && !d.w; });
+          $('fw1').innerHTML = tableHTML(['투표권 범위', '투표권자', '웹툰 표', '내 기록(우물 안건·조정 없음)'], SC.map(function(s, i){ var g = well.filter(function(d){ return d.s === i; }); var n = 0; for (var j = 0; j <= i; j++) n += GR[j][1]; return [s, n + '명', REF[i], g.length ? g[g.length - 1].win + ' ' + f(Math.max(g[g.length - 1].pm, 100 - g[g.length - 1].pm), 0) + '%' : '아직']; }));
+          var seen = {}; rec.forEach(function(d){ seen[(d.a || 0) + '-' + d.s + '-' + (d.w || 0)] = d; });
+          $('fw2').innerHTML = hbars(Object.keys(seen).map(function(k){ var d = seen[k]; return {label:AGENDA[d.a || 0].a + ' / ' + SC[d.s] + (d.w ? ' (여성 ' + (d.w > 0 ? '+' : '') + d.w + '%p)' : ''), v:d.pm, color:d.pm > 50 ? PAL[0] : PAL[1], text:f(d.pm, 0) + '%'}; }), 100) + '<p class="msg">50%를 넘으면 앞쪽 선택지, 넘지 못하면 뒤쪽 선택지로 결정됩니다.</p>';
+          /* 안건마다 '범위를 넓혔을 때 결정이 바뀌는지'를 계산해서 보여 준다 */
+          var arows = AGENDA.map(function(A, ai){
+            var outs = [0, 1, 2].map(function(si){
+              var n = 0, m = 0;
+              for (var i = 0; i <= si; i++){ n += GR[i][1]; m += Math.round(GR[i][1] * rateOf(ai, i, 0)); }
+              return {pm:m / n * 100, win:m / n * 100 > 50 ? A.a : A.b};
+            });
+            var flip = outs[0].win !== outs[2].win;
+            var tried = rec.some(function(d){ return (d.a || 0) === ai; });
+            return [A.n, outs.map(function(o){ return o.win + ' ' + f(o.pm, 0) + '%'; }).join(' → '),
+              flip ? '뒤집힘' : '그대로', tried ? '돌려 봄 ✓' : '아직'];
+          });
+          var flips = arows.filter(function(x){ return x[2] === '뒤집힘'; }).length;
+          $('fw3').innerHTML = tableHTML(['안건', '재산 남성 → 모든 남성 → 모든 성인', '결정이', '내 기록'], arows)
+            + '<p class="ask">세 안건 가운데 범위를 넓혔을 때 결정이 뒤집힌 것은 <b>' + flips + '개</b>입니다. '
+            + '그러니 "투표권을 넓히면 결정이 뒤집힌다"는 말은 늘 맞는 것이 아니라, <b>집단마다 생각이 얼마나 다른 안건인가</b>에 달려 있습니다. '
+            + '막대로 성인 여성 집단의 찬성 비율을 바꾸면 우물 안건에서도 뒤집히지 않게 만들 수 있어요 — 몇 %p를 바꿔야 그렇게 되는지 찾아보세요.</p>'
+            + '<p class="note">※ 집단 인원과 집단별 찬성 비율은 <b>교육용 모형값</b>입니다. 찬성 인원은 인원 × 비율로 계산했어요.</p>';
         }
       };
     })();
@@ -503,7 +551,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

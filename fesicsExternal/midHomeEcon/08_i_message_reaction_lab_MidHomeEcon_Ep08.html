@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,41 +440,73 @@ var LAB = (function(){
         {n:'너-전달법', s:'너-전달법', say:['"너는 맨날 내 물건을 망가뜨려!"'], col:PAL[4]},
         {n:'나-전달법', s:'나-전달법', say:['상황: "네가 내 이어폰을 묻지 않고 써서 망가졌을 때,"', '감정: "나는 존중받지 못한 것 같아 속상했어."', '바람: "다음엔 먼저 물어봐 줬으면 좋겠어."'], col:PAL[1]}];
       var RX = [{n:'무엇 때문에 화났는지 안다', s:'이유를 안다', v:[2, 5, 10]}, {n:'나도 변명부터 하고 싶다', s:'변명부터', v:[1, 8, 2]}, {n:'사과하고 싶다', s:'사과하고 싶다', v:[2, 2, 8]}];
+      var TN = ['담담하게 말한다', '탓하며 말한다'];
+      /* 세 조각(상황 4 · 감정 2 · 바람 2)과 말투로 반응을 계산한다 —
+         조각을 다 넣고 담담하게 말하면 웹툰의 나-전달법, 상황만 탓하며 말하면 너-전달법, 아무것도 안 말하면 참기 숫자가 그대로 나온다 (교육용 모형) */
+      function clamp10(v){ return v < 0 ? 0 : v > 10 ? 10 : Math.round(v); }
+      function react(p){
+        var s = p.c1 ? 1 : 0, e = p.c2 ? 1 : 0, w = p.c3 ? 1 : 0, T = p.tn ? 1 : 0;
+        var D = (4 * s + 2 * e + 2 * w) / 8;
+        var v = [clamp10(2 + 8 * D - T), clamp10(1 + 6.5 * T + D), clamp10(2 + 6 * D - 3 * T)];
+        var pieces = (s ? '상황' : '') + (e ? (s ? '·감정' : '감정') : '') + (w ? ((s || e) ? '·바람' : '바람') : '');
+        var name = (!s && !e && !w && !T) ? '참기' : (T ? '탓하며 ' : '') + (pieces || '아무 조각 없이');
+        var col = (!s && !e && !w) ? '#8C99A8' : T ? PAL[4] : (D >= 1 ? PAL[1] : PAL[6]);
+        var say = [];
+        if (s && T) say.push('상황(탓하며): "너는 맨날 내 물건을 망가뜨려!"');
+        else if (s) say.push('상황: "네가 내 이어폰을 묻지 않고 써서 망가졌을 때,"');
+        else if (T) say.push('"다 너 때문이야!"');
+        if (e) say.push('감정: "나는 존중받지 못한 것 같아 속상했어."');
+        if (w) say.push('바람: "다음엔 먼저 물어봐 줬으면 좋겠어."');
+        if (!say.length) say.push('(방문을 닫고 말하지 않음)');
+        return {v:v, D:D, T:T, s:s, e:e, w:w, pieces:pieces || '없음', name:name, col:col, say:say};
+      }
       return {
         sceneHeight: 380,
         idle: '말하는 방식과 볼 반응을 고른 뒤 <b>이 방식으로 말하기</b>를 누르세요.',
         shortHint: '세 방식 모두 세 반응을 한 번씩 보세요(9가지). 너-전달법은 이유를 아는 사람이 꽤 있는데도 왜 사과로 이어지지 않았나요?',
         params: [
-          {key:'w', type:'seg', label:'말하는 방식', cols:3, value:2, options:WY.map(function(x){ return x.n; })},
+          {key:'c1', type:'seg', label:'조각 ① 상황 말하기', cols:2, value:1, options:['빼기', '넣기']},
+          {key:'c2', type:'seg', label:'조각 ② 내 감정 말하기', cols:2, value:1, options:['빼기', '넣기']},
+          {key:'c3', type:'seg', label:'조각 ③ 바라는 것 말하기', cols:2, value:1, options:['빼기', '넣기']},
+          {key:'tn', type:'seg', label:'말투', cols:2, value:0, options:TN,
+            note:'세 조각을 다 넣고 담담하게 말하면 나-전달법, 상황만 넣고 탓하며 말하면 너-전달법, 아무것도 말하지 않으면 참기가 됩니다. 조각을 하나씩 빼며 반응이 어떻게 달라지는지 보세요.'},
           {key:'x', type:'seg', label:'볼 반응', cols:3, value:0, options:RX.map(function(x){ return x.n; })}
         ],
-        compute: function(p){ var all = RX.map(function(x){ return x.v[p.w]; }); return {n:RX[p.x].v[p.w], all:all, w:WY[p.w]}; },
+        compute: function(p){ var q = react(p); return {n:q.v[p.x], all:q.v, w:{n:q.name, s:q.pieces, col:q.col, say:q.say}, q:q}; },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var w = WY[p.w], y = 30;
-          w.say.forEach(function(s, i){ tfit(c, s, 20, y + i * 26, {bold:i === 0 && p.w < 2, color:p.w === 2 ? [PAL[0], '#C0587E', PAL[1]][i] : '#26313D'}); });
+          var q0 = react(p), w = {col:q0.col}, y = 30;
+          q0.say.forEach(function(s, i){ tfit(c, s, 20, y + i * 26, {bold:i === 0, color:q0.T ? PAL[4] : [PAL[0], '#C0587E', PAL[1]][i] || '#26313D'}); });
           var n = r ? Math.floor(r.n * Math.min(1, tau / 0.8) + 0.001) : 0, cols = W < 520 ? 5 : 10, gx = (W - 40) / cols, top = 130;
           for (var i = 0; i < 10; i++){ var cx = 20 + gx / 2 + (i % cols) * gx, cy = top + Math.floor(i / cols) * 90, on = i < n, rad = Math.min(14, gx / 4);
             c.fillStyle = on ? w.col : '#D5DCE5'; c.beginPath(); c.arc(cx, cy, rad, 0, Math.PI * 2); c.fill(); c.fillRect(cx - rad, cy + rad + 4, rad * 2, rad * 2.4); }
           tfit(c, RX[p.x].n + (r && tau >= 1 ? ': ' + r.n + '명 / 10명' : ''), 20, H - 20, {bold:true, color:r ? w.col : '#4A5868'});
         },
         stats: function(p, r){
-          return [['말하는 방식', r.w.n], ['고른 반응', RX[p.x].n + ' — ' + r.n + '명 / 10명', r.w.col],
+          var q = r.q;
+          return [['내가 만든 말', r.w.n + ' (조각: ' + q.pieces + ' · ' + TN[p.tn] + ')', r.w.col],
+            ['말한 문장', q.say.join(' / ')],
+            ['고른 반응', RX[p.x].n + ' — ' + r.n + '명 / 10명', r.w.col],
             ['세 반응 한눈에', RX.map(function(x, i){ return x.s + ' ' + r.all[i] + '명'; }).join(' · ')],
-            ['해석', p.w === 0 ? '참으면 상대가 이유를 몰라요 — 원인이 물 아래 그대로 남아요' : p.w === 1 ? '이유는 알아도 탓하는 말에 변명부터 하고 싶어져요' : '상황·감정·바람을 말하니 이유가 전해지고 사과로 이어졌어요', PAL[3]]];
+            ['조각이 채워진 정도 (교육용 모형)', f(q.D * 100, 0) + '% — 상황 4 · 감정 2 · 바람 2로 셈', PAL[6]],
+            ['해석', q.D === 0 && !q.T ? '참으면 상대가 이유를 몰라요 — 원인이 물 아래 그대로 남아요'
+              : q.T ? '탓하는 말투를 쓰면 이유는 조금 전해지지만 변명부터 하고 싶어져요'
+              : q.D >= 1 ? '상황·감정·바람을 모두 말하니 이유가 전해지고 사과로 이어졌어요'
+              : '조각이 빠지면 이유 전달과 사과가 함께 줄어요 — 어느 조각을 뺐을 때 가장 많이 떨어졌나요?', PAL[3]]];
         },
-        columns: ['방식', '반응', '그렇다', '이유를 안다', '사과하고 싶다'],
-        record: function(p, r){ return {w:p.w, x:p.x, n:r.n}; },
-        row: function(d){ return [WY[d.w].s, RX[d.x].s, d.n + '명', RX[0].v[d.w] + '명', RX[2].v[d.w] + '명']; },
+        columns: ['내가 만든 말', '반응', '그렇다', '이유를 안다', '사과하고 싶다'],
+        record: function(p, r){ return {k:[p.c1, p.c2, p.c3, p.tn].join(''), nm:r.w.n, x:p.x, n:r.n, all:r.all.slice(), col:r.w.col}; },
+        row: function(d){ return [d.nm, RX[d.x].s, d.n + '명', d.all[0] + '명', d.all[2] + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('방식 × 반응 (듣는 쪽 각 10명)', '<div id="i8a"></div><p class="ask">참기와 너-전달법은 각각 어디서 막혔나요? 나-전달법의 세 조각 가운데 무엇이 "변명부터 하고 싶다"를 줄였는지 설명해 보세요.</p>') +
             card('"사과하고 싶다" 응답', '<div id="i8b"></div><p class="ask">과제: 최근 가족이나 친구와 있었던 갈등 하나를 빙산 그림으로 그려 물 위의 일과 물 아래 원인을 적어 보세요. 그 상황을 나-전달법 세 조각으로 다시 말하는 문장을 써 보고, 실제로 말해 본 뒤 상대의 반응을 적어 보세요.</p>') + '</div>';
-          var rows = [];
-          WY.forEach(function(w, i){ var g = rec.filter(function(d){ return d.w === i; }); if (!g.length) return; rows.push([w.s].concat(RX.map(function(x, j){ return g.some(function(d){ return d.x === j; }) ? x.v[i] + '명' : '—'; }))); });
-          $('i8a').innerHTML = rows.length ? tableHTML(['방식'].concat(RX.map(function(x){ return x.s; })), rows) : '<p class="msg">방식과 반응을 바꿔 실행해 보세요.</p>';
-          var it = [];
-          WY.forEach(function(w, i){ if (rec.some(function(d){ return d.w === i && d.x === 2; })) it.push({label:w.s, v:RX[2].v[i], color:w.col, text:RX[2].v[i] + '명'}); });
-          $('i8b').innerHTML = it.length ? hbars(it, 10) : '<p class="msg">"사과하고 싶다" 반응을 골라 실행해 보세요.</p>';
+          var seenK = {}, rows = [], it = [];
+          rec.forEach(function(d){ if (seenK[d.k]) return; seenK[d.k] = 1;
+            rows.push([d.nm].concat(d.all.map(function(v){ return v + '명'; })));
+            it.push({label:d.nm, v:d.all[2], color:d.col, text:d.all[2] + '명'}); });
+          $('i8a').innerHTML = rows.length ? tableHTML(['내가 만든 말'].concat(RX.map(function(x){ return x.s; })), rows) +
+            '<p class="msg">조각을 하나씩 빼 보면 어느 조각이 어떤 반응을 끌어올리는지 보입니다.</p>' : '<p class="msg">조각과 말투를 바꿔 실행해 보세요.</p>';
+          $('i8b').innerHTML = it.length ? hbars(it, 10) : '<p class="msg">조각을 바꿔 가며 실행해 보세요.</p>';
         }
       };
     })();
@@ -481,7 +515,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

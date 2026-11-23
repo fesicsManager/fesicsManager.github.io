@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -457,7 +459,17 @@ var LAB = (function(){
           else if (p.a === 1) verdict = '"적당히 쓰자" — 목적·시간 조건 없이 중간값만 제시';
           else if (p.a === 2) verdict = '목소리가 큰 쪽 주장 하나만 채택 — 다른 쪽 근거는 배제';
           else verdict = '유익: ' + (sc.good ? '성립' : '불성립') + ' · 해로움: ' + (sc.bad ? '성립' : '불성립') + ' → ' + sc.kind;
-          return {sc:sc, at:at, verdict:verdict, map:p.a === 3};
+          /* 태도마다 네 조건(목적 2 × 시간 2)에서 답이 몇 가지로 갈리는지, 근거가 몇 개 온전히 남는지 센다 */
+          var kinds = {}, i2, j2;
+          for (i2 = 0; i2 < 2; i2++) for (j2 = 0; j2 < 2; j2++) kinds[scope(i2, j2).kind] = 1;
+          var splits = p.a === 3 ? Object.keys(kinds).length : 1;
+          var kept = p.a === 3 ? 2 : (p.a === 0 ? 2 : (p.a === 1 ? 0 : 1));
+          var pic = p.a === 0 ? '네 칸이 모두 같은 색 — 조건에 따른 구분이 지워짐'
+            : p.a === 1 ? '네 칸이 한 가지 중간색 — 두 근거가 모두 깎임'
+            : p.a === 2 ? '네 칸이 한쪽 색만 — 다른 쪽 근거가 지워짐'
+            : '칸마다 색이 달라짐 — 어디까지 맞는지가 남음';
+          return {sc:sc, at:at, verdict:verdict, map:p.a === 3, splits:splits, kept:kept, pic:pic,
+            scoped:p.a === 0 ? '조건을 따지지 않아 범위가 없음' : (p.a === 3 ? '조건마다 범위가 다름' : '범위 없이 한 답')};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.7, 1) : 0, gx = 66, gy = 50, gw = W - 86, gh = H - 150;
@@ -466,23 +478,32 @@ var LAB = (function(){
           for (var u = 0; u < 2; u++) for (var t = 0; t < 2; t++){
             var x = gx + u * cw, y = gy + t * ch, sc = scope(u, t);
             c.fillStyle = '#F4F6F9'; c.fillRect(x + 2, y + 2, cw - 4, ch - 4);
-            var show = r && r.map;
-            if (show){
+            if (r){
               c.globalAlpha = 0.85 * k;
-              if (sc.good){ c.fillStyle = 'rgba(43,95,163,.35)'; c.fillRect(x + 2, y + 2, (cw - 4) * (sc.bad ? 0.5 : 1), ch - 4); }
-              if (sc.bad){ c.fillStyle = 'rgba(200,70,61,.35)'; c.fillRect(x + 2 + (sc.good ? (cw - 4) * 0.5 : 0), y + 2, (cw - 4) * (sc.good ? 0.5 : 1), ch - 4); }
+              if (p.a === 3){
+                if (sc.good){ c.fillStyle = 'rgba(43,95,163,.35)'; c.fillRect(x + 2, y + 2, (cw - 4) * (sc.bad ? 0.5 : 1), ch - 4); }
+                if (sc.bad){ c.fillStyle = 'rgba(200,70,61,.35)'; c.fillRect(x + 2 + (sc.good ? (cw - 4) * 0.5 : 0), y + 2, (cw - 4) * (sc.good ? 0.5 : 1), ch - 4); }
+              } else if (p.a === 0){
+                /* 상대주의 — 어느 칸에서나 두 주장을 다 맞다고 하여 조건 구분이 지워진다 */
+                c.fillStyle = 'rgba(43,95,163,.18)'; c.fillRect(x + 2, y + 2, (cw - 4) / 2, ch - 4);
+                c.fillStyle = 'rgba(200,70,61,.18)'; c.fillRect(x + 2 + (cw - 4) / 2, y + 2, (cw - 4) / 2, ch - 4);
+              } else if (p.a === 1){
+                /* 절충 — 두 근거를 깎아 중간값 하나만 남는다 (가운데 흰 띠가 깎인 자리) */
+                c.fillStyle = 'rgba(120,135,150,.32)'; c.fillRect(x + 2, y + 2, cw - 4, ch - 4);
+                c.fillStyle = 'rgba(255,255,255,.60)'; c.fillRect(x + 2, y + 2 + (ch - 4) * 0.36, cw - 4, (ch - 4) * 0.28);
+              } else {
+                /* 힘에 의한 정리 — 한쪽 색만 남고 다른 쪽 근거는 지워진다 */
+                c.fillStyle = 'rgba(200,70,61,.35)'; c.fillRect(x + 2, y + 2, cw - 4, ch - 4);
+              }
               c.globalAlpha = 1;
-              if (k >= 1) txt(c, sc.kind, x + cw / 2, y + ch / 2 + 6, {align:'center', bold:true, color:sc.good && sc.bad ? PAL[4] : '#4A5868'});
+              if (k >= 1 && p.a === 3) txt(c, sc.kind, x + cw / 2, y + ch / 2 + 6, {align:'center', bold:true, color:sc.good && sc.bad ? PAL[4] : '#4A5868'});
             }
             if (u === p.u && t === p.t){ c.strokeStyle = PAL[3]; c.lineWidth = 4; c.strokeRect(x + 3, y + 3, cw - 6, ch - 6); }
           }
           txt(c, W < 500 ? '학습' : PU[0], gx + cw / 2, gy + gh + 22, {align:'center', color:'#4A5868'});
           txt(c, W < 500 ? '짧은 영상' : PU[1], gx + cw * 1.5, gy + gh + 22, {align:'center', color:'#4A5868'});
           txt(c, '30분', gx - 4, gy + ch / 2, {color:'#4A5868', align:'right'}); txt(c, '3시간', gx - 4, gy + ch * 1.5, {color:'#4A5868', align:'right'});
-          if (r && !r.map){
-            c.globalAlpha = k; c.fillStyle = 'rgba(92,107,122,.55)'; c.fillRect(gx, gy, gw, gh); c.globalAlpha = 1;
-            txt(c, r.at.n + ': 지도 없음', W / 2, gy + gh / 2, {align:'center', bold:true, color:'#fff'});
-          }
+          if (r && !r.map && k >= 1) txt(c, r.at.n, W / 2, gy + gh / 2 + 6, {align:'center', bold:true, color:'#26313D'});
           var lt = r ? '남는 것: ' + r.at.left : '태도를 고르고 실행하세요', lo = {bold:true, color:r ? PAL[3] : '#4A5868'};
           txt(c, '', 16, H - 16, lo);
           if (c.measureText(lt).width > W - 28 && lt.indexOf(' ') > 0){
@@ -494,11 +515,14 @@ var LAB = (function(){
         stats: function(p, r){
           return [['조건', PU[p.u] + ' · ' + TM[p.t]], ['태도', r.at.n, PAL[3]], ['다룬 결과', r.verdict],
             ['남는 것', r.at.left, r.map ? PAL[1] : PAL[4]],
-            ['이 조건의 쟁점', r.map ? r.sc.kind + ' — ' + r.sc.note : '태도가 범위를 따지지 않아 드러나지 않아요', r.map ? PAL[0] : PAL[7]]];
+            ['이 조건의 쟁점', r.map ? r.sc.kind + ' — ' + r.sc.note : '태도가 범위를 따지지 않아 드러나지 않아요', r.map ? PAL[0] : PAL[7]],
+            ['지도 위에 보이는 것', r.pic, PAL[2]],
+            ['네 조건에서 답이 갈리는 가짓수', r.splits + ' 가지 (네 칸 모두 같으면 1)', r.splits > 1 ? PAL[1] : PAL[4]],
+            ['온전히 남는 근거', r.kept + ' / 2 — ' + r.scoped, r.kept === 2 && r.map ? PAL[1] : PAL[4]]];
         },
-        columns: ['목적', '시간', '태도', '쟁점'],
-        record: function(p, r){ return {u:p.u, t:p.t, a:p.a, kind:r.map ? r.sc.kind : '—'}; },
-        row: function(d){ return [d.u ? '짧은 영상' : '학습', d.t ? '3시간' : '30분', AT[d.a].s, d.kind]; },
+        columns: ['목적', '시간', '태도', '쟁점', '갈리는 가짓수', '남는 근거'],
+        record: function(p, r){ return {u:p.u, t:p.t, a:p.a, kind:r.map ? r.sc.kind : '—', splits:r.splits, kept:r.kept, pic:r.pic}; },
+        row: function(d){ return [d.u ? '짧은 영상' : '학습', d.t ? '3시간' : '30분', AT[d.a].s, d.kind, d.splits + '가지', d.kept + '/2']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('화쟁으로 만든 범위 지도', '<div id="hq1"></div><p class="ask">네 조건 가운데 가짜 쟁점(조건 차이였던 것)과 진짜 쟁점(조건을 다 적어도 부딪치는 것)은 어디였나요?</p>') +
@@ -508,8 +532,11 @@ var LAB = (function(){
             var g = h.filter(function(d){ return d.u === u && d.t === t; });
             rows.push([PU[u], TM[t], g.length ? g[0].kind : '아직 안 따짐']); }); });
           $('hq1').innerHTML = tableHTML(['목적', '시간', '쟁점'], rows) + (h.length ? '' : '<p class="msg">화쟁 태도로 실행한 기록이 아직 없어요.</p>');
-          var it = AT.map(function(a, i){ var n = rec.filter(function(d){ return d.a === i; }).length; return {label:a.s + ' — ' + a.left, v:n, color:i === 3 ? PAL[1] : PAL[7], text:n + '회'}; });
-          $('hq2').innerHTML = hbars(it, Math.max(1, rec.length));
+          var seenA = {}; rec.forEach(function(d){ seenA[d.a] = d; });
+          var ak = Object.keys(seenA).map(Number).sort();
+          $('hq2').innerHTML = tableHTML(['태도', '지도 위에 보이는 것', '답이 갈리는 가짓수', '온전히 남는 근거'],
+              ak.map(function(i){ var d = seenA[i]; return [AT[i].s, d.pic, d.splits + '가지', d.kept + ' / 2']; })) +
+            (ak.length < 4 ? '<p class="msg">아직 써 보지 않은 태도가 있어요 (' + ak.length + ' / 4).</p>' : '<p class="msg">화쟁만 조건에 따라 답이 갈리면서 두 근거를 모두 남깁니다.</p>');
         }
       };
     })();
@@ -518,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

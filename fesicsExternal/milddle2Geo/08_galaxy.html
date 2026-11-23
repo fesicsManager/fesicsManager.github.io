@@ -217,7 +217,19 @@ tbody tr:nth-child(even){background:#fafcfb;}
               <div class="control-label">망원경을 향할 방향 (은위)</div>
               <div class="slider-row"><span style="font-size:.9rem;color:var(--ink-soft)">0°=은하면 · 90°=은하 위쪽</span><span class="slider-val"><span id="bVal">30</span>°</span></div>
               <input type="range" id="bSlider" min="10" max="90" step="5" value="30" aria-label="망원경을 향할 방향">
-              <button class="action" id="countBtn">이 방향의 별 세어보기 ▶</button>
+              <div style="margin-top:12px;font-weight:600;">원반의 반두께</div>
+              <select id="hSel" aria-label="원반의 반두께" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+                <option value="0">600 pc — 얇은 원반 (기본)</option>
+                <option value="1">300 pc — 더 얇은 원반</option>
+                <option value="2">1,200 pc — 두꺼운 원반</option>
+              </select>
+              <div style="margin-top:12px;font-weight:600;">성간 먼지(별빛 가림)</div>
+              <select id="dustSel" aria-label="성간 먼지" style="width:100%;padding:11px;border:2px solid #c9d6d2;border-radius:10px;font-size:18px;font-family:inherit;background:#fff;">
+                <option value="0">없다고 보기 (기본)</option>
+                <option value="1">보통 — 먼지가 조금 있음</option>
+                <option value="2">많음 — 먼지가 짙음</option>
+              </select>
+              <button class="action" id="countBtn" style="margin-top:12px;">이 방향의 별 세어보기 ▶</button>
               <div class="readout" id="mRead">망원경 방향을 정하고 [별 세어보기]를 누르면, 그 방향 시야에 들어온 별을 하나씩 세어 줍니다.</div>
             </div>
           </div>
@@ -225,8 +237,8 @@ tbody tr:nth-child(even){background:#fafcfb;}
             <div class="table-title">별 세기 기록 (<span id="mCount" class="mono">0</span>개)</div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>#</th><th>은위<br>(°)</th><th>1 ÷ sin(은위)</th><th>시선이 지난<br>원반 두께(pc)</th><th>센 별의 수</th></tr></thead>
-                <tbody id="mBody"><tr><td colspan="5" class="empty-row">아직 기록이 없습니다.</td></tr></tbody>
+                <thead><tr><th>#</th><th>은위<br>(°)</th><th>반두께<br>(pc)</th><th>먼지</th><th>1 ÷ sin(은위)</th><th>시선이 지난<br>원반 두께(pc)</th><th>센 별의 수</th></tr></thead>
+                <tbody id="mBody"><tr><td colspan="7" class="empty-row">아직 기록이 없습니다.</td></tr></tbody>
               </table>
             </div>
             <div class="insight-box" style="margin-top:14px;">
@@ -506,13 +518,27 @@ function barChart(g,items,o){
 }
 
 /* ================= A. 우리은하 별 세기 ================= */
+/* 원반 반두께와 성간 먼지를 둘째 조작으로 연다.
+   별 밀도는 그대로라서 반두께가 두 배면 수직 방향 별 수도 두 배가 된다.
+   먼지는 지나온 길이에 비례해 별빛을 가리므로 별 수에 exp(−τ ÷ sin b) 가 곱해지고,
+   그래서 낮은 은위에서는 '1/sin b 직선'이 깨진다 (허셜을 속인 바로 그 효과).
+   기본값(600 pc · 먼지 없다고 보기)에서는 예전 식이 그대로 나온다.
+   ※ τ 값은 교육용 모형값이에요. */
+const HOPT=[{s:'600', h:600},{s:'300', h:300},{s:'1,200', h:1200}];
+const DOPT=[{n:'없다고 보기', s:'없음', tau:0},{n:'보통', s:'보통', tau:0.25},{n:'많음', s:'많음', tau:0.6}];
+let curH=0, curD=0;
+function H_DISK_NOW(){ return HOPT[curH].h; }
+function N0_NOW(){ return 60*HOPT[curH].h/600; }
 const H_DISK=600;              /* 원반 반두께 약 600 pc (얇은 원반) */
 const N0=60;                   /* 은하면에 수직으로 볼 때 시야에 들어오는 별 수 */
 let bDeg=30, mRecs=[], mBusy=false;
 const mc=document.getElementById('mCanvas'), mx=mc.getContext('2d');
 const fc=document.getElementById('fCanvas'), fx=fc.getContext('2d');
-function pathLen(b){ return H_DISK/Math.sin(b*Math.PI/180); }
-function starCount(b){ return Math.round(N0/Math.sin(b*Math.PI/180)); }   /* 교육용 모형: 무한·균일 원반, 성간 소광 무시 */
+function pathLen(b){ return H_DISK_NOW()/Math.sin(b*Math.PI/180); }
+function starCount(b){
+  const s=Math.sin(b*Math.PI/180);
+  return Math.round(N0_NOW()/s*Math.exp(-DOPT[curD].tau/s));
+}
 
 function drawMilky(){
   mx.clearRect(0,0,440,300);
@@ -586,6 +612,8 @@ function drawField(shown, total){
 }
 document.getElementById('bSlider').addEventListener('input',e=>{
   bDeg=parseInt(e.target.value); document.getElementById('bVal').textContent=bDeg; drawMilky();});
+document.getElementById('hSel').addEventListener('change',e=>{ curH=parseInt(e.target.value,10); drawMilky(); });
+document.getElementById('dustSel').addEventListener('change',e=>{ curD=parseInt(e.target.value,10); drawMilky(); });
 document.getElementById('countBtn').addEventListener('click',()=>{
   focusCanvas(mc);
   if(mBusy) return; mBusy=true;
@@ -593,18 +621,18 @@ document.getElementById('countBtn').addEventListener('click',()=>{
   const N=starCount(bDeg), dur=900+Math.min(1400,N*3.2);
   animate(dur, p=>{ drawMilky(); drawField(Math.round(N*p), N); }, ()=>{
     btn.disabled=false; document.getElementById('bSlider').disabled=false; mBusy=false;
-    mRecs.push({b:bDeg, inv:1/Math.sin(bDeg*Math.PI/180), len:Math.round(pathLen(bDeg)), n:N});
+    mRecs.push({b:bDeg, inv:1/Math.sin(bDeg*Math.PI/180), len:Math.round(pathLen(bDeg)), n:N, hi:curH, di:curD});
     renderM();
     document.getElementById('mRead').innerHTML=
-      `은위 ${bDeg}° 방향 · 시선이 원반을 지난 길이 ${Math.round(pathLen(bDeg))} pc<br>센 별의 수 <span class="big">${N}</span> 개`;
+      `은위 ${bDeg}° 방향 · 반두께 ${HOPT[curH].s} pc · 먼지 ${DOPT[curD].s}<br>시선이 원반을 지난 길이 ${Math.round(pathLen(bDeg))} pc<br>센 별의 수 <span class="big">${N}</span> 개`;
     maybeNudge(mRecs.length+gRecs.length);
   });
 });
 function renderM(){
   document.getElementById('mCount').textContent=mRecs.length;
   const tb=document.getElementById('mBody');
-  if(!mRecs.length){tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록이 없습니다.</td></tr>';return;}
-  tb.innerHTML=mRecs.map((r,i)=>`<tr><td>${i+1}</td><td>${r.b}</td><td>${r.inv.toFixed(2)}</td><td>${r.len}</td><td><b>${r.n}</b></td></tr>`).join('');
+  if(!mRecs.length){tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록이 없습니다.</td></tr>';return;}
+  tb.innerHTML=mRecs.map((r,i)=>`<tr><td>${i+1}</td><td>${r.b}</td><td>${HOPT[r.hi||0].s}</td><td>${DOPT[r.di||0].s}</td><td>${r.inv.toFixed(2)}</td><td>${r.len}</td><td><b>${r.n}</b></td></tr>`).join('');
 }
 
 /* ================= B. 외부 은하 ================= */
@@ -769,17 +797,48 @@ function drawG1(){
   const box=document.getElementById('i1');
   if(mRecs.length<2){ noData(g,'별 세기 기록이 2개 이상 필요합니다.');
     box.innerHTML='<div class="insight-box wait">A 실험에서 은위를 바꿔가며 2번 이상 세어 보세요.</div>'; return; }
-  const maxX=Math.max(...mRecs.map(r=>r.inv))*1.15, maxY=Math.max(...mRecs.map(r=>r.n))*1.15;
+  /* 조건(반두께·먼지)이 같은 기록만 모아 비교해야 공정하다 */
+  const byC={};
+  mRecs.forEach(r=>{ const k=(r.hi||0)+'_'+(r.di||0); (byC[k]=byC[k]||[]).push(r); });
+  let mainK=Object.keys(byC)[0];
+  Object.keys(byC).forEach(k=>{ if(byC[k].length>byC[mainK].length) mainK=k; });
+  const main=byC[mainK];
+  if(main.length<2){ noData(g,'같은 조건으로 2개 이상 세어야 직선을 그릴 수 있습니다.');
+    box.innerHTML='<div class="insight-box wait">같은 반두께·먼지 조건에서 은위를 바꿔가며 2번 이상 세어 보세요.</div>'; return; }
+  const maxX=Math.max(...main.map(r=>r.inv))*1.15, maxY=Math.max(...main.map(r=>r.n))*1.15;
   const ax=plot(g,{xmin:0,xmax:maxX,ymin:0,ymax:maxY,
     xlabel:'1 ÷ sin(은위)   =   시선이 원반을 지나는 길이에 비례',
-    ylabel:'센 별의 수', title:'별 세기 '+mRecs.length+'개',
+    ylabel:'센 별의 수', title:'별 세기 '+main.length+'개 (반두께 '+HOPT[main[0].hi||0].s+' pc · 먼지 '+DOPT[main[0].di||0].s+')',
     legend:[{label:'내 측정값',c:'#2f8f9d'},{label:'최소제곱 직선',c:'#c1443c'}]});
-  const fit=lsq(mRecs.map(r=>({x:r.inv,y:r.n})));
+  const fit=lsq(main.map(r=>({x:r.inv,y:r.n})));
   fitLine(g,fit,ax.X,ax.Y,0,maxX);
-  pts(g,mRecs.map(r=>({x:r.inv,y:r.n})),ax.X,ax.Y,'#2f8f9d');
-  box.innerHTML=`<div class="insight-box">점들이 <b>직선</b> 위에 놓입니다 (기울기 ${fit?fit.m.toFixed(1):'-'}). 별의 수가 1/sin(은위)에 비례한다는 것은,
-  별이 <b>납작한 원반 속에 고르게 퍼져 있다</b>는 뜻입니다. 별이 공처럼 사방에 고르게 있었다면 어느 방향을 봐도 별의 수가 같았을 것입니다.
-  이것이 밤하늘에 은하수가 <b>띠</b>로 보이는 이유입니다.</div>`;
+  pts(g,main.map(r=>({x:r.inv,y:r.n})),ax.X,ax.Y,'#2f8f9d');
+  /* 반두께별 기울기와, 먼지가 직선을 깨뜨리는지 내 기록으로 따진다 */
+  const slopes=[];
+  Object.keys(byC).forEach(k=>{
+    const a=byC[k]; if(a.length<2) return;
+    const fi=lsq(a.map(r=>({x:r.inv,y:r.n})));
+    slopes.push({hi:a[0].hi||0, di:a[0].di||0, n:a.length, m:fi?fi.m:null, arr:a});
+  });
+  let dustNote='';
+  slopes.filter(s=>s.di>0 && s.m!=null).forEach(s=>{
+    const low=s.arr.filter(r=>r.b<=25), hi2=s.arr.filter(r=>r.b>=60);
+    if(low.length && hi2.length){
+      const pred=low.map(r=>s.m*r.inv), real=low.map(r=>r.n);
+      const below=real.filter((v,i)=>v<pred[i]*0.9).length;
+      if(below) dustNote+='<br>· 먼지 '+DOPT[s.di].s+' 조건에서 <b>낮은 은위(25° 이하) 점들이 직선보다 아래</b>로 떨어졌습니다 ('+below+'개).';
+    }
+  });
+  box.innerHTML='<div class="insight-box">점들이 <b>직선</b> 위에 놓입니다 (기울기 '+(fit?fit.m.toFixed(1):'-')+'). 별의 수가 1/sin(은위)에 비례한다는 것은, '+
+  '별이 <b>납작한 원반 속에 고르게 퍼져 있다</b>는 뜻입니다. 별이 공처럼 사방에 고르게 있었다면 어느 방향을 봐도 별의 수가 같았을 것입니다. '+
+  '이것이 밤하늘에 은하수가 <b>띠</b>로 보이는 이유입니다.</div>'+
+  '<div class="insight-box warm" style="margin-top:12px;"><b>조건을 바꿰 보면 (내 기록으로 계산)</b><br>'+
+  (slopes.length ? slopes.map(s=>'· 반두께 '+HOPT[s.hi].s+' pc · 먼지 '+DOPT[s.di].s+' — 기록 '+s.n+'개, 기울기 '+(s.m==null?'-':s.m.toFixed(1))).join('<br>')
+    : '· 아직 같은 조건으로 2개 이상 센 묶음이 없습니다.')+
+  '<br><br>· 원반이 두꺼워지면 어느 방향을 봐도 별이 더 많아져 <b>기울기가 커집니다</b>. 기울기는 원반의 두께(와 별 밀도)를 알려 줘요.'+
+  (dustNote ? dustNote+'<br>먼지가 별빛을 가리면 <b>1/sin b 직선이 깨집니다</b>. 그런데도 직선이라고 믿으면 "별이 적은 쪽이 원반의 끝"이라고 잘못 읽게 되고, 허셜이 태양을 은하 중심에 놓은 것도 바로 이 때문이었어요.'
+    : '<br>· 먼지를 "보통"이나 "많음"으로 두고 낮은 은위(10~25°)와 높은 은위(60~90°)를 함께 세어 보면, 직선이 깨지는지 확인할 수 있어요.')+
+  '</div>';
 }
 function hubbleOf(r){
   if(r.k==='E') return 'E'+Math.round(10*(1-r.ba));

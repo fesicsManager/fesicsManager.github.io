@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -492,6 +494,7 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         {n:'소리 + 거의 움직이지 않는 연주자 영상', s:'작은 움직임', sc:5.6, rv:'"차분하지만 밋밋하다"', mv:0.08, cap:false, video:true},
         {n:'소리 + "국제 콩쿠르 우승자" 자막', s:'우승자 자막', sc:7.5, rv:'"역시 깊이가 있다"', mv:0.3, cap:true, video:true}];
       var TG = [{n:'소리의 표현력을 평가', s:'소리'}, {n:'공연 전체 경험을 평가', s:'공연 전체'}];
+      /* 내가 직접 매기는 점수. 0 은 '아직 매기지 않음'이라 기본값에서는 예전과 똑같다. */
       var MEL = [[0, 0.6], [4, 0.7], [7, 0.85], [12, 1], [11, 0.8], [7, 0.6], [5, 0.45], [4, 0.35], [2, 0.3], [0, 0.5]];
       function verdict(p){ var t = p.t, c = p.c;
         if (t === 0 && c === 0) return {k:0, s:'근거와 주장 일치 — 소리만으로 판단', col:PAL[1]};
@@ -500,14 +503,15 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         if (c === 0) return {k:2, s:'공연 전체를 평가하기엔 정보가 부족 — 평가 대상 범위를 다시 정하기', col:PAL[6]};
         if (c < 3) return {k:0, s:'움직임·표정은 공연 경험의 일부 — 근거로 다룰 수 있음 (무엇을 평가하는지 밝히기)', col:PAL[1]};
         return {k:1, s:'자막은 무대에서 일어난 일이 아닌 사전 정보 — 공연 경험 평가의 근거로도 어긋남', col:PAL[4]}; }
-      function calc(p){ var C = CO[p.c]; return {C:C, d:C.sc - CO[0].sc, v:verdict(p)}; }
+      function calc(p){ var C = CO[p.c]; return {C:C, d:C.sc - CO[0].sc, v:verdict(p), my:p.my || 0}; }
       return {
         sceneHeight: 430,
         idle: '제시 조건과 평가 대상을 고른 뒤 <b>이 조건으로 제시</b>를 누르세요. 소리는 언제나 같습니다.',
         shortHint: '네 조건을 모두 "소리의 표현력"으로 기록한 뒤, 같은 조건을 "공연 전체 경험"으로도 판정해 보세요.',
         params: [
           {key:'c', type:'seg', label:'제시 조건 (녹음은 모두 같음)', cols:2, value:0, options:CO.map(function(x){ return x.n; })},
-          {key:'t', type:'seg', label:'평가 대상', cols:2, value:0, options:TG.map(function(x){ return x.n; })}
+          {key:'t', type:'seg', label:'평가 대상', cols:2, value:0, options:TG.map(function(x){ return x.n; })},
+          {key:'my', type:'range', label:'내가 매긴 표현력 점수 (0 = 아직 안 매김)', min:0, max:10, step:0.5, value:0, fmt:function(v){ return v ? f(v, 1) + ' / 10' : '아직 안 매김'; }}
         ],
         compute: function(p){
           var r = calc(p), S = session(2, 0.18), t = 0;
@@ -539,14 +543,16 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           return [['제시 조건', r.C.n, PAL[0]], ['표현력 평균 (수업용 예시)', f(r.C.sc, 1) + ' / 10 — 많이 나온 평 ' + r.C.rv, PAL[6]],
             ['소리 밖 정보의 영향', p.c ? sgn(r.d, 1) + '점 ("소리만" 6.4 대비)' : '기준 (소리만)', r.d > 0 ? PAL[6] : r.d < 0 ? PAL[5] : PAL[1]],
             ['평가 대상', TG[p.t].n], ['근거 판정', r.v.s, r.v.col],
+            ['내가 매긴 점수', r.my ? f(r.my, 1) + ' / 10' : '아직 매기지 않았어요 — 슬라이더로 직접 매겨 보세요.', r.my ? PAL[3] : null],
             ['비평문 첫 문단에', '평가 대상(음원·실황·영상)과 감상 조건(본 것·안 것)을 밝히기']];
         },
-        columns: ['조건', '평가 대상', '표현력(예시)', '영향', '판정'],
-        record: function(p, r){ return {c:p.c, t:p.t, d:r.d, k:r.v.k}; },
-        row: function(d){ return [CO[d.c].s, TG[d.t].s, f(CO[d.c].sc, 1), d.c ? sgn(d.d, 1) : '기준', ['일치', '어긋남', '범위 재설정'][d.k]]; },
+        columns: ['조건', '평가 대상', '내 점수', '표현력(예시)', '영향', '판정'],
+        record: function(p, r){ return {c:p.c, t:p.t, d:r.d, k:r.v.k, my:r.my}; },
+        row: function(d){ return [CO[d.c].s, TG[d.t].s, d.my ? f(d.my, 1) : '—', f(CO[d.c].sc, 1), d.c ? sgn(d.d, 1) : '기준', ['일치', '어긋남', '범위 재설정'][d.k]]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('같은 소리, 다른 점수 (수업용 예시)', '<div id="h8a"></div><p class="ask">소리는 네 번 다 같은데 점수는 몇 점에서 몇 점까지 움직였나요? 자막 한 줄은 몇 점을 움직였나요?</p>') +
+            card('내 점수는 조건에 흔들렸나 (내가 매긴 점수로 계산)', '<div id="h8c"></div><p class="ask">소리는 한 번도 바뀌지 않았는데 내 점수는 몇 점이나 움직였나요? 가장 크게 움직인 조건은 무엇이었나요?</p>') +
             card('평가 대상 × 조건 판정', '<div id="h8b"></div><p class="ask">과제: 같은 곡의 연주 영상 두 개를 골라 먼저 소리만 듣고 평가를 적은 뒤, 영상과 함께 다시 보고 평가를 적으세요. 바뀐 항목과 그 이유를 표로 정리하고, 최종 비평문 첫 문단에 평가 대상과 감상 조건을 밝혀 보세요.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.c; }), items = [];
           CO.forEach(function(C, i){ if (!g[i]) return; items.push({label:C.s, v:C.sc, color:i ? (C.sc > 6.4 ? PAL[6] : PAL[5]) : PAL[0], text:f(C.sc, 1) + (i ? ' (' + sgn(C.sc - 6.4, 1) + ')' : ' (기준)')}); });
@@ -554,6 +560,24 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           var gg = groupBy(rec, function(d){ return d.c + '_' + d.t; }), rows = [];
           Object.keys(gg).forEach(function(k){ var d = gg[k][0]; rows.push([CO[d.c].s, TG[d.t].s, verdict({c:d.c, t:d.t}).s]); });
           $('h8b').innerHTML = tableHTML(['조건', '평가 대상', '판정'], rows);
+          /* 미리 적힌 6.4·7.8·5.6·7.5 와 달리, 이것은 내가 매긴 점수만으로 계산한 값이다 */
+          var mine = rec.filter(function(x){ return x.my; });
+          var base = mine.filter(function(x){ return x.c === 0; });
+          var b0 = base.length ? mean(base.map(function(x){ return x.my; })) : null;
+          var rows3 = CO.map(function(C, i){
+            var a = mine.filter(function(x){ return x.c === i; });
+            if (!a.length) return [C.s, '—', '—', f(C.sc, 1)];
+            var v = mean(a.map(function(x){ return x.my; }));
+            return [C.s, f(v, 1), (b0 === null || i === 0) ? (i === 0 ? '기준' : '—') : sgn(v - b0, 1), f(C.sc, 1)];
+          });
+          var vals = mine.map(function(x){ return x.my; });
+          var spread = vals.length > 1 ? Math.max.apply(null, vals) - Math.min.apply(null, vals) : null;
+          $('h8c').innerHTML = tableHTML(['조건', '내 점수 평균', '"소리만" 대비', '예시 점수'], rows3)
+            + '<p class="msg">' + (!mine.length
+              ? '슬라이더로 "내가 매긴 표현력 점수"를 매기고 네 조건을 모두 겪어 보면, 내 점수가 조건에 흔들렸는지 여기서 계산해 줍니다.'
+              : (spread && spread >= 1
+                ? '내 점수는 가장 낮을 때와 가장 높을 때가 <b>' + f(spread, 1) + '점</b> 차이였습니다. 소리는 한 번도 바뀌지 않았으니, 그 차이를 만든 것은 소리 밖의 정보예요.'
+                : '내 점수는 조건이 바뀌어도 거의 흔들리지 않았습니다. 그렇다면 무엇을 듣고 점수를 매겼는지 적어 보세요 — 그것이 근거입니다.')) + '</p>';
         }
       };
     })();
@@ -562,7 +586,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

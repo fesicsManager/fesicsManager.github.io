@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -458,11 +460,17 @@ var LAB = (function(){
         params: [
           {key:'s', type:'seg', label:'문장', cols:2, value:0, options:S.map(function(x){ return x.en; })},
           {key:'m', type:'seg', label:'말하는 방식', cols:2, value:1, options:['또박또박 (단어마다 끊어서)', '자연스러운 속도']},
-          {key:'snd', type:'seg', label:'소리', cols:2, value:1, options:['소리 없이', '소리로 듣기'], note:'소리는 버튼을 누를 때만 재생됩니다. 음성이 없는 기기에서는 막대만 움직여요.'}
+          {key:'snd', type:'seg', label:'소리', cols:2, value:1, options:['소리 없이', '소리로 듣기'], note:'소리는 버튼을 누를 때만 재생됩니다. 음성이 없는 기기에서는 막대만 움직여요.'},
+          {key:'sp', type:'range', label:'말하는 속도 (1초에 몇 음절)', min:2, max:10, step:1, value:3, fmt:function(v){ return v + '음절/초'; },
+            note:'강세 음절이 비강세 음절의 4배 길이를 갖는다고 보고, 비강세 음절에 0.06초가 안 돌아가면 “뭉개진다”고 봅니다 (단순한 교육용 모형). 속도를 올려 가며 몇 음절/초부터 기능어가 무너지는지 찾아보세요.'}
         ],
         compute: function(p){
           var s = S[p.s], t = times(s), played = p.snd === 1 ? say(s, p.m) : false;
-          return {s:s, t:t, played:played, dur:p.m === 0 ? t.slow : t.fast, heard:p.m === 0 ? s.slow : s.fast};
+          /* 강세:비강세 = 4:1 로 나눠 비강세 음절에 돌아가는 시간을 구한다 (교육용 모형) */
+          var units = 3 * t.st + t.n, T = t.n / p.sp, u = T / units;
+          var blur = (u < 0.06), blurAt = Math.ceil(t.n / (0.06 * units) - 1e-9);
+          return {s:s, t:t, played:played, dur:p.m === 0 ? t.slow : t.fast, heard:p.m === 0 ? s.slow : s.fast,
+            sp:p.sp, T:T, u:u, su:4 * u, blur:blur, blurAt:blurAt};
         },
         draw: function(c, W, H, p, r, tau){
           var s = S[p.s], sy = sylls(s), t = times(s), x0 = 20, span = W - 40, maxT = Math.max(t.slow, 0.1);
@@ -488,11 +496,15 @@ var LAB = (function(){
           return [['문장', r.s.en], ['음절 수 · 강세 수', r.t.n + '음절 · 강세 ' + r.t.st + '개'],
             ['예상 길이 (모형)', '또박또박 ≈ ' + f(r.t.slow, 1) + '초 → 자연 ≈ ' + f(r.t.fast, 1) + '초', PAL[0]],
             ['들리는 소리 (한글 근사)', r.s.slow + ' → ' + r.s.fast, PAL[3]], ['적용된 규칙', r.s.rules.join(' · '), PAL[1]],
-            ['소리', p.snd === 1 ? (r.played ? (p.m === 0 ? '단어마다 끊어 재생했어요' : '한 문장으로 이어 재생했어요') : '이 기기에서는 음성을 쓸 수 없어요') : '소리 없이']];
+            ['소리', p.snd === 1 ? (r.played ? (p.m === 0 ? '단어마다 끊어 재생했어요' : '한 문장으로 이어 재생했어요') : '이 기기에서는 음성을 쓸 수 없어요') : '소리 없이'],
+            ['말하는 속도', r.sp + '음절/초 → 문장 전체 ' + f(r.T, 2) + '초'],
+            ['음절 하나에 돌아가는 시간', '강세 ' + f(r.su * 1000, 0) + 'ms · 기능어(비강세) ' + f(r.u * 1000, 0) + 'ms', r.blur ? PAL[4] : PAL[1]],
+            ['기능어가 뭉개지나', r.blur ? '❌ 뭉개집니다 (0.06초 미만)' : '✅ 아직 또박또박 들립니다', r.blur ? PAL[4] : PAL[1]],
+            ['이 문장이 무너지기 시작하는 속도', r.blurAt + '음절/초부터 (음절 ' + r.t.n + '개 · 강세 ' + r.t.st + '개)', PAL[6]]];
         },
-        columns: ['문장', '방식', '음절', '강세', '길이(모형)'],
-        record: function(p, r){ return {s:p.s, m:p.m, n:r.t.n, st:r.t.st, dur:r.dur}; },
-        row: function(d){ return [S[d.s].en, d.m === 0 ? '또박또박' : '자연', d.n, d.st, f(d.dur, 1) + '초']; },
+        columns: ['문장', '방식', '음절', '강세', '길이(모형)', '속도', '기능어 시간', '뭉개짐', '무너지는 속도'],
+        record: function(p, r){ return {s:p.s, m:p.m, n:r.t.n, st:r.t.st, dur:r.dur, sp:r.sp, u:r.u, blur:r.blur, blurAt:r.blurAt}; },
+        row: function(d){ return [S[d.s].en, d.m === 0 ? '또박또박' : '자연', d.n, d.st, f(d.dur, 1) + '초', d.sp + '음절/초', f(d.u * 1000, 0) + 'ms', d.blur ? '❌' : '✅', d.blurAt + '음절/초']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('문장별 길이: 또박또박 vs 자연 (모형)', '<div id="cs1"></div><p class="ask">음절이 많은 문장일수록 두 방식의 차이가 커졌나요? 줄어든 시간은 어떤 단어에서 빠졌나요?</p>') +
@@ -502,7 +514,15 @@ var LAB = (function(){
             items.push({label:S[k].en + ' · 또박', v:t.slow, color:'#A8B4C2', text:f(t.slow, 1) + '초'});
             items.push({label:S[k].en + ' · 자연', v:t.fast, color:PAL[0], text:f(t.fast, 1) + '초'});
             rows.push([S[k].en, S[k].slow + ' → ' + S[k].fast, S[k].rules.join(', ')]); });
-          $('cs1').innerHTML = hbars(items, 2.7);
+          $('cs1').innerHTML = hbars(items, 2.7)
+            + (function(){ var sps = {}; rec.forEach(function(d){ sps[d.sp] = 1; });
+              if (Object.keys(sps).length < 2) return '<p class="msg">같은 문장에서 <b>말하는 속도</b>만 3 → 6 → 9음절/초로 올려 보세요. 기능어에 돌아가는 시간이 0.06초 아래로 떨어지는 자리가 보입니다.</p>';
+              var byS = groupBy(rec, function(d){ return d.s; });
+              var lines = Object.keys(byS).map(function(k){ var g = byS[k], last = g[g.length - 1];
+                var sp2 = g.map(function(d){ return d.sp + '음절/초 → ' + f(d.u * 1000, 0) + 'ms' + (d.blur ? ' ❌' : ' ✅'); }).join(' · ');
+                return '<li>' + S[k].en + ' (음절 ' + last.n + ' · 강세 ' + last.st + ') — ' + sp2 + ' / 무너지는 속도 <b>' + last.blurAt + '음절/초</b></li>'; });
+              var blurred = rec.filter(function(d){ return d.blur; });
+              return '<ul class="readout">' + lines.join('') + '</ul><p class="msg">뭉개진 기록 ' + blurred.length + '개 · 아직 들린 기록 ' + (rec.length - blurred.length) + '개. 강세가 적고 음절이 많은 문장일수록 <b>낮은 속도에서도</b> 무너집니다 — 안 들리는 것은 귀가 나빠서가 아니라 기능어에 시간이 거의 돌아가지 않기 때문입니다. (단순한 교육용 모형)</p>'; })();
           $('cs2').innerHTML = tableHTML(['문장', '소리 변화 (대략)', '규칙'], rows);
         }
       };
@@ -512,7 +532,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

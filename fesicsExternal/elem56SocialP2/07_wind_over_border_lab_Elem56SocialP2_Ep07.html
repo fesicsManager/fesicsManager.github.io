@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>환경 문제는 국경에서 멈추나</h1>
-    <p>책상 위 지도에 종이 조각 20개를 서쪽에 놓고, 선풍기 바람 세기를 골라 보세요. 국경선을 넘은 조각이 몇 개인지 <b>예측</b>하고 확인해요.<br><span style="font-size:.9em;color:#a86825">※ 조각 수(약하게 6개, 세게 14개)는 교실 활동 예시 값이에요. 지도와 국경선도 가상 도식이에요.</span></p>
+    <p>책상 위 지도에 종이 조각 20개를 서쪽에 놓고, 선풍기 바람의 <b>세기와 방향</b>, 그리고 <b>국경까지 거리</b>를 골라 보세요. 국경선을 넘은 조각이 몇 개인지 <b>예측</b>하고 확인해요. 한 개도 안 넘는 조건을 찾아보세요.<br><span style="font-size:.9em;color:#a86825">※ 넘는 조각 수는 바람 세기·방향·거리로 셈한 교육용 모형값이에요. 지도와 국경선도 가상 도식이에요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -231,7 +232,7 @@ tbody tr:hover{background:#F5F8FB}
 <tr><td>끔</td><td>20개</td><td>0개</td></tr>
 <tr><td>약하게</td><td>14개</td><td>6개</td></tr>
 <tr><td>세게</td><td>6개</td><td>14개</td></tr></table>
-<p><span class="fx-formula">바람이 셀수록 국경을 넘는 조각이 많아진다 — 선 앞에서 멈춘 조각은 없다</span></p>
+<p><span class="fx-formula">바람이 셀수록 국경을 넘는 조각이 많아진다 — 선 앞에서 멈춘 조각은 없다</span><br><span class="fx-formula">바람 방향이 이웃 나라 쪽, 국경까지 거리가 2칸일 때의 값. 방향이 되돌아 불거나 거리가 멀면 한 개도 안 넘는다</span></p>
 <h3>🌏 실제로는</h3>
 <p>봄에 오는 <b>황사</b>는 중국 북부와 몽골의 메마른 땅에서 일어난 흙먼지예요. 우리나라 하늘 위로는 서쪽에서 동쪽으로 부는 바람(<b>편서풍</b>)이 자주 불어서, 먼지가 바다를 건너오기도 해요. 바다 쓰레기는 해류를 타고, 강의 오염은 강물을 따라 다른 나라로 가기도 해요.</p>
 <div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
@@ -293,9 +294,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -433,30 +435,51 @@ var LAB = (function(){
       var G = ['0개 (국경선에서 멈춘다)', '1~10개', '11개 이상'];
       var RANK = [3, 11, 7, 0, 15, 9, 18, 5, 13, 1, 16, 8, 4, 19, 10, 2, 14, 6, 17, 12];
       function band(n){ return n === 0 ? 0 : n <= 10 ? 1 : 2; }
+      /* 바람 방향과 거리가 조각을 얼마나 멀리 보내는지. 교육용 모형값 */
+      var DIR = [{n:'이웃 나라 쪽으로', f:1}, {n:'비스듬히', f:0.5}, {n:'되돌아 부는 쪽', f:0}];
+      var BASE = [0, 0.3, 0.7];
+      function crossN(w, d, dist){
+        var f = BASE[w] * DIR[d].f - 0.15 * (dist - 2);
+        return Math.round(N * Math.max(0, Math.min(1, f)));
+      }
       return {
         sceneHeight: 340,
-        idle: '바람 세기와 예측을 고른 뒤 <b>선풍기 켜기</b>를 누르세요.',
-        shortHint: '끔, 약하게, 세게를 모두 해 보세요. 국경선 바로 앞에서 멈춘 조각이 있었나요?',
+        idle: '바람 세기·방향·국경까지 거리와 예측을 고른 뒤 <b>선풍기 켜기</b>를 누르세요.',
+        shortHint: '바람 세기와 방향, 거리를 바꿔 가며 해 보세요. 한 개도 안 넘는 조건을 찾았나요?',
         params: [
           {key:'w', type:'seg', label:'선풍기 바람', cols:3, value:2, options:WIND},
+          {key:'d', type:'seg', label:'바람 방향', cols:3, value:0, options:DIR.map(function(x){ return x.n; }),
+            note:'아래 「국경까지 거리」를 늘리면 국경선이 더 멀어져서 넘는 조각이 줄어요. 되돌아 부는 바람에서는 한 개도 넘지 않아요. (넘는 조각 수는 교육용 모형값이에요.)'},
+          {key:'dist', type:'range', label:'국경까지 거리', min:1, max:5, step:1, value:2, fmt:function(v){ return v + '칸'; }},
           {key:'g', type:'seg', label:'예측: 국경선을 넘는 조각 수', cols:3, value:0, options:G,
             note:'뭉치는 "국경선이 딱 막아 줘!"라고 했어요.'}
         ],
         compute: function(p){
-          var n = CROSS[p.w];
-          return {n:n, left:N - n, ok:p.g === band(n)};
+          var n = crossN(p.w, p.d, p.dist);
+          var why = p.w === 0 ? '바람이 없어 조각이 움직이지 않아요'
+            : p.d === 2 ? '바람이 되돌아 불어서 조각이 국경선 쪽으로 가지 않아요'
+            : n === 0 ? '국경선이 ' + p.dist + '칸이나 멀어서 조각이 닿지 못했어요'
+            : '국경선은 바람을 막지 못해요 — ' + n + '개가 넘었어요';
+          return {n:n, left:N - n, ok:p.g === band(n), dir:DIR[p.d].n, dist:p.dist, why:why};
         },
         draw: function(c, W, H, p, r, tau){
-          var k = r ? Math.min(tau / 0.85, 1) : 0, bx = W * 0.5, top = 50, h = 210;
+          var k = r ? Math.min(tau / 0.85, 1) : 0, top = 50, h = 210;
+          var bx = Math.min(W * (0.3 + 0.1 * p.dist), W - 90);
           c.fillStyle = '#F3EEDF'; c.fillRect(20, top, bx - 20, h); c.fillStyle = '#E4EEF6'; c.fillRect(bx, top, W - 20 - bx, h);
-          txt(c, '먼지가 생긴 곳', 30, top + 22, {color:'#8A5A00'}); txt(c, '이웃 나라', W - 30, top + 22, {align:'right', color:'#3F6F9F'});
+          txt(c, '먼지가 생긴 곳', 30, top + 22, {color:'#8A5A00'}); txt(c, '이웃 나라', W - 30, top + (W < 560 ? 46 : 22), {align:'right', color:'#3F6F9F'});
           seg(c, bx, top - 10, bx, top + h + 10, PAL[4], 3, [8, 6]); txt(c, '국경선', bx, top - 16, {align:'center', bold:true, color:PAL[4]});
-          if (p.w > 0) for (var a = 0; a < p.w * 2; a++){ var ay = top + 50 + a * 36; arrow(c, 24, ay, 24 + 30 + 20 * p.w, ay, 'rgba(58,143,183,' + (r ? 0.3 + 0.5 * k : 0.25) + ')', 2); }
+          if (p.w > 0) for (var a = 0; a < p.w * 2; a++){
+            var ay = top + 50 + a * 36, alen = 30 + 20 * p.w, acol = 'rgba(58,143,183,' + (r ? 0.3 + 0.5 * k : 0.25) + ')';
+            if (p.d === 2) arrow(c, 24 + alen, ay, 24, ay, acol, 2);
+            else if (p.d === 1) arrow(c, 24, ay, 24 + alen, ay + 22, acol, 2);
+            else arrow(c, 24, ay, 24 + alen, ay, acol, 2);
+          }
           var n = r ? r.n : 0;
           for (var i = 0; i < N; i++){
             var sx0 = 50 + (i % 4) * ((bx - 90) / 4) * 0.7, sy = top + 40 + Math.floor(i / 4) * 34, ex;
             if (!r || p.w === 0) ex = sx0;
             else if (RANK[i] < n) ex = bx + 16 + (RANK[i] % 5) * ((W - 40 - bx) / 5) * 0.9;
+            else if (p.d === 2) ex = Math.max(30, sx0 - 20 - (RANK[i] % 4) * 6);
             else ex = sx0 + (bx - 24 - sx0) * (p.w === 1 ? 0.45 : 0.8) * ((RANK[i] % 4 + 1) / 4);
             var x = sx0 + (ex - sx0) * k;
             c.fillStyle = '#A8702F'; c.fillRect(x - 6, sy - 6, 12, 12);
@@ -467,20 +490,28 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['바람', WIND[p.w]], ['생긴 곳에 남은 조각', r.left + '개'], ['국경선을 넘은 조각', r.n + '개', r.n ? PAL[4] : PAL[1]],
-            ['국경선 앞에서 멈춘 조각', '0개 — 선은 바람을 막지 못해요'],
+          return [['바람', WIND[p.w]], ['바람 방향', r.dir], ['국경까지 거리', r.dist + '칸'],
+            ['생긴 곳에 남은 조각', r.left + '개'], ['국경선을 넘은 조각', r.n + '개', r.n ? PAL[4] : PAL[1]],
+            ['왜 그럴까', r.why, r.n ? PAL[4] : PAL[1]],
             ['내 예측', G[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['바람', '남은 조각', '넘은 조각', '내 예측'],
-        record: function(p, r){ return {w:p.w, n:r.n, ok:r.ok}; },
-        row: function(d){ return [WIND[d.w], (N - d.n) + '개', d.n + '개', d.ok ? '○' : '✕']; },
+        columns: ['바람', '방향', '거리', '남은 조각', '넘은 조각', '내 예측'],
+        record: function(p, r){ return {w:p.w, d:p.d, dist:p.dist, n:r.n, ok:r.ok}; },
+        row: function(d){ return [WIND[d.w], DIR[d.d].n, d.dist + '칸', (N - d.n) + '개',
+          '<b style="color:' + (d.n ? PAL[4] : PAL[1]) + '">' + d.n + '개</b>', d.ok ? '○' : '✕']; },
         verify: function(rec, box){
+          var zero = rec.filter(function(d){ return d.n === 0 && d.w > 0; });
           box.innerHTML = '<div class="vgrid">' +
-            card('바람 세기별 국경을 넘은 조각', '<div id="wb1"></div><p class="ask">바람이 셀수록 넘은 조각은 어떻게 바뀌었나요? 국경선이 조각을 막아 준 적이 있었나요?</p>') +
-            card('내 예측 기록', '<div id="wb2"></div><p class="ask">과제: 일주일 동안 미세 먼지 예보를 확인해 날마다 바람 방향과 함께 적어 보고, 바람 방향과 공기 상태 사이에 어떤 관계가 보이는지 이야기해 보세요.</p>') + '</div>';
+            card('어느 조건에서 조각이 안 넘었나', '<div id="wb1"></div><p class="ask">바람이 부는데도 한 개도 안 넘은 경우가 <b>' + zero.length + '번</b> 있었어요. 그때는 방향이 어땠나요, 거리가 어땠나요? 국경선 자체가 조각을 막아 준 적이 있었나요?</p>') +
+            card('내 기록 모아 보기', '<div id="wb2"></div><p class="ask">과제: 일주일 동안 미세 먼지 예보를 확인해 날마다 바람 방향과 함께 적어 보고, 바람 방향과 공기 상태 사이에 어떤 관계가 보이는지 이야기해 보세요.</p>') + '</div>';
+          $('wb1').innerHTML = tableHTML(['바람', '방향', '거리', '넘은 조각'], rec.map(function(d){
+            return [WIND[d.w], DIR[d.d].n, d.dist + '칸', d.n === 0 ? '0개 (안 넘음)' : d.n + '개'];
+          })) + '<p class="msg">국경선을 막아 주는 것은 선이 아니라 바람의 방향과 거리예요. 넘는 조각 수는 교육용 모형값이에요.</p>';
           var by = groupBy(rec, function(d){ return d.w; });
-          $('wb1').innerHTML = hbars(WIND.map(function(wn, wi){ return {label:wn + (by[wi] ? '' : ' (아직 안 함)'), v:by[wi] ? CROSS[wi] : 0, color:PAL[2], text:by[wi] ? CROSS[wi] + '개 / 20개' : '–'}; }), 20);
-          $('wb2').innerHTML = tableHTML(['바람', '기록', '맞힘'], Object.keys(by).map(function(kk){ var a = by[kk]; return [WIND[kk], a.length + '번', a.filter(function(d){ return d.ok; }).length + '번']; }));
+          $('wb2').innerHTML = tableHTML(['바람', '기록', '맞힘', '가장 많이 넘은 조각'], Object.keys(by).map(function(kk){
+            var a = by[kk], mx = a.reduce(function(m, d){ return Math.max(m, d.n); }, 0);
+            return [WIND[kk], a.length + '번', a.filter(function(d){ return d.ok; }).length + '번', mx + '개'];
+          }));
         }
       };
     })();
@@ -489,7 +520,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

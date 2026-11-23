@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,18 +445,39 @@ var LAB = (function(){
         {n:'로잔', x:0.14, y:0.60, l:[1]}, {n:'루가노', x:0.62, y:0.90, l:[2]}, {n:'그라우뷘덴 산간 마을', x:0.87, y:0.54, l:[3, 0]}
       ];
       var GR = [{n:'Grüezi (스위스식 독일어)', l:0}, {n:'Bonjour (프랑스어)', l:1}, {n:'Buongiorno (이탈리아어)', l:2}, {n:'Allegra (로망슈어)', l:3}, {n:'"스위스어"로 인사', l:-1}];
+      var AP0 = [0.12, 0.80], ACT = [0.45, 0.55], AP1 = [0.95, 0.50];     /* 그림에 그린 알프스 능선 */
+      var BK = ['남북으로 한 줄', '알프스 능선 한 줄', '두 줄 함께'];
+      function bez(t, a){ var u = 1 - t; return u * u * AP0[a] + 2 * t * u * ACT[a] + t * t * AP1[a]; }
+      function alpY(x){ var bt = 0, bd2 = 9; for (var i = 0; i <= 60; i++){ var t = i / 60, d = Math.abs(bez(t, 0) - x); if (d < bd2){ bd2 = d; bt = t; } } return bez(bt, 1); }
+      function predOf(q, bk, bd){
+        var south = q.y > alpY(q.x);
+        if (bk === 0) return q.x < bd ? 1 : 0;
+        if (bk === 1) return south ? 2 : 0;
+        return south ? 2 : (q.x < bd ? 1 : 0);
+      }
       function inPoly(x, y, P){ var ins = false; for (var i = 0, j = P.length - 1; i < P.length; j = i++){ if (((P[i][1] > y) !== (P[j][1] > y)) && (x < (P[j][0] - P[i][0]) * (y - P[i][1]) / (P[j][1] - P[i][1]) + P[i][0])) ins = !ins; } return ins; }
       return {
         sceneHeight: 400,
-        idle: '장소와 인사말을 고른 뒤 <b>인사 건네기</b>를 누르세요.',
-        shortHint: '여섯 장소에 모두 인사해 보세요. "스위스어"로도 한 번 인사해 보세요.',
+        idle: '장소와 인사말을 고른 뒤 <b>인사 건네기</b>를 누르세요. 아래에서 <b>언어 경계선</b>을 직접 그어 보면 실제 경계와 몇 군데가 어긋나는지 재어 줍니다.',
+        shortHint: '경계선의 종류와 위치를 바꿔 가며 4번 이상 기록하세요. 한 줄로 네 언어를 다 가를 수 있는지 살펴보세요.',
         params: [
           {key:'pl', type:'seg', label:'찾아간 곳', cols:3, value:2, options:PL.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'건넬 인사말', cols:2, value:4, options:GR.map(function(x){ return x.n; })}
+          {key:'g', type:'seg', label:'건넬 인사말', cols:2, value:4, options:GR.map(function(x){ return x.n; })},
+          {key:'bk', type:'seg', label:'내가 그을 언어 경계선', cols:3, value:0, options:BK,
+            note:'그은 선을 기준으로 여섯 장소의 언어를 예상하고, 실제와 몇 군데가 어긋나는지 세어 줍니다.'},
+          {key:'bd', type:'range', label:'남북 선의 가로 위치 (서쪽 0 → 동쪽 1)', min:0.05, max:0.95, step:0.05, value:0.30,
+            fmt:function(v){ return f(v, 2); },
+            note:'“알프스 능선 한 줄”을 고르면 이 값은 쓰이지 않습니다.'}
         ],
         compute: function(p){
           var pl = PL[p.pl], g = GR[p.g], ok = g.l >= 0 && pl.l.indexOf(g.l) >= 0, main = LANG[pl.l[0]];
-          return {pl:pl, g:g, ok:ok, main:main, also:pl.l.length > 1 ? LANG[pl.l[1]] : null};
+          var hit = [], miss = [];
+          PL.forEach(function(q){
+            var pr = predOf(q, p.bk, p.bd), ac = q.l[0];
+            (pr === ac ? hit : miss).push({n:q.n, pr:LANG[pr].n, ac:LANG[ac].n});
+          });
+          return {pl:pl, g:g, ok:ok, main:main, also:pl.l.length > 1 ? LANG[pl.l[1]] : null,
+            bk:p.bk, bd:p.bd, hit:hit.length, miss:miss, tot:PL.length};
         },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#EEF3F7'; c.fillRect(0, 0, W, H);
@@ -467,6 +490,11 @@ var LAB = (function(){
           path(SH); c.strokeStyle = '#5C6B7A'; c.lineWidth = 2; c.stroke();
           c.strokeStyle = '#8A6F4D'; c.lineWidth = 2; c.setLineDash([6, 5]); c.beginPath(); c.moveTo(X(0.12), Y(0.80)); c.quadraticCurveTo(X(0.45), Y(0.55), X(0.95), Y(0.50)); c.stroke(); c.setLineDash([]);
           c.font = '11px ' + FONT; c.fillStyle = '#8A6F4D'; c.textAlign = 'left'; c.fillText('알프스(개략)', X(0.36), Y(0.60));
+          c.save(); path(SH); c.clip();                                  /* 학생이 그은 경계선 (글자 없이 선만) */
+          if (p.bk !== 1) seg(c, X(p.bd), Y(0), X(p.bd), Y(1), '#C8463D', 2.5, [8, 5]);
+          if (p.bk !== 0){ c.strokeStyle = '#C8463D'; c.lineWidth = 2.5; c.setLineDash([8, 5]); c.beginPath();
+            c.moveTo(X(AP0[0]), Y(AP0[1])); c.quadraticCurveTo(X(ACT[0]), Y(ACT[1]), X(AP1[0]), Y(AP1[1])); c.stroke(); c.setLineDash([]); }
+          c.restore();
           PL.forEach(function(pl, i){
             var sel = i === p.pl; c.fillStyle = sel ? '#1E2833' : '#5C6B7A'; c.beginPath(); c.arc(X(pl.x), Y(pl.y), sel ? 6 : 4, 0, Math.PI * 2); c.fill();
             if (sel || mw > 420){ c.font = (sel ? '700 ' : '') + '12px ' + FONT; c.textAlign = pl.x > 0.7 ? 'right' : 'left'; c.fillText(pl.n, X(pl.x) + (pl.x > 0.7 ? -8 : 8), Y(pl.y) - 6); }
@@ -484,19 +512,38 @@ var LAB = (function(){
         stats: function(p, r){
           return [['찾아간 곳', r.pl.n], ['이 지역의 주 언어', r.main.n + (r.also ? ' (' + r.also.n + '도 널리 씀)' : ''), r.main.c], ['내 인사말', r.g.n],
             ['결과', r.ok ? '통함' : r.g.l < 0 ? '"스위스어"는 공용어가 아님 — 공용어는 넷' : '이 지역 말이 아님 (대도시에선 다른 말도 통하는 경우가 많아요)', r.ok ? PAL[1] : PAL[4]],
+            ['내가 그은 경계선', BK[r.bk] + (r.bk === 1 ? '' : ' · 가로 위치 ' + f(r.bd, 2))],
+            ['선과 맞은 곳', r.hit + ' / ' + r.tot + ' 곳', r.hit === r.tot ? PAL[1] : PAL[6]],
+            ['어긋난 곳', r.miss.length ? r.miss.map(function(m){ return m.n + ' (선은 ' + m.pr + ', 실제는 ' + m.ac + ')'; }).join(' · ') : '없음', r.miss.length ? PAL[4] : PAL[1]],
+            ['한 줄로 가를 수 있나', r.hit === r.tot ? '이 선으로는 여섯 곳이 모두 맞았어요.'
+              : '아직 ' + r.miss.length + '곳이 어긋나요. 선을 옮기거나 종류를 바꿔 더 줄여 보세요.'],
             ['전국 비율 (주로 쓰는 말, 대략)', '독일어 약 62% · 프랑스어 약 23% · 이탈리아어 약 8% · 로망슈어 1% 미만']];
         },
-        columns: ['장소', '주 언어', '인사말', '통함'],
-        record: function(p, r){ return {pl:p.pl, g:p.g, ok:r.ok}; },
-        row: function(d){ return [PL[d.pl].n, LANG[PL[d.pl].l[0]].n, GR[d.g].n.split(' (')[0], d.ok ? '예' : '아니오']; },
+        columns: ['장소', '주 언어', '인사말', '통함', '그은 경계선', '맞은 곳', '어긋난 곳'],
+        record: function(p, r){ return {pl:p.pl, g:p.g, ok:r.ok, bk:r.bk, bd:r.bd, hit:r.hit, tot:r.tot, miss:r.miss.map(function(m){ return m.n; }).join(', ')}; },
+        row: function(d){ return [PL[d.pl].n, LANG[PL[d.pl].l[0]].n, GR[d.g].n.split(' (')[0], d.ok ? '예' : '아니오',
+          BK[d.bk] + (d.bk === 1 ? '' : ' ' + f(d.bd, 2)), d.hit + '/' + d.tot, d.miss || '없음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('장소별로 통한 인사말', '<div id="gv7"></div><p class="ask">한 나라 안에서 인사말이 몇 가지나 필요했나요? 언어 경계는 국경선과 산맥 중 어느 쪽과 더 잘 맞나요?</p>') +
-            card('전국 언어 비율 (대략)', '<div id="gv8"></div><p class="ask">과제: 세계 백지도에 스페인어를 공용어로 쓰는 나라를 색칠하고, 그 나라들이 왜 유럽이 아닌 아메리카에 많은지 역사 자료로 설명해 보세요.</p>') + '</div>';
+            card('전국 언어 비율 (대략)', '<div id="gv8"></div><p class="ask">과제: 세계 백지도에 스페인어를 공용어로 쓰는 나라를 색칠하고, 그 나라들이 왜 유럽이 아닌 아메리카에 많은지 역사 자료로 설명해 보세요.</p>') +
+            card('내가 그은 경계선은 얼마나 맞았나', '<div id="gv12"></div><p class="ask">가장 잘 맞은 선은 어떤 선이었나요? 끝까지 어긋난 곳은 어디였고, 왜 선으로 가를 수 없었을까요?</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.pl; }), rows = [];
           Object.keys(g).forEach(function(k){ var ok = g[k].filter(function(d){ return d.ok; }).map(function(d){ return GR[d.g].n.split(' (')[0]; }); rows.push([PL[k].n, LANG[PL[k].l[0]].n, ok.length ? ok.filter(function(v, i, a){ return a.indexOf(v) === i; }).join(', ') : '아직 못 찾음']); });
           $('gv7').innerHTML = tableHTML(['장소', '주 언어', '통한 인사말'], rows) + '<p class="msg">찾아간 언어 지역: ' + distinct(rec.map(function(d){ return PL[d.pl].l[0]; })) + ' / 4</p>';
           $('gv8').innerHTML = hbars(LANG.map(function(l){ return {label:l.n, v:l.pct, color:l.c, text:l.pct < 1 ? '1% 미만' : '약 ' + l.pct + '%'}; }), 100);
+          var bg = groupBy(rec, function(d){ return d.bk; }), brows = [], best = null, often = {};
+          Object.keys(bg).forEach(function(k){
+            var g2 = bg[k], top = g2.reduce(function(a, b){ return b.hit > a.hit ? b : a; }, g2[0]);
+            brows.push([BK[k], g2.length, top.hit + '/' + top.tot, k === '1' ? '—' : f(top.bd, 2), top.miss || '없음']);
+            if (!best || top.hit > best.hit) best = top;
+          });
+          rec.forEach(function(d){ (d.miss || '').split(', ').forEach(function(n){ if (n) often[n] = (often[n] || 0) + 1; }); });
+          var worst = Object.keys(often).sort(function(a, b){ return often[b] - often[a]; })[0];
+          $('gv12').innerHTML = tableHTML(['선의 종류', '기록 수', '가장 잘 맞은 결과', '그때 가로 위치', '그때 어긋난 곳'], brows) +
+            '<p>' + (best ? '가장 잘 맞은 선은 <b>' + BK[best.bk] + '</b>로 ' + best.hit + ' / ' + best.tot + ' 곳이었습니다.' : '') +
+            (worst ? ' 가장 자주 어긋난 곳은 <b>' + worst + '</b>이에요.' : '') + '</p>' +
+            '<p>선 하나로는 네 언어 지역을 다 가를 수 없습니다. 알프스 능선은 독일어권과 이탈리아어권을 잘 가르지만, 서쪽의 프랑스어권 경계와는 맞지 않고, 산간의 로망슈어 지역은 어떤 선으로도 떼어낼 수 없어요.</p>';
         }
       };
     })();
@@ -505,7 +552,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

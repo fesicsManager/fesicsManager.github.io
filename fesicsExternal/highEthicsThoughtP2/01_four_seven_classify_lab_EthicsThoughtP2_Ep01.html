@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -457,17 +459,27 @@ var LAB = (function(){
         if (e.kind === 'seven') return {box:'한 길(기발이승)', how:'기가 발하고 이가 탐', step:1, check:false};
         return {box:'한 길(기발이승)', how:'기가 발하고 이가 탐 — 선하게 드러났는지를 봄', step:1, check:false};
       }
+      var GB = ['사단 칸', '칠정 칸', '칠정 칸 안의 선한 부분', '한 길 (기발이승)', '칸부터 따져야 함'];
+      function boxCode(b){
+        if (b === '사단 칸') return 0;
+        if (b === '칠정 칸') return 1;
+        if (b.indexOf('선한') >= 0) return 2;
+        if (b.indexOf('한 길') >= 0) return 3;
+        return 4;
+      }
       return {
         sceneHeight: 420,
-        idle: '감정 사례와 학자를 고른 뒤 <b>이 분류표에 넣기</b>를 누르세요.',
+        idle: '감정 사례와 학자를 고르고 <b>어느 칸에 들어갈지 먼저 예측</b>한 뒤 <b>이 분류표에 넣기</b>를 누르세요.',
         shortHint: '같은 감정을 세 학자의 표에 모두 넣어 보세요. 처리가 달라지는 사례가 핵심입니다.',
         params: [
           {key:'e', type:'seg', label:'감정 사례', cols:2, value:0, options:EM.map(function(x){ return x.n; })},
-          {key:'s', type:'seg', label:'누구의 분류표?', cols:3, value:0, options:SC.map(function(x){ return x.n; })}
+          {key:'s', type:'seg', label:'누구의 분류표?', cols:3, value:0, options:SC.map(function(x){ return x.n; })},
+          {key:'g', type:'seg', label:'먼저 예측 — 이 감정은 어느 칸에 들어갈까요?', cols:2, value:0, options:GB,
+            note:'학자마다 표의 칸이 다릅니다. 이황의 표에는 “한 길”이 없고, 이이의 표에는 “사단 칸”이 따로 없습니다. 어느 칸이 있는지부터 떠올려 보세요.'}
         ],
         compute: function(p){
-          var e = EM[p.e], s = SC[p.s], pl = place(e, p.s);
-          return {e:e, s:s, pl:pl};
+          var e = EM[p.e], s = SC[p.s], pl = place(e, p.s), code = boxCode(pl.box);
+          return {e:e, s:s, pl:pl, code:code, g:p.g, hit:(p.g === code)};
         },
         draw: function(c, W, H, p, r, tau){
           var s = SC[p.s], e = EM[p.e], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -506,17 +518,19 @@ var LAB = (function(){
           c.fillStyle = r && r.pl.check ? PAL[4] : '#26313D'; c.fillRect(tx - lw / 2, ty - 16, lw, 32);
           txt(c, e.s, tx, ty + 6, {align:'center', color:'#fff', bold:true});
           txt(c, '근원: ' + s.roots + '갈래', 16, H - 14, {bold:true, color:'#4A5868'});
+          if (r && tau >= 1) txt(c, '내 예측 ' + (r.hit ? '⭕ 맞음' : '❌ ' + GB[r.g]), W - 16, H - 14, {align:'right', bold:true, color:r.hit ? PAL[1] : PAL[6], max:W * 0.6});
         },
         stats: function(p, r){
           return [['감정 사례', r.e.n], ['학자', r.s.n],
             ['들어가는 칸', r.pl.box, r.pl.check ? PAL[4] : PAL[0]], ['설명', r.pl.how],
+            ['내 예측', GB[r.g] + (r.hit ? ' — ⭕ 맞혔어요' : ' — ❌ 실제로는 “' + r.pl.box + '”'), r.hit ? PAL[1] : PAL[6]],
             ['분류 단계', r.pl.check ? '2단계 — 어느 칸인지부터 따져야 해요' : '1단계 — 바로 들어갑니다', r.pl.check ? PAL[4] : PAL[1]],
             ['마음의 근원', r.s.roots + '갈래로 봄', PAL[3]], ['수양 방법', r.s.practice, PAL[2]],
             ['이 학자가 걱정한 것', r.s.worry, PAL[7]], ['감정의 생김새', r.e.look]];
         },
-        columns: ['감정', '학자', '들어간 칸', '따져야 함'],
-        record: function(p, r){ return {e:p.e, s:p.s, box:r.pl.box, check:r.pl.check}; },
-        row: function(d){ return [EM[d.e].s, SC[d.s].s, d.box, d.check ? '예' : '아니오']; },
+        columns: ['감정', '학자', '들어간 칸', '내 예측', '맞힘', '따져야 함'],
+        record: function(p, r){ return {e:p.e, s:p.s, box:r.pl.box, check:r.pl.check, g:r.g, hit:r.hit}; },
+        row: function(d){ return [EM[d.e].s, SC[d.s].s, d.box, GB[d.g], d.hit ? '⭕' : '❌', d.check ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('사례 × 학자 분류 결과', '<div id="sq1"></div><p class="ask">같은 "억울함에 화남"이 이황의 표와 기대승·이이의 표에서 어떻게 다르게 처리되나요? 그 차이가 경(敬)과 성(誠)이라는 수양의 차이와 어떻게 이어질지 생각해 보세요.</p>') +
@@ -527,7 +541,15 @@ var LAB = (function(){
             SC.forEach(function(s, j){ var g = rec.filter(function(d){ return d.e === i && d.s === j; }); cells.push(g.length ? g[g.length - 1].box : '—'); });
             if (cells.slice(1).some(function(x){ return x !== '—'; })) rows.push(cells);
           });
-          $('sq1').innerHTML = tableHTML(['감정', '이황', '기대승', '이이'], rows) + '<p class="msg">— 는 아직 넣어 보지 않은 칸이에요.</p>';
+          var hits = rec.filter(function(d){ return d.hit; }).length;
+          var split = [];
+          EM.forEach(function(e, i){
+            var bs = {}; rec.filter(function(d){ return d.e === i; }).forEach(function(d){ bs[d.box] = 1; });
+            if (Object.keys(bs).length > 1) split.push(e.s + ' → ' + Object.keys(bs).join(' / '));
+          });
+          $('sq1').innerHTML = tableHTML(['감정', '이황', '기대승', '이이'], rows) + '<p class="msg">— 는 아직 넣어 보지 않은 칸이에요.</p>' +
+            '<p class="msg">예측을 맞힌 횟수 <b>' + hits + ' / ' + rec.length + '</b>' +
+            (split.length ? ' · 학자에 따라 처리가 갈린 사례 — ' + split.join(' · ') : ' · 같은 사례를 여러 학자의 표에 넣어 보면 갈리는 지점이 드러납니다.') + '</p>';
           var it = SC.map(function(s, j){ var g = rec.filter(function(d){ return d.s === j; }); var n = g.filter(function(d){ return d.check; }).length;
             return {label:s.s + ' (' + g.length + '회 분류)', v:n, color:j === 0 ? PAL[4] : PAL[1], text:n + '회'}; });
           $('sq2').innerHTML = hbars(it, Math.max(1, rec.length));
@@ -539,7 +561,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

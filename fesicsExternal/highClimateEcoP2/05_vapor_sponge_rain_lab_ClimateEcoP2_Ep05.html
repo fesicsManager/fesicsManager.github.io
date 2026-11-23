@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>더워지면 비도 가뭄도 세진다</h1>
-    <p><b>기온</b>을 정하고 <b>얼마나 더워지는지</b>를 고르면, 공기 1 m³가 품을 수 있는 최대 수증기량(포화 수증기량)이 몇 % 커지는지 계산하고, <b>가상 관측 지점</b>의 60일 비 기록이 어떻게 바뀌는지(센 비는 더 세게, 마른 날은 더 길게) 보여 줍니다.<br><span style="font-size:.9em;color:#a86825">※ 포화 수증기량은 실제 공식으로 계산하지만, 60일 비 기록은 원리를 보여 주려고 만든 <b>가상 자료</b>예요. 극한 강수 빈도 배수는 IPCC 제6차 보고서의 대략값입니다.</span></p>
+    <p><b>기온</b>과 <b>처음 상대습도</b>를 정하고 <b>얼마나 더워지는지</b>를 고릅니다. 그리고 더워질 때 수증기가 <b>상대습도가 그대로</b>(바다 위처럼)인지 <b>수증기량이 그대로</b>(내륙처럼)인지를 고르면 결론이 갈립니다 — 같은 더워짐인데 한쪽은 비가 세지고, 다른 쪽은 <b>수증기가 그대로여도 비가 더 안 옵니다</b>. 이슬점까지 얼마나 식혀야 하는지를 직접 계산해 확인해 보세요.<br><span style="font-size:.9em;color:#a86825">※ 포화 수증기량과 이슬점은 실제 공식(Magnus 식)으로 계산하지만, 60일 비 기록은 원리를 보여 주려고 만든 <b>가상 자료</b>예요. 극한 강수 빈도 배수는 IPCC 제6차 보고서의 대략값입니다.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,6 +436,8 @@ function hbars(items, max){
 var LAB = (function(){
       var DT = [{n:'+1℃', t:1, ipcc:1.3}, {n:'+1.5℃', t:1.5, ipcc:1.5}, {n:'+2℃', t:2, ipcc:1.7}];
       function rho(T){ var e = 6.112 * Math.exp(17.67 * T / (T + 243.5)); return e * 100 / (461.5 * (T + 273.15)) * 1000; }
+      function esat(T){ return 6.112 * Math.exp(17.67 * T / (T + 243.5)); }          /* 포화 수증기압 hPa */
+      function dewp(e){ var L = Math.log(Math.max(0.01, e) / 6.112); return 243.5 * L / (17.67 - L); }   /* 이슬점 ℃ */
       var BASE = (function(){ var a = [], s = 7; for (var i = 0; i < 60; i++){ s = (s * 9301 + 49297) % 233280; var u = s / 233280; a.push(u < 0.55 ? 0 : (u < 0.85 ? 2 + (u - 0.55) * 30 : 12 + (u - 0.85) * 300)); } return a.map(function(v){ return Math.round(v * 10) / 10; }); })();
       function sum(a){ return a.reduce(function(s, x){ return s + x; }, 0); }
       function dry(a){ var m = 0, k = 0; a.forEach(function(v){ if (v <= 0){ k++; if (k > m) m = k; } else k = 0; }); return m; }
@@ -449,16 +453,25 @@ var LAB = (function(){
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       return {
         sceneHeight: 470,
-        idle: '처음 기온과 상승폭을 고른 뒤 <b>공기 데우기</b>를 누르세요.',
-        shortHint: '과제처럼 25℃에서 +2℃를 해 보고, 기온을 바꿔도 1℃당 증가율이 거의 같은지 확인해 보세요.',
+        idle: '처음 기온·상대습도·상승폭과 수증기 조건을 고른 뒤 <b>공기 데우기</b>를 누르세요.',
+        shortHint: '같은 기온·상승폭으로 두고 "수증기는" 칸만 두 가지로 바꿔 기록해 보세요. 이슬점까지 거리와 마른 날이 반대로 움직입니다.',
         params: [
           {key:'T', type:'range', label:'처음 기온', min:0, max:35, step:1, value:25, fmt:function(v){ return f(v, 0) + ' ℃'; }},
-          {key:'d', type:'seg', label:'얼마나 더워지나', cols:3, value:2, options:DT.map(function(x){ return x.n; })}
+          {key:'d', type:'seg', label:'얼마나 더워지나', cols:3, value:2, options:DT.map(function(x){ return x.n; })},
+          {key:'rh', type:'range', label:'처음 상대습도', min:30, max:95, step:5, value:70, fmt:function(v){ return f(v, 0) + ' %'; }},
+          {key:'hm', type:'seg', label:'더워질 때 수증기는', cols:2, value:0, options:['상대습도가 그대로 (바다 위처럼)', '수증기량이 그대로 (내륙처럼)'],
+            note:'바다에서 물을 계속 받으면 상대습도가 유지되지만, 더 받을 물이 없는 내륙에서는 수증기량이 그대로인 채 공기만 더워집니다. 두 경우에 비가 반대로 갈려요.'}
         ],
         compute: function(p){
           var d = DT[p.d], r1 = rho(p.T), r2 = rho(p.T + d.t), cc = r2 / r1 - 1;
-          var a = after(cc, d.t), t0 = top3(BASE), t1 = top3(a);
+          var T2 = p.T + d.t;
+          var e1 = esat(p.T) * p.rh / 100, Td1 = dewp(e1), gap1 = p.T - Td1;
+          var e2 = p.hm ? e1 : esat(T2) * p.rh / 100;
+          var rh2 = e2 / esat(T2) * 100, Td2 = dewp(e2), gap2 = T2 - Td2;
+          var w1 = r1 * p.rh / 100, w2 = r2 * rh2 / 100;
+          var a = after(p.hm ? cc * 0.25 : cc, p.hm ? -d.t : d.t), t0 = top3(BASE), t1 = top3(a);
           return {d:d, r1:r1, r2:r2, cc:cc, per:Math.pow(1 + cc, 1 / d.t) - 1, a:a,
+            T2:T2, rh2:rh2, w1:w1, w2:w2, Td1:Td1, Td2:Td2, gap1:gap1, gap2:gap2, dgap:gap2 - gap1, dryside:!!p.hm,
             tot0:sum(BASE), tot1:sum(a), top0:sum(t0) / sum(BASE), top1:sum(t1) / sum(a), dry0:dry(BASE), dry1:dry(a), max0:t0[0], max1:t1[0]};
         },
         draw: function(c, W, H, p, r, tau){
@@ -476,25 +489,39 @@ var LAB = (function(){
           if (!r){ tf(c, '공기 데우기 전', 18, by + bh + 30, {color:'#4A5868'}, W - 40); return; }
           var t2 = p.T + r.d.t * k;
           c.fillStyle = PAL[4]; c.beginPath(); c.arc(bp.X(t2), bp.Y(rho(t2)), 7, 0, Math.PI * 2); c.fill();
-          tf(c, f(r.r1, 1) + ' → ' + f(rho(t2), 1) + ' g/m³ (+' + f((rho(t2) / r.r1 - 1) * 100, 1) + '%)', L + 8, 38, {bold:true, color:PAL[4]}, gw - 16);
+          tf(c, f(r.r1, 1) + ' → ' + f(rho(t2), 1) + ' g/m³ (+' + f((rho(t2) / r.r1 - 1) * 100, 1) + '%)' + (p.hm ? ' · 수증기량 유지' : ''), L + 8, 38, {bold:true, color:PAL[4]}, gw - 16);
           if (tau > 0.6){ c.globalAlpha = Math.min(1, (tau - 0.6) / 0.3); bars(r.a, by + bh + 8, PAL[0]); tf(c, '더워진 뒤 — 최장 마른 날 ' + r.dry0 + ' → ' + r.dry1 + '일', 18, by + bh + 22, {bold:true, color:PAL[0]}, W - 40); c.globalAlpha = 1; }
         },
         stats: function(p, r){
           return [['기온', f(p.T, 0) + ' → ' + f(p.T + r.d.t, 1) + ' ℃'], ['포화 수증기량', f(r.r1, 1) + ' → ' + f(r.r2, 1) + ' g/m³ (차이 ' + f(r.r2 - r.r1, 1) + ' g/m³)', PAL[0]],
             ['증가율', '+' + f(r.cc * 100, 1) + '% (1℃당 약 ' + f(r.per * 100, 1) + '%)', PAL[4]],
+            ['수증기 조건', p.hm ? '수증기량이 그대로 (내륙처럼)' : '상대습도가 그대로 (바다 위처럼)'],
+            ['상대습도', f(p.rh, 0) + ' → ' + f(r.rh2, 0) + ' %', PAL[2]],
+            ['공기에 든 수증기', f(r.w1, 1) + ' → ' + f(r.w2, 1) + ' g/m³'],
+            ['이슬점', f(r.Td1, 1) + ' → ' + f(r.Td2, 1) + ' ℃', PAL[0]],
+            ['이슬점까지 식혀야 하는 정도', f(r.gap1, 1) + ' → ' + f(r.gap2, 1) + ' ℃ (' + sgn(r.dgap, 1) + ')', Math.abs(r.dgap) < 0.3 ? PAL[7] : r.dgap > 0 ? PAL[2] : PAL[0]],
+            ['판정', r.dgap > 0.3 ? '수증기량은 그대로인데 공기만 더워져 이슬점까지 거리가 멀어졌어요 — 수증기가 늘지 않으면 비는 오히려 더 안 옵니다' : r.dgap < -0.3 ? '이슬점까지 거리가 가까워져 비가 더 잘 옵니다' : '이슬점까지 거리는 거의 그대로예요 — 품는 양이 늘어난 만큼 한 번에 쏟아질 비가 세집니다', r.dgap > 0.3 ? PAL[2] : PAL[4]],
             ['가상 지점 60일 총강수', f(r.tot0, 0) + ' → ' + f(r.tot1, 0) + ' mm (+' + f((r.tot1 / r.tot0 - 1) * 100, 1) + '%)'],
             ['가장 센 비 3일의 몫', f(r.top0 * 100, 0) + '% → ' + f(r.top1 * 100, 0) + '%', PAL[4]], ['최장 연속 마른 날', r.dry0 + ' → ' + r.dry1 + '일', PAL[2]],
             ['10년 극한 강수 빈도 (IPCC)', '약 ' + f(r.d.ipcc, 1) + '배']];
         },
-        columns: ['기온 ℃', '상승', '포화량 g/m³', '증가율 %', '센 비 몫', '최장 마른 날'],
-        record: function(p, r){ return {T:p.T, d:p.d, r1:r.r1, r2:r.r2, cc:r.cc, top1:r.top1, dry1:r.dry1}; },
-        row: function(d){ return [f(d.T, 0), DT[d.d].n, f(d.r1, 1) + '→' + f(d.r2, 1), '+' + f(d.cc * 100, 1), f(d.top1 * 100, 0) + '%', d.dry1 + '일']; },
+        columns: ['기온 ℃', '상승', '수증기 조건', '포화량 g/m³', '증가율 %', '이슬점 거리', '센 비 몫', '최장 마른 날'],
+        record: function(p, r){ return {T:p.T, d:p.d, rh:p.rh, hm:p.hm, r1:r.r1, r2:r.r2, cc:r.cc, top1:r.top1, dry1:r.dry1, gap1:r.gap1, gap2:r.gap2, dgap:r.dgap}; },
+        row: function(d){ return [f(d.T, 0), DT[d.d].n, d.hm ? '수증기량 유지' : '습도 유지', f(d.r1, 1) + '→' + f(d.r2, 1), '+' + f(d.cc * 100, 1), f(d.gap1, 1) + '→' + f(d.gap2, 1) + '℃', f(d.top1 * 100, 0) + '%', d.dry1 + '일']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('1℃당 증가율은 기온마다 같을까?', '<canvas class="chart" id="vv1"></canvas>' + legend([{color:PAL[4], label:'내 기록: 1℃당 증가율(%)'}]) + '<p class="ask">기온이 달라도 1℃당 증가율은 약 몇 %였나요? 같은 원리가 왜 폭우와 가뭄을 함께 키우는지 설명해 보세요.</p>') +
+            card('1℃당 증가율은 기온마다 같을까?', '<canvas class="chart" id="vv1"></canvas>' + legend([{color:PAL[4], label:'내 기록: 1℃당 증가율(%)'}]) + '<p class="ask">기온이 달라도 1℃당 증가율은 약 몇 %였나요? 그런데 같은 더워짐인데도 "수증기량이 그대로"일 때는 왜 비가 더 안 왔나요? 포화량이 늘어나는 것과 실제로 비가 오는 것은 어떻게 다른지 설명해 보세요.</p>') +
             card('포화 수증기량 표 (계산값)', '<div id="vv2"></div><p class="ask">과제: 이 표로 25℃와 27℃ 공기 1 m³가 품을 수 있는 수증기량 차이를 계산하고, 우리 지역 강수 자료에서 \'하루 80 mm 이상 비가 온 날 수\'와 \'연속 무강수일 최댓값\'이 수십 년 동안 어떻게 변했는지 조사해 보세요.</p>') + '</div>';
           drawScatter($('vv1'), {series:[{color:PAL[4], pts:rec.map(function(d){ return {x:d.T, y:(Math.pow(1 + d.cc, 1 / DT[d.d].t) - 1) * 100}; })}], lines:[{h:7, color:PAL[7], dash:true}], xLabel:'처음 기온 (℃)', yLabel:'1℃당 증가율 (%)'});
-          $('vv2').innerHTML = tableHTML(['기온', '포화 수증기량'], [0, 10, 20, 25, 27, 30, 35].map(function(T){ return [T + ' ℃', f(rho(T), 1) + ' g/m³']; }));
+          var hrows = [];
+          [0, 1].forEach(function(h){ var g = rec.filter(function(d){ return d.hm === h; }); if (!g.length) return;
+            hrows.push([h ? '수증기량이 그대로' : '상대습도가 그대로', g.length + '회',
+              sgn(mean(g.map(function(d){ return d.dgap; })), 1) + ' ℃',
+              f(mean(g.map(function(d){ return d.dry1; })), 1) + '일',
+              mean(g.map(function(d){ return d.dgap; })) > 0.3 ? '비가 더 안 옴' : '비가 더 셈']); });
+          $('vv2').innerHTML = tableHTML(['기온', '포화 수증기량'], [0, 10, 20, 25, 27, 30, 35].map(function(T){ return [T + ' ℃', f(rho(T), 1) + ' g/m³']; })) +
+            tableHTML(['수증기 조건', '내 기록', '이슬점까지 거리 변화', '최장 마른 날', '어느 쪽으로'], hrows) +
+            (hrows.length < 2 ? '<p class="msg">"수증기는" 칸을 바꿔 한 번 더 기록해 보세요. 결론이 갈립니다.</p>' : '<p class="msg">같은 공식인데 수증기를 받을 수 있는지에 따라 폭우 쪽과 가뭄 쪽으로 갈립니다.</p>');
         }
       };
     })();
@@ -503,7 +530,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

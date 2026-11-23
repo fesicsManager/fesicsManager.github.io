@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>대기 대순환과 기후대 | 고3 과학</title>
@@ -41,6 +41,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -229,9 +230,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -398,6 +400,7 @@ return {
   },
   draw: function(c, W, H, p, r, tau){
     var k = r ? Math.min(tau / 0.85, 1) : 0, rot = ROT[p.r].on;
+    var narrow = W < 560;
     // 반구 단면
     var cx = 40, cy = 250, R = Math.min(190, W * 0.42);
     c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.beginPath(); c.arc(cx, cy, R, -Math.PI / 2, 0); c.stroke();
@@ -405,7 +408,12 @@ return {
     [0, 30, 60, 90].forEach(function(lt){
       var a = -lt * Math.PI / 180, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
       c.fillStyle = '#5B6776'; c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill();
-      txt(c, lt + '°', x + (lt === 90 ? 8 : 10), y + (lt === 0 ? 16 : 0), {color:'#4A5868'});
+      if (narrow){
+        /* 좁은 화면: 위도 눈금을 원 안쪽에 작게 써서 순환 이름과 겹치지 않게 */
+        c.font = '12px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(lt + '°', cx + Math.cos(a) * R * 0.72, cy + Math.sin(a) * R * 0.72);
+        c.textBaseline = 'alphabetic';
+      } else txt(c, lt + '°', x + (lt === 90 ? 8 : 10), y + (lt === 0 ? 16 : 0), {color:'#4A5868'});
     });
     // 순환 세포
     var cells = rot ? CELL : [{lo:0, hi:90}];
@@ -417,8 +425,9 @@ return {
       c.moveTo(cx + Math.cos(a1) * (R + 4), cy + Math.sin(a1) * (R + 4));
       c.quadraticCurveTo(cx + Math.cos(mid) * (R + 46), cy + Math.sin(mid) * (R + 46), cx + Math.cos(a2) * (R + 4), cy + Math.sin(a2) * (R + 4));
       c.stroke();
-      if (rot) txt(c, CELL[i].name, Math.min(W - 90, cx + Math.cos(mid) * (R + 58)), cy + Math.sin(mid) * (R + 58), {color:'#2B5FA3', bold:true});
-      else txt(c, '하나의 큰 순환', cx + Math.cos(mid) * (R + 58), cy + Math.sin(mid) * (R + 58), {color:'#2B5FA3', bold:true});
+      /* 넓은 화면에서 극순환 이름이 캔버스 위로 잘려 나갔다 — 위쪽으로 넘지 않게 눌러 둔다 */
+      if (rot) txt(c, CELL[i].name, Math.min(W - 90, cx + Math.cos(mid) * (R + 58)), Math.max(24, cy + Math.sin(mid) * (R + 58)), {color:'#2B5FA3', bold:true});
+      else txt(c, '하나의 큰 순환', cx + Math.cos(mid) * (R + 58), Math.max(24, cy + Math.sin(mid) * (R + 58)), {color:'#2B5FA3', bold:true});
     });
     // 관측 위도 표시
     var la = -LATS[p.l] * Math.PI / 180;
@@ -430,7 +439,8 @@ return {
     for (var lt2 = 0; lt2 <= 90; lt2 += 2){ var v = solar(lt2); if (lt2 === 0) c.moveTo(P.X(0), P.Y(v)); else c.lineTo(P.X(lt2), P.Y(v)); } c.stroke();
     c.strokeStyle = '#C8463D'; c.lineWidth = 2.5; c.beginPath();
     for (var lt3 = 0; lt3 <= 90; lt3 += 2){ var v2 = emit(lt3); if (lt3 === 0) c.moveTo(P.X(0), P.Y(v2)); else c.lineTo(P.X(lt3), P.Y(v2)); } c.stroke();
-    txt(c, '노랑: 흡수, 빨강: 방출', P.X(88), P.Y(400) + 22, {color:'#4A5868', align:'right'});
+    if (W < 640){ c.font = '12px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.fillText('노랑: 흡수, 빨강: 방출', 12, 446); }
+    else txt(c, '노랑: 흡수, 빨강: 방출', P.X(88), P.Y(400) + 22, {color:'#4A5868', align:'right'});
     if (r){ c.fillStyle = '#1E2833'; c.beginPath(); c.arc(P.X(r.lat), P.Y(r.S), 5, 0, Math.PI * 2); c.fill(); }
     var by = 320;
     if (!r) return;
@@ -473,7 +483,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = $('recBtn'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

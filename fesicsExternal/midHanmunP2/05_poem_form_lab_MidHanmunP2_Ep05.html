@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -476,6 +478,10 @@ var LAB = (function anonymous(
       ];
       var PC = ['한 구 5자 (오언)', '한 구 7자 (칠언)'], LC = ['4구 (절구)', '8구 (율시)'];
       function name(pc, lc){ return (pc === 5 ? '오언' : '칠언') + (lc === 4 ? '절구' : '율시'); }
+      var RP = ['안 짚음', '모든 구의 끝 글자', '첫 구와 짝수 구의 끝 글자', '짝수 구의 끝 글자만', '모든 구의 첫 글자'];
+      var FC = ['안 바꿈', '한 구를 5자(오언)로 맞추기', '한 구를 7자(칠언)로 맞추기'];
+      function pad(s, n){ var o = s; while (o.length < n) o += '□'; return o; }
+      function endsOf(ls){ return ls.map(function(l, i){ return (i === 0 || i % 2 === 1) ? l.charAt(l.length - 1) : null; }).filter(function(x){ return x; }); }
       return {
         sceneHeight: function(w){ return w < 560 ? 470 : 440; },
         idle:'자료와 예측(한 구 글자 수 · 구 수)을 고른 뒤 <b>칸에 넣어 세기</b>를 누르세요.',
@@ -483,14 +489,39 @@ var LAB = (function anonymous(
         params:[
           {key:'s', type:'seg', label:'자료', cols:3, value:0, options:PO.map(function(x){ return x.n; })},
           {key:'pc', type:'seg', label:'예측: 한 구의 글자 수', cols:2, value:0, options:PC},
-          {key:'lc', type:'seg', label:'예측: 구의 수', cols:2, value:0, options:LC}
+          {key:'lc', type:'seg', label:'예측: 구의 수', cols:2, value:0, options:LC},
+          {key:'rp', type:'seg', label:'운이 달린 자리를 내가 짚어 보기', cols:2, value:0, options:RP,
+            note:'시 자료에서만 쓰여요. 짚은 자리의 글자를 꺼내 실제 운자와 맞춰 봐요.'},
+          {key:'fc', type:'seg', label:'글자 수를 억지로 바꿔 보기', cols:3, value:0, options:FC,
+            note:'한 구의 글자 수를 바꾸면 끊어 읽는 자리와 운이 어떻게 어그러지는지 보여 줘요.'}
         ],
         compute:function(p){
           var po = PO[p.s], ppc = p.pc ? 7 : 5, plc = p.lc ? 8 : 4;
           var apc = po.L ? po.L[0].length : ppc, alc = po.L ? po.L.length : plc, total = 0;
           if (po.L) po.L.forEach(function(l){ total += l.length; }); else total = apc * alc;
           var rhyme = po.L ? po.L.map(function(l, i){ return (i === 0 || i % 2 === 1) ? l.charAt(l.length - 1) : null; }).filter(function(x){ return x; }) : [];
-          return {po:po, apc:apc, alc:alc, total:total, form:name(apc, alc), pred:name(ppc, plc), hit:apc === ppc && alc === plc, rhyme:rhyme, cut:apc === 5 ? '2자 / 3자' : '4자 / 3자'};
+          var out = {po:po, apc:apc, alc:alc, total:total, form:name(apc, alc), pred:name(ppc, plc), hit:apc === ppc && alc === plc, rhyme:rhyme, cut:apc === 5 ? '2자 / 3자' : '4자 / 3자'};
+          if (p.rp > 0 && po.L){
+            var pick = po.L.map(function(l, i){
+              if (p.rp === 1) return l.charAt(l.length - 1);
+              if (p.rp === 2) return (i === 0 || i % 2 === 1) ? l.charAt(l.length - 1) : null;
+              if (p.rp === 3) return (i % 2 === 1) ? l.charAt(l.length - 1) : null;
+              return l.charAt(0);
+            }).filter(function(x){ return x; });
+            out.rp = p.rp; out.pick = pick; out.rpHit = pick.join('') === rhyme.join('');
+            out.rpMsg = out.rpHit ? '맞음 ✓ — 첫 구와 짝수 구의 끝에 운을 달아요'
+              : '아님 ✕ — 내가 짚은 글자 ' + pick.join(' · ') + ' / 실제 운자 ' + rhyme.join(' · ');
+          }
+          if (p.fc > 0 && po.L){
+            var nn = p.fc === 1 ? 5 : 7;
+            var nl = po.L.map(function(l){ return nn <= l.length ? l.slice(0, nn) : pad(l, nn); });
+            var nr = endsOf(nl);
+            out.fc = nn; out.fcLines = nl; out.fcRhyme = nr;
+            out.fcSame = nn === apc;
+            out.fcMsg = out.fcSame ? '원래 글자 수와 같아 달라지는 것이 없어요'
+              : '한 구를 ' + nn + '자로 맞추면 운자가 ' + rhyme.join('·') + ' → ' + nr.join('·') + '로 바뀌어 운이 어그러지고, 끊어 읽기도 ' + (apc === 5 ? '2/3' : '4/3') + ' → ' + (nn === 5 ? '2/3' : '4/3') + '로 달라져요';
+          }
+          return out;
         },
         draw:function(c, W, H, p, r, tau){
           var po = PO[p.s], pc = po.L ? po.L[0].length : (p.pc ? 7 : 5), lc = po.L ? po.L.length : (p.lc ? 8 : 4), k = r ? tau : 0;
@@ -506,19 +537,35 @@ var LAB = (function anonymous(
             if (r && k >= 0.8){ var sx = x0 + cut * cs; seg(c, sx + 5, y0 + i * cs + 6, sx - 5, y0 + (i + 1) * cs - 6, PAL[4], 2.5); }
           }
           var by = y0 + lc * cs + 30;
+          if (!r) T(c, po.L ? po.n : '칸 수를 직접 정해 보기', W / 2, by, {align:'center', bold:true, size:17, color:'#4A5868', max:W - 40});
           if (r && k >= 1){ T(c, '한 구 ' + r.apc + '자 × ' + r.alc + '구 = ' + r.total + '자 → ' + r.form, W / 2, by, {align:'center', bold:true, size:19, color:PAL[0], max:W - 40});
             T(c, po.L ? '내 예측: ' + r.pred + (r.hit ? ' ✓ 맞음' : ' ✕ 다름') : '형식 이름은 글자 수와 구의 수로만 정해져요', W / 2, by + 30, {align:'center', bold:true, size:16, color:po.L ? (r.hit ? PAL[1] : PAL[4]) : '#4A5868', max:W - 40});
             if (po.L) T(c, '인용 구 풀이: ' + po.gl + ' · 운자: ' + r.rhyme.join(' · '), W / 2, by + 58, {align:'center', size:15, color:'#4A5868', max:W - 40}); }
         },
         stats:function(p, r){
-          return [['자료', r.po.n], ['한 구의 글자 수 × 구의 수', r.apc + '자 × ' + r.alc + '구 = ' + r.total + '자', PAL[0]], ['형식', r.form, PAL[0]]]
+          return [].concat(
+            r.rp ? [['내가 짚은 운 자리', RP[r.rp] + ' → ' + r.pick.join(' · '), PAL[2]],
+              ['맞았나', r.rpMsg, r.rpHit ? PAL[1] : PAL[4]]] : [],
+            r.fc ? [['글자 수를 ' + r.fc + '자로 맞추면', r.fcLines.join(' / '), PAL[3]],
+              ['어그러지는 것', r.fcMsg, r.fcSame ? PAL[7] : PAL[4]]] : [],
+            [['자료', r.po.n], ['한 구의 글자 수 × 구의 수', r.apc + '자 × ' + r.alc + '구 = ' + r.total + '자', PAL[0]], ['형식', r.form, PAL[0]]])
             .concat(r.po.L ? [['내 예측', r.pred + (r.hit ? ' — 맞음' : ' — 다름'), r.hit ? PAL[1] : PAL[4]], ['끊어 읽기', r.po.L[r.po.q].slice(0, r.apc === 5 ? 2 : 4) + ' / ' + r.po.L[r.po.q].slice(r.apc === 5 ? 2 : 4) + ' (' + r.cut + ')', PAL[3]], ['운을 단 글자 (첫 구·짝수 구 끝)', r.rhyme.join(' · '), PAL[2]]] : [['끊어 읽기', r.cut, PAL[3]]]);
         },
-        columns:['자료', '예측', '실제 형식', '전체 글자'],
-        record:function(p, r){ return {s:p.s, pred:r.pred, form:r.form, total:r.total, hit:r.hit}; },
-        row:function(d){ return [PO[d.s].n.split(' ')[0], d.s < 2 ? d.pred : '·', d.form, d.total + '자']; },
+        columns:['자료', '예측', '실제 형식', '전체 글자', '운 자리 짚기 · 글자 수 바꾸기'],
+        record:function(p, r){ return {s:p.s, pred:r.pred, form:r.form, total:r.total, hit:r.hit, rp:r.rp || 0, rpHit:r.rpHit, pick:r.pick, rhyme:r.rhyme, fc:r.fc || 0, fcRhyme:r.fcRhyme, fcSame:r.fcSame}; },
+        row:function(d){ return [PO[d.s].n.split(' ')[0], d.s < 2 ? d.pred : '·', d.form, d.total + '자', (d.rp ? RP[d.rp] + (d.rpHit ? ' ○' : ' ✕') : '—') + (d.fc ? ' · ' + d.fc + '자로 바꿈' + (d.fcSame ? '(그대로)' : '(운 어그러짐)') : '')]; },
         verify:function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var rs2 = {}; rec.forEach(function(d){ if (d.rp) rs2[d.s + '_' + d.rp] = d; });
+          var rk = Object.keys(rs2);
+          var rcard = !rk.length ? '' : card('운이 달린 자리 짚어 보기', tableHTML(['시', '내가 짚은 자리', '꺼낸 글자', '실제 운자', '판정'],
+              rk.map(function(k){ var d = rs2[k]; return [PO[d.s].n.split(' ')[0], RP[d.rp], (d.pick || []).join(' · '), (d.rhyme || []).join(' · '), d.rpHit ? '맞음 ○' : '아님 ✕']; })) +
+            '<p class="ask">모든 구의 끝에 운을 다는 것이 아니라 <b>첫 구와 짝수 구</b>의 끝에 답니다. 짝수 구만 짚으면 어느 글자가 빠지나요?</p>');
+          var fs = {}; rec.forEach(function(d){ if (d.fc) fs[d.s + '_' + d.fc] = d; });
+          var fk = Object.keys(fs);
+          var fcard = !fk.length ? '' : card('글자 수를 바꾸면 무엇이 어그러지나', tableHTML(['시', '바꾼 글자 수', '원래 운자', '바뀐 뒤 끝 글자', '끊어 읽기'],
+              fk.map(function(k){ var d = fs[k]; return [PO[d.s].n.split(' ')[0], d.fc + '자', (d.rhyme || []).join('·'), (d.fcRhyme || []).join('·'), d.fc === 5 ? '2/3' : '4/3']; })) +
+            '<p class="ask">글자 수는 보기 좋으라고 정한 것이 아니에요. 글자 수가 바뀌면 끊어 읽는 자리와 운을 다는 글자가 함께 바뀌어 시의 소리가 무너집니다.</p>');
+          box.innerHTML = '<div class="vgrid">' + rcard + fcard +
             card('네 가지 형식 (내가 확인한 것)', '<div id="mh5a"></div><p class="ask">「춘효」와 「송인」은 주제가 다른데 형식은 무엇으로만 정해졌나요?</p>') +
             card('두 시의 형식 예측', '<div id="mh5b"></div><p class="ask">과제: 교과서에 실린 한시 세 편의 글자 수와 구의 수를 세어 형식 이름을 붙이고, 각 구를 끊어 읽는 자리에 빗금을 쳐 보세요.</p>') + '</div>';
           var F = [[5, 4], [7, 4], [5, 8], [7, 8]];
@@ -534,7 +581,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

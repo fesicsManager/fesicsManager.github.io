@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,6 +443,8 @@ var LAB = (function(){
         {name:'리튬 이온 전지 (1991)', short:'리튬이온', yr:1991, V:3.7, e:200, neg:'흑연 (Li 저장)', pos:'LiCoO₂ 등', el:'리튬염 + 유기 용매, 분리막', re:true}
       ];
       var DV = [{name:'벽시계 (1.1~1.8 V)', lo:1.1, hi:1.8}, {name:'LED 손전등 (2.7~4.5 V)', lo:2.7, hi:4.5}, {name:'스마트폰급 기기 (3.3~4.4 V, 15 Wh)', lo:3.3, hi:4.4}];
+      /* 이 전지로 이 기기를 켤 수 있는 가장 적은 직렬 개수 (없으면 0) */
+      function needOf(b, d){ for (var n = 1; n <= 6; n++){ var V = b.V * n; if (V >= d.lo && V <= d.hi) return n; } return 0; }
       return {
         sceneHeight: 420,
         idle: '전지, 직렬 개수, 기기를 고른 뒤 <b>연결하기</b>를 누르세요.',
@@ -448,11 +452,16 @@ var LAB = (function(){
         params: [
           {key:'b', type:'seg', label:'전지', cols:2, value:1, options:B.map(function(x){ return x.name; })},
           {key:'n', type:'range', label:'직렬로 연결한 개수', min:1, max:6, step:1, value:1, fmt:function(v){ return v + '개'; }},
-          {key:'d', type:'seg', label:'작동시킬 기기', cols:3, value:0, options:DV.map(function(x){ return x.name; })}
+          {key:'d', type:'seg', label:'작동시킬 기기', cols:3, value:0, options:DV.map(function(x){ return x.name; })},
+          {key:'gn', type:'range', label:'연결하기 전에 적어 보기 — 몇 개가 필요할까?', min:1, max:6, step:1, value:1, fmt:function(v){ return v + '개'; },
+            note:'셀 전압 × 개수가 기기의 전압 범위에 들어가야 작동합니다. 전압이 범위를 건너뛰어 어떤 개수로도 켤 수 없는 전지도 있습니다.'}
         ],
         compute: function(p){
           var b = B[p.b], d = DV[p.d], V = b.V * p.n, st = V < d.lo ? 'low' : V > d.hi ? 'high' : 'ok';
-          return {b:b, d:d, V:V, st:st, mass:b.e ? 15 / b.e * 1000 : null};
+          var need = needOf(b, d), gok = need > 0 && p.gn === need;
+          var vd = !need ? '이 전지로는 어떤 개수로도 이 기기를 켤 수 없습니다 — 전압이 범위를 건너뜁니다'
+            : gok ? '예측이 맞았습니다 — ' + need + '개' : '실제로는 ' + need + '개가 필요합니다';
+          return {b:b, d:d, V:V, st:st, mass:b.e ? 15 / b.e * 1000 : null, need:need, gn:p.gn, gok:gok, vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
           var b = B[p.b], d = DV[p.d], n = p.n, narrow = W < 600, cw = Math.min(70, ((narrow ? W - 40 : W * 0.55) - 20) / n - 8), ch = 110, x0 = 20, y0 = 90;
@@ -492,11 +501,14 @@ var LAB = (function(){
             ['구조', '(−)극 ' + b.neg + ' · (+)극 ' + b.pos + ' · 전해질 ' + b.el, PAL[3]],
             ['에너지 밀도 (대략)', b.e ? '약 ' + b.e + ' Wh/kg' : '실용 기준 없음 (실험용 전지)']];
           if (r.mass) st.push(['15 Wh를 담는 전지 무게 (대략)', '약 ' + f(r.mass, 0) + ' g', PAL[6]]);
+          st.push(['내 예측 (필요한 개수)', r.gn + '개' + (r.gok ? ' — 맞음' : ' — 다름'), r.gok ? PAL[1] : PAL[4]]);
+          st.push(['필요한 가장 적은 개수', r.need ? r.need + '개' : '없음 (켤 수 없음)', r.need ? PAL[0] : PAL[4]]);
+          st.push(['판정', r.vd, r.gok ? PAL[1] : PAL[4]]);
           return st;
         },
-        columns: ['전지', '연도', '개수', '전체 전압 (V)', '기기', '결과'],
-        record: function(p, r){ return {b:p.b, n:p.n, V:r.V, d:p.d, st:r.st}; },
-        row: function(d){ return [B[d.b].short, B[d.b].yr, d.n, f(d.V, 2), DV[d.d].name.replace(/ \(.*\)/, ''), d.st === 'ok' ? '작동' : d.st === 'low' ? '부족' : '과다']; },
+        columns: ['전지', '연도', '개수', '전체 전압 (V)', '기기', '결과', '내 예측', '필요 개수'],
+        record: function(p, r){ return {b:p.b, n:p.n, V:r.V, d:p.d, st:r.st, gn:r.gn, need:r.need, gok:r.gok}; },
+        row: function(d){ return [B[d.b].short, B[d.b].yr, d.n, f(d.V, 2), DV[d.d].name.replace(/ \(.*\)/, ''), d.st === 'ok' ? '작동' : d.st === 'low' ? '부족' : '과다', d.gn + '개' + (d.gok ? ' ○' : ' ✕'), d.need ? d.need + '개' : '없음']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('전지의 발전: 셀 전압과 에너지 밀도', '<div id="cr7a"></div><p class="ask">연도가 늦을수록 무엇이 커졌나요? 스마트폰에 리튬 이온 전지를 쓰는 까닭을 수치로 말해 보세요.</p>') +
@@ -507,7 +519,9 @@ var LAB = (function(){
           $('cr7a').innerHTML = hbars(items, 4) + '<p class="msg">주황 막대는 에너지 밀도(Wh/kg)를 1/60로 줄여 함께 표시했어요.</p>';
           var ok = groupBy(rec.filter(function(d){ return d.st === 'ok'; }), function(d){ return d.b + '_' + d.d; });
           var rows = B.filter(function(b, i){ return seen[i]; }).map(function(b){ var i = B.indexOf(b), need = DV.map(function(dv, j){ return ok[i + '_' + j] ? ok[i + '_' + j][0].n + '개' : '·'; }); return [b.short, b.neg, b.pos, b.el].concat(need); });
-          $('cr7b').innerHTML = tableHTML(['전지', '(−)극', '(+)극', '전해질', '시계', '손전등', '폰급'], rows);
+          var gokN = rec.filter(function(d){ return d.gok; }).length;
+          $('cr7b').innerHTML = tableHTML(['전지', '(−)극', '(+)극', '전해질', '시계', '손전등', '폰급'], rows)
+            + '<p class="msg">내 예측(필요한 개수)은 ' + gokN + ' / ' + rec.length + ' 맞았습니다. 셀 전압이 큰 전지일수록 적은 개수로 같은 기기를 켤 수 있고, 전압이 범위를 건너뛰면 어떤 개수로도 켜지지 않습니다.</p>';
         }
       };
     })();
@@ -516,7 +530,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

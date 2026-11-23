@@ -242,23 +242,32 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">서식지 파괴 정도: <span class="slider-val" id="dVal">40</span> %</div>
             <input type="range" id="dSlider" min="5" max="95" step="5" value="40" aria-label="서식지 파괴 정도">
+            <div class="control-label" style="margin-top:10px">지켜볼 종 (살아가려면 숲이 이만큼은 남아야 함)</div>
+            <select id="fSel" aria-label="지켜볼 종" style="width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d9e2e0;font-size:1rem">
+              <option value="0">벌레 무리 — 숲 5% 이상</option>
+              <option value="1" selected>숲새 — 숲 15% 이상</option>
+              <option value="2">여우 — 숲 30% 이상</option>
+              <option value="3">큰 포식자 — 숲 60% 이상</option>
+            </select>
             <button class="btn-main" id="runBtn">숲을 개발하기 ▶</button>
-            <div class="result-box" id="result">파괴 정도를 정하고 실행하면 결과가 표에 자동으로 기록됩니다.</div>
+            <div class="result-box" id="result">파괴 정도와 지켜볼 종을 정하고 실행하면 결과가 표에 자동으로 기록됩니다.</div>
+            <div class="insight-box wait" id="focalNote" style="margin-top:12px">지켜볼 종을 바꿔 가며 재어 보면, 같은 개발에도 어느 종이 먼저 사라지는지 갈립니다.</div>
           </div>
         </div>
         <div class="data-panel">
           <div class="table-title">조사 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>파괴(%)</th><th>남은 면적(%)</th><th>남은 개체 수</th><th>남은 종 수</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>파괴(%)</th><th>남은 면적(%)</th><th>남은 개체 수</th><th>남은 종 수</th><th>지켜본 종</th><th>그 종은?</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
             이 모형에서 개체 수는 면적에 <b>정비례</b>한다고 봅니다. 종 수는 생태학에서 널리 쓰이는 경험식
             <span class="mono">S = S₀ × (남은 면적 비율)<sup>0.25</sup></span>(종–면적 관계, z ≈ 0.25)로 계산합니다.<br>
             <span style="color:#a86825">※ 종–면적 관계는 여러 섬·서식지를 조사해 얻은 <b>경험적 어림식</b>이에요. z값은 생태계와 생물 무리에 따라 0.1~0.5로 달라지고, 남은 숲이 여러 조각으로 쪼개지는지, 주변에 다른 서식지가 있는지, 종이 사라지는 데 걸리는 시간(멸종 부채)에 따라 실제 결과는 크게 달라요. '개체 수 ∝ 면적'도 생물이 고르게 퍼져 있다고 본 단순화입니다.</span>
-            처음 숲에는 <b>1000마리 · 100종</b>이 살고 있었습니다.
+            처음 숲에는 <b>1000마리 · 100종</b>이 살고 있었습니다.<br>
+            <span style="color:#a86825">※ 종마다 적어 둔 ‘필요한 최소 면적’(5·15·30·60%)은 몸집이 큰 동물일수록 넓은 땅이 필요하다는 것을 보이려고 정한 <b>교육용 모형값</b>이에요. 실제 종의 최소 면적은 먹이·번식 방식·서식지 모양에 따라 크게 다릅니다.</span>
           </div>
         </div>
       </div>
@@ -271,7 +280,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
     <div class="card">
       <div class="locked" id="lockedMsg">
         <div class="lock-icon">🔒</div>
-        <div>아직 데이터가 부족합니다. 파괴 정도를 바꿔가며 4개 이상 조사해주세요.</div>
+        <div>아직 데이터가 부족합니다. 파괴 정도나 지켜볼 종을 바꿔가며 4개 이상 조사해주세요.</div>
         <div class="lock-count">현재 <span id="lockedCount">0</span> / 4</div>
       </div>
       <div id="validationContent" style="display:none;">
@@ -486,6 +495,11 @@ function species(d){ return S0*Math.pow(areaFrac(d), Z); }
 function pop(d){ return N0*areaFrac(d); }
 
 var destroy=40, records=[], busy=false, revealed=false, cut=0;
+/* 종마다 살아가려면 필요한 최소 숲 면적 — 교육용 모형값 */
+var MINA=[{n:'벌레 무리',a:5},{n:'숲새',a:15},{n:'여우',a:30},{n:'큰 포식자',a:60}];
+var focal=1;
+function leftPct(){ return areaFrac(destroy)*100; }
+function focalAlive(){ return leftPct()>=MINA[focal].a-1e-9; }
 var canvas=document.getElementById('habCanvas'), ctx=canvas.getContext('2d');
 
 /* 숲: 나무 격자 + 동물 */
@@ -501,7 +515,16 @@ document.getElementById('dSlider').addEventListener('input',function(e){
   document.getElementById('dVal').textContent=destroy;
   cut=0; revealed=false;
   document.getElementById('result').className='result-box';
-  document.getElementById('result').innerHTML='파괴 정도를 정하고 실행하면 결과가 표에 자동으로 기록됩니다.';
+  document.getElementById('result').innerHTML='파괴 정도와 지켜볼 종을 정하고 실행하면 결과가 표에 자동으로 기록됩니다.';
+  draw();
+});
+
+document.getElementById('fSel').addEventListener('change',function(e){
+  if(busy){ e.target.value=String(focal); return; }
+  focal=parseInt(e.target.value,10);
+  cut=0; revealed=false;
+  document.getElementById('result').className='result-box';
+  document.getElementById('result').innerHTML='지켜볼 종을 <b>'+MINA[focal].n+'</b>(숲 '+MINA[focal].a+'% 이상 필요)으로 바꿨어요. 개발해 보세요.';
   draw();
 });
 
@@ -622,11 +645,11 @@ function draw(){
     ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
     ctx.fillText('100 × '+areaFrac(destroy).toFixed(2)+'^0.25 = '+species(destroy).toFixed(1)+'종', 220, 370);
     ctx.font="600 18px 'Noto Sans KR',sans-serif";
-    ctx.fillText('처음: 1000마리 · 100종', 220, 392);
+    ctx.fillText('지켜본 '+MINA[focal].n+' → '+(focalAlive()?'살아남음':'사라짐'), 220, 392);
   }else{
     ctx.fillStyle='#4a636a'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
     ctx.fillText('"숲을 개발하기"를 눌러보세요', 220, 348);
-    ctx.fillText('설정한 파괴 정도: '+destroy+'%', 220, 376);
+    ctx.fillText('파괴 '+destroy+'% · 지켜볼 종: '+MINA[focal].n, 220, 376);
   }
   ctx.textAlign='left';
 }
@@ -637,7 +660,7 @@ function zlDupNote(msg){ var el=document.getElementById('zlDupNote'); if(!el){ e
 document.getElementById('runBtn').addEventListener('click', function(){
   focusCanvas(canvas);
   if(busy) return;
-  if(records.some(function(r){ return r.d===destroy; })){ zlDupNote('이미 같은 조건으로 기록했어요. 조건을 바꿔 보세요.'); return; }
+  if(records.some(function(r){ return r.d===destroy && r.f===focal; })){ zlDupNote('이미 같은 조건으로 기록했어요. 파괴 정도나 지켜볼 종을 바꿔 보세요.'); return; }
   busy=true; revealed=false; cut=0;
   var btn=this; btn.disabled=true;
   var dur=700+1900*(destroy/95);       /* 많이 밀수록 오래 걸린다 */
@@ -650,12 +673,16 @@ document.getElementById('runBtn').addEventListener('click', function(){
     else{
       cut=1; revealed=true; draw();
       btn.disabled=false; busy=false;
-      records.push({d:destroy, area:areaFrac(destroy)*100, pop:pop(destroy), sp:species(destroy)});
+      records.push({d:destroy, area:areaFrac(destroy)*100, pop:pop(destroy), sp:species(destroy),
+        f:focal, fn:MINA[focal].n, need:MINA[focal].a, alive:focalAlive()});
       renderTable();
       var box=document.getElementById('result');
       box.className='result-box ok';
       box.innerHTML='남은 개체 <span class="big-val">'+Math.round(pop(destroy))+'마리</span> / 남은 종 <span class="big-val">'
-        +Math.round(species(destroy))+'종</span> <span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
+        +Math.round(species(destroy))+'종</span><br>'
+        +'지켜본 <b>'+MINA[focal].n+'</b>(숲 '+MINA[focal].a+'% 이상 필요) → '
+        +(focalAlive()?'<b>살아남았어요</b>':'<b>사라졌어요</b>')+' (남은 숲 '+leftPct().toFixed(0)+'%) '
+        +'<span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
       maybeToast(records.length);
     }
   }
@@ -665,16 +692,42 @@ document.getElementById('runBtn').addEventListener('click', function(){
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=records.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.d+'</td><td>'+r.area.toFixed(0)+'</td><td>'+Math.round(r.pop)+'</td><td>'+r.sp.toFixed(1)+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td>'+r.d+'</td><td>'+r.area.toFixed(0)+'</td><td>'+Math.round(r.pop)+'</td><td>'+r.sp.toFixed(1)+'</td>'
+      +'<td class="kr">'+r.fn+' ('+r.need+'%)</td><td class="kr">'+(r.alive?'살아남음':'사라짐')+'</td></tr>';
   }).join('');
+  focalNote();
+}
+
+/* 같은 개발에도 종에 따라 결과가 갈리는지 알려 준다 */
+function focalNote(){
+  var el=document.getElementById('focalNote'); if(!el) return;
+  var gone=records.filter(function(r){ return !r.alive; });
+  var live=records.filter(function(r){ return r.alive; });
+  if(!gone.length){
+    el.className='insight-box wait';
+    el.innerHTML='아직 사라진 종이 없어요. 지켜볼 종을 <b>큰 포식자</b>로 바꾸거나 파괴 정도를 올려 보세요 — 남은 종 수는 거의 그대로인데 <b>그 종만 사라지는</b> 경우가 생깁니다.';
+    return;
+  }
+  var g=gone[gone.length-1];
+  el.className='insight-box';
+  var html='🎯 <b>'+g.fn+'은(는) 파괴 '+g.d+'%에서 사라졌어요.</b> 남은 숲이 '+g.area.toFixed(0)+'%인데 이 종은 '+g.need+'% 이상이 필요하니까요. '
+    +'그때도 전체 남은 종 수는 '+g.sp.toFixed(0)+'종 — 처음의 '+Math.round(g.sp)+'%나 됩니다. '
+    +'<b>전체 종 수만 보면 괜찮아 보이지만, 넓은 땅이 필요한 종은 벌써 사라집니다.</b>';
+  if(live.length){
+    var m={}, i;
+    for(i=0;i<records.length;i++) m[records[i].fn]=(m[records[i].fn]||0)+(records[i].alive?0:1);
+    html+=' 같은 개발 정도에서도 <b>어느 종을 보느냐에 따라 결론이 갈립니다</b> — 작은 종은 버티고 큰 종은 먼저 사라집니다.';
+  }
+  html+=' <span style="color:#a86825">(필요 면적은 교육용 모형값)</span>';
+  el.innerHTML=html;
 }
 
 /* ---------- 데이터 확인 ---------- */
 function renderValidation(){
   var seen={}, uniq=[];
-  records.forEach(function(r){ if(!seen[r.d]){ seen[r.d]=1; uniq.push(r); } });
+  records.forEach(function(r){ var k=r.d+'_'+r.f; if(!seen[k]){ seen[k]=1; uniq.push(r); } });
   document.getElementById('lockedCount').textContent=uniq.length;
   if(uniq.length<4){
     document.getElementById('lockedMsg').style.display='block';
@@ -697,7 +750,11 @@ function renderValidation(){
     }).join('')
     + '<div class="insight-box">자동 분석: 면적이 줄어들 때 <b>개체 수는 면적과 똑같은 비율로</b> 줄지만, '
     + '<b>종 수는 그보다 천천히</b> 줄어듭니다. 곡선이 처음엔 완만하다가 면적이 아주 작아지면 급격히 떨어지죠. '
-    + '"조금 개발해도 종은 안 없어진다"고 방심하기 쉬운 이유입니다. (z = 0.25인 경험 모형의 결과이며, 실제 생태계마다 곡선의 모양은 달라요.)</div>';
+    + '"조금 개발해도 종은 안 없어진다"고 방심하기 쉬운 이유입니다. (z = 0.25인 경험 모형의 결과이며, 실제 생태계마다 곡선의 모양은 달라요.)</div>'
+    + '<div class="insight-box">지켜본 종으로 보면: '
+    + uniq.map(function(r){ return r.fn+'('+r.need+'%)는 파괴 '+r.d+'%에서 '+(r.alive?'살아남음':'<b>사라짐</b>'); }).join(' / ')
+    + '. 넓은 땅이 필요한 종일수록 <b>더 이른 개발 단계에서</b> 사라집니다. 전체 종 수 곡선 하나만 보면 이 차이가 보이지 않습니다. '
+    + '<span style="color:#a86825">(종마다 필요한 최소 면적은 교육용 모형값)</span></div>';
 
   var vals=uniq.map(function(r){ return Math.pow(r.sp/S0,4)/(r.area/100); });
   var avg=vals.reduce(function(a,b){return a+b;},0)/vals.length;

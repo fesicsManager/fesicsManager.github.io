@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -481,39 +483,75 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         {o:'현대 한국 교과서', sh:'현대 한국', a:0, kind:'현대 국가', t:'지배층의 고구려 계승 의식과 문화를 근거로 "남북국 시대"로 서술', why:'계승 의식과 문화 연속성을 기준으로 삼음'}
       ];
       var NM = ['고구려를 이은 나라', '말갈 계통의 나라', '당의 지방 정권'], NC = [PAL[0], PAL[2], PAL[3]];
+      var MD = ['주체를 고르고 인식 맞히기', '요지만 보고 주체 맞히기'];
+      /* 거꾸로 모드에서 낼 문제는 기록이 쌓일 때마다 바뀐다 — 표를 외워 찍지 못하게 */
+      function qIdx(){ return (((records ? records.length : 0) * 4) + 3) % S.length; }
       return {
-        sceneHeight: 460,
-        idle: '기록 주체와 나의 예상을 고른 뒤 <b>기록 확인하기</b>를 누르세요.',
-        shortHint: '기록 주체를 4개 이상 확인해 보세요. 특히 『구당서』와 『신당서』를 둘 다 보면 좋아요.',
+        sceneHeight: 520,
+        idle: '문제 방식·기록 주체·나의 예상을 고른 뒤 <b>기록 확인하기</b>를 누르세요.',
+        shortHint: '두 방식을 모두 해 보세요. 특히 『구당서』와 『신당서』를 견줄 기록으로 맞대어 보면 좋아요.',
         params: [
-          {key:'s', type:'seg', label:'기록 주체', cols:3, value:0, options:S.map(function(x){ return x.o; })},
-          {key:'g', type:'seg', label:'이 주체는 발해를 어떤 나라로 보았을까? (나의 예상)', cols:3, value:0, options:NM}
+          {key:'m', type:'seg', label:'문제 방식', cols:2, value:0, options:MD,
+            note:'‘요지만 보고 주체 맞히기’는 사료 요지를 먼저 보여 주고 어느 쪽 기록인지 맞히게 해요. 문제는 기록을 쌓을 때마다 바뀝니다.'},
+          {key:'s', type:'seg', label:'기록 주체 (거꾸로 모드에서는 나의 답)', cols:3, value:0, options:S.map(function(x){ return x.o; })},
+          {key:'g', type:'seg', label:'이 주체는 발해를 어떤 나라로 보았을까? (나의 예상)', cols:3, value:0, options:NM},
+          {key:'o', type:'seg', label:'나란히 견줄 다른 기록', cols:3, value:0, options:S.map(function(x){ return x.o; }),
+            note:'같은 기록을 그대로 두면 견주지 않아요. 다른 기록을 고르면 두 기록의 요지를 나란히 놓고 인식이 갈리는지 짚어 줍니다.'}
         ],
-        compute: function(p){ var s = S[p.s]; return {s:s, ok:p.g === s.a}; },
+        compute: function(p){
+          var qi = p.m === 1 ? qIdx() : p.s, s = S[qi];
+          var pair = (p.o !== qi) ? {i:p.o, s:S[p.o], same:S[p.o].a === s.a} : null;
+          return {s:s, qi:qi, mode:p.m, okS:p.m === 1 ? (p.s === qi) : true, ok:p.g === s.a, pair:pair};
+        },
         draw: function(c, W, H, p, r, tau){
           var sz = fz(W), cx = W / 2, cy = H * 0.36, R = Math.min(W * 0.4, H * 0.28), k = r ? ease(tau / 0.6) : 0, k2 = r ? ease((tau - 0.6) / 0.4) : 0;
+          var qi = r ? r.qi : (p.m === 1 ? qIdx() : p.s);
           S.forEach(function(s, i){
             var a = -Math.PI / 2 + i / S.length * Math.PI * 2, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R, on = i === p.s;
             rrect(c, x - 38, y - 13, 76, 26, 8, on ? '#26313D' : '#EEF2F6', on ? null : '#C9D2DC', 1);
+            if (i === p.o && p.o !== qi){ c.strokeStyle = PAL[6]; c.lineWidth = 3; rrect(c, x - 38, y - 13, 76, 26, 8, null, PAL[6], 3); }   /* 노란 테두리 = 견줄 기록 */
+            if (r && i === qi && p.m === 1){ c.strokeStyle = PAL[1]; rrect(c, x - 41, y - 16, 82, 32, 10, null, PAL[1], 3); }            /* 초록 테두리 = 실제 주체 */
             tx(c, s.sh, x, y + 5, {align:'center', size:W < 520 ? 11 : 13, color:on ? '#fff' : '#3D4A5A', bold:on});
-            if (on && r){ var ex = lerp(x, cx, 0.72), ey = lerp(y, cy, 0.72); arrow(c, x, y, lerp(x, ex, k), lerp(y, ey, k), NC[s.a], 3); }
+            if (on && r && p.m === 0){ var ex = lerp(x, cx, 0.72), ey = lerp(y, cy, 0.72); arrow(c, x, y, lerp(x, ex, k), lerp(y, ey, k), NC[s.a], 3); }
           });
           c.fillStyle = '#F4E9D8'; c.beginPath(); c.arc(cx, cy, 32, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#A8702F'; c.lineWidth = 2; c.stroke();
           tx(c, '발해', cx, cy + 6, {align:'center', bold:true, size:sz + 2});
-          var s = S[p.s], by = H * 0.36 + R + 34;
+          var s = S[qi], by = H * 0.36 + R + 34;
           rrect(c, 12, by, W - 24, H - by - 12, 10, '#F7F9FC', '#DCE3EA', 1);
-          if (!r){ tx(c, '기록 주체: ' + s.o, 24, by + 26, {bold:true, size:sz}); tx(c, '나의 예상: ' + NM[p.g], 24, by + 50, {size:sz, color:'#4A5868'}); return; }
+          if (!r){
+            if (p.m === 1){
+              tx(c, '이 요지는 누구의 기록일까?', 24, by + 26, {bold:true, size:sz});
+              wrapT(c, s.t, 24, by + 50, W - 48, sz + 6, {size:sz - 1, max:3});
+              tx(c, '나의 답: ' + S[p.s].sh + ' · ' + NM[p.g], 24, by + 50 + 3 * (sz + 6) + 6, {size:sz, color:'#4A5868'});
+            } else {
+              tx(c, '기록 주체: ' + s.o, 24, by + 26, {bold:true, size:sz}); tx(c, '나의 예상: ' + NM[p.g], 24, by + 50, {size:sz, color:'#4A5868'});
+            }
+            return;
+          }
           c.globalAlpha = k2;
           rrect(c, 24, by + 10, Math.min(W - 48, 240), 26, 8, NC[s.a]); tx(c, NM[s.a], 34, by + 28, {bold:true, color:'#fff', size:sz});
-          wrapT(c, s.t, 24, by + 58, W - 48, sz + 6, {size:sz - 1, max:3});
+          if (p.m === 1) tx(c, '답: ' + s.sh, 24, by + 54, {bold:true, size:sz, color:r.okS ? PAL[1] : PAL[4]});
+          wrapT(c, s.t, 24, by + (p.m === 1 ? 80 : 58), W - 48, sz + 6, {size:sz - 1, max:3});
           c.globalAlpha = 1;
-          if (k2 >= 1) stamp(c, W - 60, by + 26, r.ok ? '예상 적중' : '예상과 다름', r.ok ? PAL[1] : PAL[4], 1, W < 520 ? 13 : 16);
+          if (k2 >= 1) stamp(c, W - 60, by + 26, p.m === 1 ? (r.okS ? '주체 적중' : '주체 다름') : (r.ok ? '예상 적중' : '예상과 다름'),
+            (p.m === 1 ? r.okS : r.ok) ? PAL[1] : PAL[4], 1, W < 520 ? 13 : 16);
         },
-        stats: function(p, r){ return [['기록 주체', r.s.o], ['기록의 요지', r.s.t], ['이 주체의 인식', NM[r.s.a], NC[r.s.a]],
-          ['나의 예상', NM[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]], ['입장', r.s.kind], ['그렇게 부른 까닭', r.s.why, PAL[6]]]; },
-        columns: ['기록 주체', '나의 예상', '실제 인식', '맞음'],
-        record: function(p, r){ return {s:p.s, g:p.g, ok:r.ok}; },
-        row: function(d){ return [S[d.s].sh, NM[d.g], NM[S[d.s].a], d.ok ? '○' : '×']; },
+        stats: function(p, r){
+          var out = [['문제 방식', MD[p.m], PAL[3]], ['기록 주체', r.s.o], ['기록의 요지', r.s.t], ['이 주체의 인식', NM[r.s.a], NC[r.s.a]]];
+          if (p.m === 1) out.push(['나의 답 (어느 쪽 기록인가)', S[p.s].o + (r.okS ? ' — 맞음' : ' — 다름. 실제는 ' + r.s.o), r.okS ? PAL[1] : PAL[4]]);
+          out.push(['나의 예상 (인식)', NM[p.g] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]], ['입장', r.s.kind], ['그렇게 부른 까닭', r.s.why, PAL[6]]);
+          out.push(['나란히 견준 기록', !r.pair ? '견줄 기록을 다른 쪽으로 바꾸면 두 요지를 여기서 맞대어 줘요.'
+            : r.pair.s.o + ' — ' + r.pair.s.kind + ' / 인식: ' + NM[r.pair.s.a] + (r.pair.same ? ' → 두 기록이 같은 인식이에요.' : ' → 같은 발해를 두고 인식이 갈려요.'),
+            r.pair ? (r.pair.same ? PAL[1] : PAL[4]) : null]);
+          if (r.pair) out.push(['견준 기록의 요지', r.pair.s.t], ['왜 갈렸나 (또는 왜 같았나)',
+            r.pair.same ? '두 기록은 입장이 달라도 같은 결론에 이르렀어요 — ' + r.s.kind + ' vs ' + r.pair.s.kind + '. 그 까닭을 각각의 처지에서 설명해 보세요.'
+              : r.s.kind + '와 ' + r.pair.s.kind + ' — 기록을 남긴 처지가 다르면 같은 나라도 다르게 적힙니다. 『구당서』와 『신당서』처럼 같은 왕조의 역사서끼리도 갈릴 수 있어요.', PAL[6]]);
+          return out;
+        },
+        columns: ['문제 방식', '기록 주체', '나의 답', '실제 인식', '맞음'],
+        record: function(p, r){ return {s:r.qi, a:p.s, g:p.g, ok:r.ok, okS:r.okS, m:p.m, o:p.o}; },
+        row: function(d){ return [d.m === 1 ? '요지 → 주체' : '주체 → 인식', S[d.s].sh, d.m === 1 ? S[d.a].sh + ' / ' + NM[d.g] : NM[d.g], NM[S[d.s].a],
+          (d.m === 1 ? (d.okS ? '주체 ○' : '주체 ×') + ' ' : '') + (d.ok ? '인식 ○' : '인식 ×')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('주체별 발해 인식 (확인한 것만)', '<div id="bn1"></div><p class="ask">같은 당나라 역사서인 『구당서』와 『신당서』가 다르게 쓴 까닭은 무엇일까요? 편찬 시기와 사용한 자료로 설명해 보세요.</p>') +
@@ -523,8 +561,20 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           $('bn1').innerHTML = tableHTML(['주체', '입장', '인식', '까닭'], rows);
           var cnt = [0, 0, 0]; Object.keys(seen).forEach(function(i){ cnt[S[i].a]++; });
           var ok = rec.filter(function(d){ return d.ok; }).length;
+          var rv = rec.filter(function(d){ return d.m === 1; }), rvOk = rv.filter(function(d){ return d.okS; }).length;
+          /* 두 기록을 나란히 견준 짝 */
+          var prows = [];
+          rec.forEach(function(d){ if (d.o === d.s) return;
+            var lb = S[d.s].sh + ' ↔ ' + S[d.o].sh;
+            if (prows.some(function(x){ return x[0] === lb; })) return;
+            prows.push([lb, NM[S[d.s].a] + ' / ' + NM[S[d.o].a], S[d.s].a === S[d.o].a ? '같음' : '갈림', S[d.s].kind + ' / ' + S[d.o].kind]);
+          });
           $('bn2').innerHTML = hbars(NM.map(function(n, i){ return {label:n, v:cnt[i], color:NC[i], text:cnt[i] + '곳'}; }), Math.max(3, Math.max.apply(null, cnt))) +
-            '<p class="msg">나의 예상 적중: ' + ok + ' / ' + rec.length + '회 (' + f(ok / rec.length * 100, 0) + '%)</p>';
+            '<p class="msg">나의 인식 예상 적중: ' + ok + ' / ' + rec.length + '회 (' + f(ok / rec.length * 100, 0) + '%)' +
+            (rv.length ? ' · 요지만 보고 주체 맞히기: ' + rvOk + ' / ' + rv.length + '회' : ' · ‘요지만 보고 주체 맞히기’도 해 보세요') + '</p>' +
+            (prows.length ? tableHTML(['나란히 견준 두 기록', '인식', '결과', '입장'], prows) +
+              '<p class="msg">인식이 ‘갈림’으로 나온 짝을 보세요. 같은 발해를 두고 왜 다르게 적혔나요? 기록을 남긴 쪽의 처지로 설명해 보세요.</p>'
+              : '<p class="msg">‘나란히 견줄 다른 기록’을 바꿔 가며 기록하면, 같은 사건을 다르게 적은 짝을 여기에 모아 줘요.</p>');
         }
       };
     
@@ -534,7 +584,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

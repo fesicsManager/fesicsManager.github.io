@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -214,7 +215,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>물 부족은 물이 없어서가 아니다 — 가상수 계산기</h1>
-    <p>이번에는 음식의 종류와 양을 골라 그것을 만드는 데 든 <b>가상수</b>(눈에 안 보이는 물)를 계산하고, 하루 식탁이 욕조 몇 개분의 물인지 확인합니다. 물 사용의 70 %가 농업인 까닭을 알아봐요.<br><span style="font-size:.9em;color:#a86825">※ 가상수 값(소고기 1 kg 15,000 L 등)은 세계 평균 어림값이에요. 재배 방식·지역에 따라 달라요.</span></p>
+    <p>이번에는 음식의 종류와 양을 골라 그것을 만드는 데 든 <b>가상수</b>(눈에 안 보이는 물)를 계산하고, 하루 식탁이 욕조 몇 개분의 물인지 확인합니다. 계산하기 전에 <b>고른 음식과 같은 물을 쓰는 대체 음식이 몇 g일지 먼저 짐작</b>하면 채점해 줘요. 물 사용의 70 %가 농업인 까닭을 알아봐요.<br><span style="font-size:.9em;color:#a86825">※ 가상수 값(소고기 1 kg 15,000 L 등)은 세계 평균 어림값이에요. 재배 방식·지역에 따라 달라요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,20 +439,28 @@ var LAB = (function(){
 
 var FOOD = [{name:'소고기', w:15000}, {name:'돼지고기', w:6000}, {name:'닭고기', w:4300}, {name:'쌀', w:2500}, {name:'두부', w:2000}, {name:'토마토', w:200}, {name:'커피 (원두)', w:18900}];
 var ALT = [4, 2, 5], AN = ['두부', '닭고기', '토마토'];
-function calc(fi, g, ai){ var F = FOOD[fi], kg = g / 1000, water = F.w * kg, alt = FOOD[ALT[ai]], wAlt = alt.w * kg; return {fn:F.name, g:g, water:water, tubs:water / 200, an:alt.name, wAlt:wAlt, save:water - wAlt, showers:water / 100}; }
+function calc(fi, g, ai, gq){
+  var F = FOOD[fi], kg = g / 1000, water = F.w * kg, alt = FOOD[ALT[ai]], wAlt = alt.w * kg;
+  var need = water / alt.w * 1000;                 /* 같은 물을 쓰려면 대체 음식이 몇 g 필요한가 */
+  var guess = gq == null ? 1000 : +gq;
+  var err = need > 0 ? Math.abs(guess - need) / need : 0;
+  return {fn:F.name, g:g, water:water, tubs:water / 200, an:alt.name, wAlt:wAlt, save:water - wAlt, showers:water / 100,
+    need:need, guess:guess, err:err, band:err <= 0.2 ? 'o' : err <= 0.5 ? '~' : 'x'};
+}
 return {
   sceneHeight: function(w){ return w < 480 ? 470 : 400; },
-  idle: '음식·양·대체 음식을 정한 뒤 <b>물 계산하기</b>를 누르세요.',
-  shortHint: '자유 탐구 탭에서 같은 양으로 여러 음식을 기록해 비교하세요.',
+  idle: '음식·양·대체 음식을 정하고, 같은 물을 쓰는 대체 음식의 양을 <b>먼저 짐작한 뒤</b> <b>물 계산하기</b>를 누르세요.',
+  shortHint: '자유 탐구 탭에서 같은 양으로 여러 음식을 기록해 비교하세요. 음식마다 먼저 짐작해 보면 어디서 많이 틀리는지 보여요.',
   params: [
     {key:'f', type:'seg', label:'음식', cols:4, value:0, options:FOOD.map(function(x){ return x.name; })},
     {key:'g', type:'range', label:'양', min:50, max:500, step:50, value:200, fmt:function(v){ return v + ' g'; }},
     {key:'a', type:'seg', label:'대체 음식 (비교)', cols:3, value:0, options:AN,
-      note:'가상수 = 그 음식을 만드는 데 든 모든 물. 욕조 1개 = 200 L, 샤워 1번 = 100 L.'}
+      note:'가상수 = 그 음식을 만드는 데 든 모든 물. 욕조 1개 = 200 L, 샤워 1번 = 100 L. 아래 칸에서 <b>고른 음식과 같은 물을 쓰는 대체 음식의 양</b>을 먼저 짐작한 뒤 계산하세요. 결과 칸에서 채점해 줍니다.'},
+    {key:'q', type:'range', label:'먼저 짐작 — 같은 물을 쓰는 대체 음식의 양', min:50, max:5000, step:50, value:1000, fmt:function(v){ return v + ' g'; }}
   ],
-  compute: function(p){ return calc(p.f, p.g, p.a); },
+  compute: function(p){ return calc(p.f, p.g, p.a, p.q); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.f, p.g, p.a), n = Math.round(C.tubs * k), cols = Math.floor((W - 200) / 30);
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.f, p.g, p.a, p.q), n = Math.round(C.tubs * k), cols = Math.floor((W - 200) / 30);
     var nar = W < 480; txt(c, '🍽 ' + C.fn + ' ' + C.g + ' g', 20, 40, {bold:true}); if (nar){ var nc = Math.max(1, Math.floor((W - 40) / 30)), cap = nc * 5; for (var j = 0; j < Math.min(n, cap); j++) txt(c, '🛁', 35 + (j % nc) * 30, 104 + Math.floor(j / nc) * 28, {align:'center'}); if (n > cap) txt(c, '… ×' + n, 20, 104 + 5 * 28, {color:'#4A5868'}); } else for (var i = 0; i < Math.min(n, 60); i++) txt(c, '🛁', 180 + (i % cols) * 30, 44 + Math.floor(i / cols) * 28, {align:'center'}); if (n > 60) txt(c, '… ×' + n, 180, 44 + 3 * 28, {color:'#4A5868'});
     txt(c, '욕조 ' + n + '개 = ' + f(C.water * k, 0) + ' L', 20, 70, {color:'#2B5FA3', bold:true});
     var cx = 90, cy = nar ? H - 120 : H - 90, R = 50, parts = [[70, '농업', '#2E9E78'], [20, '공업', '#8C99A8'], [10, '가정', '#2B5FA3']], a0 = -Math.PI / 2; parts.forEach(function(pt){ var a1 = a0 + pt[0] / 100 * Math.PI * 2; c.fillStyle = pt[2]; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R, a0, a1); c.closePath(); c.fill(); a0 = a1; }); if (nar){ ['세계 물 사용:', '농업 70', '공업 20', '가정 10 %'].forEach(function(s, i){ txt(c, s, cx + R + 14, cy - 24 + i * 20, {color:'#4A5868'}); }); } else txt(c, '세계 물 사용: 농업 70 · 공업 20 · 가정 10 %', cx + R + 14, cy + 6, {color:'#4A5868'});
@@ -458,16 +468,27 @@ return {
     else txt(c, r ? C.an + '로 바꾸면 ' + f(C.wAlt, 0) + ' L — ' + f(C.save, 0) + ' L 절약' : '', 20, H - 14, {bold:true, color:C.save > 0 ? '#2E9E78' : '#C8463D'});
   },
   stats: function(p, r){
-    return [['음식 · 양', r.fn + ' ' + r.g + ' g'], ['가상수', f(r.water, 0) + ' L', PAL[0]], ['욕조로', f(r.tubs, 1) + '개 (샤워 ' + f(r.showers, 0) + '번)', PAL[3]], [r.an + '로 바꾸면', f(r.wAlt, 0) + ' L', PAL[1]], ['절약', sgn(r.save, 0) + ' L', r.save > 0 ? PAL[1] : PAL[4]]];
+    return [['음식 · 양', r.fn + ' ' + r.g + ' g'], ['가상수', f(r.water, 0) + ' L', PAL[0]], ['욕조로', f(r.tubs, 1) + '개 (샤워 ' + f(r.showers, 0) + '번)', PAL[3]], [r.an + '로 바꾸면', f(r.wAlt, 0) + ' L', PAL[1]], ['절약', sgn(r.save, 0) + ' L', r.save > 0 ? PAL[1] : PAL[4]],
+      ['내가 짐작한 ' + r.an + ' 양', r.guess + ' g'],
+      ['실제로 같은 물을 쓰는 양', f(r.need, 0) + ' g — ' + r.fn + ' ' + r.g + ' g의 ' + f(r.need / r.g, 1) + '배', PAL[0]],
+      ['짐작 채점', (r.band === 'o' ? '잘 맞혔어요' : r.band === '~' ? '가깝습니다' : '많이 벗어났어요') + ' (어긋난 정도 ' + f(r.err * 100, 0) + ' %) — ' +
+        (r.guess < r.need ? '실제는 짐작보다 많아요' : r.guess > r.need ? '실제는 짐작보다 적어요' : '짐작과 똑같아요'),
+        r.band === 'o' ? PAL[1] : r.band === '~' ? PAL[6] : PAL[4]]];
   },
-  columns: ['음식', '양 (g)', '가상수 (L)', '욕조', '대체', '절약 (L)'],
-  record: function(p, r){ return {f:p.f, g:r.g, water:r.water, tubs:r.tubs, an:r.an, save:r.save}; },
-  row: function(d){ return [FOOD[d.f].name, d.g, f(d.water, 0), f(d.tubs, 1), d.an, sgn(d.save, 0)]; },
+  columns: ['음식', '양 (g)', '가상수 (L)', '욕조', '대체', '절약 (L)', '짐작 (g)', '실제 (g)', '채점'],
+  record: function(p, r){ return {f:p.f, g:r.g, water:r.water, tubs:r.tubs, an:r.an, save:r.save, guess:r.guess, need:r.need, err:r.err, band:r.band}; },
+  row: function(d){ return [FOOD[d.f].name, d.g, f(d.water, 0), f(d.tubs, 1), d.an, sgn(d.save, 0), d.guess, f(d.need, 0), d.band === 'o' ? '○' : d.band === '~' ? '△' : '✕']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('음식별 가상수', '<div id="ro1"></div><p class="ask">같은 200 g에서 가장 물을 많이 쓴 음식과 적게 쓴 음식은 몇 배 차이인가요? 왜 고기가 물을 많이 쓰나요(사료)?</p>') +
+      card('내 짐작과 실제', '<div id="ro3"></div><p class="ask">짐작이 가장 많이 벗어난 음식은 무엇인가요? 고기 쪽을 짐작할 때 왜 더 많이 틀렸을까요(사료로 든 물)?</p>') +
       card('오늘의 식탁', '<div id="ro2"></div><p class="ask">기록한 음식을 다 더하면 몇 L인가요? 하루 샤워·양치 물(약 150 L)과 비교해 보세요. "물 부족은 물이 없어서가 아니다"를 설명해 보세요.</p>') + '</div>';
     $('ro1').innerHTML = hbars(rec.map(function(d){ return {label:FOOD[d.f].name + ' ' + d.g + ' g', v:d.water, color:d.water > 2000 ? PAL[4] : PAL[1], text:f(d.water, 0) + ' L'}; }), Math.max.apply(null, rec.map(function(d){ return d.water; })) || 1);
+    var gd = rec.filter(function(d){ return d.need != null; });
+    $('ro3').innerHTML = gd.length ? tableHTML(['음식 · 양', '대체', '내 짐작', '실제', '어긋난 정도'], gd.slice(-10).map(function(d){
+      return [FOOD[d.f].name + ' ' + d.g + ' g', d.an, d.guess + ' g', f(d.need, 0) + ' g', f(d.err * 100, 0) + ' %'];
+    })) + '<p class="msg">잘 맞힘 ' + gd.filter(function(d){ return d.band === 'o'; }).length + '회 · 많이 벗어남 ' + gd.filter(function(d){ return d.band === 'x'; }).length + '회</p>'
+      : '<p class="msg">짐작 칸을 움직여 먼저 짐작한 뒤 계산해 보세요.</p>';
     var tot = rec.reduce(function(a, d){ return a + d.water; }, 0);
     $('ro2').innerHTML = '<p><b>기록한 음식의 가상수 합계: ' + f(tot, 0) + ' L = 욕조 ' + f(tot / 200, 0) + '개</b> (하루 수도 사용 150 L의 ' + f(tot / 150, 0) + '배)</p>' + tableHTML(['음식', '양', '가상수', '대체', '절약'], rec.map(function(d){ return [FOOD[d.f].name, d.g + ' g', f(d.water, 0) + ' L', d.an, sgn(d.save, 0) + ' L']; }));
   }
@@ -478,7 +499,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

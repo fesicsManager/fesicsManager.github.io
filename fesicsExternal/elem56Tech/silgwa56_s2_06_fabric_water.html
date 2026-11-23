@@ -112,7 +112,9 @@ tbody tr:nth-child(even){background:#fafcff}
 <option>면 티셔츠</option><option>수건</option><option>폴리에스터 운동복</option><option>나일론 바람막이</option><option>양모 니트</option><option>청바지</option>
 </select></div>
 <div class="ctrl"><label for="sec">스며든 시간 <span class="val" id="vS">3.0</span>초</label><input type="range" id="sec" min="0.5" max="30" step="0.5" value="3"></div>
-<div class="ctrl"><label for="weave">짜임</label><select id="weave"><option>직물(가로세로 교차)</option><option>편물(고리 연결)</option><option>잘 모르겠음</option></select></div></div>
+<div class="ctrl"><label for="weave">짜임</label><select id="weave"><option>직물(가로세로 교차)</option><option>편물(고리 연결)</option><option>잘 모르겠음</option></select></div>
+<div class="ctrl"><label for="use">이 옷감을 어디에 쓸까</label>
+<select id="use"><option>속옷·수건(잘 빨아들여야)</option><option>겉옷(그 사이)</option><option>운동복·바람막이(빨리 말라야)</option></select></div></div>
         <div class="btnrow">
           <button class="btn" id="goBtn">막대 올리기</button>
           <button class="btn ghost" id="recBtn">기록하기</button>
@@ -147,6 +149,10 @@ var out,c,cvv,data={};
 var fab=document.getElementById('fab'),sec=document.getElementById('sec'),weave=document.getElementById('weave');
 sec.oninput=function(){document.getElementById('vS').textContent=Number(sec.value).toFixed(1);};
 var FS=['면 티셔츠','수건','폴리에스터 운동복','나일론 바람막이','양모 니트','청바지'];
+var use=document.getElementById('use');
+/* 스며든 시간으로 쓸 곳을 가르는 선 — 5초 이하 / 15초 넘음 은 교육용 기준값이다 */
+function bandOf(a){return a<=5?'속옷·수건':(a>15?'운동복·바람막이':'겉옷');}
+function avgOf(f){var arr=data[f]||[];if(!arr.length)return null;var s=0;for(var i=0;i<arr.length;i++)s+=arr[i];return s/arr.length;}
 function draw(prog){
   c.clearRect(0,0,cvv.width,cvv.height);
   var base=cvv.height-90,maxH=230,w=(cvv.width-30)/FS.length;
@@ -175,7 +181,7 @@ function draw(prog){
   c.fillText('지금 값 '+cur.toFixed(1)+'초',cvv.width/2,44);
 }
 return {
-  columns:['옷감','스며든 시간(초)','짜임'],
+  columns:['옷감','스며든 시간(초)','짜임','쓸 곳(내 선택)'],
   init:function(ctx2,canvas,readout){c=ctx2;cvv=canvas;out=readout;draw(1);
     out.innerHTML='실제로 잰 시간을 넣고 <b>막대 올리기</b>를 눌러 보세요. 같은 옷감을 여러 번 재면 평균이 됩니다.';},
   run:function(done){
@@ -183,12 +189,16 @@ return {
     data[fab.value].push(Number(sec.value));
     var t=0,iv=setInterval(function(){t++;draw(Math.min(t/20,1));
       if(t>=20){clearInterval(iv);
-        out.innerHTML='<b>'+fab.value+'</b> 기록 '+data[fab.value].length+'회. 다른 옷감도 재어 비교해 보세요.';
+        var a=avgOf(fab.value),bd=bandOf(a),mine=use.value.split('(')[0];
+        out.innerHTML='<b>'+fab.value+'</b> 기록 '+data[fab.value].length+'회 · 평균 <b>'+a.toFixed(1)+'초</b>. 다른 옷감도 재어 비교해 보세요.'+
+          '<br>잰 값으로 보면 이 옷감이 알맞은 곳은 <b>'+bd+'</b>입니다 · 내 선택 '+mine+' — '+
+          (bd===mine?'<b>잰 값과 맞습니다.</b>':'<b>잰 값과 다릅니다.</b> 값이 더 쌓이면 판정이 바뀔 수도 있습니다.')+
+          '<br><span style="font-size:.9rem;color:#53617a">※ 5초 이하 / 15초 넘음 으로 가르는 것은 <b>교육용 기준값</b>입니다.</span>';
         done();}},30);
   },
   record:function(){
-    return {cells:[fab.value,Number(sec.value).toFixed(1),weave.value.split('(')[0]],
-            raw:{f:fab.value,t:Number(sec.value),w:weave.value.split('(')[0]}};
+    return {cells:[fab.value,Number(sec.value).toFixed(1),weave.value.split('(')[0],use.value.split('(')[0]],
+            raw:{f:fab.value,t:Number(sec.value),w:weave.value.split('(')[0],u:use.value.split('(')[0]}};
   },
   verify:function(rs){
     var g={};
@@ -209,6 +219,33 @@ return {
       h+='<div style="font-size:.95rem">'+(m+1)+'. '+list[m].k+' · 평균 '+list[m].a.toFixed(1)+'초 ('+list[m].n+'회)</div>'+
          '<div class="barwrap"><div class="bar" style="width:'+Math.min(list[m].a/30*100,100)+'%"></div></div>';
     }
+    h+=(function(){
+      var byW={},hit=0,tot=0,miss=[];
+      for(var q=0;q<rs.length;q++){
+        var r=rs[q].raw,ww=r.w||'잘 모르겠음';
+        if(!byW[ww])byW[ww]={s:0,n:0};
+        byW[ww].s+=r.t;byW[ww].n++;
+      }
+      for(var k2 in g){
+        var s2=0;for(var j2=0;j2<g[k2].length;j2++)s2+=g[k2][j2];
+        var a2=s2/g[k2].length,bd=bandOf(a2);
+        var mine=null;
+        for(var q2=0;q2<rs.length;q2++){if(rs[q2].raw.f===k2&&rs[q2].raw.u)mine=rs[q2].raw.u;}
+        if(!mine)continue;
+        tot++; if(mine===bd)hit++; else miss.push(k2+' (잰 값 '+a2.toFixed(1)+'초 → '+bd+', 내 선택 '+mine+')');
+      }
+      var s='<h4 style="margin:.7rem 0 .2rem">짜임별 평균</h4>';
+      for(var k3 in byW){
+        var av=byW[k3].s/byW[k3].n;
+        s+='<div style="font-size:.95rem">'+k3+' · 평균 '+av.toFixed(1)+'초 ('+byW[k3].n+'회)</div>'+
+           '<div class="barwrap"><div class="bar" style="width:'+Math.min(av/30*100,100)+'%;background:#9a7cd8"></div></div>';
+      }
+      if(tot){
+        s+='<p style="font-size:1.03rem;line-height:1.8">쓸 곳 고르기 <b>'+hit+' / '+tot+'</b> 가 잰 값과 맞았습니다.'+
+           (miss.length?'<br>다른 것: '+miss.join('<br>'):'')+'</p>';
+      }
+      return s;
+    })();
     h+='</div><div><h3>읽어 내기</h3>';
     if(list.length>1){
       h+='<p style="font-size:1.03rem;line-height:1.85">가장 빨리 스며든 것은 <b>'+fast.k+'</b>('+fast.a.toFixed(1)+'초), '+

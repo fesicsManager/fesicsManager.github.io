@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -288,9 +289,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -300,6 +302,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -431,42 +440,51 @@ var LAB = (function(){
       return {
         sceneHeight: 450,
         idle: 'a, q, 예상을 고른 뒤 <b>평행이동하기</b>를 누르세요.',
-        shortHint: 'q = 3 에서 "오른쪽"과 "위"를 모두 골라 보세요. 빨간 예상 그래프와 실제 그래프는 x = 0 에서 값이 같나요?',
+        shortHint: 'q = 3, m = 0 에서 "오른쪽"과 "위"를 모두 골라 보세요. 그다음 q = 0, m = 3 으로 바꾸면 어느 예상이 맞아지나요?',
         params: [
           {key:'a', type:'seg', label:'a', cols:3, value:0, options:AL},
-          {key:'q', type:'range', label:'q', min:-4, max:4, step:1, value:3, fmt:function(v){ return f(v, 0); }},
+          {key:'q', type:'range', label:'q — 위아래로 옮기는 값', min:-4, max:4, step:1, value:3, fmt:function(v){ return f(v, 0); }},
+          {key:'m', type:'range', label:'m — 좌우로 옮기는 값', min:-3, max:3, step:1, value:0, fmt:function(v){ return f(v, 0); }},
           {key:'pr', type:'seg', label:'나의 예상', cols:2, value:0, options:PR}
         ],
-        compute: function(p){ var a = A[p.a], q = p.q; return {a:a, q:q, y0:q, wrongY0:a * q * q, right:p.pr === 1 || q === 0}; },
+        compute: function(p){ var a = A[p.a], q = p.q, m = p.m;
+          var right = (q === 0 && m === 0) ? true : (p.pr === 0 ? (m > 0 && q === 0) : (q > 0 && m === 0));
+          var why = (q === 0 && m === 0) ? '옮기지 않았어요 — 두 예상이 겹쳐요'
+            : (q !== 0 && m !== 0) ? '가로로도 세로로도 옮겼어요 — 어느 한쪽 예상만으로는 설명이 안 돼요'
+            : (m !== 0) ? '가로로만 ' + f(m, 0) + ' 옮겼어요 — 세로로는 그대로예요'
+            : '세로로만 ' + f(q, 0) + ' 옮겼어요 — 가로로는 그대로예요';
+          return {a:a, q:q, m:m, y0:a * m * m + q, wrongY0:a * q * q, right:right, why:why}; },
         draw: function(c, W, H, p, r, tau){
-          var a = A[p.a], q = p.q, bx = W >= 620 ? 80 : 62, bw = W - bx - 24, bh = H - 90, P = plotBox(c, bx, 20, bw, bh, [-5, 5, 1], [-10, 10, 2], 'x', 'y');
+          var a = A[p.a], q = p.q, m = p.m, bx = W >= 620 ? 80 : 62, bw = W - bx - 24, bh = H - 90, P = plotBox(c, bx, 20, bw, bh, [-5, 5, 1], [-10, 10, 2], 'x', 'y');
           var cv = function(fn, col, w, dash){ c.save(); c.beginPath(); c.rect(bx, 20, bw, bh); c.clip(); c.strokeStyle = col; c.lineWidth = w; c.setLineDash(dash || []); c.beginPath();
             for (var i = 0; i <= 200; i++){ var x = -5 + i / 20, y = Math.max(-30, Math.min(30, fn(x))); if (i) c.lineTo(P.X(x), P.Y(y)); else c.moveTo(P.X(x), P.Y(y)); } c.stroke(); c.restore(); };
           cv(function(x){ return a * x * x; }, '#8C99A8', 2, [6, 5]);
           if (!r) return;
           var k = Math.min(tau / 0.7, 1);
           if (p.pr === 0) cv(function(x){ return a * (x - q) * (x - q); }, PAL[4], 2, [3, 4]);
-          [-2, -1, 0, 1, 2].forEach(function(x){ var y0 = a * x * x; if (Math.abs(y0 + q) < 10.5 || Math.abs(y0) < 10.5){ if (q) arrow(c, P.X(x), P.Y(y0), P.X(x), P.Y(y0 + q * k), PAL[6], 2.5);
-            c.fillStyle = PAL[6]; c.beginPath(); c.arc(P.X(x), P.Y(y0 + q * k), 5, 0, Math.PI * 2); c.fill(); } });
-          if (tau > 0.7) cv(function(x){ return a * x * x + q; }, PAL[0], 3.5);
-          txt(c, 'y = ' + (a === 1 ? '' : AL[p.a] === '−1' ? '−' : AL[p.a]) + 'x²' + qs(q), bx + 8, 44, {bold:true, color:PAL[0]});
-          if (tau > 0.8){ var vs1 = '꼭짓점 (0, ' + f(q, 0) + ')', vs2 = p.pr === 0 && q ? '예상 그래프는 x=0에서 ' + f(r.wrongY0, 0) : ''; txt(c, '', bx + 8, H - 78, {bold:true});
-            if (vs2 && c.measureText(vs1 + '   ' + vs2).width > W - bx - 16){ txt(c, vs1, bx + 8, H - 100, {bold:true, color:PAL[1]}); txt(c, vs2, bx + 8, H - 78, {bold:true, color:PAL[1]}); }
-            else txt(c, vs1 + (vs2 ? '   ' + vs2 : ''), bx + 8, H - 78, {bold:true, color:PAL[1]}); }
+          [-2, -1, 0, 1, 2].forEach(function(x){ var y0 = a * x * x; if (Math.abs(y0 + q) < 10.5 || Math.abs(y0) < 10.5){ if (q || m) arrow(c, P.X(x), P.Y(y0), P.X(x + m * k), P.Y(y0 + q * k), PAL[6], 2.5);
+            c.fillStyle = PAL[6]; c.beginPath(); c.arc(P.X(x + m * k), P.Y(y0 + q * k), 5, 0, Math.PI * 2); c.fill(); } });
+          if (tau > 0.7) cv(function(x){ return a * (x - m) * (x - m) + q; }, PAL[0], 3.5);
+          txtFit(c, 'y = ' + (a === 1 ? '' : AL[p.a] === '−1' ? '−' : AL[p.a]) + (m === 0 ? 'x²' : '(x' + (m > 0 ? ' − ' + m : ' + ' + (-m)) + ')²') + qs(q), bx + 8, 44, {bold:true, color:PAL[0]}, bw - 16);
+          if (tau > 0.8){ var vs1 = '꼭짓점 (' + f(m, 0) + ', ' + f(q, 0) + ')', vs2 = p.pr === 0 && q ? '예상 그래프는 x=0에서 ' + f(r.wrongY0, 0) : ''; txt(c, '', bx + 8, H - 78, {bold:true});
+            if (vs2 && c.measureText(vs1 + '   ' + vs2).width > W - bx - 16){ txtFit(c, vs1, bx + 8, H - 100, {bold:true, color:PAL[1]}, bw - 16); txtFit(c, vs2, bx + 8, H - 78, {bold:true, color:PAL[1]}, bw - 16); }
+            else txtFit(c, vs1 + (vs2 ? '   ' + vs2 : ''), bx + 8, H - 78, {bold:true, color:PAL[1]}, bw - 16); }
         },
         stats: function(p, r){
-          return [['그래프', 'y = ' + (AL[p.a] === '1' ? '' : AL[p.a] === '−1' ? '−' : AL[p.a]) + 'x²' + qs(r.q)], ['꼭짓점', '(0, 0) → (0, ' + f(r.q, 0) + ')', PAL[1]], ['이동', r.q === 0 ? '이동 없음' : 'y축 방향으로 ' + f(r.q, 0) + ' (' + (r.q > 0 ? '위' : '아래') + ')'],
-            ['x = 0 에서 비교', '실제 y = ' + f(r.y0, 0) + ',  "오른쪽 이동" 예상 y = ' + f(r.wrongY0, 0)],
+          return [['그래프', 'y = ' + (AL[p.a] === '1' ? '' : AL[p.a] === '−1' ? '−' : AL[p.a]) + (r.m === 0 ? 'x²' : '(x' + (r.m > 0 ? ' − ' + r.m : ' + ' + (-r.m)) + ')²') + qs(r.q)],
+            ['꼭짓점', '(0, 0) → (' + f(r.m, 0) + ', ' + f(r.q, 0) + ')', PAL[1]],
+            ['실제로 옮긴 쪽', r.why, (r.q === 0 && r.m === 0) ? '#4A5868' : PAL[6]],
+            ['x = 0 에서 비교', '실제 y = ' + f(r.y0, 0) + ',  "q가 오른쪽으로 옮긴다" 예상 y = ' + f(r.wrongY0, 0)],
             ['나의 예상', PR[p.pr] + (r.right ? ' — 맞음' : ' — 틀림'), r.right ? PAL[1] : PAL[4]]];
         },
-        columns: ['a', 'q', '꼭짓점', '예상', '맞음'],
-        record: function(p, r){ return {ai:p.a, q:r.q, pr:p.pr, right:r.right}; },
-        row: function(d){ return [AL[d.ai], f(d.q, 0), '(0, ' + f(d.q, 0) + ')', d.pr === 0 ? '오른쪽' : '위', d.right ? '예' : '아니오']; },
+        columns: ['a', 'q', 'm', '꼭짓점', '예상', '맞음'],
+        record: function(p, r){ return {ai:p.a, q:r.q, m:r.m, pr:p.pr, right:r.right}; },
+        row: function(d){ return [AL[d.ai], f(d.q, 0), f(d.m || 0, 0), '(' + f(d.m || 0, 0) + ', ' + f(d.q, 0) + ')', d.pr === 0 ? '오른쪽' : '위', d.right ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('q와 꼭짓점의 좌표', '<canvas class="chart" id="vq1"></canvas><p class="ask">파란 점(꼭짓점의 y좌표)과 주황 점(꼭짓점의 x좌표) 중 q와 같이 변한 것은 어느 쪽인가요?</p>') +
+            card('q와 꼭짓점의 좌표', '<canvas class="chart" id="vq1"></canvas><p class="ask">파란 점(꼭짓점의 y좌표)과 주황 점(꼭짓점의 x좌표) 중 q와 같이 변한 것은 어느 쪽인가요? m을 바꾼 기록에서는 어느 점이 움직였나요?</p>') +
             card('예상 정확도', '<div id="vq2"></div><p class="ask">과제: y = −x² − 2 의 꼭짓점과 축을 쓰고, y = −x² 을 어떻게 옮긴 그래프인지 설명해 보세요.</p>') + '</div>';
-          drawScatter($('vq1'), {series:[{color:PAL[0], pts:rec.map(function(d){ return {x:d.q, y:d.q}; })}, {color:PAL[6], pts:rec.map(function(d){ return {x:d.q, y:0}; }), hollow:true}], xLabel:'q', yLabel:'꼭짓점 좌표', square:true});
+          drawScatter($('vq1'), {series:[{color:PAL[0], pts:rec.map(function(d){ return {x:d.q, y:d.q}; })}, {color:PAL[6], pts:rec.map(function(d){ return {x:d.q, y:d.m || 0}; }), hollow:true}], xLabel:'q', yLabel:'꼭짓점 좌표', square:true});
           $('vq2').innerHTML = hbars([0, 1].map(function(m){ var g = rec.filter(function(d){ return d.pr === m; }), o = g.filter(function(d){ return d.right; }).length;
             return {label:PR[m], v:g.length ? o / g.length * 100 : 0, color:m ? PAL[1] : PAL[4], text:o + ' / ' + g.length}; }), 100);
         }
@@ -477,7 +495,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

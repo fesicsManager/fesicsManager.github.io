@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -480,11 +482,22 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
       ];
       var CL = ['이루어짐', '중단됨', '외국으로 넘어감'], CC = [PAL[1], PAL[4], PAL[6]];
       var EV = [[1897, '황제 즉위'], [1904, '러일 전쟁'], [1905, '을사늑약'], [1907, '국채 보상 운동'], [1910, '국권 피탈']];
+      var BG = ['그대로', '두 배로', '절반으로'], IP = ['실제보다 약하게', '실제대로', '더 세게'];
+      /* 가정 실험용 교육용 모형값 — 재정을 몰아주면 +3년, 절반이면 −2년, 간섭이 약하면 +3년, 더 세면 −2년 */
+      var BGS = [0, 3, -2], IPS = [3, 0, -2];
       function model(p){
         var pj = PJ[p.pj], y = p.y, st = y < pj.a ? '시작 전' : (pj.b && y > pj.b) ? CL[pj.cls] === '중단됨' ? '중단됨 (' + pj.b + ')' : CL[pj.cls] : '진행 중·운영 중';
         if (pj.cls === 2 && y >= pj.a) st = '개통 — 부설권은 일본 회사';
         var run = PJ.filter(function(q){ return y >= q.a && (!q.b || y <= q.b); }).length;
-        return {pj:pj, st:st, ok:p.my === pj.cls, run:run};
+        var sh = BGS[p.bg || 0] + IPS[p.ip == null ? 1 : p.ip];
+        var altEnd = pj.b ? clamp(pj.b + sh, pj.a + 1, 1910) : null;
+        var altSt = pj.cls === 0 ? '그대로 이루어짐'
+          : pj.cls === 1 ? (altEnd >= 1910 ? '1910년까지 이어졌을 수 있음' : altEnd + '년에 멈췄을 것')
+          : ((p.ip === 0) ? '이권을 지켰을 수 있음' : '이권이 넘어갔을 것');
+        var altWin = (pj.cls === 1 && altEnd >= 1910) || (pj.cls === 2 && p.ip === 0) || pj.cls === 0;
+        return {pj:pj, st:st, ok:p.my === pj.cls, run:run,
+          bg:p.bg || 0, ip:p.ip == null ? 1 : p.ip, sh:sh, altEnd:altEnd, altSt:altSt, altWin:altWin,
+          same:(sh === 0)};
       }
       return {
         sceneHeight: 440,
@@ -493,7 +506,10 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         params: [
           {key:'y', type:'range', label:'연도', min:1897, max:1910, step:1, value:1899, fmt:function(v){ return v + '년'; }},
           {key:'pj', type:'seg', label:'사업', cols:3, value:0, options:PJ.map(function(x){ return x.n; })},
-          {key:'my', type:'seg', label:'나의 분류', cols:3, value:0, options:CL}
+          {key:'my', type:'seg', label:'나의 분류', cols:3, value:0, options:CL},
+          {key:'bg', type:'seg', label:'가정 — 이 사업에 재정을', cols:3, value:0, options:BG},
+          {key:'ip', type:'seg', label:'가정 — 일본의 간섭을', cols:3, value:1, options:IP,
+            note:'사료 그대로의 결과와, 재정·간섭이 달랐다면 어떻게 됐을지를 나란히 봅니다. 가정 쪽 숫자는 교육용 모형값입니다.'}
         ],
         compute: function(p){ return model(p); },
         draw: function(c, W, H, p, r, tau){
@@ -518,20 +534,38 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         },
         stats: function(p, r){
           return [['사업', r.pj.n], [p.y + '년의 상태', r.st, PAL[0]], ['최종 결과 (사료)', CL[r.pj.cls], CC[r.pj.cls]], ['나의 분류', CL[p.my] + (r.ok ? ' — 맞음' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
-            ['근거', r.pj.why], ['멈춘 이유', r.pj.side, PAL[3]], [p.y + '년에 진행·운영 중인 사업', r.run + '개 / 6개']];
+            ['근거', r.pj.why], ['멈춘 이유', r.pj.side, PAL[3]], [p.y + '년에 진행·운영 중인 사업', r.run + '개 / 6개'],
+            ['가정 — 재정 ' + BG[r.bg] + ' · 간섭 ' + IP[r.ip], r.altSt + (r.same ? ' (사료와 같은 조건)' : ''), r.altWin ? PAL[1] : PAL[6]],
+            ['※ 가정 실험', '재정·간섭을 바꾼 쪽은 사료가 아니라 교육용 모형값으로 셈한 "만약"입니다. 사실로 외우지 마세요']];
         },
-        columns: ['연도', '사업', '나의 분류', '실제', '진행 중'],
-        record: function(p, r){ return {y:p.y, pj:p.pj, my:p.my, ok:r.ok, run:r.run}; },
-        row: function(d){ return [d.y, PJ[d.pj].s, CL[d.my], CL[PJ[d.pj].cls] + (d.ok ? ' ✓' : ''), d.run + '개']; },
+        columns: ['연도', '사업', '나의 분류', '실제', '진행 중', '가정 조건', '가정 결과'],
+        record: function(p, r){ return {y:p.y, pj:p.pj, my:p.my, ok:r.ok, run:r.run, bg:r.bg, ip:r.ip, altSt:r.altSt, altWin:r.altWin}; },
+        row: function(d){ return [d.y, PJ[d.pj].s, CL[d.my], CL[PJ[d.pj].cls] + (d.ok ? ' ✓' : ''), d.run + '개',
+          d.bg == null ? '−' : ('재정 ' + BG[d.bg] + ' · 간섭 ' + IP[d.ip]), d.altSt || '−']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('사업별 나의 분류 vs 실제', '<div id="ke1"></div><p class="ask">과제: 대한제국의 개혁 사업 6개를 연표에 놓고 세 가지 색으로 표시하세요. 중단된 사업마다 멈춘 해와 이유를 적고, 그 이유를 "안의 한계"와 "밖의 압력"으로 나눠 보세요.</p>') +
+            card('만약 재정과 간섭이 달랐다면', '<div id="ke3"></div><p class="ask">어디에 돈을 몰아줬다면 무엇이 끝까지 갔을까요? 그리고 재정만으로 막을 수 없었던 것은 무엇이었나요? (가정 쪽은 교육용 모형값입니다)</p>') +
             card('연도별 진행 중인 사업 수', '<div id="ke2"></div><p class="ask">"원래 약했다"와 "하던 중에 멈춰졌다"는 어떻게 다른 설명인가요?</p>') + '</div>';
           var last = {}; rec.forEach(function(d){ last[d.pj] = d; });
           $('ke1').innerHTML = tableHTML(['사업', '나', '실제', '멈춘 이유'], PJ.map(function(q, i){ var d = last[i]; return [q.s, d ? CL[d.my] + (d.ok ? ' ✓' : ' ✕') : '—', CL[q.cls], q.side.split(' — ')[0]]; })) +
             (Object.keys(last).length < 6 ? '<p class="msg">아직 분류하지 않은 사업이 있어요.</p>' : '');
           var ys = {}; rec.forEach(function(d){ ys[d.y] = d.run; });
           $('ke2').innerHTML = hbars(Object.keys(ys).sort().map(function(y){ return {label:y + '년', v:ys[y], color:+y >= 1904 ? PAL[4] : PAL[0], text:ys[y] + '개'}; }), 6);
+          (function(){
+            var gr = rec.filter(function(d){ return d.bg != null; });
+            if (!gr.length){ $('ke3').innerHTML = '<p class="msg">재정·간섭 가정을 바꿔 확인하면 여기에서 모아 줍니다.</p>'; return; }
+            var seen3 = {}, rows3 = [], won = 0;
+            gr.forEach(function(d){
+              var k = d.pj + '|' + d.bg + d.ip; if (seen3[k]) return; seen3[k] = 1;
+              if (d.altWin && PJ[d.pj].cls !== 0) won++;
+              rows3.push([PJ[d.pj].s, '재정 ' + BG[d.bg] + ' · 간섭 ' + IP[d.ip], CL[PJ[d.pj].cls], d.altSt]);
+            });
+            $('ke3').innerHTML = tableHTML(['사업', '가정 조건', '사료의 결과', '가정에서의 결과'], rows3, 'wrap') +
+              (won ? '<p class="msg">가정에서 끝까지 이어졌을 사업이 <b>' + won + '건</b> 나왔습니다. 그렇다면 "아무것도 못 했다"는 말보다 <b>무엇이 어디서 멈췄는지</b>를 말해야 합니다.</p>'
+                   : '<p class="msg">재정을 두 배로 하거나 간섭을 약하게 두고도 확인해 보세요 — 끝까지 갈 수 있었던 사업이 보입니다.</p>') +
+              '<p class="msg">※ 가정 쪽 연도는 사료가 아니라 교육용 모형값입니다.</p>';
+          })();
         }
       };
     
@@ -541,7 +575,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -443,25 +445,50 @@ var LAB = (function(){
         {n:'루소의 렌즈', look:'교체', say:'주권이 인민에게 남아 있는가 — 주민이 집행자를 바꿀 수 있는지에 주목'}
       ];
       function key(p){ var c2 = p.e ? p.c : 0; return '' + p.r + p.e + c2; }
+
+      /* ---- 미리 정한 건수를 꺼내 쓰지 않고, 주민이 실제로 부딪히게 해서 센다 ----
+         교육용 모형: 주민 수에 비례해 '다툴 거리'가 생기고, 규칙·집행자가 있으면 다툼으로 번질 확률이
+         줄어든다. 집행자가 있으면 그 과정에서 권한을 함부로 쓰는 일(남용)도 생긴다. */
+      var trial = 0;
+      function rng(seed){ var s = (seed >>> 0) || 1; return function(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+      function pConflict(r, e, c2){ return 0.35 * Math.exp(-(0.337 * r + 0.742 * e + 0.46 * r * e - 0.10 * e * c2)); }
+      function pAbuse(r, e, c2){ return e ? 0.2083 * (r ? 0.6 : 1) * (c2 ? 0.24 : 1) : 0; }
+      function simulate(p, N, tno){
+        var c2 = p.e ? p.c : 0, EV = Math.round(N * 1.2);
+        var rnd = rng(1000003 * (tno + 1) + 7919 * N + 131 * p.r + 17 * p.e + 3 * c2);
+        var pc = pConflict(p.r, p.e, c2), pa = pAbuse(p.r, p.e, c2), dis = 0, ab = 0;
+        for (var i = 0; i < EV; i++){
+          if (rnd() < pc) dis++;                 /* 다툴 거리가 분쟁으로 번졌나 */
+          if (p.e && rnd() < pa) ab++;           /* 집행자가 선을 넘었나 */
+        }
+        return {ev:EV, dis:dis, ab:p.e ? ab : null, pc:pc, pa:pa, N:N, tno:tno};
+      }
       return {
         sceneHeight: 420,
-        idle: '섬의 조건과 렌즈를 고른 뒤 <b>섬에서 1년 살아 보기</b>를 누르세요.',
-        shortHint: '웹툰 표의 세 줄(아무것도 없음 → 규칙+집행자 → 규칙+집행자+교체)을 차례로 돌려 보고, 렌즈를 바꿔 각 사상가가 먼저 볼 숫자를 확인하세요.',
+        idle: '섬의 조건과 렌즈를 고른 뒤 <b>섬에서 1년 살아 보기</b>를 누르세요. 주민들이 실제로 부딪히게 해서 분쟁과 남용을 셉니다 — 같은 조건이라도 해마다 숫자가 조금씩 달라집니다.',
+        shortHint: '웹툰 표의 세 줄(아무것도 없음 → 규칙+집행자 → 규칙+집행자+교체)을 차례로 돌려 보고, 같은 조건을 두세 번 더 돌려 해마다 얼마나 흔들리는지도 보세요.',
         params: [
           {key:'r', type:'seg', label:'공동 규칙', cols:2, value:0, options:ONOFF},
           {key:'e', type:'seg', label:'규칙을 집행하는 사람(집행자)', cols:2, value:0, options:ONOFF},
           {key:'c', type:'seg', label:'주민이 집행자를 바꿀 수 있는 장치', cols:2, value:0, options:ONOFF},
+          {key:'n', type:'range', label:'섬의 주민 수', min:40, max:200, step:10, value:100, fmt:function(v){ return v + '명'; },
+            note:'주민이 많아지면 부딪힐 거리도 그만큼 많아집니다(주민 수 × 1.2건으로 잡은 교육용 모형값).'},
           {key:'l', type:'seg', label:'사상가 렌즈', cols:3, value:0, options:LS.map(function(x){ return x.n; })}
         ],
         compute: function(p){
           var k = key(p), t = TB[k];
-          return {k:k, dis:t[0], ab:t[1], inScript:t[2], noEff:p.c === 1 && p.e === 0, L:LS[p.l]};
+          var s = simulate(p, p.n, trial++);
+          return {k:k, dis:s.dis, ab:s.ab, ev:s.ev, N:s.N, tno:s.tno + 1, pc:s.pc, pa:s.pa,
+                  per100:s.dis / s.N * 100, tb:t, inScript:t[2],
+                  noEff:p.c === 1 && p.e === 0, L:LS[p.l]};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var cx = W / 2, cy = H * 0.47, rx = Math.min(W * 0.42, 300), ry = H * 0.34, k = r ? Math.min(1, tau / 0.85) : 0;
           c.fillStyle = '#BFD9E8'; c.fillRect(0, 0, W, H);
           c.fillStyle = '#E8DDB8'; c.beginPath(); c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); c.fill();
-          for (var i = 0; i < 100; i++){ var a = i * 2.39996, rr = Math.sqrt((i + 0.5) / 100) * 0.88; var x = cx + Math.cos(a) * rx * rr, y = cy + Math.sin(a) * ry * rr; c.fillStyle = '#5C6B7A'; c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill(); }
+          var NN = p.n || 100;
+          for (var i = 0; i < NN; i++){ var a = i * 2.39996, rr = Math.sqrt((i + 0.5) / NN) * 0.88; var x = cx + Math.cos(a) * rx * rr, y = cy + Math.sin(a) * ry * rr; c.fillStyle = '#5C6B7A'; c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill(); }
+          tf(c, '주민 ' + NN + '명', W - 16, 30, {align:'right', bold:true, color:'#26313D'});
           if (p.e){ c.fillStyle = '#26313D'; c.fillRect(cx - 16, cy - 16, 32, 32); tf(c, '집', cx, cy + 6, {align:'center', bold:true, color:'#fff'}); if (p.c){ c.strokeStyle = PAL[1]; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, 30, 0, Math.PI * 1.6); c.stroke(); } }
           if (p.r){ c.fillStyle = '#fff'; c.fillRect(16, 16, 92, 36); tf(c, '공동 규칙', 62, 40, {align:'center', bold:true}); }
           if (r){
@@ -469,29 +496,55 @@ var LAB = (function(){
             for (var j = 0; j < nd; j++){ var b = j * 1.7 + 0.4, q = Math.sqrt((j * 37 % 100 + 0.5) / 100) * 0.85; glow(c, cx + Math.cos(b) * rx * q, cy + Math.sin(b) * ry * q, 12, 'rgba(200,70,61,.85)', 0.9); }
             if (r.ab){ var na = Math.round(r.ab / 10 * k + 0.49 * (k >= 1 ? 1 : 0)); for (var m = 0; m < Math.max(na, k >= 1 ? Math.ceil(r.ab / 10) : 0); m++){ c.fillStyle = PAL[3]; c.fillRect(cx + 40 + m * 22, cy - 40, 16, 16); } }
           }
-          if (r && tau >= 1) tf(c, '분쟁 ' + r.dis + '건 · 남용 ' + (r.ab == null ? '—' : r.ab + '건'), 16, H - 16, {bold:true});
+          if (r && tau >= 1) tf(c, r.tno + '번째 해 — 부딪힌 거리 ' + r.ev + '건 중 분쟁 ' + r.dis + '건 · 남용 ' + (r.ab == null ? '—' : r.ab + '건'), 16, H - 16, {bold:true});
+          else if (!r) tf(c, '규칙 ' + ONOFF[p.r] + ' · 집행자 ' + ONOFF[p.e] + ' · 교체 장치 ' + ONOFF[p.e ? p.c : 0] + ' — 섬에서 1년 살아 보기를 누르세요', 16, H - 16, {bold:true, color:'#26313D'});
         },
         stats: function(p, r){
           var hl = r.L.look;
-          return [['섬의 조건', '규칙 ' + ONOFF[p.r] + ' · 집행자 ' + ONOFF[p.e] + ' · 교체 장치 ' + ONOFF[p.c] + (r.noEff ? ' (바꿀 집행자가 없어 효과 없음)' : '')],
-            ['1년 동안 분쟁', r.dis + '건', hl === '분쟁' ? PAL[4] : PAL[7]],
+          return [['섬의 조건', '주민 ' + r.N + '명 · 규칙 ' + ONOFF[p.r] + ' · 집행자 ' + ONOFF[p.e] + ' · 교체 장치 ' + ONOFF[p.c] + (r.noEff ? ' (바꿀 집행자가 없어 효과 없음)' : '')],
+            ['부딪힐 거리', r.ev + '건 (주민 ' + r.N + '명 × 1.2)'],
+            ['1년 동안 분쟁', r.dis + '건 — 부딪힌 거리의 ' + f(r.dis / r.ev * 100, 0) + ' %', hl === '분쟁' ? PAL[4] : PAL[7]],
+            ['주민 100명으로 치면', f(r.per100, 1) + '건', PAL[7]],
             ['집행자의 권한 남용', r.ab == null ? '— (집행자 없음)' : r.ab + '건', hl === '남용' ? PAL[3] : PAL[7]],
             ['주민이 집행자를 바꿀 수 있나', p.e && p.c ? '있음 — 동의를 되풀이해 확인' : '없음', hl === '교체' ? PAL[1] : PAL[7]],
             [r.L.n, r.L.say, PAL[0]],
-            ['값의 출처', r.inScript ? '웹툰 #4 표의 가상 값' : '웹툰 표에 없는 조합 — 같은 방식의 가상 값']];
+            ['값의 출처', '표에서 꺼낸 값이 아니라 주민 ' + r.N + '명이 ' + r.ev + '번 부딪히게 해서 센 값입니다('
+              + r.tno + '번째 해). 번질 확률 ' + f(r.pc * 100, 1) + ' %, 남용 확률 ' + f(r.pa * 100, 1) + ' % 는 교육용 모형값이에요.'
+              + (r.inScript ? ' 웹툰 #4 표에는 분쟁 ' + r.tb[0] + '건' + (r.tb[1] == null ? '' : ' · 남용 ' + r.tb[1] + '건') + '으로 적혀 있어요.' : '')]];
         },
-        columns: ['규칙', '집행자', '교체', '분쟁', '남용', '렌즈'],
-        record: function(p, r){ return {r:p.r, e:p.e, c:p.e ? p.c : 0, dis:r.dis, ab:r.ab, l:p.l, k:r.k}; },
-        row: function(d){ return [ONOFF[d.r], ONOFF[d.e], ONOFF[d.c], d.dis + '건', d.ab == null ? '—' : d.ab + '건', LS[d.l].n.replace('의 렌즈', '')]; },
+        columns: ['규칙', '집행자', '교체', '주민', '부딪힘', '분쟁', '남용', '렌즈'],
+        record: function(p, r){ return {r:p.r, e:p.e, c:p.e ? p.c : 0, N:r.N, ev:r.ev, dis:r.dis, ab:r.ab, per100:r.per100, l:p.l, k:r.k}; },
+        row: function(d){ return [ONOFF[d.r], ONOFF[d.e], ONOFF[d.c], d.N + '명', d.ev + '건', d.dis + '건', d.ab == null ? '—' : d.ab + '건', LS[d.l].n.replace('의 렌즈', '')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('웹툰 #4 표와 내 기록', '<div id="sn1"></div><p class="ask">두 번째 줄은 홉스가 걱정한 무질서를, 세 번째 줄은 로크가 걱정한 권력 남용까지 줄였습니다. 세 번째 줄에서 분쟁이 9건 → 10건으로 조금 늘어난 것은 어떻게 해석할 수 있을까요?</p>') +
             card('조건별 분쟁과 남용 (내가 돌린 조합)', '<div id="sn2"></div><p class="ask">과제: 헌법 전문과 제1조에서 국가 권력의 근거를 드러내는 표현을 찾아 적고, 세 사상가의 생각 가운데 어느 생각과 닮았는지 근거와 함께 정리해 보세요. 어느 사상가가 옳은지는 판정하지 말 것.</p>') + '</div>';
-          var rows = [['공동 규칙도 집행자도 없음', '000'], ['공동 규칙 + 집행자(바꿀 수 없음)', '110'], ['공동 규칙 + 집행자 + 교체 가능', '111']].map(function(q){ var t = TB[q[1]], seen = rec.some(function(d){ return d.k === q[1]; }); return [q[0], t[0] + '건', t[1] == null ? '—' : t[1] + '건', seen ? '돌려 봄 ✓' : '아직']; });
-          $('sn1').innerHTML = tableHTML(['섬의 조건', '분쟁', '남용', '내 기록'], rows);
-          var g = groupBy(rec, function(d){ return d.k; }), items = [];
-          Object.keys(g).sort().forEach(function(k){ var t = TB[k]; items.push({label:'규칙' + k[0] + '·집행' + k[1] + '·교체' + k[2] + ' 분쟁', v:t[0], color:PAL[4], text:t[0] + '건'}); if (t[1] != null) items.push({label:'규칙' + k[0] + '·집행' + k[1] + '·교체' + k[2] + ' 남용', v:t[1], color:PAL[3], text:t[1] + '건'}); });
-          $('sn2').innerHTML = hbars(items, 42) + '<p class="msg">1 = 있음, 0 = 없음. 집행자가 없으면 남용 막대는 나오지 않아요.</p>';
+          /* 웹툰 표의 값 옆에 '내가 돌려서 센 값(주민 100명으로 환산한 평균)'을 나란히 둔다 */
+          var gk = groupBy(rec, function(d){ return d.k; });
+          function mineOf(k){
+            var a = gk[k]; if (!a) return null;
+            var d = mean(a.map(function(x){ return x.per100; }));
+            var abs = a.filter(function(x){ return x.ab != null; });
+            return {n:a.length, dis:d, ab:abs.length ? mean(abs.map(function(x){ return x.ab / x.N * 100; })) : null};
+          }
+          var rows = [['공동 규칙도 집행자도 없음', '000'], ['공동 규칙 + 집행자(바꿀 수 없음)', '110'], ['공동 규칙 + 집행자 + 교체 가능', '111']].map(function(q){
+            var t = TB[q[1]], m = mineOf(q[1]);
+            return [q[0], t[0] + '건', t[1] == null ? '—' : t[1] + '건',
+              m ? f(m.dis, 1) + '건' : '아직', m ? (m.ab == null ? '—' : f(m.ab, 1) + '건') : '아직',
+              m ? m.n + '해 돌려 봄 ✓' : '아직'];
+          });
+          $('sn1').innerHTML = tableHTML(['섬의 조건', '웹툰 표 분쟁', '웹툰 표 남용', '내 모형 분쟁', '내 모형 남용', '돌린 횟수'], rows)
+            + '<p class="msg">내 모형 값은 주민 100명으로 환산한 평균입니다. 같은 조건을 여러 해 돌릴수록 값이 안정됩니다 — 한 해만 돌린 숫자로 결론을 내리면 위험하다는 뜻이기도 해요.</p>';
+          var items = [], maxv = 1;
+          Object.keys(gk).sort().forEach(function(k){
+            var a = gk[k], d = mean(a.map(function(x){ return x.per100; }));
+            var abs = a.filter(function(x){ return x.ab != null; });
+            var lab = '규칙' + k[0] + '·집행' + k[1] + '·교체' + k[2];
+            maxv = Math.max(maxv, d);
+            items.push({label:lab + ' 분쟁', v:d, color:PAL[4], text:f(d, 1) + '건'});
+            if (abs.length){ var av = mean(abs.map(function(x){ return x.ab / x.N * 100; })); maxv = Math.max(maxv, av); items.push({label:lab + ' 남용', v:av, color:PAL[3], text:f(av, 1) + '건'}); }
+          });
+          $('sn2').innerHTML = hbars(items, maxv) + '<p class="msg">1 = 있음, 0 = 없음. 모두 주민 100명당 건수(여러 해 평균)예요. 집행자가 없으면 남용 막대는 나오지 않아요.</p>';
         }
       };
     })();
@@ -500,7 +553,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

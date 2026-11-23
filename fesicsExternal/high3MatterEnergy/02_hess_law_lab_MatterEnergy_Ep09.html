@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -304,9 +305,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -460,14 +462,24 @@ return {
   shortHint: '자유 탐구 탭에서 한 묶음의 단계를 모두 측정해 기록하세요.',
   params: [
     {key:'s', type:'seg', label:'실험 묶음', value:0, options:SETS.map(function(x){ return x.name; })},
-    {key:'i', type:'seg', label:'측정할 단계', cols:3, value:0, options:['첫 번째', '두 번째', '세 번째'],
-      note:'열량계로 잰 값에는 작은 오차가 섞여 있습니다. 헤스 법칙에 따르면 처음과 끝 상태가 같으면 경로가 달라도 엔탈피 변화의 합은 같습니다.'}
+    {key:'i', type:'seg', label:'측정할 단계', cols:3, value:0, options:['첫 번째', '두 번째', '세 번째']},
+    {key:'h', type:'seg', label:'재는 방법', cols:2, value:0, options:['직접 재기', '가리고 거꾸로 구하기']},
+    {key:'g', type:'range', label:'거꾸로 구하기 — 나의 예측 ΔH', min:-450, max:0, step:5, value:-100, fmt:function(v){ return sgn(v, 0) + ' kJ/mol'; },
+      note:'열량계로 잰 값에는 작은 오차가 섞여 있습니다. 헤스 법칙에 따르면 처음과 끝 상태가 같으면 경로가 달라도 엔탈피 변화의 합은 같습니다. ‘가리고 거꾸로 구하기’를 고르면 그 단계의 값을 보여 주지 않고, 나머지 두 단계로 구한 값과 내 예측을 견주어 줍니다.'}
   ],
   compute: function(p){
-    var S = SETS[p.s], st = S.list[p.i];
-    var noise = ((p.s * 7 + p.i * 13) % 5 - 2) * 0.3;
-    var meas = Math.round((st.dH + noise) * 10) / 10;
-    return {S:S, st:st, meas:meas, idx:p.i, isTarget:p.i === S.target};
+    var S = SETS[p.s], st = S.list[p.i], P = S.path;
+    function m(i){ var nz = ((p.s * 7 + i * 13) % 5 - 2) * 0.3; return Math.round((S.list[i].dH + nz) * 10) / 10; }
+    var meas = m(p.i);
+    /* 헤스 법칙: s1 + s2 = direct. 가린 단계는 나머지 두 단계의 측정값으로 거꾸로 구한다 */
+    var inf = p.i === P.direct ? m(P.s1) + m(P.s2) : p.i === P.s1 ? m(P.direct) - m(P.s2) : m(P.direct) - m(P.s1);
+    inf = Math.round(inf * 10) / 10;
+    var other = p.i === P.direct ? [P.s1, P.s2] : p.i === P.s1 ? [P.direct, P.s2] : [P.direct, P.s1];
+    var how = p.i === P.direct
+      ? S.list[P.s1].id + ' + ' + S.list[P.s2].id
+      : S.list[P.direct].id + ' − ' + S.list[p.i === P.s1 ? P.s2 : P.s1].id;
+    var hid = p.h === 1, err = Math.round(Math.abs(p.g - inf) * 10) / 10;
+    return {S:S, st:st, meas:meas, inf:inf, how:how, other:other, hid:hid, err:err, ok:err <= 10, idx:p.i, isTarget:p.i === S.target};
   },
   draw: function(c, W, H, p, r, tau){
     var S = SETS[p.s], k = r ? Math.min(tau / 0.8, 1) : 0;
@@ -502,21 +514,36 @@ return {
     txt(c, r ? r.st.name : S.list[p.i].name, 12, by, {bold:true});
     txt(c, S.list[p.i].eq, 12, by + 28, {color:'#4A5868'});
     if (!r) return;
-    meter(c, 12, by + 44, Math.min(250, W - 24), sgn(r.meas * k, 1) + ' kJ/mol');
-    txt(c, r.isTarget ? '이 단계는 직접 재기 어려운 경우도 많습니다' : '경로를 이루는 단계', 12, by + 108, {color:'#4A5868'});
+    if (r.hid){
+      meter(c, 12, by + 44, Math.min(250, W - 24), sgn(r.inf * k, 1) + ' kJ/mol');
+      txt(c, r.how + ' 로 거꾸로 구함', 12, by + 108, {color:'#4A5868'});
+      txt(c, '내 예측 ' + sgn(p.g, 0) + ' → ' + (r.ok ? '맞았어요' : '차이 ' + f(r.err, 1)), 12, by + 134, {bold:true, color:r.ok ? '#2E9E78' : '#C8463D'});
+    } else {
+      meter(c, 12, by + 44, Math.min(250, W - 24), sgn(r.meas * k, 1) + ' kJ/mol');
+      txt(c, r.isTarget ? '이 단계는 직접 재기 어려운 경우도 많습니다' : '경로를 이루는 단계', 12, by + 108, {color:'#4A5868'});
+    }
   },
   stats: function(p, r){
+    if (r.hid){
+      return [['실험 묶음', r.S.name], ['가린 단계', r.st.id + ': ' + r.st.eq], ['설명', r.st.name],
+        ['거꾸로 구한 ΔH', sgn(r.inf, 1) + ' kJ/mol  (' + r.how + ')', PAL[0]],
+        ['나의 예측', sgn(p.g, 0) + ' kJ/mol — ' + (r.ok ? '맞았어요 (차이 ' + f(r.err, 1) + ')' : '차이 ' + f(r.err, 1) + ' kJ/mol'), r.ok ? PAL[1] : PAL[6]],
+        ['표준값', sgn(r.st.dH, 1) + ' kJ/mol'],
+        ['읽기', '직접 재기 어려운 반응도, 처음·끝 상태가 같은 다른 경로의 값만 있으면 이렇게 구할 수 있습니다']];
+    }
     return [['실험 묶음', r.S.name], ['측정한 단계', r.st.id + ': ' + r.st.eq], ['설명', r.st.name],
-      ['측정한 ΔH', sgn(r.meas, 1) + ' kJ/mol', PAL[4]], ['표준값', sgn(r.st.dH, 1) + ' kJ/mol']];
+      ['측정한 ΔH', sgn(r.meas, 1) + ' kJ/mol', PAL[4]], ['표준값', sgn(r.st.dH, 1) + ' kJ/mol'],
+      ['거꾸로 구하면', sgn(r.inf, 1) + ' kJ/mol  (' + r.how + ') — 직접 잰 값과 ' + f(Math.abs(r.inf - r.meas), 1) + ' 차이', PAL[0]]];
   },
-  columns: ['묶음', '단계', '반응식', '측정 ΔH (kJ/mol)', '표준값'],
-  record: function(p, r){ return {s:p.s, sn:r.S.name, i:p.i, id:r.st.id, eq:r.st.eq, meas:r.meas, ref:r.st.dH}; },
-  row: function(d){ return [d.sn, d.id, d.eq, sgn(d.meas, 1), sgn(d.ref, 1)]; },
+  columns: ['묶음', '단계', '반응식', '방법', '측정 ΔH (kJ/mol)', '거꾸로 구한 값', '내 예측', '표준값'],
+  record: function(p, r){ return {s:p.s, sn:r.S.name, i:p.i, id:r.st.id, eq:r.st.eq, meas:r.meas, inf:r.inf, hid:r.hid, pred:p.g, ref:r.st.dH}; },
+  row: function(d){ return [d.sn, d.id, d.eq, d.hid ? '가림' : '직접', d.hid ? '—' : sgn(d.meas, 1), d.inf != null ? sgn(d.inf, 1) : '—', d.hid ? sgn(d.pred, 0) : '—', sgn(d.ref, 1)]; },
   minRec: 3,
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('두 경로의 엔탈피 비교', '<div id="ro1"></div><p class="ask">단계를 이어서 간 경로의 합과 직접 간 경로의 값이 비슷한가요? 차이가 나는 까닭은 무엇일까요?</p>') +
       card('직접 재기 어려운 반응 구하기', '<div id="ro2"></div><p class="ask">탄소의 불완전 연소는 순수한 CO만 얻기 어려워 직접 재기 힘듭니다. 다른 두 반응의 값으로 어떻게 구할 수 있을까요?</p>') +
+      card('가리고 거꾸로 구한 기록', '<div id="ro4"></div><p class="ask">가린 단계를 거꾸로 구한 값은 직접 잰 값과 얼마나 달랐나요? 그 차이가 오차 수준인지 따져 보세요.</p>') +
       card('헤스 법칙의 뜻', '<p>엔탈피는 상태 함수라서, 처음과 끝 상태가 같으면 어떤 길로 갔든 변화량이 같습니다.</p><p class="ask">산에 오를 때 어느 길로 가든 높이 차이가 같은 것에 비유해 설명해 보세요. 반응식을 뒤집거나 계수를 곱하면 ΔH는 어떻게 될까요?</p>') + '</div>';
     var rows = [];
     [0, 1].forEach(function(si){
@@ -534,6 +561,11 @@ return {
       ['D: C + O₂ → CO₂', sgn(D.meas, 1)], ['E: CO + ½O₂ → CO₂', sgn(E.meas, 1)],
       ['D − E = C + ½O₂ → CO', sgn(D.meas - E.meas, 1)], ['직접 잰 F (참고)', F ? sgn(F.meas, 1) : '기록 없음']])
       : '<p class="msg">탄소 연소 경로에서 첫 번째와 두 번째 단계를 기록하면 계산해 줄게요.</p>';
+    var hd = rec.filter(function(d){ return d.hid; });
+    $('ro4').innerHTML = hd.length
+      ? tableHTML(['묶음', '가린 단계', '내 예측', '거꾸로 구한 값', '표준값', '예측 차이'],
+          hd.map(function(d){ return [d.sn, d.id, sgn(d.pred, 0), sgn(d.inf, 1), sgn(d.ref, 1), f(Math.abs(d.pred - d.inf), 1)]; }))
+      : '<p class="msg">‘가리고 거꾸로 구하기’로도 재 보세요. 값을 보여 주지 않고 나머지 두 단계로 구한 값과 견주어 줍니다.</p>';
   }
 };
 })();
@@ -542,7 +574,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

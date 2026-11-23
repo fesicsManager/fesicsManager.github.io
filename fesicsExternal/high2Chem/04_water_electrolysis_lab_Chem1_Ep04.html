@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -307,9 +308,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -441,17 +443,28 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
 var F = 96485, VM = 24.47;   // C/mol, 25 ℃·1 atm 기체 1몰 부피 (L)
+/* 모은 기체가 물에 조금 녹아 들어가는 몫. 산소가 수소보다 물에 잘 녹는다.
+   '무시하기'가 기본값이라 예전 결과(2.00)가 그대로 나온다.
+   ※ 아래 % 는 교육용 모형값이에요. */
+var SL = [{n:'무시하기 (교과서 모형)', s:'무시', h:0, o:0},
+  {n:'조금 녹음 (찬물·짧은 시간)', s:'조금', h:0.015, o:0.035},
+  {n:'많이 녹음 (미지근한 물·긴 시간)', s:'많이', h:0.04, o:0.09}];
 return {
   sceneHeight: function(w){ return w < 420 ? 390 : 360; },
   idle: '전류와 시간을 정한 뒤 <b>전원 켜기</b>를 누르세요. 물에는 전류가 잘 흐르도록 황산 나트륨을 조금 녹였습니다.',
   shortHint: '자유 탐구 탭에서 전류와 시간을 바꿔 가며 기록하세요.',
   params: [
     {key:'I', type:'range', label:'전류 I', min:0.1, max:0.5, step:0.1, value:0.3, fmt:function(v){ return f(v, 1) + ' A'; }},
-    {key:'t', type:'range', label:'전류를 흘린 시간', min:2, max:10, step:2, value:6, fmt:function(v){ return v + '분'; }}
+    {key:'t', type:'range', label:'전류를 흘린 시간', min:2, max:10, step:2, value:6, fmt:function(v){ return v + '분'; }},
+    {key:'sl', type:'seg', label:'모은 기체가 물에 녹는 것', cols:3, value:0, options:SL.map(function(x){ return x.n; }),
+      note:'산소는 수소보다 물에 더 잘 녹아요. 녹는 것을 넣으면 부피 비가 2.00 에서 벗어납니다.'}
   ],
   compute: function(p){
-    var Q = p.I * p.t * 60, ne = Q / F;
-    return {Q:Q, VH:Math.round(ne / 2 * VM * 1e4) / 10, VO:Math.round(ne / 4 * VM * 1e4) / 10};
+    var Q = p.I * p.t * 60, ne = Q / F, S = SL[p.sl || 0];
+    var VH0 = ne / 2 * VM * 1000, VO0 = ne / 4 * VM * 1000;          /* 생긴 부피 (mL) */
+    var VH = Math.round(VH0 * (1 - S.h) * 10) / 10, VO = Math.round(VO0 * (1 - S.o) * 10) / 10;
+    return {Q:Q, VH:VH, VO:VO, VH0:Math.round(VH0 * 10) / 10, VO0:Math.round(VO0 * 10) / 10, S:S,
+      ratio:VO > 0 ? VH / VO : 0, ratio0:2};
   },
   draw: function(c, W, H, p, r, tau){
     var k = r ? tau : 0, nar = W < 420, cx = nar ? W / 2 + 10 : W / 2 - 20, top = 70, th = 200, tw = 44, gap = 110;
@@ -476,19 +489,42 @@ return {
     else txt(c, 'BTB 용액: (−)극 쪽 파랑, (+)극 쪽 노랑', 12, H - 12, {color:'#4A5868'});
   },
   stats: function(p, r){
-    return [['흘려 준 전하량 Q = I × t', f(r.Q, 0) + ' C'], ['(−)극 기체 부피', f(r.VH, 1) + ' mL', PAL[0]], ['(+)극 기체 부피', f(r.VO, 1) + ' mL', PAL[6]], ['부피 비 (−)극 ÷ (+)극', f(r.VH / r.VO, 2)]];
+    var s = [['흘려 준 전하량 Q = I × t', f(r.Q, 0) + ' C'],
+      ['(−)극 기체 부피', f(r.VH, 1) + ' mL', PAL[0]], ['(+)극 기체 부피', f(r.VO, 1) + ' mL', PAL[6]],
+      ['부피 비 (−)극 ÷ (+)극', f(r.ratio, 2), Math.abs(r.ratio - 2) > 0.05 ? PAL[4] : PAL[1]]];
+    if (r.S.h || r.S.o){
+      s.push(['물에 녹아 사라진 몫', '수소 ' + f(r.S.h * 100, 1) + '% · 산소 ' + f(r.S.o * 100, 1) + '% (교육용 모형값)', PAL[3]]);
+      s.push(['녹기 전 부피', '수소 ' + f(r.VH0, 1) + ' mL · 산소 ' + f(r.VO0, 1) + ' mL']);
+      s.push(['판정', '산소가 더 많이 녹아 (+)극 기체가 더 줄었어요. 그래서 재어 보면 2.00 이 아니라 ' + f(r.ratio, 2) + ' 이 나옵니다 — 식이 틀린 게 아니라 모은 방법 때문이에요.', PAL[4]]);
+    } else {
+      s.push(['판정', '녹는 것을 무시하면 전류·시간을 어떻게 바꿔도 비는 2.00 입니다. 조작에서 "물에 녹는 것"을 켜 보세요.', PAL[1]]);
+    }
+    return s;
   },
-  columns: ['I (A)', '시간 (분)', 'Q (C)', '(−)극 H₂ (mL)', '(+)극 O₂ (mL)'],
-  record: function(p, r){ return {I:p.I, t:p.t, Q:r.Q, VH:r.VH, VO:r.VO}; },
-  row: function(d){ return [f(d.I, 1), d.t, f(d.Q, 0), f(d.VH, 1), f(d.VO, 1)]; },
+  columns: ['I (A)', '시간 (분)', 'Q (C)', '녹음', '(−)극 H₂ (mL)', '(+)극 O₂ (mL)', '부피 비'],
+  record: function(p, r){ return {I:p.I, t:p.t, Q:r.Q, VH:r.VH, VO:r.VO, sl:p.sl || 0, ratio:r.ratio}; },
+  row: function(d){ return [f(d.I, 1), d.t, f(d.Q, 0), SL[d.sl || 0].s, f(d.VH, 1), f(d.VO, 1), f(d.ratio == null ? d.VH / d.VO : d.ratio, 2)]; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('두 극에서 생긴 기체의 부피', '<canvas class="chart" id="ch1" role="img" aria-label="물의 전기 분해와 화학 결합 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">부피 비는 물 분자(H₂O)의 수소와 산소 원자 수 비와 어떤 관계가 있나요?</p>') +
+      card('2 : 1 은 언제 깨지나', '<div id="ch3"></div><p class="ask">전류와 시간을 어떻게 바꿔도 비가 2.00 이었던 것은 어떤 조건에서였나요? 비가 2 에서 벗어났을 때, 틀린 것은 화학식일까요 아니면 기체를 모은 방법일까요?</p>') +
       card('전하량과 수소 부피', '<canvas class="chart" id="ch2" role="img" aria-label="물의 전기 분해와 화학 결합 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro2"></ul><p class="ask">전기가 물 분자를 쪼갤 수 있다는 것은 원자 사이의 결합에 대해 무엇을 알려 주나요?</p>') + '</div>';
     drawScatter($('ch1'), {xLabel:'(+)극 O₂ (mL)', yLabel:'(−)극 H₂ (mL)', series:[{color:PAL[0], pts:rec.map(function(d){ return {x:d.VO, y:d.VH}; })}]});
     $('ro1').innerHTML = '<li>기록 ' + rec.length + '개: H₂ 부피 ÷ O₂ 부피 평균 <b>' + f(mean(rec.map(function(d){ return d.VH / d.VO; })), 2) + '</b></li>';
     var k = fit0(rec.map(function(d){ return {x:d.Q, y:d.VH}; }));
     drawScatter($('ch2'), {xLabel:'전하량 Q (C)', yLabel:'H₂ 부피 (mL)', series:[{color:PAL[0], pts:rec.map(function(d){ return {x:d.Q, y:d.VH}; })}], lines:[{k:k, color:PAL[0]}]});
+    /* 녹음 조건별로 비가 2 에서 얼마나 벗어나는지 내 기록으로 모은다 */
+    var byS = groupBy(rec, function(x){ return x.sl || 0; });
+    var rows3 = [0, 1, 2].map(function(i){
+      var a = byS[i]; if (!a) return [SL[i].s, '—', '—'];
+      var rv = mean(a.map(function(x){ return x.ratio == null ? x.VH / x.VO : x.ratio; }));
+      return [SL[i].s, a.length + '회', f(rv, 2) + ' (2.00 에서 ' + sgn(rv - 2, 2) + ')'];
+    });
+    var off = [1, 2].some(function(i){ return byS[i]; });
+    $('ch3').innerHTML = tableHTML(['녹는 것', '기록', '부피 비 평균'], rows3)
+      + '<p class="msg">' + (off
+        ? '기체가 물에 녹는 것을 넣으면 비가 2.00 에서 벗어납니다. 물 분자가 H₂O 인 것은 그대로예요 — 벗어난 까닭은 <b>모은 기체의 일부가 물에 녹아 사라졌기</b> 때문입니다. 산소가 수소보다 잘 녹으므로 비는 2보다 커집니다.'
+        : '"모은 기체가 물에 녹는 것"을 "조금"·"많이"로도 기록해 보면, 2 : 1 이 깨지는 까닭을 볼 수 있어요.') + '</p>';
     $('ro2').innerHTML = '<li>기울기 <b>' + f(k, 4) + ' mL/C</b></li><li>전자 1몰(96485 C)이 흐를 때 생긴 H₂: 기울기 × 96485 ÷ 24470 mL = <b>' + f(k * F / (VM * 1000), 3) + ' mol</b></li>';
   }
 };
@@ -498,7 +534,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

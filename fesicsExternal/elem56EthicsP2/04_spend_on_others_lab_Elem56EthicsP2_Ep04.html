@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -295,9 +296,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -444,16 +446,28 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
       function mu(p){ return 3 + (p.w === 1 ? (p.h === 1 ? 0.7 : 0.4) : 0) + (p.a === 1 ? 0.05 : 0); }
       return {
         sceneHeight: 400,
-        idle: '금액·쓰는 곳·방식을 고른 뒤 <b>하루 보내고 점수 매기기</b>를 누르세요.',
+        idle: '금액·쓰는 곳·방식·사람 수를 고른 뒤 <b>하루 보내고 점수 매기기</b>를 누르세요. 쓰는 곳만 바꾼 모둠도 같은 수로 함께 돌립니다.',
         shortHint: '"하라고 해서"로 두고 금액 2가지 × 쓰는 곳 2가지, 네 모둠을 모두 해 보세요.',
         params: [
           {key:'a', type:'seg', label:'받은 돈', cols:2, value:0, options:AM},
           {key:'w', type:'seg', label:'쓰는 곳', cols:2, value:0, options:WH},
-          {key:'h', type:'seg', label:'정한 방식', cols:2, value:0, options:HOW.map(function(x){ return x.n; }), note:'어느 쪽에 써야 한다는 정답은 없어요. 점수가 어떻게 달라지는지만 봐요.'}
+          {key:'h', type:'seg', label:'정한 방식', cols:2, value:0, options:HOW.map(function(x){ return x.n; }), note:'어느 쪽에 써야 한다는 정답은 없어요. 점수가 어떻게 달라지는지만 봐요.'},
+          {key:'n', type:'range', label:'한 모둠 사람 수', min:4, max:40, step:4, value:12, fmt:function(v){ return v + '명'; }}
         ],
         compute: function(p){
-          var m = mu(p), sc = [], i; for (i = 0; i < 12; i++) sc.push(clamp(Math.round((m + gs() * 0.8) * 2) / 2, 1, 5));
-          return {sc:sc, avg:mean(sc), m:m};
+          /* 고른 모둠과 '쓰는 곳만 바꾼 모둠'을 같은 사람 수로 함께 돌린다 — 사람이 적으면 결과가 뒤집힐 수 있다 */
+          var n = p.n || 12, m = mu(p), p2 = {a:p.a, w:(p.w === 1 ? 0 : 1), h:p.h}, m2 = mu(p2);
+          var sc = [], sc2 = [], i;
+          for (i = 0; i < n; i++) sc.push(clamp(Math.round((m + gs() * 0.8) * 2) / 2, 1, 5));
+          for (i = 0; i < n; i++) sc2.push(clamp(Math.round((m2 + gs() * 0.8) * 2) / 2, 1, 5));
+          var avg = mean(sc), avg2 = mean(sc2);
+          var forOther = (p.w === 1 ? avg : avg2), forSelf = (p.w === 1 ? avg2 : avg);
+          var tie = (Math.abs(forOther - forSelf) < 1e-9), flip = (!tie && forOther < forSelf);
+          return {sc:sc, sc2:sc2, avg:avg, avg2:avg2, m:m, n:n, other:p2.w,
+            forOther:forOther, forSelf:forSelf, tie:tie, flip:flip,
+            verdict: tie ? '두 모둠 평균이 똑같았습니다 — 가를 수 없습니다'
+              : (flip ? '이번에는 나를 위해 쓴 모둠이 더 높았습니다 — 연구와 거꾸로입니다'
+                      : '이번에도 다른 사람을 위해 쓴 모둠이 더 높았습니다')};
         },
         draw: function(c, W, H, p, r, tau){
           var lw = Math.min(170, W * 0.42), k = r ? Math.min(tau / 0.4, 1) : 0;
@@ -466,25 +480,30 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
           var gx = lw + 30, gw = W - gx - 20, gy = 40, gh = 260, i;
           if (gw > 80){
             for (i = 1; i <= 5; i++){ var y = gy + gh - (i - 1) / 4 * gh; seg(c, gx, y, gx + gw, y, '#E3E8EE', 1); txt(c, String(i), gx - 6, y + 6, {align:'right', color:'#8C99A8'}); }
-            if (r){ var u = Math.min(Math.max((tau - 0.35) / 0.5, 0), 1);
-              r.sc.forEach(function(v, j){ if (j >= Math.ceil(12 * u)) return; disc(c, gx + 12 + j * (gw - 24) / 11, gy + gh - (v - 1) / 4 * gh, 7, p.w === 0 ? PAL[0] : PAL[1]); });
+            if (r){ var u = Math.min(Math.max((tau - 0.35) / 0.5, 0), 1), nn = r.n;
+              r.sc.forEach(function(v, j){ if (j >= Math.ceil(nn * u)) return; disc(c, gx + 12 + j * (gw - 24) / Math.max(1, nn - 1), gy + gh - (v - 1) / 4 * gh, Math.max(3, Math.min(7, 84 / nn)), p.w === 0 ? PAL[0] : PAL[1]); });
               if (u >= 1){ var ay = gy + gh - (r.avg - 1) / 4 * gh; seg(c, gx, ay, gx + gw, ay, PAL[4], 2.5, [6, 4]); } }
             txt(c, '저녁 행복 점수', gx, gy - 12, {color:'#4A5868'});
           }
-          fitT(c, r ? '12명 평균 ' + f(r.avg, 1) + '점 / 5점' : '예상: 어느 쪽이 더 행복할까요?', 20, H - 12, {bold:true, color:r ? PAL[4] : '#1E2833'}, W - 40);
+          fitT(c, r ? (r.n + '명 평균 ' + f(r.avg, 1) + '점 · 맞대어 본 ' + WH[r.other] + ' 모둠 ' + f(r.avg2, 1) + '점 · ' + (r.flip ? '거꾸로' : (r.tie ? '같음' : '연구와 같음'))) : '예상: 어느 쪽이 더 행복할까요?', 20, H - 12, {bold:true, color:r ? (r.flip ? PAL[0] : PAL[4]) : '#1E2833'}, W - 40);
         },
         stats: function(p, r){
-          return [['조건', AM[p.a] + ' · ' + WH[p.w] + ' · ' + HOW[p.h].s], ['12명 평균 행복 점수 (가상)', f(r.avg, 1) + '점 / 5점', p.w === 0 ? PAL[0] : PAL[1]],
+          return [['조건', AM[p.a] + ' · ' + WH[p.w] + ' · ' + HOW[p.h].s + ' · ' + r.n + '명'],
+            [r.n + '명 평균 행복 점수 (교육용 모형값)', f(r.avg, 1) + '점 / 5점', p.w === 0 ? PAL[0] : PAL[1]],
+            ['맞대어 본 모둠 (' + WH[r.other] + ')', f(r.avg2, 1) + '점 / 5점', PAL[3]],
+            ['이번 판정', r.verdict, r.flip ? PAL[0] : PAL[1]],
             ['연구 결과 방향 (2008)', '다른 사람을 위해 쓴 모둠이 더 높았고, 5달러·20달러는 큰 차이 없음', PAL[6]],
             ['사람들의 예상 (연구 전 설문)', '"나를 위해, 20달러 쪽이 더 행복할 것"이 많았음', PAL[3]],
             ['살펴보기', p.w === 1 ? '쓴 돈만큼 빠졌는데 점수는 어땠나요? 다른 칸에 무엇이 생겼을까요?' : '같은 금액을 다른 사람을 위해 쓰면 어떻게 될까요?', PAL[3]]];
         },
-        columns: ['금액', '쓰는 곳', '방식', '평균 점수'],
-        record: function(p, r){ return {a:p.a, w:p.w, h:p.h, avg:r.avg}; },
-        row: function(d){ return [AM[d.a], WH[d.w], HOW[d.h].s, f(d.avg, 1)]; },
+        columns: ['금액', '쓰는 곳', '사람 수', '평균 점수', '판정'],
+        record: function(p, r){ return {a:p.a, w:p.w, h:p.h, avg:r.avg, avg2:r.avg2, n:r.n, flip:r.flip, tie:r.tie}; },
+        row: function(d){ return [AM[d.a], WH[d.w], (d.n || 12) + '명', f(d.avg, 1),
+          d.tie ? '같음' : (d.flip ? '거꾸로' : '연구와 같음')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('네 모둠의 평균 (하라고 해서)', '<div id="sp1"></div><p class="ask">금액이 네 배인데 점수 차이는 어땠나요? 쓰는 곳을 바꿨을 때와 비교해 보세요.</p>') +
+            card('사람 수에 따라 결론이 뒤집힌 횟수', '<div id="sp3"></div><p class="ask">몇 명쯤 모아야 결론을 믿을 만한가요? 4명·8명으로 해 본 판에서 거꾸로 나온 일이 몇 번이었는지 세어 보세요.</p>') +
             card('스스로 골랐을 때', '<div id="sp2"></div><p class="ask">과제: 일주일 동안 하루는 나를 위한 작은 일, 하루는 남을 위한 작은 일(동생 숙제 돕기, 응원 쪽지 등)을 하고, 잠들기 전 기분 점수(1~5점)를 적어 비교해요. 돈을 쓰지 않는 일도 괜찮아요.</p>') + '</div>';
           var g = groupBy(rec.filter(function(d){ return d.h === 0; }), function(d){ return d.a + '_' + d.w; }), items = [];
           AM.forEach(function(a, ai){ WH.forEach(function(w, wi){ var x = g[ai + '_' + wi]; if (!x) return; var v = mean(x.map(function(d){ return d.avg; }));
@@ -492,7 +511,13 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
           $('sp1').innerHTML = items.length ? hbars(items, 5) : '<p class="msg">"하라고 해서"로 한 기록이 아직 없어요.</p>';
           var h = groupBy(rec.filter(function(d){ return d.w === 1; }), function(d){ return d.h; }), rows = [];
           HOW.forEach(function(x, i){ var a = h[i]; if (a) rows.push(['다른 사람을 위해', x.s, a.length + '회', f(mean(a.map(function(d){ return d.avg; })), 1) + '점']); });
-          $('sp2').innerHTML = rows.length ? tableHTML(['쓰는 곳', '방식', '기록', '평균'], rows) + '<p class="msg">점수 크기는 가상이에요. 방향만 보세요.</p>' : '<p class="msg">"다른 사람을 위해"로 한 기록이 아직 없어요.</p>';
+          $('sp2').innerHTML = rows.length ? tableHTML(['쓰는 곳', '방식', '기록', '평균'], rows) + '<p class="msg">점수 크기는 교육용 모형값이에요. 방향만 보세요.</p>' : '<p class="msg">"다른 사람을 위해"로 한 기록이 아직 없어요.</p>';
+          var q = groupBy(rec, function(d){ return (d.n || 12); }), rows3 = [];
+          Object.keys(q).sort(function(a, b){ return a - b; }).forEach(function(k){ var a = q[k];
+            var fl = a.filter(function(d){ return d.flip; }).length, ti = a.filter(function(d){ return d.tie; }).length;
+            rows3.push([k + '명', a.length + '판', fl + '판', ti + '판', f(fl / a.length * 100, 0) + '%']); });
+          $('sp3').innerHTML = tableHTML(['한 모둠 사람 수', '해 본 판', '거꾸로 나온 판', '같게 나온 판', '거꾸로 비율'], rows3) +
+            '<p class="msg">사람이 4명뿐이면 우연만으로도 결론이 거꾸로 나오는 일이 잦아요. 사람 수를 늘리면 줄어들어요. 한 번의 결과만 보고 “남을 위해 써도 소용없다”고 말할 수 없는 까닭이에요.</p>';
         }
       };
     })();
@@ -501,7 +526,8 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

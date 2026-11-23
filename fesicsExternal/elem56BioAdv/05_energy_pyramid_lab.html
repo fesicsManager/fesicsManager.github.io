@@ -252,6 +252,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">풀(생산자)이 가진 에너지: <span class="slider-val" id="prodVal">50,000</span> kcal</div>
             <input type="range" id="prodSlider" min="10000" max="100000" step="10000" value="50000" aria-label="풀(생산자)이 가진 에너지">
+            <div class="control-label">한 단계에 전달되는 비율: <span class="slider-val" id="effVal">10</span> %</div>
+            <input type="range" id="effSlider" min="5" max="20" step="1" value="10" aria-label="전달 효율">
             <div class="control-label">어디까지 따라가 볼까요: <span class="slider-val" id="lvlVal">0단계 · 풀</span></div>
             <input type="range" id="lvlSlider" min="0" max="4" step="1" value="0" aria-label="답 입력">
             <button class="btn-main" id="runBtn">에너지 따라가기 ▶</button>
@@ -262,7 +264,7 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">추적 기록 (<span class="mono" id="pCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>생산자(kcal)</th><th>단계</th><th>생물</th><th>에너지(kcal)</th><th>앞 단계의 몇 %</th></tr></thead>
+              <thead><tr><th>번호</th><th>생산자(kcal)</th><th>전달 비율</th><th>단계</th><th>에너지(kcal)</th><th>버티는 단계</th></tr></thead>
               <tbody id="pTableBody"><tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
@@ -270,7 +272,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
             🔥 <b>사라진 90%는 어디로 갔을까?</b> — 없어진 것이 아니라 <b>다른 데 쓰였습니다.</b><br>
             숨쉬고 움직이는 데 쓰이고, 몸에서 <b>열</b>로 빠져나가고, 소화되지 못한 것은 <b>똥</b>으로 나갑니다.
             먹은 것 중에서 <b>내 몸이 되는 부분</b>은 아주 조금뿐이에요. 다음 단계의 생물이 먹을 수 있는 건 그 부분뿐입니다.<br>
-            <span style="font-size:.9rem;color:#a86825">※ '10%'는 여러 생태계의 평균에 가까운 <b>대략적인 값</b>이에요. 실제로는 생물과 환경에 따라 약 5~20% 사이로 달라집니다. 이 실험은 모든 단계에 10%를 똑같이 적용한 교육용 모형이에요.</span>
+            <span style="font-size:.9rem;color:#a86825">※ '10%'는 여러 생태계의 평균에 가까운 <b>대략적인 값</b>이에요. 실제로는 생물과 환경에 따라 약 5~20% 사이로 달라집니다. 이 실험은 모든 단계에 같은 비율을 적용한 교육용 모형이고, 슬라이더로 5~20%를 직접 바꿔 볼 수 있어요.<br>
+            '한 마리가 하루에 10kcal는 있어야 한다'는 기준도 비교를 쉽게 하려고 정한 교육용 모형값이에요. 비율을 낮추면 사슬이 더 짧은 단계에서 끊기고, 높이면 더 멀리까지 이어집니다.</span>
             </div>
         </div>
       </div>
@@ -588,7 +591,14 @@ function label(ctx,x,y,text,color,size,align){
 실제 전달 효율은 생물·환경에 따라 약 5~20%로 달라진다.
 =========================================== */
 var RATE=0.1;
+/* 한 마리가 하루를 버티는 데 필요한 에너지 — 교육용 모형값 */
+var NEED=10;
 function energyAt(producer, level){ return producer*Math.pow(RATE, level); }  /* level 0 = 생산자 */
+/* 전달 비율이 지금 값일 때, 에너지가 NEED 아래로 떨어지지 않는 마지막 단계 */
+function lastAlive(producer){
+  var k=0; for(var i=0;i<=4;i++){ if(energyAt(producer,i)>=NEED) k=i; else break; }
+  return k;
+}
 function lossAt(producer, level){ return energyAt(producer,level)-energyAt(producer,level+1); }
 
 var LEVELS=[
@@ -605,6 +615,11 @@ var pCanvas=document.getElementById('pCanvas'), pc=pCanvas.getContext('2d');
 document.getElementById('prodSlider').addEventListener('input',function(e){
   producer=parseInt(e.target.value,10);
   document.getElementById('prodVal').textContent=comma(producer);
+  resetResult(); drawPyramid(0);
+});
+document.getElementById('effSlider').addEventListener('input',function(e){
+  RATE=parseInt(e.target.value,10)/100;
+  document.getElementById('effVal').textContent=parseInt(e.target.value,10);
   resetResult(); drawPyramid(0);
 });
 document.getElementById('lvlSlider').addEventListener('input',function(e){
@@ -782,6 +797,7 @@ document.getElementById('runBtn').addEventListener('click',function(){
   var dur=1200+level*700;
   runAnim(btn, pCanvas, dur, drawPyramid, function(){
     records.push({ producer:producer, level:level, name:LEVELS[level].n, cls:LEVELS[level].cls,
+                   eff:Math.round(RATE*100), alive:lastAlive(producer),
                    energy:energyAt(producer,level) });
     renderTable();
     var e=energyAt(producer,level);
@@ -791,6 +807,9 @@ document.getElementById('runBtn').addEventListener('click',function(){
       comma(e, e<10?1:0)+' kcal</span><br>'+
       (level===0 ? '아직 아무것도 잃지 않은 출발점입니다.'
                  : '처음 '+comma(producer)+'kcal의 <b>'+fmtN(e/producer*100, e/producer*100<1?3:1)+'%</b>만 남았습니다.')+
+      '<br>전달 비율 <b>'+Math.round(RATE*100)+'%</b> — 한 마리가 하루에 '+NEED+'kcal는 있어야 한다고 보면, 이 사슬은 <b>'+lastAlive(producer)+'단계('+LEVELS[lastAlive(producer)].n+')</b>까지 버팁니다'+
+      (e<NEED ? ' — 지금 고른 '+level+'단계는 그 아래라 살아남기 어렵습니다.' : '.')+
+      '<br>전달 비율을 5%로 내리면 몇 단계까지 버티는지, 20%로 올리면 어떻게 달라지는지 견주어 보세요.'+
       '<br><span style="font-size:.94rem;color:var(--ink-soft);">자동으로 기록했습니다.</span>';
     afterRecord();
   });
@@ -801,8 +820,8 @@ function renderTable(){
   var tb=document.getElementById('pTableBody');
   if(!records.length){ tb.innerHTML='<tr><td colspan="6" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=records.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+comma(r.producer)+'</td><td>'+r.level+'</td>'+
-      '<td><span class="badge '+r.cls+'">'+r.name+'</span></td>'+
+    return '<tr><td>'+(i+1)+'</td><td>'+comma(r.producer)+'</td><td>'+(r.eff==null?10:r.eff)+'%</td>'+
+      '<td><span class="badge '+r.cls+'">'+r.level+'단계 '+r.name+'</span></td>'+
       '<td>'+comma(r.energy, r.energy<10?1:0)+'</td><td>'+(r.level===0?'—':'약 10%')+'</td></tr>';
   }).join('');
 }

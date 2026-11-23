@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -306,6 +308,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -434,6 +443,7 @@ var LAB = (function(){
       var SCP = ['나 1명, 1번', '우리 반 25명, 하루 2번'];
       var GU = ['① 컵 세 잔과 비슷하다', '② 컵 세 잔의 두 배쯤', '③ 흘려도 다시 돌아오니 상관없다', '④ 컵 세 잔의 열 배가 넘는다'];
       var CUP = 0.6;
+      var CUP1 = 0.2;   /* 컵 한 잔 약 0.2L (교육용 어림값) */
       return {
         sceneHeight: function(w){ return w < 500 ? 380 : 400; },
         idle: '물줄기, 시간, 계산할 사람 수, 나의 짐작을 고른 뒤 <b>양동이에 받아 재기</b>를 누르세요.',
@@ -441,13 +451,20 @@ var LAB = (function(){
         params: [
           {key:'w', type:'seg', label:'물줄기 세기 (가상 예시)', cols:3, value:1, options:FLW.map(function(x){ return x.n + ' (1분 약 ' + x.v + 'L)'; })},
           {key:'t', type:'range', label:'틀어 둔 시간', min:1, max:3, step:0.5, value:2, fmt:function(v){ return v + '분'; }},
+          {key:'cups', type:'range', label:'컵으로 쓸 때 헹구는 잔 수 (한 잔 약 0.2L)', min:1, max:30, step:1, value:3, fmt:function(v){ return v + '잔'; }},
           {key:'s', type:'seg', label:'계산할 사람 수', cols:2, value:0, options:SCP},
           {key:'g', type:'seg', label:'나의 짐작 — 틀어 둔 채 2분은 컵 세 잔과 비교하면?', cols:2, value:0, options:GU,
             note:'뭉치는 "컵으로 받아 쓰는 거랑 비슷해!"라고 했어요.'}
         ],
         compute: function(p){
-          var run = FLW[p.w].v * p.t, save = run - CUP, times = p.s ? 50 : 1;
-          return {run:run, ratio:run / CUP, cups:Math.round(run / 0.2), save:save, total:save * times, times:times, ok:p.g === 3};
+          var run = FLW[p.w].v * p.t, cupL = p.cups * CUP1, save = run - cupL, times = p.s ? 50 : 1;
+          var flipAt = Math.floor(run / CUP1) + 1;   /* 이 잔 수부터는 컵 쪽이 더 많이 씀 */
+          var who = save > 0.001 ? '컵 쪽이 적게 써요' : (save < -0.001 ? '컵 쪽이 더 많이 써요 — 뒤집혔어요' : '두 방법이 똑같아요');
+          return {run:run, cupL:cupL, ratio:run / cupL, cups:Math.round(run / CUP1), nCup:p.cups,
+            save:save, total:save * times, times:times, ok:p.g === 3,
+            flipAt:flipAt, who:who,
+            flipMsg:flipAt <= 30 ? '헹구는 잔 수가 ' + flipAt + '잔을 넘으면 컵 쪽이 더 많이 쓰게 돼요'
+              : '헹구는 잔 수를 30잔까지 올려도 틀어 두는 쪽이 더 많이 써요 (뒤집히려면 ' + flipAt + '잔쯤 필요)'};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, run = FLW[p.w].v * p.t;
@@ -459,32 +476,37 @@ var LAB = (function(){
           c.fillStyle = 'rgba(58,143,183,.75)'; c.fillRect(bx + 8, by + bh - lv, bw - 16, lv);
           [6, 12, 18].forEach(function(v){ var yy = by + bh - v / full * bh; seg(c, bx + bw, yy, bx + bw + 8, yy, '#9AA5B1', 1); txt(c, v + 'L', bx + bw + 12, yy + 6, {color:'#9AA5B1'}); });
           txt(c, '틀어 둔 채 ' + p.t + '분', bx + bw / 2, by + bh + 26, {align:'center', bold:true});
-          var cx = W * 0.8, ch = 0.6 / full * bh, cw = 30;
+          var cx = W * 0.8, ch = Math.min(full, p.cups * CUP1) / full * bh, cw = 30;
           c.strokeStyle = '#5C6B7A'; c.lineWidth = 2; c.strokeRect(cx - cw / 2, by + bh - Math.max(ch, 6) - 20, cw, Math.max(ch, 6) + 20);
           c.fillStyle = 'rgba(58,143,183,.75)'; c.fillRect(cx - cw / 2, by + bh - Math.max(ch, 6), cw, Math.max(ch, 6) * (r ? 1 : 0));
-          txt(c, '컵 세 잔', cx, by + bh + 26, {align:'center', bold:true});
+          txtFit(c, '컵 ' + p.cups + '잔', cx, by + bh + 26, {align:'center', bold:true}, 90);
           if (r && tau >= 0.8){
-            txt(c, '약 ' + f(run, run % 1 ? 1 : 0) + 'L (계량컵 ' + Math.round(run / 0.2) + '번) vs 약 0.6L', 16, H - 44, {bold:true, color:PAL[0]});
-            txt(c, '약 ' + f(run / CUP, 0) + '배' + (p.s ? ' · 우리 반 하루 약 ' + f(Math.round((run - CUP) * 50 / 10) * 10, 0) + 'L 아낄 수 있어요' : ''), 16, H - 14, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
+            txtFit(c, '약 ' + f(run, run % 1 ? 1 : 0) + 'L (계량컵 ' + Math.round(run / 0.2) + '번) vs 컵 ' + p.cups + '잔 약 ' + f(r.cupL, 1) + 'L', 16, H - 44, {bold:true, color:PAL[0]}, W - 32);
+            txtFit(c, '약 ' + f(r.ratio, 1) + '배 · ' + r.who, 16, H - 14, {bold:true, color:r.save > 0 ? PAL[1] : PAL[4]}, W - 32);
           }
         },
         stats: function(p, r){
           return [['물줄기', FLW[p.w].n + ' (1분 약 ' + FLW[p.w].v + 'L, 가상 예시)'], ['틀어 둔 채 ' + p.t + '분', '약 ' + f(r.run, r.run % 1 ? 1 : 0) + 'L — 계량컵 ' + r.cups + '번', PAL[0]],
-            ['컵 세 잔', '약 0.6L'], ['차이', '약 ' + f(r.ratio, 0) + '배', PAL[4]],
-            ['한 번에 아끼는 물', '약 ' + f(r.save, 1) + 'L'],
+            ['컵으로 쓸 때', '컵 ' + r.nCup + '잔 = 약 ' + f(r.cupL, 1) + 'L'],
+            ['차이', '약 ' + f(r.ratio, 1) + '배 — ' + r.who, r.save > 0 ? PAL[1] : PAL[4]],
+            ['뒤집히는 지점', r.flipMsg, PAL[6]],
+            ['한 번에 아끼는 물', '약 ' + f(r.save, 1) + 'L' + (r.save < 0 ? ' (오히려 더 씀)' : '')],
             [SCP[p.s], '약 ' + f(r.total, r.total >= 100 ? 0 : 1) + 'L' + (p.s ? ' (큰 욕조 약 ' + f(r.total / 220, 1) + '개쯤)' : ''), PAL[3]],
             ['나의 짐작', GU[p.g] + (r.ok ? ' — 잰 결과와 맞음' : ' — 잰 결과와 다름'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['물줄기', '시간', '흘린 물', '몇 배', '나의 짐작'],
-        record: function(p, r){ return {w:p.w, t:p.t, run:r.run, ratio:r.ratio, g:p.g}; },
-        row: function(d){ return [FLW[d.w].n, d.t + '분', '약 ' + f(d.run, d.run % 1 ? 1 : 0) + 'L', '약 ' + f(d.ratio, 0) + '배', GU[d.g].slice(0, 1)]; },
+        columns: ['물줄기', '시간', '흘린 물', '컵 잔 수', '컵 물', '몇 배', '어느 쪽이 적나'],
+        record: function(p, r){ return {w:p.w, t:p.t, cups:r.nCup, cupL:r.cupL, run:r.run, ratio:r.ratio, g:p.g, save:r.save}; },
+        row: function(d){ return [FLW[d.w].n, d.t + '분', '약 ' + f(d.run, d.run % 1 ? 1 : 0) + 'L', (d.cups == null ? 3 : d.cups) + '잔',
+          '약 ' + f(d.cupL == null ? 0.6 : d.cupL, 1) + 'L', '약 ' + f(d.ratio, 1) + '배', (d.save == null || d.save > 0) ? '컵' : '틀어 두기']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('조건별 "컵 세 잔의 몇 배"', '<div id="wt1"></div><p class="ask">물줄기를 약하게 하거나 시간을 줄여도 열 배가 넘었나요? 열 배보다 적은 조건이 있었나요?</p>') +
+            card('조건별 비교 — 어느 쪽이 적게 쓰나', '<div id="wt1"></div><p class="ask">컵으로 헹구는 잔 수를 늘리면 어느 지점에서 두 방법이 뒤집혔나요? 물줄기를 약하게 하면 그 지점이 앞당겨졌나요?</p>') +
             card('2분 기준 비교', '<div id="wt2"></div><p class="ask">과제: 우리 집 세면대에서 수도꼭지를 틀어 둔 채 30초 동안 물을 받아 양을 재 보세요(받은 물은 화분이나 청소에 다시 쓰기). 그 양으로 2분이면 얼마인지 계산하고, 컵을 썼을 때와 비교해 보세요.</p>') + '</div>';
           var seen = {}, rows = [];
-          rec.forEach(function(d){ var key = d.w + '_' + d.t; if (seen[key]) return; seen[key] = 1; rows.push([FLW[d.w].n, d.t + '분', '약 ' + f(d.run, d.run % 1 ? 1 : 0) + 'L', '약 ' + f(d.ratio, 0) + '배', d.ratio > 10 ? '예' : '아니요']); });
-          $('wt1').innerHTML = tableHTML(['물줄기', '시간', '흘린 물', '컵 세 잔의', '열 배 넘음'], rows);
+          rec.forEach(function(d){ var key = d.w + '_' + d.t + '_' + (d.cups == null ? 3 : d.cups); if (seen[key]) return; seen[key] = 1;
+            rows.push([FLW[d.w].n, d.t + '분', '약 ' + f(d.run, d.run % 1 ? 1 : 0) + 'L', (d.cups == null ? 3 : d.cups) + '잔', '약 ' + f(d.ratio, 1) + '배',
+              (d.save == null || d.save > 0) ? '컵 쪽이 적음' : '<b>뒤집힘</b>']); });
+          $('wt1').innerHTML = tableHTML(['물줄기', '시간', '흘린 물', '컵 잔 수', '몇 배', '어느 쪽'], rows);
           $('wt2').innerHTML = hbars(FLW.map(function(x){ return {label:x.n + ' 2분', v:x.v * 2, color:PAL[0], text:'약 ' + x.v * 2 + 'L'}; }).concat([{label:'컵 세 잔', v:0.6, color:PAL[1], text:'약 0.6L'}]), 16);
         }
       };
@@ -494,7 +516,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

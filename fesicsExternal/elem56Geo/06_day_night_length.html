@@ -221,8 +221,14 @@ tbody tr:nth-child(even){background:#f7faf9;}
         <div class="canvas-panel">
           <canvas id="dayNightCanvas" width="440" height="320" role="img" aria-label="낮과 밤, 누가 더 길까 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
           <div class="control-block">
-            <div class="control-label">서울(북위 37.5°)의 날짜: <span class="slider-val" id="monthVal">6월 15일</span></div>
-            <input type="range" id="monthSlider" min="1" max="12" step="1" value="6" aria-label="서울(북위 37.5°)의 날짜">
+            <div class="control-label">날짜: <span class="slider-val" id="monthVal">6월 15일</span></div>
+            <input type="range" id="monthSlider" min="1" max="12" step="1" value="6" aria-label="날짜">
+            <div class="control-label">잴 곳(위도)을 선택하세요</div>
+            <div class="btn-row" id="latButtons">
+              <button class="btn-choice active" data-lat="37.5">서울 (북위 37.5°)</button>
+              <button class="btn-choice" data-lat="0">적도 (위도 0°)</button>
+              <button class="btn-choice" data-lat="68">북극권 (북위 68°)</button>
+            </div>
             <button class="btn-main" id="measureBtn">낮·밤 길이 재보기 ▶</button>
             <div class="result-box" id="measureResult">날짜를 정하고 재면 결과가 표에 자동으로 기록됩니다.</div>
           </div>
@@ -231,15 +237,17 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="table-title">낮·밤 기록 (<span class="mono" id="recCount">0</span>개)</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>날짜</th><th>태양 적위(°)</th><th>낮(시간)</th><th>밤(시간)</th></tr></thead>
-              <tbody id="tableBody"><tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
+              <thead><tr><th>번호</th><th>날짜</th><th>잰 곳(위도)</th><th>태양 적위(°)</th><th>낮(시간)</th><th>밤(시간)</th><th>판정</th></tr></thead>
+              <tbody id="tableBody"><tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr></tbody>
             </table>
           </div>
           <div class="insight-box wait" style="margin-top:14px;">
             낮 길이는 천문학에서 쓰는 <b>근사 공식</b>으로 계산합니다(교육용).<br>
             <span class="mono">δ = 23.44° × sin(360/365 × (N−81))</span><br>
             <span class="mono">cos ω = (sin(−0.833°) − sinφ·sinδ) / (cosφ·cosδ)</span><br>
-            <span class="mono">낮 길이 = 2ω ÷ 15</span> (φ = 37.5°, N = 그 해의 몇 번째 날)<br>
+            <span class="mono">낮 길이 = 2ω ÷ 15</span> (φ = 내가 고른 위도, N = 그 해의 몇 번째 날)<br>
+            위도도 내가 고릅니다(처음 값 서울 37.5°). <b>적도</b>는 1년 내내 거의 12시간이고, <b>북극권</b>에서는
+            cos ω 가 −1보다 작아지거나 1보다 커져서 <b>백야(낮 24시간)·극야(낮 0시간)</b>로 판정이 갈립니다.<br>
   <span style="color:#a86825">※ −0.833°는 태양 원반의 크기와 대기 굴절을 대략 넣은 값이에요. 실제 일출·일몰 시각표와는 몇 분 정도 차이가 날 수 있고, '일출'을 어떻게 정의하느냐(태양 윗부분이 보일 때 등)에 따라서도 조금 달라집니다.</span>
           </div>
         </div>
@@ -472,14 +480,24 @@ function drawScatter(cv, pts, xlab, ylab, reg){
 }
 /* ================= 실험 ================= */
 
-var LAT=37.5;                                   /* 서울 위도 */
+var LAT=37.5;                                   /* 서울 위도(처음 값) */
+var lat=LAT;                                    /* 내가 고르는 위도 */
+var LATN={'37.5':'서울(북위 37.5°)', '0':'적도(위도 0°)', '68':'북극권(북위 68°)'};
+function latName(v){ return LATN[String(v)] || ('위도 '+v+'°'); }
+function dayVerdict(dh){
+  if(dh>=23.9) return '백야(하루 종일 낮)';
+  if(dh<=0.1)  return '극야(하루 종일 밤)';
+  if(dh>12.2)  return '낮이 더 길다';
+  if(dh<11.8)  return '밤이 더 길다';
+  return '낮·밤 거의 같다';
+}
 var DOY=[15,46,74,105,135,166,196,227,258,288,319,349];  /* 각 달 15일의 일수 */
 var month=6, records=[], revealed=false;
 var canvas=document.getElementById('dayNightCanvas'), ctx=canvas.getContext('2d');
 
 function declination(N){ return 23.44*Math.sin(2*Math.PI/365*(N-81)); }
 function dayHours(N){
-  var d=declination(N)*Math.PI/180, p=LAT*Math.PI/180;
+  var d=declination(N)*Math.PI/180, p=lat*Math.PI/180;
   var c=(Math.sin(-0.833*Math.PI/180)-Math.sin(p)*Math.sin(d))/(Math.cos(p)*Math.cos(d));
   c=Math.max(-1,Math.min(1,c));
   return 2*(Math.acos(c)*180/Math.PI)/15;
@@ -496,6 +514,18 @@ document.getElementById('monthSlider').addEventListener('input',function(e){
   document.getElementById('measureResult').className='result-box';
   document.getElementById('measureResult').innerHTML='날짜를 정하고 재면 결과가 표에 자동으로 기록됩니다.';
   draw();
+});
+
+document.querySelectorAll('#latButtons .btn-choice').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelectorAll('#latButtons .btn-choice').forEach(function(x){x.classList.remove('active');});
+    b.classList.add('active');
+    lat=parseFloat(b.dataset.lat);
+    revealed=false;
+    document.getElementById('measureResult').className='result-box';
+    document.getElementById('measureResult').innerHTML=latName(lat)+'에서 재기로 했습니다. 날짜를 정하고 재면 결과가 표에 자동으로 기록됩니다.';
+    draw();
+  });
 });
 
 function draw(){
@@ -531,43 +561,56 @@ function draw(){
   ctx.fillStyle=ng; ctx.fillRect(x0+dw,y,total-dw,bh);
   ctx.strokeStyle='#173238'; ctx.lineWidth=2; ctx.strokeRect(x0,y,total,bh);
 
-  /* 해와 달 */
-  ctx.fillStyle='#f0a92e'; ctx.beginPath(); ctx.arc(x0+dw/2, y+bh/2, 15, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle='#f0a92e'; ctx.lineWidth=2.5;
-  for(var i=0;i<8;i++){
-    var a=i*Math.PI/4;
-    ctx.beginPath();
-    ctx.moveTo(x0+dw/2+Math.cos(a)*19, y+bh/2+Math.sin(a)*19);
-    ctx.lineTo(x0+dw/2+Math.cos(a)*25, y+bh/2+Math.sin(a)*25);
-    ctx.stroke();
+  /* 해와 달 — 띠 밖으로 나가지 않을 만큼 넓을 때만 그린다 */
+  var sunC=Math.min(Math.max(x0+dw/2, x0+28), x1-28);
+  var mx=Math.min(Math.max(x0+dw+(total-dw)/2, x0+28), x1-28);
+  if(dw>34){
+    ctx.fillStyle='#f0a92e'; ctx.beginPath(); ctx.arc(sunC, y+bh/2, 15, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#f0a92e'; ctx.lineWidth=2.5;
+    for(var i=0;i<8;i++){
+      var a=i*Math.PI/4;
+      ctx.beginPath();
+      ctx.moveTo(sunC+Math.cos(a)*19, y+bh/2+Math.sin(a)*19);
+      ctx.lineTo(sunC+Math.cos(a)*25, y+bh/2+Math.sin(a)*25);
+      ctx.stroke();
+    }
   }
-  var mx=x0+dw+(total-dw)/2;
-  ctx.fillStyle='#eaeef7';
-  ctx.beginPath(); ctx.arc(mx, y+bh/2, 15, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle= '#22375f';
-  ctx.beginPath(); ctx.arc(mx+6, y+bh/2-4, 13, 0, Math.PI*2); ctx.fill();
+  if(total-dw>34){
+    ctx.fillStyle='#eaeef7';
+    ctx.beginPath(); ctx.arc(mx, y+bh/2, 15, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle= '#22375f';
+    ctx.beginPath(); ctx.arc(mx+6, y+bh/2-4, 13, 0, Math.PI*2); ctx.fill();
+  }
 
   /* 눈금 */
   ctx.fillStyle='#173238'; ctx.font="700 21px 'Noto Sans KR',sans-serif"; ctx.textAlign='center';
   ctx.fillText('하루 24시간', 220, y-46);
   ctx.font="700 20px 'IBM Plex Mono',monospace";
-  ctx.fillStyle='#a86825'; ctx.fillText('낮 '+dh.toFixed(1)+'h', x0+dw/2, y-16);
-  ctx.fillStyle='#2f4f8a'; ctx.fillText('밤 '+nh.toFixed(1)+'h', mx, y+bh+26);
+  var labD=Math.min(Math.max(x0+dw/2, x0+44), x1-44), labN=Math.min(Math.max(mx, x0+44), x1-44);
+  if(dh>0.1){ ctx.fillStyle='#a86825'; ctx.fillText('낮 '+dh.toFixed(1)+'h', labD, y-16); }
+  if(nh>0.1){ ctx.fillStyle='#2f4f8a'; ctx.fillText('밤 '+nh.toFixed(1)+'h', labN, y+bh+26); }
 
   /* 해뜸/해짐 */
-  ctx.strokeStyle='#c1443c'; ctx.lineWidth=2; ctx.setLineDash([5,4]);
-  ctx.beginPath(); ctx.moveTo(x0+dw, y-8); ctx.lineTo(x0+dw, y+bh+8); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle='#173238'; ctx.font="600 20px 'Noto Sans KR',sans-serif"; ctx.textAlign='left';
-  ctx.fillText('해뜸 '+hm(12-dh/2), x0, y+bh+50);
-  ctx.textAlign='left';   /* 해짐 글자는 실제 해지는 자리(빨간 점선) 옆에 */
-  ctx.fillText('해짐 '+hm(12+dh/2), x0+dw+6, y-16);
+  if(dh>0.1 && nh>0.1){
+    ctx.strokeStyle='#c1443c'; ctx.lineWidth=2; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.moveTo(x0+dw, y-8); ctx.lineTo(x0+dw, y+bh+8); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.fillStyle='#173238'; ctx.font="600 20px 'Noto Sans KR',sans-serif";
+  if(dh>=23.9){
+    ctx.textAlign='center'; ctx.fillText('해가 지지 않는 백야', 220, y+bh+50);
+  }else if(dh<=0.1){
+    ctx.textAlign='center'; ctx.fillText('해가 뜨지 않는 극야', 220, y+bh+50);
+  }else{
+    ctx.textAlign='left';  ctx.fillText('해뜸 '+hm(12-dh/2), x0, y+bh+50);
+    ctx.textAlign='right'; ctx.fillText('해짐 '+hm(12+dh/2), x1, y+bh+50);
+  }
 
   /* 캡션 */
   ctx.fillStyle='#e9f1f0'; ctx.fillRect(0,262,W,H-262);
   ctx.textAlign='center';
   ctx.fillStyle='#173238'; ctx.font="700 22px 'Noto Sans KR',sans-serif";
-  ctx.fillText(month+'월 15일 · 서울(북위 37.5°)', 220, 288);
+  ctx.fillText(month+'월 15일 · '+latName(lat), 220, 288);
   ctx.fillStyle='#4a636a'; ctx.font="600 19px 'IBM Plex Mono',monospace";
   ctx.fillText('태양 적위 '+(dec>=0?'+':'')+dec.toFixed(1)+'°', 220, 310);
 }
@@ -580,22 +623,26 @@ document.getElementById('measureBtn').addEventListener('click', function(){
   var N=DOY[month-1];
   var dh=Math.round(dayHours(N)*10)/10;
   var dec=Math.round(declination(N)*10)/10;
-  records.push({month:month, dec:dec, day:dh, night:Math.round((24-dh)*10)/10});
+  records.push({month:month, lat:lat, dec:dec, day:dh, night:Math.round((24-dh)*10)/10, verdict:dayVerdict(dh)});
   renderTable();
   var box=document.getElementById('measureResult');
   box.className='result-box ok';
-  box.innerHTML=month+'월 15일 — 낮 <span class="big-val">'+dh.toFixed(1)+'시간</span> / 밤 <span class="big-val">'
-    +(24-dh).toFixed(1)+'시간</span> <span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
+  box.innerHTML=month+'월 15일 · '+latName(lat)+'<br>낮 <span class="big-val">'+dh.toFixed(1)+'시간</span> / 밤 <span class="big-val">'
+    +(24-dh).toFixed(1)+'시간</span>'
+    +'<br><b>판정:</b> <b>'+dayVerdict(dh)+'</b>'
+    +(lat===0 ? ' — 적도는 날짜를 바꿔도 거의 12시간 그대로예요.'
+              : (dh>=23.9||dh<=0.1 ? ' — 북극권에서는 해가 아예 지지 않거나 뜨지 않습니다.' : ''))
+    +' <span style="font-size:.92rem;color:var(--ink-soft)">(자동 기록됨)</span>';
   maybeToast(records.length);
 });
 
 function renderTable(){
   document.getElementById('recCount').textContent=records.length;
   var tb=document.getElementById('tableBody');
-  if(!records.length){ tb.innerHTML='<tr><td colspan="5" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
+  if(!records.length){ tb.innerHTML='<tr><td colspan="7" class="empty-row">아직 기록된 데이터가 없습니다.</td></tr>'; return; }
   tb.innerHTML=records.map(function(r,i){
-    return '<tr><td>'+(i+1)+'</td><td>'+r.month+'월 15일</td><td>'+(r.dec>=0?'+':'')+r.dec.toFixed(1)+'</td>'
-      +'<td>'+r.day.toFixed(1)+'</td><td>'+r.night.toFixed(1)+'</td></tr>';
+    return '<tr><td>'+(i+1)+'</td><td>'+r.month+'월 15일</td><td class="kr">'+latName(r.lat)+'</td><td>'+(r.dec>=0?'+':'')+r.dec.toFixed(1)+'</td>'
+      +'<td>'+r.day.toFixed(1)+'</td><td>'+r.night.toFixed(1)+'</td><td class="kr">'+r.verdict+'</td></tr>';
   }).join('');
 }
 
@@ -611,34 +658,64 @@ function renderValidation(){
   document.getElementById('validationContent').style.display='block';
 
   var seen={}, uniq=[];
-  records.forEach(function(r){ if(!seen[r.month]){ seen[r.month]=1; uniq.push(r); } });
-  uniq.sort(function(a,b){ return a.month-b.month; });
+  records.forEach(function(r){ var k=r.lat+'/'+r.month; if(!seen[k]){ seen[k]=1; uniq.push(r); } });
+  uniq.sort(function(a,b){ return (a.lat-b.lat) || (a.month-b.month); });
   var longest=uniq[0], shortest=uniq[0];
   uniq.forEach(function(r){ if(r.day>longest.day) longest=r; if(r.day<shortest.day) shortest=r; });
   var allSum=records.every(function(r){ return Math.abs(r.day+r.night-24)<0.05; });
 
   document.getElementById('dayNightAnalysis').innerHTML =
     uniq.map(function(r){
-      return '<div class="mini-row"><span>'+r.month+'월 15일 (적위 '+(r.dec>=0?'+':'')+r.dec.toFixed(1)+'°)</span>'
-        +'<span class="mono">낮 '+r.day.toFixed(1)+'h / 밤 '+r.night.toFixed(1)+'h</span></div>';
+      return '<div class="mini-row"><span>'+r.month+'월 15일 · '+latName(r.lat)+' (적위 '+(r.dec>=0?'+':'')+r.dec.toFixed(1)+'°)</span>'
+        +'<span class="mono">낮 '+r.day.toFixed(1)+'h / 밤 '+r.night.toFixed(1)+'h · '+r.verdict+'</span></div>';
     }).join('')
     + '<div class="stat-cards">'
-    + '<div class="stat-card"><div class="label">낮이 가장 긴 날</div><div class="val">'+longest.month+'월 ('+longest.day.toFixed(1)+'h)</div></div>'
-    + '<div class="stat-card"><div class="label">낮이 가장 짧은 날</div><div class="val">'+shortest.month+'월 ('+shortest.day.toFixed(1)+'h)</div></div>'
+    + '<div class="stat-card"><div class="label">낮이 가장 긴 기록</div><div class="val">'+longest.month+'월 '+longest.day.toFixed(1)+'h</div></div>'
+    + '<div class="stat-card"><div class="label">낮이 가장 짧은 기록</div><div class="val">'+shortest.month+'월 '+shortest.day.toFixed(1)+'h</div></div>'
     + '</div>'
     + '<div class="insight-box">'
     + (allSum ? '자동 분석: 기록한 모든 날에서 <b>낮 + 밤 = 24시간</b>이었습니다. 하루의 길이는 그대로이고, 낮과 밤이 나눠 갖는 <b>비율</b>만 달라집니다.'
               : '기록을 더 모아보세요.')
     + '</div>';
 
-  var pts=uniq.map(function(r){ return {x:r.dec, y:r.day}; });
-  var reg=linreg(pts.map(function(p){return p.x;}), pts.map(function(p){return p.y;}));
+  /* 위도별로 갈리는 판정 */
+  var byLat={};
+  records.forEach(function(r){ (byLat[r.lat]=byLat[r.lat]||[]).push(r); });
+  var lks=Object.keys(byLat).map(Number).sort(function(a,b){ return a-b; });
+  var lh='<div class="insight-box'+(lks.length>1?'':' wait')+'">위도별 판정<br>'
+    + lks.map(function(L){
+        var g=byLat[L], lo=g[0].day, hi=g[0].day, white=false, polar=false;
+        g.forEach(function(r){
+          if(r.day<lo) lo=r.day;
+          if(r.day>hi) hi=r.day;
+          if(r.day>=23.9) white=true;
+          if(r.day<=0.1) polar=true;
+        });
+        var span=hi-lo, v;
+        if(white&&polar) v='<b>백야와 극야가 모두 나타남</b> — 낮이 24시간이 되기도, 0시간이 되기도 합니다.';
+        else if(white)   v='<b>백야가 나타남</b> — 해가 지지 않는 날이 있었습니다.';
+        else if(polar)   v='<b>극야가 나타남</b> — 해가 뜨지 않는 날이 있었습니다.';
+        else if(g.length<2) v='날짜를 한 가지만 재서 변화 포를 알 수 없어요 — 다른 달도 재 보세요.';
+        else if(span<0.5) v='<b>거의 변하지 않음</b> — 1년 내내 낮이 약 12시간입니다.';
+        else             v='낮 길이가 <b>'+span.toFixed(1)+'시간</b>만큼 달라집니다.';
+        return latName(L)+' : 낮 '+lo.toFixed(1)+'h ~ '+hi.toFixed(1)+'h · '+v;
+      }).join('<br>')
+    + '<br>' + (lks.length>1
+        ? '같은 날짜라도 <b>어디서 재는지</b>에 따라 판정이 갈립니다. 위도가 높을수록 낮 길이의 변화 폭이 커지고, 북극권을 넘으면 백야·극야가 생겨요.'
+        : '적도와 북극권에서도 재 보면 판정이 어떻게 갈리는지 볼 수 있어요.')
+    + '</div>';
+
+  /* 그래프는 마지막에 고른 위도만 — 위도가 섞이면 선이 여러 개가 된다 */
+  var lastLat=records[records.length-1].lat;
+  var sub=uniq.filter(function(r){ return r.lat===lastLat; });
+  var pts=sub.map(function(r){ return {x:r.dec, y:r.day}; });
+  var reg=pts.length>1 ? linreg(pts.map(function(p){return p.x;}), pts.map(function(p){return p.y;})) : null;
   drawScatter(document.getElementById('dayChart'), pts, '태양 적위 (°)', '낮 길이 (시간)', reg);
-  document.getElementById('regInsight').innerHTML = reg
-    ? '<div class="insight-box">자동 분석: 적위가 1° 커질 때마다 서울의 낮이 약 <span class="mono">'+(reg.m*60).toFixed(1)
+  document.getElementById('regInsight').innerHTML = (reg
+    ? '<div class="insight-box">자동 분석: 그래프는 <b>'+latName(lastLat)+'</b>에서 기록한 것만 그렸습니다. 적위가 1° 커질 때마다 낮이 약 <span class="mono">'+(reg.m*60).toFixed(1)
       +'</span>분씩 길어졌습니다. 적위가 0°(춘·추분)일 때 낮은 약 <span class="mono">'+reg.b.toFixed(1)
-      +'</span>시간으로, 밤과 거의 같아집니다. (엄밀히는 완전한 직선이 아니라 살짝 휘어 있는 관계예요)</div>'
-    : '<div class="insight-box wait">서로 다른 달을 여러 개 기록하면 관계를 계산할 수 있어요.</div>';
+      +'</span>시간입니다. (엄밀히는 완전한 직선이 아니라 살짝 휘어 있는 관계이고, 백야·극야 구간에서는 24시간·0시간에 붙어 버려 직선이 깨집니다)</div>'
+    : '<div class="insight-box wait">같은 곳에서 서로 다른 달을 여러 개 기록하면 관계를 계산할 수 있어요.</div>') + lh;
 }
 
 document.getElementById('predictBtn').addEventListener('click', function(){

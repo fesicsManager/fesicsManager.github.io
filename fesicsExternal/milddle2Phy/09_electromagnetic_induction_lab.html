@@ -205,15 +205,19 @@ input[type=range]{cursor:pointer;height:24px;}
       <label>자석 속력 <b id="speedVal">3.0</b></label>
       <input type="range" id="speedSlider" min="0.5" max="8" step="0.5" value="3.0" aria-label="자석 속력">
     </div>
+    <div class="control-row">
+      <label>코일 감은 수 <b id="turnVal">18 회</b></label>
+      <input type="range" id="turnSlider" min="6" max="36" step="6" value="18" aria-label="코일 감은 수">
+    </div>
     <div class="readout"><span>유도전류의 세기</span><b id="currVal">- (임의단위)</b></div>
-    <button class="action" id="addPoint">📍 이 속력에서 측정하기</button>
+    <button class="action" id="addPoint">📍 이 조건에서 측정하기</button>
     <button class="action btn-ghost" id="resetPoints">초기화</button>
-    <div class="hint">💡 코일 감은 수(18회)는 고정되어 있습니다. 자석 속력만 바뀝니다.<br>검류계 바늘과 도선 위 <b>주황색 점의 움직임</b>이 지금 흐르는 유도전류입니다. 자석이 코일 <b>한가운데</b>를 지날 때는 자기장 변화가 가장 작아 전류가 0이 되고, 들어갈 때와 나올 때는 <b>방향이 반대</b>가 됩니다.</div>
+    <div class="hint">💡 자석 속력과 코일 감은 수를 모두 바꿀 수 있습니다. 기전력은 <b>감은 수 × 자기장 변화율</b>에 비례하므로, 같은 속력에서도 감은 수를 바꾸면 전류가 달라집니다.<br>검류계 바늘과 도선 위 <b>주황색 점의 움직임</b>이 지금 흐르는 유도전류입니다. 자석이 코일 <b>한가운데</b>를 지날 때는 자기장 변화가 가장 작아 전류가 0이 되고, 들어갈 때와 나올 때는 <b>방향이 반대</b>가 됩니다.</div>
   </section>
   <section class="card">
     <h2>측정 데이터</h2>
     <div class="table-wrap"><table id="dataTable">
-      <thead><tr><th>#</th><th>자석 속력</th><th>유도전류</th></tr></thead>
+      <thead><tr><th>#</th><th>자석 속력</th><th>감은 수</th><th>유도전류</th></tr></thead>
       <tbody id="dataBody"></tbody>
     </table></div>
   </section>
@@ -228,13 +232,15 @@ input[type=range]{cursor:pointer;height:24px;}
 
   <div id="verifyContent" class="hidden">
     <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>자석 속력</th><th>유도전류</th></tr></thead>
+      <thead><tr><th>#</th><th>자석 속력</th><th>감은 수</th><th>유도전류</th></tr></thead>
       <tbody id="myDataBody"></tbody>
     </table></div>
     <div class="analysis-grid">
       <div class="analysis-card highlight"><span>내 데이터의 기울기</span><b id="mySlope">-</b></div>
       <div class="analysis-card"><span>속력-유도전류 관계</span><b style="font-size:18px;">정비례</b></div>
+      <div class="analysis-card"><span>감은 수 1회당 기울기</span><b id="perTurn">-</b></div>
     </div>
+    <p class="hint-text" id="turnNote"></p>
 
     <h3 class="section-title">🔍 측정하지 않은 속력을 예측해 보세요</h3>
     <p class="hint-text">자석 속력이 <b>15</b>일 때 유도전류는 얼마일까요?</p>
@@ -318,23 +324,28 @@ tabBtns.forEach(b=>b.addEventListener('click',()=>{
 
 const IND_K=1.6;
 const speedSlider=document.getElementById('speedSlider'), speedVal=document.getElementById('speedVal'), currVal=document.getElementById('currVal');
-let curSpeed=3.0, curInduced=IND_K*3.0;
+const turnSlider=document.getElementById('turnSlider'), turnVal=document.getElementById('turnVal');
+let curSpeed=3.0, curTurns=18, curInduced=IND_K*3.0;
 function updateSpeed(){
   curSpeed=parseFloat(speedSlider.value);
-  curInduced=IND_K*curSpeed;
+  curTurns=parseFloat(turnSlider.value);
+  /* 기전력 ∝ 감은 수 × 자기장 변화율 — 18회를 기준으로 비례시킨다 */
+  curInduced=IND_K*curSpeed*(curTurns/18);
   speedVal.textContent=curSpeed.toFixed(1);
+  turnVal.textContent=curTurns.toFixed(0)+' 회';
   currVal.textContent=curInduced.toFixed(1);
+  if(typeof TURNS!=='undefined') TURNS=curTurns;
 }
 speedSlider.addEventListener('input',updateSpeed);
-updateSpeed();
+turnSlider.addEventListener('input',updateSpeed);
 
 const colors=['#c1443c','#2f8f9d','#d98e3b','#6a5acd','#3f9b5b','#c1447f','#4a637a','#a86825'];
 let points=[];
 document.getElementById('addPoint').addEventListener('click',()=>{
   if(points.length>=8){ notify('최대 8개까지 측정할 수 있어요.'); return; }
-  if(points.some(p=>p.speed===curSpeed)){ notify('이미 같은 조건으로 기록했어요. 조건을 바꿔 보세요.'); return; }
+  if(points.some(p=>p.speed===curSpeed&&p.turns===curTurns)){ notify('이미 같은 조건으로 기록했어요. 조건을 바꿔 보세요.'); return; }
   if(window.fxSound&&fxSound.hum) fxSound.hum(curSpeed/8, 0.6);   /* 측정할 때 코일에 유도전류가 흐르는 웅: 자석이 빠를수록 크게 */
-  points.push({speed:curSpeed, induced:curInduced, color:colors[points.length%colors.length]});
+  points.push({speed:curSpeed, turns:curTurns, induced:curInduced, color:colors[points.length%colors.length]});
   renderTable();
 });
 document.getElementById('resetPoints').addEventListener('click',()=>{ points=[]; renderTable(); });
@@ -457,7 +468,9 @@ function CAP(x,y,text,bg,fg,size){
 }
 
 const CX=250, CY=142;                       /* 코일 중심 */
-const COIL_X0=170, COIL_X1=330, CORE_R=34, TURNS=18;
+const COIL_X0=170, COIL_X1=330, CORE_R=34;
+let TURNS=18;
+updateSpeed();
 const SPAN=182;                             /* 자석이 오가는 범위(px) */
 
 /* 코일을 지나는 자기선속 Φ(x) ~ 종 모양.
@@ -544,7 +557,21 @@ function renderVerify(){
   const notEnough=document.getElementById('notEnoughMsg');
   const content=document.getElementById('verifyContent');
   const distinctS=new Set(points.map(p=>p.speed)).size;
-  if(points.length<4 || distinctS<4){
+  if(points.length<4 || distinctS<3){
+    notEnough.classList.remove('hidden'); content.classList.add('hidden');
+    return;
+  }
+  /* 감은 수가 섞이면 한 직선이 아니다 — 같은 감은 수끼리 모아 가장 많은 묶음으로 기울기를 낸다 */
+  const groups={};
+  points.forEach(p=>{ const k=String(p.turns||18); (groups[k]=groups[k]||[]).push(p); });
+  const keys=Object.keys(groups);
+  let best=null;
+  keys.forEach(k=>{
+    const g=groups[k], nd=new Set(g.map(p=>p.speed)).size;
+    if(nd>=3 && (!best||g.length>best.g.length)) best={k:k,g:g};
+  });
+  if(!best){
+    notEnough.innerHTML='기울기를 내려면 <b>같은 감은 수</b>에서 자석 속력만 바꿔 <b>3개 이상</b> 측정해야 해요. 지금은 감은 수가 '+keys.length+'가지로 섞여 있습니다.';
     notEnough.classList.remove('hidden'); content.classList.add('hidden');
     return;
   }
@@ -553,12 +580,30 @@ function renderVerify(){
   const body=document.getElementById('myDataBody'); body.innerHTML='';
   sorted.forEach((p,i)=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><span class="dot" style="background:${p.color}"></span>${i+1}</td><td>${p.speed.toFixed(1)}</td><td>${p.induced.toFixed(1)}</td>`;
+    tr.innerHTML=`<td><span class="dot" style="background:${p.color}"></span>${i+1}</td><td>${p.speed.toFixed(1)}</td><td>${p.turns==null?'-':p.turns}</td><td>${p.induced.toFixed(1)}</td>`;
     body.appendChild(tr);
   });
-  const {slope,intercept}=linregress(sorted);
-  document.getElementById('mySlope').textContent=slope.toFixed(2);
-  renderVerify._slope=slope; renderVerify._intercept=intercept;
+  const gsorted=[...best.g].sort((a,b)=>a.speed-b.speed);
+  const gTurns=Number(best.k);
+  const {slope,intercept}=linregress(gsorted);
+  document.getElementById('mySlope').textContent=slope.toFixed(2)+' (감은 수 '+gTurns+'회)';
+  document.getElementById('perTurn').textContent=(slope/gTurns).toFixed(3);
+  let tn='기울기는 감은 수 '+gTurns+'회에서 측정한 '+gsorted.length+'개로 냈습니다.';
+  if(keys.length>1){
+    const ls=[];
+    keys.sort((a,b)=>a-b).forEach(k=>{
+      const g=groups[k].slice().sort((a,b)=>a.speed-b.speed);
+      if(new Set(g.map(p=>p.speed)).size>=2){
+        const r=linregress(g);
+        ls.push('감은 수 '+k+'회 → 기울기 '+r.slope.toFixed(2)+' (1회당 '+(r.slope/Number(k)).toFixed(3)+')');
+      }
+    });
+    tn+='<br>'+ls.join(' / ')+'<br>감은 수를 두 배로 하면 <b>기울기도 두 배</b>가 되고, <b>1회당 기울기는 그대로</b>입니다. 그래서 기전력은 <b>감은 수 × 변화율</b>에 비례합니다 — 속력만 보고는 알 수 없습니다.';
+  }else{
+    tn+='<br><b>감은 수를 바꿔</b> 다시 3개를 측정해 보세요 — 같은 속력에서도 전류가 달라지는지, 기울기가 감은 수에 비례하는지 확인할 수 있습니다.';
+  }
+  document.getElementById('turnNote').innerHTML=tn;
+  renderVerify._slope=slope; renderVerify._intercept=intercept; renderVerify._turns=gTurns;
 }
 
 document.getElementById('checkBtn').addEventListener('click',()=>{
@@ -570,7 +615,7 @@ document.getElementById('checkBtn').addEventListener('click',()=>{
   const ok=Math.abs(val-truth)<=Math.max(1,truth*0.1);
   fb.className='feedback show '+(ok?'ok':'no');
   fb.innerHTML = ok
-    ? `잘 예측했습니다! 내 추세선으로 계산한 값은 <b>${truth.toFixed(1)}</b>입니다. 자석을 빠르게 움직일수록 유도전류가 커집니다. 발전기는 이 원리로 자석(또는 코일)을 회전시켜 전기를 만듭니다.`
+    ? `잘 예측했습니다! 감은 수 ${renderVerify._turns}회 추세선으로 계산한 값은 <b>${truth.toFixed(1)}</b>입니다. 자석을 빠르게 움직일수록 유도전류가 커집니다. 발전기는 이 원리로 자석(또는 코일)을 회전시켜 전기를 만듭니다.`
     : `내 추세선으로 계산한 값은 <b>${truth.toFixed(1)}</b>입니다. 기울기를 이용해 다시 계산해 보세요.`;
 });
 

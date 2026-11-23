@@ -151,12 +151,16 @@ tbody tr:nth-child(even){background:rgba(255,255,255,.03)}
   <div class="grid">
     <div class="viz"><canvas id="cv" width="460" height="440" role="img" aria-label="f′(a) 와 f′(x) 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas></div>
     <div class="side">
-      <div class="ctl"><label for="a">접점의 x 좌표 a (×0.5) <b><span id="a_v">2</span></b></label><input type="range" id="a" min="-6" max="6" step="1" value="2"></div><div class="row"><button class="btn go" id="goBtn">📍 점을 찍어 도함수 만들기</button></div>
+      <div class="ctl"><label>어떤 f 로 해 볼까</label>
+<label><input type="radio" name="fn" value="A" checked> A. 삼차 f(x) = 0.25x³ − x</label>
+<label><input type="radio" name="fn" value="B"> B. 이차 f(x) = 0.5x² − 2</label>
+<label><input type="radio" name="fn" value="C"> C. 절댓값 f(x) = |x| − 1</label></div>
+<div class="ctl"><label for="a">접점의 x 좌표 a (×0.5) <b><span id="a_v">2</span></b></label><input type="range" id="a" min="-6" max="6" step="1" value="2"></div><div class="row"><button class="btn go" id="goBtn">📍 점을 찍어 도함수 만들기</button></div>
       <div class="readout" id="readout"></div>
       <div class="row">
         <button class="btn clr" id="clrBtn">표 비우기</button>
       </div>
-      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>a</th><th>f(a)</th><th>f′(a)</th><th>찍은 점 수</th><th>도함수 식</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablebox"><table id="tbl"><thead><tr><th>#</th><th>f</th><th>a</th><th>f(a)</th><th>f′(a)</th><th>찍은 점 수</th><th>도함수 식</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 </section>
@@ -235,11 +239,21 @@ $('goBtn').addEventListener('click',async function(){cv.scrollIntoView({behavior
 if(busy)return;lock(true);gr=0;draw();await anim(1500,function(t){gr=t;draw();});gr=1;draw();lock(false);autoRec();});
 
 
-function f(x){return 0.25*x*x*x-x;}
-function fp(x){return 0.75*x*x-1;}
+/* f 를 바꿔 보면 도함수의 모양이 달라지고, 절댓값에서는 꺾인 점에서 도함수가 없다 */
+var FN=[
+  {k:'A', n:'삼차 0.25x³ − x', f:function(x){return 0.25*x*x*x-x;}, fp:function(x){return 0.75*x*x-1;}, fps:'f′(x) = 0.75x² − 1', shape:'위로 열린 포물선'},
+  {k:'B', n:'이차 0.5x² − 2', f:function(x){return 0.5*x*x-2;}, fp:function(x){return x;}, fps:'f′(x) = x', shape:'원점을 지나는 직선'},
+  {k:'C', n:'절댓값 |x| − 1', f:function(x){return Math.abs(x)-1;}, fp:function(x){return x>0?1:(x<0?-1:NaN);}, fps:'f′(x) = 1 (x>0), −1 (x<0), x = 0 에서는 없음', shape:'−1 과 1 로 끊어진 계단'}
+];
+function cf(){var k=rv('fn')||'A';for(var i=0;i<FN.length;i++)if(FN[i].k===k)return FN[i];return FN[0];}
+function f(x){return cf().f(x);}
+function fp(x){return cf().fp(x);}
 var picked=[];
-function st(){var a=v('a')/2;
-return{a:a,fa:f(a),fpa:fp(a)};}
+document.querySelectorAll('input[name="fn"]').forEach(function(e){e.addEventListener('change',function(){picked=[];draw();});});
+function st(){var a=v('a')/2, F2=cf(), fpa=F2.fp(a), und=!isFinite(fpa);
+return{a:a,fa:F2.f(a),fpa:fpa,und:und,fpaTxt:und?'없음':nf(fpa,4),F:F2,
+  note:und?'x = 0 은 그래프가 꺾인 점이라 접선이 하나로 정해지지 않아요 — 미분할 수 없습니다'
+    :('도함수의 모양: '+F2.shape)};}
 function draw(){clr();var o=st();
 var pl=plot(-3.4,3.4,-4,4,40);
 ctx.strokeStyle='#22304d';ctx.lineWidth=1;
@@ -255,7 +269,7 @@ var t=gr;
 var x1=o.a-1.2,x2=o.a+1.2;
 seg([pl.X(x1),pl.Y(o.fa+o.fpa*(x1-o.a))],[pl.X(x2),pl.Y(o.fa+o.fpa*(x2-o.a))],'#ffb86b',2.6);
 dot(pl.X(o.a),pl.Y(o.fa),7,'#ffb86b');
-label('기울기 '+nf(o.fpa,3),pl.X(o.a)+12,pl.Y(o.fa)-18,'#ffb86b',13,'left');
+label(o.und?'기울기 없음(꺾인 점)':('기울기 '+nf(o.fpa,3)),pl.X(o.a)+12,pl.Y(o.fa)-18,'#ffb86b',13,'left');
 var pl2=plot(-3.4,3.4,-4,4,40);
 ctx.save();ctx.translate(0,0);ctx.restore();
 panel(24,236,W-48,96);
@@ -264,31 +278,39 @@ var py=function(y){return 300-y*18;};
 ctx.strokeStyle='#2b3550';ctx.lineWidth=1;
 ctx.beginPath();ctx.moveTo(px(-3.4),py(0));ctx.lineTo(px(3.4),py(0));ctx.stroke();
 label('f′ 값을 모으면',W/2,254,'#9db0d4',12);
-if(picked.indexOf(nf(o.a,2))<0&&t>0.95)picked.push(nf(o.a,2));
-picked.forEach(function(s){var xv=parseFloat(s);
-dot(px(xv),py(fp(xv)),5,'#5ee0c8');});
-dot(px(o.a),py(o.fpa),7,'#ff7a8a');
+if(!o.und&&picked.indexOf(nf(o.a,2))<0&&t>0.95)picked.push(nf(o.a,2));
+picked.forEach(function(s){var xv=parseFloat(s),yv=fp(xv);if(!isFinite(yv))return;
+dot(px(xv),py(yv),5,'#5ee0c8');});
+if(!o.und)dot(px(o.a),py(o.fpa),7,'#ff7a8a');
 if(picked.length>=5){ctx.strokeStyle='rgba(94,224,200,.45)';ctx.lineWidth=2;ctx.beginPath();
-for(var x=-3.4;x<=3.4;x+=0.05){var yy=py(fp(x));if(yy<240||yy>330)continue;
+for(var x=-3.4;x<=3.4;x+=0.05){var yv2=fp(x);if(!isFinite(yv2)){ctx.stroke();ctx.beginPath();continue;}
+var yy=py(yv2);if(yy<240||yy>330)continue;
 if(x===-3.4)ctx.moveTo(px(x),yy);else ctx.lineTo(px(x),yy);}
 ctx.stroke();}
 panel(24,342,W-48,78);
-label("f′("+nf(o.a,1)+") = "+nf(o.fpa,4)+"   ← 수 하나",W/2,372,'#ff7a8a',17);
-label("f′(x) = 0.75x² − 1   ← 함수 (찍은 점 "+picked.length+"개)",W/2,404,'#5ee0c8',16);
-ro(kv("f("+nf(o.a,1)+")",nf(o.fa,3))+' &nbsp;'+kv("f′("+nf(o.a,1)+")",nf(o.fpa,4))+'<br>'+kv('찍은 점',picked.length+'개'));}
+label("f′("+nf(o.a,1)+") = "+o.fpaTxt+"   ← 수 하나",W/2,372,'#ff7a8a',17);
+label(o.F.fps+"   ← 함수 (찍은 점 "+picked.length+"개)",W/2,404,'#5ee0c8',14);
+ro(kv('f',o.F.n)+'<br>'+kv("f("+nf(o.a,1)+")",nf(o.fa,3))+' &nbsp;'+kv("f′("+nf(o.a,1)+")",o.fpaTxt)+'<br>'+kv('찍은 점',picked.length+'개')+'<br>'+kv('판정',o.note));}
 function record(){var o=st();
-return{cells:[nf(o.a,1),nf(o.fa,3),nf(o.fpa,4),picked.length,'f′(x) = 0.75x² − 1'],
-a:o.a,fa:o.fa,fpa:o.fpa,n:picked.length};}
-function analyze(){var ok=rows.every(function(r){return Math.abs(r.fpa-(0.75*r.a*r.a-1))<1e-9;});
-var t='<table><thead><tr><th>a</th><th>f′(a)</th><th>0.75a² − 1</th></tr></thead><tbody>';
-rows.forEach(function(r){t+='<tr><td>'+nf(r.a,1)+'</td><td class="ok">'+nf(r.fpa,4)+'</td>'+
-'<td class="'+(Math.abs(r.fpa-(0.75*r.a*r.a-1))<1e-9?'ok':'no')+'">'+nf(0.75*r.a*r.a-1,4)+'</td></tr>';});
+return{cells:[o.F.k+'. '+o.F.n,nf(o.a,1),nf(o.fa,3),o.fpaTxt,picked.length,o.F.fps],
+k:o.F.k,fn:o.F.n,fps:o.F.fps,a:o.a,fa:o.fa,fpa:o.fpa,und:o.und,n:picked.length};}
+function analyze(){
+function fpOf(k,x){for(var i=0;i<FN.length;i++)if(FN[i].k===k)return FN[i].fp(x);return NaN;}
+var ok=rows.every(function(r){return r.und||Math.abs(r.fpa-fpOf(r.k,r.a))<1e-9;});
+var t='<table><thead><tr><th>f</th><th>a</th><th>f′(a)</th><th>도함수 식에 넣은 값</th></tr></thead><tbody>';
+rows.forEach(function(r){var e=fpOf(r.k,r.a),same=r.und?!isFinite(e):Math.abs(r.fpa-e)<1e-9;
+t+='<tr><td>'+r.k+'</td><td>'+nf(r.a,1)+'</td><td class="ok">'+(r.und?'없음':nf(r.fpa,4))+'</td>'+
+'<td class="'+(same?'ok':'no')+'">'+(isFinite(e)?nf(e,4):'없음')+'</td></tr>';});
 t+='</tbody></table>';
 $('analysis').innerHTML='<h3>내가 기록한 '+rows.length+'개 데이터로 확인하기</h3><div class="vgrid">'+
 '<div class="card"><h4>1. 점을 모으면 함수가 된다</h4>'+t+'<p class="note">'+
 (ok?'<span class="ok">모든 기록에서 f′(a) 가 0.75a² − 1 과 일치</span>했습니다. ':'')+
 'a 를 움직이며 얻은 값들이 하나의 식으로 묶입니다.</p></div>'+
-'<div class="card"><h4>2. 값과 함수</h4>'+
+'<div class="card"><h4>2. f 를 바꾸면 도함수의 모양이 달라진다</h4>'+
+'<p class="note">해 본 f: '+FN.filter(function(F2){return rows.some(function(r){return r.k===F2.k;});}).map(function(F2){return F2.k+'. '+F2.n+' → '+F2.shape;}).join('<br>')+'</p>'+
+'<p class="note">삼차함수의 도함수는 포물선, 이차함수의 도함수는 직선입니다. 절댓값 함수는 x = 0 에서 <b>도함수가 없습니다</b> — 왼쪽에서 오면 −1, 오른쪽에서 오면 1 이라 한 값으로 정해지지 않기 때문입니다. '+
+(rows.some(function(r){return r.und;})?'<span class="no">x = 0 에서 미분할 수 없던 기록이 '+rows.filter(function(r){return r.und;}).length+'개</span> 있었습니다.':'절댓값 함수에서 a = 0 으로 두고 확인해 보세요.')+'</p></div>'+
+'<div class="card"><h4>3. 값과 함수</h4>'+
 '<p class="note"><b>f′(a)</b> 는 x = a 에서의 접선의 기울기 — <b>수 하나</b>입니다.<br><b>f′(x)</b> 는 각 x 마다 그 값을 대응시킨 <b>새로운 함수</b>입니다.</p>'+
 '<p class="note">f(x) = x² 이면 f′(x) = 2x 라는 <b>식</b>이고, f′(3) = 6 이라는 <b>수</b>입니다. 답을 쓸 때 무엇을 묻는지 먼저 확인해야 합니다.</p>'+
 '<p class="note">도함수를 구한 뒤 특정 값을 대입하는 순서로 풀면 계산이 훨씬 간단해집니다.</p></div></div>';}

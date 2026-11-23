@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -445,6 +447,16 @@ var START = [15, 25, 35], SN = ['15세', '25세', '35세'];
 function calc(rate, monthly, si, end){ var r = rate / 100, start = START[si], years = Math.max(0, end - start), n = years * 12, rm = r / 12, total = rm > 0 ? monthly * (Math.pow(1 + rm, n) - 1) / rm : monthly * n, principal = monthly * n, dbl72 = rate > 0 ? 72 / rate : Infinity, dblExact = rate > 0 ? Math.log(2) / Math.log(1 + r) : Infinity;
   var hist = []; for (var y = 0; y <= years; y += 5){ var nn = y * 12; hist.push({y:y, v:rm > 0 ? monthly * (Math.pow(1 + rm, nn) - 1) / rm : monthly * nn, p:monthly * nn}); }
   return {rate:rate, monthly:monthly, start:start, end:end, years:years, total:total, principal:principal, interest:total - principal, dbl72:dbl72, dblExact:dblExact, hist:hist, mult:total / Math.max(1, principal)}; }
+function both(p){
+  var A = calc(p.r, p.m, p.s, p.e), B = calc(p.r, p.m2, p.s2, p.e);
+  var win = Math.abs(A.total - B.total) < 1 ? 2 : (A.total > B.total ? 0 : 1);
+  var cross = null;
+  for (var q = 1; q <= 12; q++){ var a = calc(q, p.m, p.s, p.e), b = calc(q, p.m2, p.s2, p.e); if (a.total >= b.total){ cross = q; break; } }
+  var o = {}; Object.keys(A).forEach(function(k){ o[k] = A[k]; });
+  o.B = B; o.win = win; o.cross = cross; o.gw = p.gw; o.hit = (p.gw === win);
+  o.diff = Math.abs(A.total - B.total);
+  return o;
+}
 return {
   sceneHeight: function(w){ return w < 480 ? 486 : 420; },
   idle: '이자율·매달 저축·시작 나이·끝 나이를 정한 뒤 <b>불려 보기</b>를 누르세요.',
@@ -453,32 +465,52 @@ return {
     {key:'r', type:'range', label:'연 이자율', min:1, max:12, step:1, value:4, fmt:function(v){ return v + ' %'; }},
     {key:'m', type:'range', label:'매달 저축', min:1, max:30, step:1, value:5, fmt:function(v){ return v + '만 원'; }},
     {key:'s', type:'seg', label:'시작 나이', cols:3, value:0, options:SN},
-    {key:'e', type:'range', label:'끝 나이', min:30, max:70, step:5, value:65, fmt:function(v){ return v + '세'; },
-      note:'매달 복리로 계산합니다. 72 ÷ 이자율 = 돈이 두 배 되는 햇수(어림).'}
+    {key:'e', type:'range', label:'끝 나이', min:30, max:70, step:5, value:65, fmt:function(v){ return v + '세'; }},
+    {key:'s2', type:'seg', label:'겨뤄 볼 B — 시작 나이', cols:3, value:1, options:SN},
+    {key:'m2', type:'range', label:'겨뤄 볼 B — 매달 저축', min:1, max:30, step:1, value:10, fmt:function(v){ return v + '만 원'; }},
+    {key:'gw', type:'seg', label:'먼저 짐작: 끝 나이에 더 많은 쪽은?', cols:3, value:0, options:['A가 크다', 'B가 크다', '비슷하다'],
+      note:'매달 복리로 계산합니다. 72 ÷ 이자율 = 돈이 두 배 되는 햇수(어림). A와 B를 바꿔 가며, 이자율에 따라 승자가 뒤집히는 자리를 찾아보세요.'}
   ],
-  compute: function(p){ return calc(p.r, p.m, p.s, p.e); },
+  compute: function(p){ return both(p); },
   draw: function(c, W, H, p, r, tau){
-    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || calc(p.r, p.m, p.s, p.e), px = 80, py = 30, pw = W - px - 20, nar = W < 480, ph = H - py - (nar ? 146 : 80), mx = Math.max(100, C.total);
+    var k = r ? Math.min(tau / 0.9, 1) : 0, C = r || both(p), px = 80, py = 30, pw = W - px - 20, nar = W < 480, ph = H - py - (nar ? 146 : 80), mx = Math.max(100, C.total, C.B.total);
     var step = mx > 20000 ? 5000 : mx > 5000 ? 2000 : mx > 1000 ? 500 : 100, ax = plotBox(c, px, py, pw, ph, [0, Math.max(5, C.years), Math.max(5, Math.ceil(C.years / 5 / 2) * 5)], [0, Math.ceil(mx / step) * step, step], '저축한 햇수', '만 원');
     var n = Math.floor(C.hist.length * k); c.strokeStyle = '#8C99A8'; c.lineWidth = 2; c.setLineDash([6, 4]); c.beginPath(); for (var i = 0; i < n; i++){ var h = C.hist[i]; if (i === 0) c.moveTo(ax.X(h.y), ax.Y(h.p)); else c.lineTo(ax.X(h.y), ax.Y(h.p)); } c.stroke(); c.setLineDash([]);
     c.strokeStyle = '#2E9E78'; c.lineWidth = 3; c.beginPath(); for (var j = 0; j < n; j++){ var h2 = C.hist[j]; if (j === 0) c.moveTo(ax.X(h2.y), ax.Y(h2.v)); else c.lineTo(ax.X(h2.y), ax.Y(h2.v)); } c.stroke();
+    var nb = Math.floor(C.B.hist.length * k);
+    c.strokeStyle = '#C8463D'; c.lineWidth = 3; c.beginPath();
+    for (var jb = 0; jb < nb; jb++){ var hb = C.B.hist[jb]; if (jb === 0) c.moveTo(ax.X(hb.y), ax.Y(hb.v)); else c.lineTo(ax.X(hb.y), ax.Y(hb.v)); } c.stroke();
     var cs = r ? C.start + '세 → ' + C.end + '세: 원금 ' + f(C.principal, 0) + '만 원 → 총 ' + f(C.total, 0) + '만 원 (이자 ' + f(C.interest, 0) + '만 원)' : '';
     if (nar && cs){ var cn = wtxt(c, cs, 12, 0, {bold:true, dry:true}, W - 24, 22); wtxt(c, cs, 12, H - 14 - (cn - 1) * 22, {bold:true, color:'#2E9E78'}, W - 24, 22); } // 좁은 화면: 아래쪽 맞춰 줄바꿈
     else txt(c, cs, 12, H - 14, {bold:true, color:'#2E9E78'});
   },
   stats: function(p, r){
-    return [['이자율 · 매달 · 기간', r.rate + ' % · ' + r.monthly + '만 원 · ' + r.start + '~' + r.end + '세 (' + r.years + '년)'], ['넣은 원금', f(r.principal, 0) + '만 원', PAL[7]], ['총액', f(r.total, 0) + '만 원', PAL[1]], ['이자 (이자가 낳은 이자 포함)', f(r.interest, 0) + '만 원 (원금의 ' + f(r.mult, 2) + '배)', PAL[1]], ['두 배 되는 햇수 (72의 법칙)', f(r.dbl72, 1) + '년 (정확히 ' + f(r.dblExact, 1) + '년)', PAL[3]]];
+    return [['이자율 · 매달 · 기간', r.rate + ' % · ' + r.monthly + '만 원 · ' + r.start + '~' + r.end + '세 (' + r.years + '년)'], ['넣은 원금', f(r.principal, 0) + '만 원', PAL[7]], ['총액 (A, 초록선)', f(r.total, 0) + '만 원', PAL[1]], ['이자 (이자가 낳은 이자 포함)', f(r.interest, 0) + '만 원 (원금의 ' + f(r.mult, 2) + '배)', PAL[1]], ['두 배 되는 햇수 (72의 법칙)', f(r.dbl72, 1) + '년 (정확히 ' + f(r.dblExact, 1) + '년)', PAL[3]],
+      ['겨뤄 볼 B (빨간선)', r.B.start + '세에 월 ' + r.B.monthly + '만 원 · ' + r.B.years + '년 → 원금 ' + f(r.B.principal, 0) + '만 원 · 총액 ' + f(r.B.total, 0) + '만 원', PAL[4]],
+      ['내 짐작 / 채점', ['A가 크다', 'B가 크다', '비슷하다'][r.gw] + ' → ' + (r.hit ? '✅ 맞혔어요' : '❌ 틀렸어요'), r.hit ? PAL[1] : PAL[4]],
+      ['더 많은 쪽', r.win === 2 ? '거의 같습니다' : (r.win === 0 ? 'A (' + r.start + '세 시작)' : 'B (' + r.B.start + '세 시작)') + ' — 차이 ' + f(r.diff, 0) + '만 원', r.win === 0 ? PAL[1] : PAL[4]],
+      ['뒤집히는 이자율', r.cross === null ? '이 조건에서는 1~12 % 모두 B 가 큽니다' : (r.cross <= 1 ? '1 % 부터 이미 A 가 큽니다' : '약 ' + r.cross + ' % 부터 A 가 앞섭니다 — 그 아래에서는 B 가 큽니다'), PAL[3]]];
   },
-  columns: ['이자율', '매달', '시작', '끝', '원금 (만)', '총액 (만)', '두 배 (년)'],
-  record: function(p, r){ return {rate:r.rate, monthly:r.monthly, start:r.start, end:r.end, principal:r.principal, total:r.total, dbl:r.dbl72}; },
-  row: function(d){ return [d.rate + '%', d.monthly, d.start + '세', d.end + '세', f(d.principal, 0), f(d.total, 0), f(d.dbl, 1)]; },
+  columns: ['이자율', '매달', '시작', '끝', '원금 (만)', '총액 (만)', 'B 조건', 'B 총액', '더 많은 쪽', '내 짐작', '채점', '뒤집히는 금리'],
+  record: function(p, r){ return {rate:r.rate, monthly:r.monthly, start:r.start, end:r.end, principal:r.principal, total:r.total, dbl:r.dbl72,
+    bs:r.B.start, bm:r.B.monthly, btotal:r.B.total, win:r.win, gw:r.gw, hit:r.hit, cross:r.cross, diff:r.diff}; },
+  row: function(d){ return [d.rate + '%', d.monthly, d.start + '세', d.end + '세', f(d.principal, 0), f(d.total, 0), d.bs + '세 · 월 ' + d.bm + '만', f(d.btotal, 0), d.win === 2 ? '비슷' : (d.win === 0 ? 'A' : 'B'), ['A', 'B', '비슷'][d.gw], d.hit ? '✅' : '❌', d.cross === null ? '없음' : d.cross + '%']; },
   verify: function(rec, box){
     box.innerHTML = '<div class="vgrid">' +
       card('시작 나이와 총액', '<div id="ro1"></div><p class="ask">15세와 25세 시작의 총액 차이는 얼마였나요? 원금 차이보다 총액 차이가 훨씬 큰 까닭은?</p>') +
       card('이자율과 두 배 햇수', '<canvas class="chart" id="ch2" role="img" aria-label="이자율에 따른 두 배 햇수"></canvas><ul class="readout" id="ro2"></ul><p class="ask">72 ÷ 이자율이 실제 계산과 얼마나 가까운가요? 대출 이자 20 %면 빚은 몇 년마다 두 배가 되나요?</p>') + '</div>';
     $('ro1').innerHTML = tableHTML(['이자율', '매달', '기간', '원금', '총액', '이자'], rec.map(function(d){ return [d.rate + ' %', d.monthly + '만', d.start + '~' + d.end + '세', f(d.principal, 0) + '만', f(d.total, 0) + '만', f(d.total - d.principal, 0) + '만']; }));
     var s2 = [{color:PAL[0], pts:rec.map(function(d){ return {x:d.rate, y:d.dbl}; })}];
-    drawScatter($('ch2'), {xLabel:'이자율 (%)', yLabel:'두 배 되는 햇수', series:s2}); $('ro2').innerHTML = '<li>72 ÷ 이자율 곡선을 따라가요.</li>';
+    drawScatter($('ch2'), {xLabel:'이자율 (%)', yLabel:'두 배 되는 햇수', series:s2});
+    $('ro2').innerHTML = '<li>72 ÷ 이자율 곡선을 따라가요.</li>'
+      + (function(){ var hit = rec.filter(function(d){ return d.hit; });
+        var k = {}; rec.forEach(function(d){ k[d.rate] = d; }); var ks = Object.keys(k).map(Number).sort(function(a, b){ return a - b; });
+        var flip = rec.filter(function(d){ return d.cross !== null; })[0];
+        return '<li>A·B 겨루기 — 짐작을 맞힌 기록 <b>' + hit.length + '개</b> / ' + rec.length + '개.</li>'
+          + '<li>이자율별 승자: ' + ks.map(function(x){ return x + '% → ' + (k[x].win === 2 ? '비슷' : (k[x].win === 0 ? 'A(' + k[x].start + '세)' : 'B(' + k[x].bs + '세)')); }).join(' · ') + '</li>'
+          + (ks.length < 2 ? '<li>같은 A·B 조건에서 <b>이자율만</b> 2 % → 6 % → 10 % 로 올려 보세요. 승자가 뒤집히는 자리가 있습니다.</li>'
+            : '<li>' + (flip && flip.cross ? '이 조건에서는 약 <b>' + flip.cross + ' %</b> 부터 “일찍 적게”가 “늦게 많이”를 앞섭니다. 이자율이 낮으면 넣은 돈이 거의 그대로여서 <b>많이 넣은 쪽</b>이 이기고, 이자율이 높으면 시간이 불려 주어 <b>일찍 시작한 쪽</b>이 이깁니다.' : '이 조건에서는 1~12 % 모두 B 가 앞섰습니다. B 의 매달 금액을 줄이거나 A 의 시작 나이를 더 앞으로 당겨 뒤집히는 자리를 찾아보세요.') + '</li>')
+          + '<li>“일찍 시작할수록 좋다”는 <b>언제나</b> 참이 아니라, 이자율과 넣는 금액에 따라 갈립니다.</li>'; })();
   }
 };
 })();
@@ -487,7 +519,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

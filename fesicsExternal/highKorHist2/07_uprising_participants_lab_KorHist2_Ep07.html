@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -478,13 +480,16 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
       function acc(ci, s){ var u = {}; for (var i = 0; i <= s; i++) CS[ci].st[i].g.forEach(function(g){ u[g] = 1; }); return Object.keys(u).map(Number); }
       return {
         sceneHeight: 430,
-        idle: '사건과 단계를 고른 뒤 <b>이 단계까지 보기</b>를 누르세요.',
+        idle: '사건과 단계를 고르고 <b>누가 나섰을지 먼저 예측</b>한 뒤 <b>이 단계까지 보기</b>를 누르세요.',
         shortHint: '두 사건 모두 첫 단계와 마지막 단계를 포함해 4번 이상 기록해 보세요.',
         params: [
           {key:'c', type:'seg', label:'사건', cols:2, value:0, options:CS.map(function(x){ return x.n; })},
-          {key:'s', type:'range', label:'단계', min:0, max:6, step:1, value:0, fmt:function(v){ return (v + 1) + '단계 / 7'; }}
+          {key:'s', type:'range', label:'단계', min:0, max:6, step:1, value:0, fmt:function(v){ return (v + 1) + '단계 / 7'; }},
+          {key:'g', type:'seg', label:'먼저 예측 — 이 단계에 나선 집단은 누구일까요?', cols:2, value:0, options:GR,
+            note:'한 단계에 여러 집단이 함께 나선 경우도 있습니다. 고른 집단이 그중에 있으면 맞힌 것으로 칩니다.'}
         ],
-        compute: function(p){ var u = acc(p.c, p.s), onlyStu = u.every(function(g){ return g <= 1; }); return {st:CS[p.c].st[p.s], u:u, n:u.length, only:onlyStu}; },
+        compute: function(p){ var u = acc(p.c, p.s), onlyStu = u.every(function(g){ return g <= 1; }), st = CS[p.c].st[p.s];
+          return {st:st, u:u, n:u.length, only:onlyStu, g:p.g, hit:(st.g.indexOf(p.g) >= 0)}; },
         draw: function(c, W, H, p, r, tau){
           var sz = fz(W), cs = CS[p.c], lw = W < 520 ? 62 : 96, gx = lw + 8, gw = W - gx - 10, cw = gw / 7, top = 58, rh = Math.min(36, (H - top - 80) / 7), k = r ? tau : 1;
           tx(c, cs.n, 12, 24, {bold:true, size:sz + 1});
@@ -495,13 +500,16 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           seg(c, gx + p.s * cw + cw, top - 20, gx + p.s * cw + cw, top + 7 * rh, PAL[4], 1.5, [4, 3]);
           var st = cs.st[p.s], yb = top + 7 * rh + 24;
           tx(c, st.d + ' · ' + st.e, 12, yb, {bold:true, size:sz});
-          if (r && tau > 0.6){ var u = acc(p.c, p.s); tx(c, '지금까지 나선 집단 ' + u.length + '개 — ' + (u.every(function(g){ return g <= 1; }) ? '아직 학생뿐' : '학생만이 아님'), 12, yb + 26, {bold:true, size:sz, color:u.every(function(g){ return g <= 1; }) ? PAL[6] : PAL[1]}); }
+          if (r && tau > 0.6){ var u = acc(p.c, p.s); tx(c, '지금까지 나선 집단 ' + u.length + '개 — ' + (u.every(function(g){ return g <= 1; }) ? '아직 학생뿐' : '학생만이 아님'), 12, yb + 26, {bold:true, size:sz, color:u.every(function(g){ return g <= 1; }) ? PAL[6] : PAL[1]});
+            if (tau >= 1) tx(c, '내 예측 ' + GR[r.g] + (r.hit ? ' ⭕' : ' ❌'), 12, yb + 50, {bold:true, size:sz, color:r.hit ? PAL[1] : PAL[6]}); }
         },
         stats: function(p, r){ return [['사건 · 단계', CS[p.c].n + ' · ' + (p.s + 1) + '단계'], ['이 단계', r.st.d + ' ' + r.st.e], ['이 단계에 나선 집단', r.st.g.map(function(g){ return GR[g]; }).join(' · '), PAL[4]],
-          ['지금까지 나선 집단', r.u.map(function(g){ return GR[g]; }).join(' · ') + ' (' + r.n + '개)', PAL[0]], ['통념 "학생만의 운동" 점검', r.only ? '이 단계까지는 학생만 보임 — 더 뒤까지 보세요' : '학생 이외의 집단이 이미 등장', r.only ? PAL[6] : PAL[1]]]; },
-        columns: ['사건', '단계', '날짜', '누적 집단 수', '학생뿐?'],
-        record: function(p, r){ return {c:p.c, s:p.s, n:r.n, only:r.only}; },
-        row: function(d){ return [CS[d.c].n.split(' (')[0], d.s + 1, CS[d.c].st[d.s].d, d.n, d.only ? '예' : '아니오']; },
+          ['지금까지 나선 집단', r.u.map(function(g){ return GR[g]; }).join(' · ') + ' (' + r.n + '개)', PAL[0]], ['내 예측', GR[r.g] + (r.hit ? ' — ⭕ 이 단계에 실제로 나섰어요' : ' — ❌ 이 단계에 나선 집단은 ' + r.st.g.map(function(g){ return GR[g]; }).join(' · ')), r.hit ? PAL[1] : PAL[6]],
+          ['통념 "학생만의 운동" 점검', r.only ? '이 단계까지는 학생만 보임 — 더 뒤까지 보세요' : '학생 이외의 집단이 이미 등장', r.only ? PAL[6] : PAL[1]]]; },
+        columns: ['사건', '단계', '날짜', '나선 집단', '내 예측', '맞힘', '누적 집단 수'],
+        record: function(p, r){ return {c:p.c, s:p.s, n:r.n, only:r.only, g:r.g, hit:r.hit}; },
+        row: function(d){ return [CS[d.c].n.split(' (')[0], d.s + 1, CS[d.c].st[d.s].d,
+          CS[d.c].st[d.s].g.map(function(g){ return GR[g]; }).join(' · '), GR[d.g], d.hit ? '⭕' : '❌', d.n]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('집단이 처음 나선 단계', '<div id="up1"></div><p class="ask">두 사건에서 가장 먼저 나선 집단과 마지막에 나선 집단은 누구인가요? "학생이 먼저였지만 학생만이 아니었다"를 기록으로 설명해 보세요.</p>') +
@@ -509,7 +517,11 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           var rows = [];
           [0, 1].forEach(function(ci){ var mx = -1; rec.forEach(function(d){ if (d.c === ci && d.s > mx) mx = d.s; }); if (mx < 0) return;
             GR.forEach(function(g, gi){ for (var j = 0; j <= mx; j++) if (CS[ci].st[j].g.indexOf(gi) >= 0){ rows.push([CS[ci].n.split(' (')[0], g, CS[ci].st[j].d + ' ' + CS[ci].st[j].e]); break; } }); });
-          $('up1').innerHTML = tableHTML(['사건', '집단', '처음 나선 단계'], rows);
+          var hits = rec.filter(function(d){ return d.hit; }).length;
+          var stu = rec.filter(function(d){ return d.g <= 1 && !d.hit; }).length;
+          $('up1').innerHTML = tableHTML(['사건', '집단', '처음 나선 단계'], rows) +
+            '<p class="msg">예측을 맞힌 횟수 <b>' + hits + ' / ' + rec.length + '</b>' +
+            (stu ? ' · 학생(고등학생·대학생)으로 찍었다가 빗나간 적이 ' + stu + '번 있었어요 — 통념이 어디서 어긋나는지 보여 주는 자리입니다.' : '') + '</p>';
           drawScatter($('up2'), {series:[{color:PAL[0], pts:rec.filter(function(d){ return d.c === 0; }).map(function(d){ return {x:d.s + 1, y:d.n}; })}, {color:PAL[4], pts:rec.filter(function(d){ return d.c === 1; }).map(function(d){ return {x:d.s + 1, y:d.n}; })}], xLabel:'단계', yLabel:'누적 집단 수', xHi:7, xStep:1});
         }
       };
@@ -520,7 +532,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

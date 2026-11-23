@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -498,9 +500,17 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         if (J.pat) return {b:J.b, sb:J.sb, c:J.pat};
         var c = []; for (var i = 0; i < J.b * J.sb; i++) c.push(i === 0 ? 'D' : i % J.sb === 0 ? 'K' : ''); return {b:J.b, sb:J.sb, c:c, skel:true};
       }
+      var QM = ['그대로 보기', '맞히기 (장단 가림)'], QN = ['문항 1', '문항 2', '문항 3', '문항 4'], HJ = [3, 2, 1, 6];
+      var GS = ['2소박', '3소박'];
       function calc(p){
-        var J = JD[p.j], bpm = J.bpm * p.x, beat = 60 / bpm, C = cells(J, p.c === 1), sub = beat / C.sb, cyc = beat * C.b;
-        return {J:J, bpm:bpm, beat:beat, C:C, sub:sub, cyc:cyc, heardBeats:2 / beat, heardFrac:2 / cyc};
+        var ji = p.qm ? HJ[p.qn] : p.j, J = JD[ji], bpm = J.bpm * p.x, beat = 60 / bpm, C = cells(J, p.c === 1), sub = beat / C.sb, cyc = beat * C.b;
+        var gsb = p.gs === undefined ? (C.sb === 3 ? 1 : 0) : p.gs;
+        var okJ = !p.qm || p.j === ji, okS = !p.qm || (gsb === 1 ? 3 : 2) === C.sb;
+        var vd = !p.qm ? '장단마다 박과 소박 구조가 다릅니다'
+          : (okJ && okS) ? '장단과 소박 수를 모두 맞혔습니다' : okS ? '소박 수는 맞혔지만 장단 이름이 다릅니다'
+          : okJ ? '장단은 맞혔지만 소박 수가 다릅니다' : '둘 다 다릅니다 — 다시 들어 보세요';
+        return {J:J, ji:ji, bpm:bpm, beat:beat, C:C, sub:sub, cyc:cyc, heardBeats:2 / beat, heardFrac:2 / cyc,
+          qm:p.qm, qn:p.qn, my:JD[p.j], gsb:gsb, okJ:okJ, okS:okS, ok:okJ && okS, vd:vd};
       }
       function stroke(S, code, t, g){
         if (code === 'K' || code === 'D'){ thump(S, t, 110, 62, 0.45, 0.9 * g); hiss(S, t, 0.08, 0.2 * g, 'lowpass', 500, 0.7); }
@@ -516,7 +526,11 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         idle: '장단·비교 방식·빠르기 배율을 고른 뒤 <b>장단 2초 듣기</b>를 누르세요.',
         shortHint: '판소리 다섯 장단(진양조~휘모리)을 모두 기록하고, 한 장단은 서양 4박으로도 바꿔 들어 보세요.',
         params: [
-          {key:'j', type:'seg', label:'장단', cols:4, value:0, options:JD.map(function(x){ return x.n; })},
+          {key:'j', type:'seg', label:'장단 (맞히기에서는 내 답)', cols:4, value:0, options:JD.map(function(x){ return x.n; })},
+          {key:'qm', type:'seg', label:'방식', cols:2, value:0, options:QM,
+            note:'맞히기에서는 장단 이름과 구음을 가린 채 소리만 들려줍니다. 위의 장단과 아래 소박 수가 내 답이 되고, 듣기를 누르면 채점합니다.'},
+          {key:'qn', type:'seg', label:'맞히기 문항 (맞히기에서만)', cols:4, value:0, options:QN},
+          {key:'gs', type:'seg', label:'내 답 — 한 박이 몇 소박?', cols:2, value:1, options:GS},
           {key:'c', type:'seg', label:'비교', cols:2, value:0, options:CMP},
           {key:'k', type:'seg', label:'소박 표시음', cols:2, value:1, options:TK},
           {key:'x', type:'range', label:'빠르기 배율 (연주자마다 다름)', min:0.8, max:1.2, step:0.1, value:1, fmt:function(v){ return '× ' + v.toFixed(1); }}
@@ -534,15 +548,16 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
             if (isB) seg(c, cx + (R - 12) * Math.cos(a), cy + (R - 12) * Math.sin(a), cx + (R + 12) * Math.cos(a), cy + (R + 12) * Math.sin(a), '#5C6B7A', i === 0 ? 4 : 2);
             var col = code === 'D' || code === 'W' ? PAL[4] : code === 'K' || code === 'm' ? PAL[0] : code ? PAL[6] : '#C3CDD9';
             c.fillStyle = col; c.beginPath(); c.arc(cx + R * Math.cos(a), cy + R * Math.sin(a), code ? (big ? 8 : 5) : 3, 0, Math.PI * 2); c.fill();
-            if (big && code){ var lab = {D:'덩', K:'쿵', T:'덕', G:'기덕', R:'더러러', W:'강', m:'중', w:'약'}[code]; txt(c, lab, cx + (R + 34) * Math.cos(a), cy + (R + 34) * Math.sin(a) + 6, {align:'center', bold:code === 'D', color:col}); } }
+            if (big && code && (!p.qm || r)){ var lab = {D:'덩', K:'쿵', T:'덕', G:'기덕', R:'더러러', W:'강', m:'중', w:'약'}[code]; txt(c, lab, cx + (R + 34) * Math.cos(a), cy + (R + 34) * Math.sin(a) + 6, {align:'center', bold:code === 'D', color:col}); } }
           if (r){ var fr = tau * q.heardFrac, a2 = -Math.PI / 2 + fr * Math.PI * 2; seg(c, cx, cy, cx + (R - 6) * Math.cos(a2), cy + (R - 6) * Math.sin(a2), '#26313D', 3);
             if (q.heardFrac < 1){ c.fillStyle = 'rgba(43,95,163,.15)'; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R - 16, -Math.PI / 2, a2); c.closePath(); c.fill(); } }
           c.fillStyle = '#26313D'; c.beginPath(); c.arc(cx, cy, 6, 0, Math.PI * 2); c.fill();
-          txt(c, (C.west ? '서양 4박' : q.J.n) + (C.skel ? ' (뼈대형)' : ''), narrow ? 20 : cx, 24, {align:narrow ? 'left' : 'center', bold:true});
+          txt(c, (p.qm && !r) ? '??? — 듣고 맞혀 보세요' : (C.west ? '서양 4박' : q.J.n) + (C.skel ? ' (뼈대형)' : ''), narrow ? 20 : cx, 24, {align:narrow ? 'left' : 'center', bold:true});
           // 오른쪽 정보 / 좁으면 아래
           var ix = W > 560 ? cx + R + 60 : 20, iy = W > 560 ? 80 : cy + R + 50, lines = [
             [C.b + '박 × ' + C.sb + '소박 = ' + n + '소박', PAL[3]], ['한 박 ' + f(q.beat, 2) + '초 · ♩' + (C.sb === 3 ? '.' : '') + '≈' + Math.round(q.bpm), '#1E2833'],
             ['한 장단 ' + f(q.cyc, 1) + '초', PAL[0]], ['2초 동안 ' + f(Math.min(q.heardBeats, 99), 1) + '박', PAL[4]], [C.west ? '비교용 서양 박자' : q.J.feel, '#4A5868']];
+          if (p.qm && !r) lines = [['듣고 나서 몇 소박인지, 어느 장단인지 골라 보세요', '#4A5868']];
           if (W < 420){ lines.forEach(function(L, i){ if (i < 4) txt(c, L[0], 20, cy + R + 66 + i * 26, {bold:true, color:L[1]}); }); return; }
           lines.forEach(function(L, i){ if (W > 560 || i < 4) txt(c, L[0], ix + (W > 560 ? 0 : (i % 2) * (W / 2 - 10)), iy + (W > 560 ? i * 34 : Math.floor(i / 2) * 28), {bold:i < 4, color:L[1]}); });
           if (W > 560){ var oy = iy + 5 * 34 + 10, ow = W - ix - 20; txt(c, '판소리 빠르기 순서', ix, oy, {color:'#4A5868'});
@@ -551,14 +566,21 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
         },
         stats: function(p, r){
           var C = r.C;
+          if (r.qm) return [['문항', QN[r.qn]],
+            ['내 답 (장단)', r.my.n + (r.okJ ? ' — 맞음' : ' — 다름'), r.okJ ? PAL[1] : PAL[4]],
+            ['내 답 (소박 수)', GS[r.gsb] + (r.okS ? ' — 맞음' : ' — 다름'), r.okS ? PAL[1] : PAL[4]],
+            ['실제', r.J.n + ' · ' + C.b + '박 × ' + C.sb + '소박 · ' + r.J.kind],
+            ['한 박 · 한 장단', f(r.beat, 2) + '초 · ' + f(r.cyc, 1) + '초', PAL[0]],
+            ['느낌 (웹툰 표)', r.J.feel],
+            ['판정', r.vd, r.ok ? PAL[1] : PAL[4]]];
           return [['장단', (C.west ? '서양 4박 (비교: ' + r.J.n + '의 박 빠르기)' : r.J.n + ' · ' + r.J.kind) + (C.skel ? ' — 뼈대형' : r.J.pat && !C.west ? ' — 기본 가락' : '')],
             ['박 구조', C.b + '박 × ' + C.sb + '소박 (' + (C.sb === 3 ? '3소박: 한 박을 셋으로' : '2소박: 한 박을 둘로') + ')', PAL[3]],
             ['한 박 · 한 장단', f(r.beat, 2) + '초 · ' + f(r.cyc, 1) + '초', PAL[0]], ['2초 동안 들린 박', f(r.heardBeats, 1) + '박 (' + (r.heardFrac > 1 ? '한 장단을 다 돌고 더 들음 — ' + f(r.heardFrac, 1) + '바퀴' : '장단의 ' + f(r.heardFrac * 100, 0) + '%') + ')', PAL[4]],
             ['느낌 (웹툰 표)', r.J.feel], ['구음', C.west ? '강 · 약 · 중 · 약' : C.skel ? '장단 첫 박 덩, 박마다 쿵 (가락 대신 뼈대)' : C.c.map(function(x){ return {D:'덩', K:'쿵', T:'덕', G:'기덕', R:'더러러러', '':'○'}[x]; }).join(' ')]];
         },
-        columns: ['장단', '비교', '박 × 소박', '한 박', '한 장단', '배율'],
-        record: function(p, r){ return {j:p.j, c:p.c, x:p.x, b:r.C.b, sb:r.C.sb, beat:r.beat, cyc:r.cyc}; },
-        row: function(d){ return [JD[d.j].n, d.c ? '서양 4박' : '그대로', d.b + ' × ' + d.sb, f(d.beat, 2) + '초', f(d.cyc, 1) + '초', '×' + d.x.toFixed(1)]; },
+        columns: ['장단', '방식', '내 답', '비교', '박 × 소박', '한 박', '한 장단', '배율'],
+        record: function(p, r){ return {j:r.ji, my:p.j, qm:r.qm, gsb:r.gsb, ok:r.ok, c:p.c, x:p.x, b:r.C.b, sb:r.C.sb, beat:r.beat, cyc:r.cyc}; },
+        row: function(d){ return [JD[d.j].n, d.qm ? '맞히기' : '그대로', d.qm ? JD[d.my].n + ' · ' + GS[d.gsb] + (d.ok ? ' ○' : ' ✕') : '—', d.c ? '서양 4박' : '그대로', d.b + ' × ' + d.sb, f(d.beat, 2) + '초', f(d.cyc, 1) + '초', '×' + d.x.toFixed(1)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('장단별 한 박의 길이', '<div id="h5a"></div><p class="ask">"국악은 느리다"는 말은 어느 장단에만 맞나요? 진양조와 휘모리의 한 박 길이는 몇 배 차이인가요?</p>') +
@@ -567,7 +589,9 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
           JD.forEach(function(J, i){ var x = g[i]; if (!x) return; var m = mean(x.map(function(d){ return d.beat; })); items.push({label:J.n, v:m, color:J.order ? PAL[[0, 0, 5, 1, 6, 4][J.order]] : PAL[3], text:f(m, 2) + '초 · 장단 ' + f(mean(x.map(function(d){ return d.cyc; })), 1) + '초'}); });
           $('h5a').innerHTML = items.length ? hbars(items, 2.5) : '<p class="msg">"장단 그대로"로 기록해 보세요.</p>';
           var rows = []; JD.forEach(function(J){ rows.push([J.n, J.b + '박', J.sb + '소박', J.pat ? '기본 가락' : '뼈대형']); }); rows.push(['서양 4박 (비교)', '4박', '2소박', '강·약·중·약']);
-          $('h5b').innerHTML = tableHTML(['장단', '박', '소박', '이 실험의 소리'], rows) + (rec.some(function(d){ return d.c; }) ? '' : '<p class="msg">"서양 4박"으로 바꿔 들은 기록도 남겨 보세요.</p>');
+          var qs = rec.filter(function(d){ return d.qm; }), qok = qs.filter(function(d){ return d.ok; }).length;
+          $('h5b').innerHTML = tableHTML(['장단', '박', '소박', '이 실험의 소리'], rows) + (rec.some(function(d){ return d.c; }) ? '' : '<p class="msg">"서양 4박"으로 바꿔 들은 기록도 남겨 보세요.</p>')
+            + (qs.length ? '<p class="msg">맞히기: ' + qok + ' / ' + qs.length + ' 성공. 3소박 장단은 2소박에 익숙한 귀에 낯설게 들립니다.</p>' : '<p class="msg">방식을 "맞히기"로 바꾸면 소리만 듣고 장단과 소박 수를 맞히는 문제가 됩니다.</p>');
         }
       };
     })();
@@ -576,7 +600,8 @@ function box(c, x, y, w, h, fill, stroke){ c.fillStyle = fill; c.fillRect(x, y, 
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

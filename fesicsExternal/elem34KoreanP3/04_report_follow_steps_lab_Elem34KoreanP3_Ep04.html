@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -241,7 +242,8 @@ tbody tr:hover{background:#F5F8FB}
 <tr><td>몇 개에서 싹이 났다</td><td>5알 가운데 4알에서 싹이 났다</td></tr></table>
 <p>싹이 안 난 1알도 결과예요. 보고하는 글은 잘된 것만이 아니라 있었던 그대로 써요.</p>
 <div class="fx-model"><b>📌 실험과 실제의 차이</b><br>
-· 친구 수는 제로 랩의 가상 조사예요.<br>
+· 따라 한 친구 수는 <b>보고서에 넣은 칸</b>으로 계산한 제로 랩의 <b>교육용 모형값</b>이에요. 준비물 칸은 &lsquo;준비물 말하기&rsquo;를, 차례 칸은 &lsquo;차례대로 하기&rsquo;를 크게 올려 줍니다.<br>
+· 한 까닭 칸은 따라 하기에는 보탬이 적지만, 왜 했는지 알려 주는 꼭 필요한 칸이에요.<br>
 · 실제 강낭콩은 온도, 콩의 상태에 따라 싹이 트는 날이 달라질 수 있어요.</div>
 </div>
 </section>
@@ -299,9 +301,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,8 +437,7 @@ function hbars(items, max){
 }
 
 /* ================= 실험별 설정 ================= */
-var LAB = (function anonymous(
-) {
+var LAB = (function(){
 
   function T(c, s, x, y, o){
     o = o || {}; var sz = o.size || 18, fw = o.bold ? '700 ' : '';
@@ -471,75 +473,113 @@ var LAB = (function anonymous(
     c.fillRect(x - 7 * s, y - 12 * s, 14 * s, 18 * s);
   }
 
-
-      var RP = [
-        {n:'(가) 결과만', parts:[['결과', '강낭콩에서 싹이 났다.', 2]], v:[2, 1]},
-        {n:'(나) 까닭·방법·결과', parts:[['한 까닭', '강낭콩이 물만으로 싹이 트는지 알고 싶었다.', 3], ['한 방법', '먼저 컵에 젖은 솜을 깔았다. 다음에 강낭콩 5알을 올리고 창가에 두었다. 하루에 한 번 분무기로 물을 다섯 번 뿌렸다.', 0], ['결과', '4일째에 5알 가운데 4알에서 싹이 났다.', 1]], v:[9, 8]}
-      ];
       var Q = ['준비물을 바르게 말함', '차례대로 따라 함'];
-      var COL = [PAL[0], PAL[1], PAL[4], PAL[3]];
+      var PART = [
+        {key:'w', lb:'한 까닭', t:'강낭콩이 물만으로 싹이 트는지 알고 싶었다.', col:PAL[3]},
+        {key:'i', lb:'준비물', t:'컵, 젖은 솜, 강낭콩 5알, 분무기', col:PAL[0]},
+        {key:'o', lb:'한 차례', t:'① 컵에 젖은 솜 깔기 ② 강낭콩 5알 올리기 ③ 창가에 두기 ④ 하루 한 번 분무기로 물 다섯 번 뿌리기', col:PAL[1]},
+        {key:'r', lb:'결과', t:'4일째에 5알 가운데 4알에서 싹이 났다.', col:PAL[4]}
+      ];
+      /* 10명 중 해낸 친구 수 — 제로 랩의 교육용 모형값
+         준비물 말하기 = 2 + (준비물 칸 6) + (차례 칸 1)
+         차례 따라 하기 = 1 + (차례 칸 6) + (준비물 칸 1)   · 둘 다 10명을 넘지 않는다 */
+      function num(i, o, q){ return Math.min(10, q === 0 ? 2 + (i ? 6 : 0) + (o ? 1 : 0) : 1 + (o ? 6 : 0) + (i ? 1 : 0)); }
+      function on(p){ return [!!p.w, !!p.i, !!p.o, true]; }
+      function names(p){ var f = on(p); return PART.filter(function(x, j){ return f[j]; }).map(function(x){ return x.lb; }); }
+      function msg(i, o, q){
+        if (q === 0) return i ? '준비물이 쓰여 있어 그대로 챙길 수 있었어요.' : '"무엇을 준비해?" — 준비물 칸이 없어 저마다 다른 것을 썼어요.';
+        return o ? '차례가 쓰여 있어 순서대로 따라 할 수 있었어요.' : '"먼저 뭘 해?" — 차례 칸이 없어 순서가 뒤죽박죽이었어요.';
+      }
       return {
-        sceneHeight: function(w){ return w < 500 ? 500 : 440; },
-        idle:'보고서와 살펴볼 것을 고른 뒤 <b>보고서 주고 살펴보기</b>를 누르세요.',
-        shortHint:'두 보고서로 준비물과 차례를 모두 살펴보세요(네 가지).',
+        sceneHeight: function(w){ return w < 500 ? 640 : 490; },
+        idle:'보고서에 넣을 칸을 켜고 끈 뒤, 살펴볼 것을 고르고 <b>보고서 주고 살펴보기</b>를 누르세요.',
+        shortHint:'준비물 칸과 차례 칸을 켜고 끄며 준비물·차례를 모두 살펴보세요(네 가지 이상).',
         params:[
-          {key:'r', type:'seg', label:'친구들에게 줄 보고서', cols:2, value:0, options:RP.map(function(x){ return x.n; })},
-          {key:'q', type:'seg', label:'살펴볼 것', cols:2, value:0, options:Q}
+          {key:'w', type:'seg', label:'① 한 까닭 칸', cols:2, value:0, options:['빼기', '넣기']},
+          {key:'i', type:'seg', label:'② 준비물 칸', cols:2, value:0, options:['빼기', '넣기']},
+          {key:'o', type:'seg', label:'③ 한 차례 칸', cols:2, value:0, options:['빼기', '넣기']},
+          {key:'q', type:'seg', label:'살펴볼 것', cols:2, value:0, options:Q,
+            note:'※ 결과 칸은 늘 들어 있어요. 해낸 친구 수는 어떤 칸을 넣었는지로 계산한 제로 랩의 교육용 모형값이에요.'}
         ],
-        compute:function(p){ var rp = RP[p.r]; return {rp:rp, n:rp.v[p.q]}; },
+        compute:function(p){
+          var n = num(p.i, p.o, p.q);
+          return {n:n, other:num(p.i, p.o, 1 - p.q), names:names(p), msg:msg(p.i, p.o, p.q)};
+        },
         draw:function(c, W, H, p, r, tau){
-          var rp = RP[p.r], k = r ? ease(tau / 0.8) : 0, sz = W < 500 ? 13 : 15;
-          var bh = W < 500 ? 250 : 200; rbox(c, 14, 10, W - 28, bh, '#FFFFFF', '#C9D3DF', 1.5);
-          T(c, '📄 강낭콩 기르기 보고서 ' + rp.n + ' (가상)', 26, 32, {size:14, bold:true, color:'#4A5868', max:W - 50});
-          var yy = 56;
-          rp.parts.forEach(function(pt){
-            var h = wrap(c, pt[1], 104, yy, W - 130, sz + 4, {size:sz, measure:true});
-            c.fillStyle = COL[pt[2]]; c.globalAlpha = 0.12; c.fillRect(24, yy - sz - 2, W - 48, h * (sz + 4) + 6); c.globalAlpha = 1;
-            T(c, pt[0], 30, yy, {size:sz, bold:true, color:COL[pt[2]]});
-            wrap(c, pt[1], 104, yy, W - 130, sz + 4, {size:sz});
-            yy += h * (sz + 4) + 10;
+          var k = r ? ease(tau / 0.8) : 0, sz = W < 500 ? 13 : 15, flag = on(p);
+          var cap = H - 220, yy = 46, lines = [];
+          PART.forEach(function(pt, j){
+            if (!flag[j]) return;
+            var nl = wrap(c, pt.t, 30, 0, W - 60, sz + 4, {size:sz, measure:true});
+            lines.push({pt:pt, nl:nl, h:(sz + 2) + nl * (sz + 4) + 8});
           });
-          var gy = bh + 100, gw = (W - 40) / 10;
-          T(c, '친구 10명 — ' + Q[p.q], 18, gy - 52, {size:15, bold:true, color:'#4A5868'});
+          var need = yy + lines.reduce(function(s, x){ return s + x.h; }, 0);
+          var bh = Math.min(cap, Math.max(110, need));
+          rbox(c, 14, 10, W - 28, bh, '#FFFFFF', '#C9D3DF', 1.5);
+          T(c, '📄 강낭콩 기르기 보고서 (가상)', 26, 32, {size:14, bold:true, color:'#4A5868', max:W - 50});
+          lines.forEach(function(x){
+            if (yy + x.h > bh + 4) return;
+            c.fillStyle = x.pt.col; c.globalAlpha = 0.10; c.fillRect(24, yy - sz - 2, W - 48, x.h - 4); c.globalAlpha = 1;
+            T(c, x.pt.lb, 30, yy, {size:sz, bold:true, color:x.pt.col, max:W - 60});
+            wrap(c, x.pt.t, 30, yy + sz + 2, W - 60, sz + 4, {size:sz});
+            yy += x.h;
+          });
+          var gy = H - 148, gw = (W - 40) / 10;
+          T(c, '친구 10명 — ' + Q[p.q], 18, gy - 52, {size:15, bold:true, color:'#4A5868', max:W - 36});
           for (var i = 0; i < 10; i++){
-            var x = 20 + gw * i + gw / 2;
-            kid(c, x, gy + 16, '#9AA8B8');
-            if (r && i < Math.round(r.n * k)){ kid(c, x, gy + 16, PAL[1]); T(c, '✓', x, gy - 26, {size:16, bold:true, align:'center', color:PAL[1]}); }
-            else if (r && k >= 1){ T(c, '?', x, gy - 26, {size:15, bold:true, align:'center', color:PAL[4]}); }
+            var x2 = 20 + gw * i + gw / 2;
+            kid(c, x2, gy, '#9AA8B8');
+            if (r && i < Math.round(r.n * k)){ kid(c, x2, gy, PAL[1]); T(c, '✓', x2, gy - 26, {size:16, bold:true, align:'center', color:PAL[1]}); }
+            else if (r && k >= 1){ T(c, '?', x2, gy - 26, {size:15, bold:true, align:'center', color:PAL[4]}); }
           }
           if (r && k >= 1){
-            T(c, Q[p.q] + ': 10명 중 ' + r.n + '명', 18, gy + 60, {size:18, bold:true, color:r.n >= 8 ? PAL[1] : PAL[4]});
-            var wn = wrap(c, p.r === 0 ? '"흙에 심었어?" — 무엇을, 어떤 차례로 할지 몰라 저마다 달랐어요.' : '준비물과 차례가 쓰여 있어 머릿속으로 따라 할 수 있었어요.', 18, gy + 88, W - 36, 18, {size:14, color:'#4A5868'});   /* 좁으면 두 줄 */
-            T(c, '보고서에 든 것: ' + rp.parts.map(function(x){ return x[0]; }).join(' · '), 18, gy + 114 + (wn - 1) * 18, {size:14, bold:true, color:PAL[3], max:W - 36});
+            /* 좁은 화면에서 설명 글이 여러 줄이 되어도 아래 '보고서에 든 칸' 줄과 겹치지 않게
+               줄 수를 먼저 재어 위로 쌓는다. */
+            var nl = wrap(c, r.msg, 18, 0, W - 36, 18, {size:14, measure:true});
+            var my = H - 66 - (nl - 1) * 18;
+            T(c, Q[p.q] + ': 10명 중 ' + r.n + '명', 18, my - 24, {size:18, bold:true, color:r.n >= 8 ? PAL[1] : PAL[4], max:W - 36});
+            wrap(c, r.msg, 18, my, W - 36, 18, {size:14, color:'#4A5868'});
+            T(c, '보고서에 든 칸: ' + r.names.join(' · '), 18, H - 44, {size:14, bold:true, color:PAL[3], max:W - 36});
+          } else {
+            T(c, '넣을 칸을 고른 뒤 눌러 보세요.', 18, H - 112, {size:15, color:'#8C99A8', max:W - 36});
           }
+          T(c, '※ 해낸 친구 수는 교육용 모형값', 18, H - 16, {size:12, color:'#8C99A8', max:W - 36});
         },
         stats:function(p, r){
-          return [['보고서', r.rp.n], ['보고서에 든 것', r.rp.parts.map(function(x){ return x[0]; }).join(' · ')],
-            [Q[p.q] + ' (가상)', '10명 중 ' + r.n + '명', r.n >= 8 ? PAL[1] : PAL[4]],
-            ['다른 하나', Q[1 - p.q] + ': 10명 중 ' + r.rp.v[1 - p.q] + '명']];
+          return [['보고서에 든 칸', r.names.join(' · ')],
+            ['살펴본 것', Q[p.q]],
+            [Q[p.q] + ' (교육용 모형)', '10명 중 ' + r.n + '명', r.n >= 8 ? PAL[1] : PAL[4]],
+            ['다른 하나', Q[1 - p.q] + ': 10명 중 ' + r.other + '명'],
+            ['알게 된 것', r.msg, r.n >= 8 ? PAL[1] : PAL[4]],
+            ['한 까닭 칸', p.w ? '넣음 — 왜 했는지 알 수 있어요 (따라 한 친구 수는 바뀌지 않아요)' : '뺌 — 왜 했는지 알 수 없어요', PAL[3]]];
         },
-        columns:['보고서', '살펴본 것', '해낸 친구'],
-        record:function(p, r){ return {r:p.r, q:p.q, n:r.n}; },
-        row:function(d){ return [d.r ? '(나)' : '(가)', Q[d.q], d.n + '/10']; },
+        columns:['보고서에 든 칸', '살펴본 것', '해낸 친구'],
+        record:function(p, r){ return {w:p.w, i:p.i, o:p.o, q:p.q, n:r.n}; },
+        row:function(d){ return [(d.w ? '까닭 ' : '') + (d.i ? '준비물 ' : '') + (d.o ? '차례 ' : '') + '결과', Q[d.q], d.n + '/10']; },
         verify:function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('두 보고서 견주기 (제로 랩의 가상 조사)', '<div id="e3d1"></div><p class="ask">결과는 둘 다 &lsquo;싹이 났다&rsquo;인데 왜 따라 한 친구 수가 이렇게 다를까요? (가)에 빠진 것 두 가지를 말해 보세요.</p>') +
+            card('어떤 칸을 넣었을 때 따라 할 수 있었나 (교육용 모형)', '<div id="e3d1"></div><p class="ask">결과 칸은 늘 들어 있었어요. 그런데 <b>준비물 칸</b>을 빼면 어느 쪽이 크게 떨어졌나요? <b>차례 칸</b>을 빼면 어느 쪽이 떨어졌나요?</p>') +
             card('흐릿한 말 → 정확한 말', '<div id="e3d2"></div><p class="ask">과제: 집에서 작은 관찰을 하나 해 보세요(예: 얼음이 녹는 데 걸린 시간 재기). &lsquo;한 까닭–한 방법–결과–알게 된 점&rsquo; 차례로 보고서를 쓰고, 가족이 그대로 따라 할 수 있는지 확인해 보세요.</p>') + '</div>';
-          var items = [];
-          RP.forEach(function(rp, i){ Q.forEach(function(q, j){ var tried = rec.some(function(d){ return d.r === i && d.q === j; });
-            items.push({label:rp.n.slice(0, 3) + ' ' + q.replace('바르게 ', '') + (tried ? '' : ' (아직)'), v:rp.v[j], color:tried ? (i ? PAL[1] : PAL[4]) : '#C9D3DF', text:rp.v[j] + '명'}); }); });
-          $('e3d1').innerHTML = hbars(items, 10);
+          var combos = [[0, 0], [1, 0], [0, 1], [1, 1]];
+          $('e3d1').innerHTML = tableHTML(['보고서에 든 칸', '준비물을 바르게 말함', '차례대로 따라 함', '나'], combos.map(function(cb){
+            var lb = '결과' + (cb[0] ? ' + 준비물' : '') + (cb[1] ? ' + 차례' : '');
+            var tried = rec.some(function(d){ return (d.i ? 1 : 0) === cb[0] && (d.o ? 1 : 0) === cb[1]; });
+            return [lb, num(cb[0], cb[1], 0) + '명', num(cb[0], cb[1], 1) + '명', tried ? '해 봄' : '·'];
+          })) + hbars(combos.map(function(cb){
+            return {label:'결과' + (cb[0] ? '+준비물' : '') + (cb[1] ? '+차례' : ''), v:num(cb[0], cb[1], 0) + num(cb[0], cb[1], 1),
+              color:cb[0] && cb[1] ? PAL[1] : PAL[4], text:(num(cb[0], cb[1], 0) + num(cb[0], cb[1], 1)) + '명 (둘 합)'};
+          }), 20) + '<p class="note">※ 위 숫자는 제로 랩의 교육용 모형값이에요. 실제로 해 보면 다르게 나올 수 있어요.</p>';
           $('e3d2').innerHTML = tableHTML(['흐릿한 말', '정확한 말'], [['물을 조금 줬다', '분무기로 물을 다섯 번 뿌렸다'], ['며칠 뒤', '4일째에'], ['몇 개에서 싹이 났다', '5알 가운데 4알에서 싹이 났다']]);
         }
       };
-    
 })();
 
 /* ================= 엔진 ================= */
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

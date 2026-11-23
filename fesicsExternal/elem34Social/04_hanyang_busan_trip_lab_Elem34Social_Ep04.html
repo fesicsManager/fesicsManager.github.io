@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>한양에서 부산까지 — 걸어서 며칠, 기차로 몇 시간</h1>
-    <p>한양(서울)에서 부산까지 길은 <b>대략 400km</b>예요. 교통수단과 하루에 걷는 거리를 고르고 출발해 보세요. 며칠 걸리는지 날짜가 올라갑니다.<br><span style="font-size:.9em;color:#a86825">※ 하루 걷는 거리와 쉬는 날은 어림해서 만든 단순 모형이에요. 고속 열차 시간은 오늘날의 대략값입니다. 지도는 개략도예요.</span></p>
+    <p>한양(서울)에서 부산까지 길은 <b>대략 400km</b>예요. 교통수단과 하루에 걷는 거리를 고르고 출발해 보세요. 며칠 걸리는지 날짜가 올라갑니다.<br><span style="font-size:.9em;color:#a86825">※ 하루 걷는 거리와 쉬는 날은 어림해서 만든 단순 모형이에요. 고속 열차 시간은 오늘날의 대략값입니다. 지도는 개략도예요.</span><br><span style="font-size:.9em;color:#a86825">※ <b>하루 거리를 짐과 길로 정해 보기</b>를 켜면 짐 무게와 길 상태로 하루에 갈 수 있는 거리가 스스로 정해져요. 교육용 모형값이에요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -465,6 +467,14 @@ var LAB = (function(){
       var DK = [20, 30, 40];
       var KOR = [[0.30, 0.05], [0.55, 0.02], [0.62, 0.2], [0.72, 0.42], [0.8, 0.62], [0.82, 0.82], [0.7, 0.95], [0.45, 0.97], [0.3, 0.88], [0.22, 0.7], [0.3, 0.5], [0.2, 0.35], [0.26, 0.2]];
       var HY = [0.35, 0.3], BS = [0.74, 0.86];
+      var ROAD = [{n:'잘 닦인 큰길', k:1.0, ex:0}, {n:'울퉁불퉁한 흙길', k:0.8, ex:0}, {n:'비 온 뒤 진흙길', k:0.6, ex:3}, {n:'고개를 넘는 산길', k:0.55, ex:2}];
+      /* 짐 무게와 길 상태로 하루에 갈 수 있는 거리를 스스로 정하는 교육용 모형.
+         잘 닦인 길에서 짐이 없으면 하루 30km쯤, 짐 1kg마다 2%씩 줄고, 길이 나쁘면 더 줄어든다. */
+      function myDay(load, road){
+        var rd = ROAD[road];
+        var km = 30 * rd.k * (1 - 0.02 * load);
+        return {km:km, rd:rd};
+      }
       return {
         sceneHeight: function(w){ return w < 500 ? 400 : 430; },
         idle: '교통수단을 고른 뒤 <b>출발하기</b>를 누르세요.',
@@ -472,10 +482,19 @@ var LAB = (function(){
         params: [
           {key:'m', type:'seg', label:'교통수단', cols:3, value:1, options:MODE},
           {key:'d', type:'seg', label:'하루에 걷는 거리 (걸어갈 때)', cols:3, value:1, options:DK.map(function(x){ return '약 ' + x + 'km'; }),
-            note:'뭉치는 "하루면 충분해!"라고 했어요. 400km를 하루에 걸을 수 있을까요?'}
+            note:'뭉치는 "하루면 충분해!"라고 했어요. 400km를 하루에 걸을 수 있을까요?'},
+          {key:'c', type:'seg', label:'하루 거리를 짐과 길로 정해 보기', cols:1, value:0, options:['안 함(위에서 고른 거리)', '짐 무게와 길 상태로 하루 거리 셈하기'],
+            note:'걸어갈 때만 써요. 켜면 하루에 갈 수 있는 거리가 짐과 길에 따라 스스로 정해져요.'},
+          {key:'ld', type:'range', label:'등에 진 짐', min:0, max:20, step:5, value:0, fmt:function(v){ return v === 0 ? '짐 없음' : v + 'kg'; }},
+          {key:'rd', type:'seg', label:'길 상태', cols:2, value:0, options:ROAD.map(function(x){ return x.n; })}
         ],
         compute: function(p){
           if (p.m === 2) return {train:true, days:2.5 / 24, walk:0, rest:0, label:'약 2시간 30분'};
+          if (p.c === 1){
+            var my = myDay(p.ld, p.rd), w2 = 400 / my.km, r2 = Math.floor(w2 / 6) + my.rd.ex;
+            var d2 = w2 + r2;
+            return {train:false, mine:true, dayKm:my.km, load:p.ld, road:p.rd, days:d2, walk:w2, rest:r2, label:'약 ' + Math.round(d2) + '일'};
+          }
           var walk = 400 / DK[p.d], rest = p.m === 1 ? Math.floor(walk / 6) : 0, days = walk + rest;
           return {train:false, days:days, walk:walk, rest:rest, label:'약 ' + Math.round(days) + '일'};
         },
@@ -502,20 +521,31 @@ var LAB = (function(){
             if (W >= 500){ meter(c, bx, by, Math.min(220, W - bx - 20), show); if (!r.train && k >= 1) txt(c, '걷기 ' + Math.round(r.walk) + '일 + 쉬기 ' + r.rest + '일', bx, by + 64, {color:'#4A5868'}); }
             else txt(c, show, bx, by, {bold:true, color:k >= 1 ? PAL[1] : '#1E2833'});
           }
-          txt(c, MODE[p.m] + (p.m < 2 ? ' · 하루 ' + DK[p.d] + 'km' : ''), 16, H - 14, {bold:true});
+          txt(c, (r && r.mine) ? '걸어서 · 내 조건 하루 약 ' + f(r.dayKm, 1) + 'km' : MODE[p.m] + (p.m < 2 ? ' · 하루 ' + DK[p.d] + 'km' : ''), 16, H - 14, {bold:true});
         },
         stats: function(p, r){
           var hours = r.days * 24;
+          if (r.mine) return [['조건', (r.load === 0 ? '짐 없음' : '짐 ' + r.load + 'kg') + ' · ' + ROAD[r.road].n, PAL[6]],
+            ['하루에 갈 수 있는 거리', '약 ' + f(r.dayKm, 1) + 'km', PAL[0]],
+            ['계산', '30km × ' + f(ROAD[r.road].k, 2) + '(길) × ' + f(1 - 0.02 * r.load, 2) + '(짐) ≈ ' + f(r.dayKm, 1) + 'km'],
+            ['걸린 시간', r.label + ' (걷기 ' + Math.round(r.walk) + '일 + 쉬기 ' + r.rest + '일)', PAL[4]],
+            ['판정', r.days <= 15 ? '보름 안에 닿아요' : (r.days <= 25 ? '보름을 넘겨요' : '한 달이 넘게 걸려요 — 짐을 줄이거나 길을 골라야 해요'), r.days <= 15 ? PAL[1] : PAL[4]],
+            ['시간으로 바꾸면', '약 ' + f(hours, 0) + '시간'],
+            ['자료', '교육용 모형값 (짐 1kg마다 2%씩, 길이 나쁠수록 더 줄어듦)', PAL[7]]];
           return [['교통수단', MODE[p.m]], ['거리', '약 400km'], ['걸린 시간', r.label, r.train ? PAL[0] : PAL[4]],
             ['계산', r.train ? '오늘날 고속 열차 대략값' : '400 ÷ ' + DK[p.d] + ' ≈ ' + f(r.walk, 1) + '일' + (r.rest ? ' + 쉬는 날 ' + r.rest + '일' : '')],
             ['뭉치의 예측 "하루"와 비교', r.train ? '하루보다 훨씬 짧아요' : '하루의 약 ' + Math.round(r.days) + '배', PAL[6]],
             ['시간으로 바꾸면', '약 ' + f(hours, hours < 10 ? 1 : 0) + '시간']];
         },
         columns: ['교통수단', '하루 거리', '걸린 시간', '시간 환산'],
-        record: function(p, r){ return {m:p.m, d:p.d, days:r.days, label:r.label}; },
-        row: function(d){ return [MODE[d.m], d.m < 2 ? DK[d.d] + 'km' : '-', d.label, '약 ' + f(d.days * 24, d.days * 24 < 10 ? 1 : 0) + '시간']; },
+        record: function(p, r){ if (r.mine) return {mine:true, m:p.m, load:r.load, road:r.road, dayKm:r.dayKm, days:r.days, label:r.label}; return {m:p.m, d:p.d, days:r.days, label:r.label}; },
+        row: function(d){ if (d.mine) return ['걸어서 (' + (d.load === 0 ? '짐 없음' : d.load + 'kg') + ' · ' + ROAD[d.road].n + ')', '약 ' + f(d.dayKm, 1) + 'km', d.label, '약 ' + f(d.days * 24, 0) + '시간']; return [MODE[d.m], d.m < 2 ? DK[d.d] + 'km' : '-', d.label, '약 ' + f(d.days * 24, d.days * 24 < 10 ? 1 : 0) + '시간']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = rec.filter(function(d){ return d.mine; });
+          var mcard = !ms.length ? '' : card('짐과 길로 정한 하루 거리', tableHTML(['짐', '길 상태', '하루 거리', '걸린 날'],
+              ms.map(function(d){ return [d.load === 0 ? '짐 없음' : d.load + 'kg', ROAD[d.road].n, '약 ' + f(d.dayKm, 1) + 'km', d.label]; })) +
+            '<p class="ask">짐만 20kg으로 늘리면 걸린 날이 얼마나 늘어나나요? 길만 산길로 바꾸면요? 하루 거리는 사람이 정하는 것이 아니라 <b>짐과 길이 정해 주는</b> 것이에요.</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('교통수단별 걸린 날 (일)', '<div id="tr1"></div><p class="ask">보름(약 15일)과 2시간 30분은 몇 배쯤 차이 날까요? 교통이 빨라지면 고장 사이 생활이 어떻게 바뀔까요?</p>') +
             card('하루 걷는 거리와 걸린 날', '<div id="tr2"></div><p class="ask">과제: 할머니·할아버지나 부모님께 어릴 때 먼 곳에 갈 때 무엇을 타고 얼마나 걸렸는지 여쭤 보고, 오늘날과 비교하는 표를 만들어 보세요.</p>') + '</div>';
           var seen = {}, items = [], mx = Math.max.apply(null, rec.map(function(d){ return d.days; })) || 1;
@@ -533,7 +563,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>1t은 1000g인가</h1>
-    <p>10kg 쌀 포대를 쌓아 <b>1t</b>을 만들어 봐요. 쌓을 포대 수를 고르고 <b>포대 쌓기</b>를 누르면, 무게가 kg과 g으로 바뀌고 단위 사다리에서 몇 칸 올라갔는지 나와요.</p>
+    <p>10kg 쌀 포대를 쌓아 <b>1t</b>을 만들어 봐요. 쌓을 포대 수를 고르고 <b>포대 쌓기</b>를 누르면, 무게가 kg과 g으로 바뀌고 단위 사다리에서 몇 칸 올라갔는지 나와요. <b>쪽지에 적을 단위</b>도 g·kg·t 가운데 골라 보세요. 숫자는 그대로인데 단위를 잘못 고르면 무게가 1000배씩 어긋나요.</p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,21 +439,26 @@ function hbars(items, max){
 var LAB = (function(){
       var NB = [1, 10, 50, 100];
       var PG = ['① 1000g', '② 10000g', '③ 1000000g', '④ 100g'];
+      /* 쪽지에 적을 단위. 숫자는 그대로 두고 단위만 바꾸면 1000배씩 어긋난다 */
+      var UN = [{s:'g', off:'1000배 작아요'}, {s:'kg', off:''}, {s:'t', off:'1000배 커요'}];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function big(n){ return String(n); }
       return {
         sceneHeight: function(w){ return w < 560 ? 550 : 380; },
         minRec: 3,
-        idle: '쌓을 포대 수와 예측을 고른 뒤 <b>포대 쌓기</b>를 누르세요.',
-        shortHint: '포대 1개, 10개, 100개를 쌓아 보세요.',
+        idle: '쌓을 포대 수, 쪽지에 적을 단위, 예측을 고른 뒤 <b>포대 쌓기</b>를 누르세요.',
+        shortHint: '포대 1개, 10개, 100개를 쌓아 보세요. 쪽지에 적을 단위도 g·kg·t로 바꿔 보세요.',
         params: [
           {key:'b', type:'seg', label:'쌓을 10kg 쌀 포대 수', cols:4, value:0, options:NB.map(function(x){ return x + '개'; })},
+          {key:'u', type:'seg', label:'쪽지에 적을 단위 (숫자는 그대로)', cols:3, value:1, options:UN.map(function(x){ return x.s; }),
+            note:'숫자를 그대로 두고 단위만 바꾸면 무게가 1000배씩 어긋나요. 쌀 포대는 kg으로 적는 것이 맞아요.'},
           {key:'g', type:'seg', label:'예측: 1t을 g으로 바꾸면 몇 g일까?', cols:4, value:0, options:PG,
             note:'뭉치는 "kg이랑 t은 똑같이 1000이니까 1t = 1000g! ①"이라고 했어요.'}
         ],
         compute: function(p){
-          var n = NB[p.b], kg = 10 * n, g = kg * 1000;
-          return {n:n, kg:kg, g:g, ton:kg >= 1000, left:1000 - kg, times:g / 1000, ok:p.g === 2};
+          var n = NB[p.b], kg = 10 * n, g = kg * 1000, u = UN[p.u];
+          return {n:n, kg:kg, g:g, ton:kg >= 1000, left:1000 - kg, times:g / 1000, ok:p.g === 2,
+            unit:u.s, uok:p.u === 1, off:u.off, wrote:kg + u.s};
         },
         draw: function(c, W, H, p, r, tau){
           var nar = W < 560, n = NB[p.b], e = r ? Math.min(1, tau * 1.2) : 0, shown = Math.round(n * e);
@@ -472,7 +479,7 @@ var LAB = (function(){
           }
           // 포대
           var gx = nar ? 20 : 220, gy = nar ? ly + step * 2 + 60 : 40, cell = nar ? Math.min(28, (W - 40) / 10) : Math.min(28, (W - 260) / 10);
-          T(c, '10kg 쌀 포대 ' + shown + '개 = ' + shown * 10 + 'kg', gx, gy - 10, nar ? 13 : 15, '#1E2833', 'left', true);
+          T(c, '10kg 쌀 포대 ' + shown + '개 → 쪽지에 ' + shown * 10 + UN[p.u].s, gx, gy - 10, nar ? 13 : 15, p.u === 1 ? '#1E2833' : PAL[4], 'left', true);
           for (var i = 0; i < 100; i++){
             var x = gx + (i % 10) * cell, y = gy + Math.floor(i / 10) * cell;
             c.fillStyle = i < shown ? '#E4C98F' : '#F4F6F9'; c.fillRect(x + 1, y + 1, cell - 2, cell - 2);
@@ -483,28 +490,36 @@ var LAB = (function(){
           if (r && tau >= 0.95){
             var yy = gy + 10 * cell + 28;
             if (nar){ T(c, r.kg + 'kg = ' + big(r.g) + 'g ' + (r.ton ? '= 1t ✓' : '(1t까지 ' + r.left + 'kg)'), gx, yy, 13, '#1E2833', 'left', true); yy += 22; }
-            T(c, r.ok ? '○ 예측이 맞았어요 — 1t = 1000kg = 1000000g' : '✕ 예측과 달라요 — 1t = 1000kg = 1000000g', gx, yy, nar ? 12 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
+            var vd = r.uok ? (r.ok ? '○ 예측이 맞았어요 — 1t = 1000kg = 1000000g' : '✕ 예측과 달라요 — 1t = 1000kg = 1000000g')
+              : ('✕ ' + r.unit + '으로 적으면 ' + r.off);
+            T(c, vd, gx, yy, nar ? 12 : 15, (r.uok && r.ok) ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
           return [['쌓은 포대', '10kg × ' + r.n + '개'], ['kg으로', r.kg + 'kg' + (r.ton ? ' = 1t' : ''), PAL[0]], ['g으로', big(r.g) + 'g', PAL[2]],
             ['1t까지', r.ton ? '도착! 포대 100개' : r.left + 'kg 더 (포대 ' + r.left / 10 + '개)'],
             ['뭉치의 1t(1000g)과 견주면', r.times + '배'],
+            ['쪽지에 적은 무게', r.wrote, r.uok ? PAL[1] : PAL[4]],
+            ['맞게 적었나', r.uok ? '맞아요' : r.unit + '으로 적어서 ' + r.off, r.uok ? PAL[1] : PAL[4]],
             ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['포대 수', 'kg으로', 'g으로', '1t과 견주기'],
-        record: function(p, r){ return {n:r.n, kg:r.kg, g:r.g, g2:p.g}; },
-        row: function(d){ return [d.n + '개', d.kg + 'kg', d.g + 'g', d.kg >= 1000 ? '= 1t' : '1t의 ' + d.n + '/100']; },
+        columns: ['포대 수', 'kg으로', 'g으로', '쪽지에 적기', '1t과 견주기'],
+        record: function(p, r){ return {n:r.n, kg:r.kg, g:r.g, g2:p.g, u:p.u, uok:r.uok, off:r.off, wrote:r.wrote}; },
+        row: function(d){ return [d.n + '개', d.kg + 'kg', d.g + 'g',
+          d.wrote + (d.uok ? ' ○' : ' ✕ ' + d.off), d.kg >= 1000 ? '= 1t' : '1t의 ' + d.n + '/100']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('포대를 쌓아 1t 만들기', '<div id="tl1"></div><p class="ask">1t을 만들려면 10kg 포대가 몇 개 필요했나요? 1000g은 포대 몇 개였나요?</p>') +
+            card('포대를 쌓아 1t 만들기', '<div id="tl1"></div><p class="ask">1t을 만들려면 10kg 포대가 몇 개 필요했나요? 1000g은 포대 몇 개였나요? 숫자는 그대로인데 단위만 g이나 t으로 바꿔 적었을 때, 무게가 얼마나 어긋났나요?</p>') +
             card('단위마다 올림 수', '<div id="tl2"></div><p class="ask">과제: 집에서 무게가 적힌 물건 세 개(쌀, 우유, 밀가루 등)를 찾아 g과 kg으로 바꾸어 적고, 그 물건이 몇 개 모이면 1t이 될지 어림해 보세요.</p>') + '</div>';
           var seen = {};
           rec.forEach(function(d){ seen[d.n] = 1; });
           var ns = Object.keys(seen).map(Number).sort(function(a, b){ return a - b; });
           $('tl1').innerHTML = tableHTML(['무게', 'kg으로', 'g으로'], [['1kg', '1kg', '1000g']].concat(ns.map(function(n){ return ['10kg 쌀 포대 ' + n + '개', (n * 10) + 'kg' + (n === 100 ? ' = 1t' : ''), (n * 10000) + 'g']; }))) +
             hbars(ns.map(function(n){ return {label:'포대 ' + n + '개', v:n * 10, color:n === 100 ? PAL[1] : PAL[2], text:n * 10 + 'kg'}; }), 1000) +
-            '<p class="msg">1000g은 1kg 하나뿐이에요. 1t은 1000kg, 곧 1000000g이에요.</p>';
+            '<p class="msg">1000g은 1kg 하나뿐이에요. 1t은 1000kg, 곧 1000000g이에요.</p>' +
+            tableHTML(['쪽지에 적은 것', '참 무게', '얼마나 어긋났나'], rec.map(function(d){
+              return [d.wrote, d.kg + 'kg', d.uok ? '맞아요' : d.off];
+            })) + '<p class="msg">숫자가 같아도 단위를 잘못 적으면 무게가 1000배씩 어긋나요.</p>';
           function add(a1, b1, a2, b2, base){ var b = b1 + b2, up = Math.floor(b / base); return [a1 + a2 + up, b - up * base]; }
           var r1 = add(4, 7, 2, 5, 10), r2 = add(3, 600, 1, 700, 1000), r3 = 1300 - 600;
           $('tl2').innerHTML = tableHTML(['계산', '올림 수', '답'], [
@@ -520,7 +535,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

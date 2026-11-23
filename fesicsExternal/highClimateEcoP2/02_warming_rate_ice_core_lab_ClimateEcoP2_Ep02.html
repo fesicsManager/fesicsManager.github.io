@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>기후는 늘 변했다, 이렇게 빠르진 않았다</h1>
-    <p>마지막 빙하기가 끝날 때의 기온 상승과 산업화 이후의 상승을 <b>같은 자(100년당 몇 ℃)</b>로 잽니다. 아래에는 빙하 코어와 마우나로아 관측의 <b>이산화탄소 농도</b>를 80만 년·1만 년·1958년 이후 세 가지 시간 창으로 바꿔 보세요.<br><span style="font-size:.9em;color:#a86825">※ 기온 변화량은 웹툰과 IPCC 평가의 대략값이고, 이산화탄소 곡선은 빙하기 주기의 모양을 단순화한 <b>개략도</b>예요(범위 약 180~300 ppm, 지금 약 420 ppm).</span></p>
+    <p>마지막 빙하기가 끝날 때의 기온 상승과 산업화 이후의 상승을 <b>같은 자(100년당 몇 ℃)</b>로 잽니다. 아래 이산화탄소 그래프에서는 <b>두 시점을 직접 집어</b> 그 구간의 증가 속도(ppm/100년)를 계산해 보세요. 구간을 어디에 두느냐에 따라 속도가 수천 배까지 달라지고, 빙하기로 내려가는 구간에서는 <b>줄어들기도</b> 합니다.<br><span style="font-size:.9em;color:#a86825">※ 기온 변화량은 웹툰과 IPCC 평가의 대략값이고, 이산화탄소 곡선은 빙하기 주기의 모양을 단순화한 <b>개략도</b>예요(범위 약 180~300 ppm, 지금 약 420 ppm).</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -297,9 +298,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -440,6 +442,14 @@ var LAB = (function(){
       ];
       var WN = [{n:'80만 년 전체', s:'80만 년'}, {n:'최근 1만 년', s:'1만 년'}, {n:'1958년 이후 (마우나로아)', s:'1958년 이후'}];
       function rate(e){ return e.dT / e.yr * 100; }
+      var TOT = [800000, 10000, 66];
+      function yrLabel(win, u){
+        if (win === 2) return Math.round(1958 + u * 66) + '년';
+        var age = Math.round((1 - u) * TOT[win]);
+        if (age === 0) return '지금';
+        if (age >= 10000) return (age / 10000).toFixed(age >= 100000 ? 0 : 1) + '만 년 전';
+        return age + '년 전';
+      }
       function co2(win, u){ // u: 0(과거)→1(현재), 반환 {x설명용 값, ppm}
         if (win === 0){
           var age = (1 - u) * 800000; if (age < 200) return 280 + (420 - 280) * (1 - age / 200);
@@ -454,15 +464,24 @@ var LAB = (function(){
       function tf(c, s, x, y, o, mw){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width; if (mw && mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       return {
         sceneHeight: 460,
-        idle: '비교할 변화와 이산화탄소 그래프의 시간 창을 고른 뒤 <b>같은 자로 재기</b>를 누르세요.',
-        shortHint: '세 변화를 모두 재고, 시간 창도 세 가지로 바꿔 보세요. 같은 자료가 시간 창에 따라 얼마나 다르게 보이는지가 과제의 핵심이에요.',
+        idle: '비교할 변화와 시간 창을 고르고, 두 시점을 집은 뒤 <b>같은 자로 재기</b>를 누르세요.',
+        shortHint: '같은 시간 창에서 구간만 옮겨 여러 번 기록해 보세요. 빠른 구간, 느린 구간, 줄어드는 구간을 각각 찾는 것이 과제의 핵심이에요.',
         params: [
           {key:'ev', type:'seg', label:'비교할 기온 변화', cols:1, value:0, options:EV.map(function(x){ return x.n; })},
-          {key:'w', type:'seg', label:'이산화탄소 그래프 시간 창', cols:3, value:0, options:WN.map(function(x){ return x.n; })}
+          {key:'w', type:'seg', label:'이산화탄소 그래프 시간 창', cols:3, value:0, options:WN.map(function(x){ return x.n; })},
+          {key:'ca', type:'range', label:'구간 왼쪽 (0 = 그래프 왼쪽 끝)', min:0, max:1, step:0.02, value:0, fmt:function(v){ return f(v, 2); }},
+          {key:'cb', type:'range', label:'구간 오른쪽 (1 = 지금)', min:0, max:1, step:0.02, value:1, fmt:function(v){ return f(v, 2); },
+            note:'집은 두 시점 사이의 증가 속도를 그래프 자료에서 직접 계산합니다. 붉게 칠해진 띠가 고른 구간이에요.'}
         ],
         compute: function(p){
           var e = EV[p.ev], v = rate(e), base = rate(EV[0]);
-          return {e:e, v:v, x:v / base, years100:100 / v};
+          var a = Math.min(p.ca, p.cb), b = Math.max(p.ca, p.cb);
+          if (b - a < 0.02) return {fail:'고른 구간이 너무 좁아요. 두 시점을 조금 더 벌려 주세요.'};
+          var span = (b - a) * TOT[p.w], cA = co2(p.w, a), cB = co2(p.w, b);
+          var cr = (cB - cA) / span * 100, nowR = (co2(2, 1) - co2(2, 0)) / TOT[2] * 100;
+          var dir = cr > 1 ? 0 : cr < -1 ? 2 : 1;
+          return {e:e, v:v, x:v / base, years100:100 / v,
+            a:a, b:b, span:span, cA:cA, cB:cB, cr:cr, nowR:nowR, dir:dir};
         },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(1, tau / 0.6) : 0, max = 2.2, bx0 = Math.min(150, W * 0.36), bw = W - bx0 - 70;
@@ -481,35 +500,52 @@ var LAB = (function(){
           var lab = win === 0 ? ['80만 년 전', '40만 년 전', '지금'] : win === 1 ? ['1만 년 전', '5천 년 전', '지금'] : ['1958', '1991', '2024'];
           var lsz = W < 420 ? 13 : 18;
           if (W >= 420){ c.fillStyle = '#F7F9FC'; c.fillRect(gx - 30, gy + gh + 2, gw + 46, 26); }
-          txt(c, lab[0], gx, gy + gh + 22, {color:'#4A5868', align:'left', size:lsz}); txt(c, lab[1], gx + gw / 2, gy + gh + 22, {color:'#4A5868', align:'center', size:lsz}); txt(c, lab[2], gx + gw, gy + gh + 22, {color:'#4A5868', align:'right', size:lsz});
+          txt(c, lab[0], gx, gy + gh + 22, {color:'#4A5868', align:'left', size:lsz});
+          if (W >= 420) txt(c, lab[1], gx + gw / 2, gy + gh + 22, {color:'#4A5868', align:'center', size:lsz});   /* 좁은 화면: 가운데 눈금 이름은 양쪽과 붙으므로 뺀다 */
+          txt(c, lab[2], gx + gw, gy + gh + 22, {color:'#4A5868', align:'right', size:lsz});
+          var sa = Math.min(p.ca, p.cb), sb = Math.max(p.ca, p.cb);
+          if (sb - sa < 0.999){
+            c.fillStyle = 'rgba(200,70,61,.10)'; c.fillRect(bp.X(sa), gy, bp.X(sb) - bp.X(sa), gh);
+            seg(c, bp.X(sa), gy, bp.X(sa), gy + gh, PAL[4], 1.5, [4, 4]);
+            seg(c, bp.X(sb), gy, bp.X(sb), gy + gh, PAL[4], 1.5, [4, 4]);
+          }
           if (win !== 2) seg(c, gx, bp.Y(300), gx + gw, bp.Y(300), PAL[6], 1.5, [6, 5]);
           var kk = r ? Math.min(1, tau / 0.9) : 1, N = 360;
           c.strokeStyle = PAL[0]; c.lineWidth = 2; c.beginPath();
           for (var i = 0; i <= N * kk; i++){ var u = i / N, y = bp.Y(Math.max(lo, Math.min(hi, co2(win, u)))); if (i === 0) c.moveTo(bp.X(u), y); else c.lineTo(bp.X(u), y); }
           c.stroke();
-          tf(c, WN[win].n + (win === 2 ? ' — 관측 근사' : ' — 개략도'), gx + 6, gy + 20, {color:'#4A5868'}, gw - 12);
+          tf(c, WN[win].n + (win === 2 ? ' — 관측 근사' : ' — 개략도') + (r ? ' · 고른 구간 ' + sgn(r.cr, 1) + ' ppm/100년' : ''), gx + 6, gy + 20, {color:'#4A5868'}, gw - 12);
           if (r && tau > 0.85) txt(c, '지금 약 420', gx + gw - 4, bp.Y(420) + 22, {bold:true, color:PAL[4], align:'right'});
         },
         stats: function(p, r){
-          return [['비교한 변화', r.e.n], ['100년당 상승 속도', '약 ' + f(r.v, 2) + ' ℃', PAL[4]],
+          return [['비교한 변화', r.e.n], ['100년당 상승 속도 (웹툰·IPCC 대략값)', '약 ' + f(r.v, 2) + ' ℃', PAL[4]],
+            ['내가 고른 구간', yrLabel(p.w, r.a) + ' → ' + yrLabel(p.w, r.b) + ' (약 ' + f(r.span, 0) + '년)'],
+            ['그 구간의 이산화탄소', f(r.cA, 0) + ' → ' + f(r.cB, 0) + ' ppm'],
+            ['그 구간의 증가 속도 (내가 계산)', sgn(r.cr, 1) + ' ppm/100년 — ' + ['늘어남', '거의 그대로', '줄어듦'][r.dir], r.dir === 0 ? PAL[4] : r.dir === 2 ? PAL[0] : PAL[7]],
+            ['1958~2024년 속도와 견주면', (Math.abs(r.cr) < 0.01 ? '지금이 견줄 수 없이 빨라요' : Math.abs(r.nowR / r.cr) < 1.2 ? '지금과 비슷한 속도예요' : '지금이 약 ' + f(Math.abs(r.nowR / r.cr), 0) + '배 빨라요') + ' (지금 약 ' + f(r.nowR, 0) + ' ppm/100년)', PAL[4]],
             ['빙하기 끝과 비교', p.ev === 0 ? '기준 (1배)' : '약 ' + f(r.x, 0) + '배 빠름', p.ev === 0 ? PAL[7] : PAL[4]],
             ['1℃ 오르는 데 걸리는 시간', '약 ' + f(r.years100, 0) + '년'],
             ['이산화탄소 그래프', WN[p.w].n + (p.w === 2 ? ' — 약 315 → 약 420 ppm' : p.w === 1 ? ' — 1만 년 동안 약 260~280 ppm(80만 년 범위는 약 180~300 ppm), 지금 약 420 ppm' : ' — 80만 년 범위 약 180~300 ppm, 지금 약 420 ppm')]];
         },
-        columns: ['변화', '100년당 ℃', '빙하기 끝의 몇 배', '시간 창'],
-        record: function(p, r){ return {ev:p.ev, v:r.v, x:r.x, w:p.w}; },
-        row: function(d){ return [EV[d.ev].s, f(d.v, 2), f(d.x, 0) + '배', WN[d.w].s]; },
+        columns: ['변화', '100년당 ℃', '빙하기 끝의 몇 배', '시간 창', '고른 구간', 'ppm/100년'],
+        record: function(p, r){ return {ev:p.ev, v:r.v, x:r.x, w:p.w, a:r.a, b:r.b, cr:r.cr, span:r.span, dir:r.dir}; },
+        row: function(d){ return [EV[d.ev].s, f(d.v, 2), f(d.x, 0) + '배', WN[d.w].s, yrLabel(d.w, d.a) + '→' + yrLabel(d.w, d.b), sgn(d.cr, 1)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('같은 자(100년당 ℃)로 잰 속도', '<div id="wv1"></div><p class="ask">변화의 크기는 빙하기 끝이 더 큰데, 속도는 어느 쪽이 몇 배 빠른가요? 생물이 따라 옮겨 갈 시간은 어떻게 달라질까요?</p>') +
-            card('시간 창을 바꾸면 달라지는 인상', '<div id="wv2"></div><p class="ask">과제: 빙하 코어의 80만 년 이산화탄소 자료와 1958년부터의 마우나로아 관측 자료를 한 그래프에 그리되, 가로축을 80만 년 전체와 최근 1만 년 두 가지로 그려 각 그래프가 주는 인상이 어떻게 다른지 설명해 보세요.</p>') + '</div>';
+            card('구간을 어디에 두느냐에 따라', '<div id="wv2"></div><p class="ask">가장 빠른 구간과 가장 느린 구간의 속도가 몇 배 차이였나요? 줄어드는 구간은 어디였나요? 과제: 빙하 코어의 80만 년 이산화탄소 자료와 1958년부터의 마우나로아 관측 자료를 한 그래프에 그리되, 가로축을 80만 년 전체와 최근 1만 년 두 가지로 그려 각 그래프가 주는 인상이 어떻게 다른지 설명해 보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.ev; }), items = [];
           EV.forEach(function(e, i){ if (by[i]) items.push({label:e.s, v:rate(e), color:i === 0 ? PAL[0] : PAL[4], text:'약 ' + f(rate(e), 2) + '℃'}); });
           $('wv1').innerHTML = hbars(items, 2.2) + (Object.keys(by).length < 3 ? '<p class="msg">아직 재지 않은 변화가 있어요.</p>' : '');
           var ws = groupBy(rec, function(d){ return d.w; }), rows = [];
           var imp = ['빙하기·간빙기 톱니가 반복되고, 끝에서 범위를 뚫고 수직으로 솟음', '1만 년 내내 평평하다가 마지막 200년에 갑자기 꺾여 오름', '꾸준히, 점점 가파르게 오르며 해마다 작은 계절 물결'];
           WN.forEach(function(w, i){ rows.push([w.n, ws[i] ? ws[i].length + '회' : '—', imp[i]]); });
-          $('wv2').innerHTML = tableHTML(['시간 창', '내 기록', '그래프 모양'], rows);
+          var crows = rec.map(function(d){ return [WN[d.w].s, yrLabel(d.w, d.a) + ' → ' + yrLabel(d.w, d.b), f(d.span, 0) + '년', sgn(d.cr, 1), ['늘어남', '거의 그대로', '줄어듦'][d.dir]]; });
+          var fast = rec.slice().sort(function(a, b){ return b.cr - a.cr; });
+          $('wv2').innerHTML = tableHTML(['시간 창', '내 기록', '그래프 모양'], rows) +
+            tableHTML(['시간 창', '고른 구간', '길이', 'ppm/100년', '방향'], crows) +
+            (fast.length >= 2 ? '<p class="msg">가장 빠른 구간은 <b>' + sgn(fast[0].cr, 1) + '</b>, 가장 느린 구간은 <b>' + sgn(fast[fast.length - 1].cr, 1) + '</b> ppm/100년이었어요.</p>' : '') +
+            '<p class="msg">같은 자료인데 구간을 어디에 두느냐에 따라 속도가 크게 달라집니다. 줄어드는 구간도 찾아보세요.</p>';
         }
       };
     })();
@@ -518,7 +554,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

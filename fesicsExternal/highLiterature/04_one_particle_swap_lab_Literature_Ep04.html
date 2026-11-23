@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -469,7 +471,7 @@ var LAB = (function(){
       function scores(v){ var a = []; v.d.forEach(function(n, i){ for (var k = 0; k < n; k++) a.push(5 - i); }); return a; }
       function full(v){ return mean(scores(v)); }
       return {
-        sceneHeight: 400,
+        sceneHeight: function (w){ return w < 560 ? 450 : 400; },
         idle: '판본과 표본 크기를 고른 뒤 <b>반응 모으기</b>를 누르세요.',
         shortHint: '(A)와 (B)를 5명 표본으로 여러 번 뽑아 보세요. 그다음 30명 전체로 비교하면 무엇이 달라지나요?',
         params: [
@@ -485,8 +487,12 @@ var LAB = (function(){
         },
         draw: function(c, W, H, p, r, tau){
           var v = V[p.v], all = r ? r.all : scores(v), x0 = 60, x1 = W - 30, X = function(s){ return x0 + (s - 1) / 4 * (x1 - x0); }, base = H - 70;
-          txt(c, v.l1 + ' / 나는 괴로워했다.', 20, 32, {bold:true, color:PAL[0]});
-          c.font = '15px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.fillText('바꾼 곳: ' + v.change, 20, 56);
+          // 좁은 화면: 시 두 줄을 따로 적고 '바꾼 곳'을 그 아래로
+          var narL = W < 560, topY = narL ? 100 : 70;
+          if (narL){ txt(c, v.l1, 20, 30, {bold:true, color:PAL[0]}); txt(c, '나는 괴로워했다.', 20, 54, {bold:true, color:PAL[0]});
+            c.font = '15px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.fillText('바꾼 곳: ' + v.change, 20, 78); }
+          else { txt(c, v.l1 + ' / 나는 괴로워했다.', 20, 32, {bold:true, color:PAL[0]});
+            c.font = '15px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'left'; c.fillText('바꾼 곳: ' + v.change, 20, 56); }
           seg(c, x0, base, x1, base, '#8C99A8', 1.5);
           for (var s = 1; s <= 5; s++){ seg(c, X(s), base, X(s), base + 6, '#8C99A8', 1.5); txt(c, s + '점', X(s), base + 26, {align:'center', color:'#4A5868'}); }
           var cnt = {}, picked = {}, k = r ? Math.min(1, tau / 0.7) : 0;
@@ -498,10 +504,10 @@ var LAB = (function(){
             c.beginPath(); c.arc(X(sc), y, rad, 0, Math.PI * 2); c.fill();
           });
           var fm = full(v);
-          seg(c, X(fm), 70, X(fm), base, PAL[7], 1.5, [5, 4]);
+          seg(c, X(fm), topY, X(fm), base, PAL[7], 1.5, [5, 4]);
           if (r && tau > 0.75){
-            seg(c, X(r.sm), 70, X(r.sm), base, PAL[4], 3);
-            txt(c, '표본 평균 ' + f(r.sm, 1), Math.min(X(r.sm) + 6, W - 150), 84, {bold:true, color:PAL[4]});
+            seg(c, X(r.sm), topY, X(r.sm), base, PAL[4], 3);
+            txt(c, '표본 평균 ' + f(r.sm, 1), Math.min(X(r.sm) + 6, W - 150), topY + 14, {bold:true, color:PAL[4]});
           }
           txt(c, '30명 평균 ' + f(fm, 1), 20, H - 14, {color:PAL[7]});
         },
@@ -532,7 +538,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

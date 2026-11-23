@@ -236,6 +236,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
           <div class="control-block">
             <div class="control-label">시험할 재료 고르기</div>
             <div class="btn-row" id="matRow"></div>
+            <div class="control-label">방수 코팅 몇 번 바를까</div>
+            <div class="btn-row" id="coatRow"></div>
             <button class="btn-main" id="waterBtn">💧 물 뿌려보기 ▶</button>
             <button class="btn-main" id="liftBtn">🪶 들어보기 ▶</button>
             <button class="btn-sub" id="resetBtn">↺ 처음부터 다시</button>
@@ -285,6 +287,8 @@ tbody tr:nth-child(even){background:#f7faf9;}
         <div class="section-title">② 세어 보기</div>
         <div class="analysis-card" id="countCard"></div>
         <div id="countInsight"></div>
+        <div class="analysis-card" id="coatCard"></div>
+        <div id="coatInsight"></div>
 
         <div class="section-title">③ 확인 문제 — 철판</div>
         <div class="quiz-box">
@@ -450,9 +454,18 @@ var MATS=[
   {n:'나무판',   emo:'🪵', waterproof:true,  light:false, col:'#b98a52', line:'#8a6236'},
   {n:'부직포',   emo:'🧵', waterproof:false, light:true , col:'#e6e2ee', line:'#b4aec6'}
 ];
-function passesWater(m){ return m.waterproof; }
-function passesLight(m){ return m.light; }
-function passesBoth(m){ return m.waterproof && m.light; }
+/* 코팅을 바르면 물은 더 잘 막지만 그만큼 무거워진다 (교육용 모형값)
+   물 막는 힘 = (원래 방수면 2, 아니면 0) + 코팅 횟수   → 2 이상이면 물을 막음
+   무게       = (원래 무거우면 3, 아니면 0) + 코팅 × 0.6 → 1.5 이하면 가벼움 */
+var coat = 0;
+var COATN = ['0번 (그대로)', '1번', '2번', '3번'];
+function waterScore(m, c){ return (m.waterproof ? 2 : 0) + (c == null ? coat : c); }
+function weightScore(m, c){ return (m.light ? 0 : 3) + (c == null ? coat : c) * 0.6; }
+function passesWater(m, c){ return waterScore(m, c) >= 2; }
+function passesLight(m, c){ return weightScore(m, c) <= 1.5; }
+function passesBoth(m, c){ return passesWater(m, c) && passesLight(m, c); }
+function sweetSpots(m){ var a = []; for (var c = 0; c <= 3; c++) if (passesBoth(m, c)) a.push(c); return a; }
+var tlog = [];
 function bothCount(){ return MATS.filter(passesBoth).length; }
 function waterCount(){ return MATS.filter(passesWater).length; }
 function lightCount(){ return MATS.filter(passesLight).length; }
@@ -494,6 +507,23 @@ function buildRows(){
     mr.appendChild(b);
   });
 }
+function buildCoat(){
+  var cr = document.getElementById('coatRow');
+  cr.innerHTML = '';
+  COATN.forEach(function(nm, c){
+    var b = document.createElement('button');
+    b.className = 'btn-choice obj-btn' + (coat === c ? ' active' : '');
+    b.textContent = nm;
+    b.addEventListener('click', function(){
+      if (busy || coat === c) return;
+      coat = c;                       /* 조건이 달라졌으니 시험을 처음부터 다시 */
+      resetAll(); buildCoat(); syncScene();
+      renderTable(); renderKnow(); draw(); showStatus();
+      notify('코팅을 ' + nm + '으로 바꿨어요. 조건이 달라졌으니 다시 시험해 보세요.');
+    });
+    cr.appendChild(b);
+  });
+}
 function syncScene(){
   waterDone = res[mi].w!==null;
   liftDone  = res[mi].l!==null;
@@ -509,7 +539,7 @@ function showStatus(){
     return;
   }
   box.className='result-box ok';
-  var html=m.emo+' <b>'+m.n+'</b><br>';
+  var html=m.emo+' <b>'+m.n+'</b> · 코팅 '+COATN[coat]+'<br>';
   html+='💧 물 시험 : '+(r.w===null?'<span style="color:#8fa2a8">아직</span>':(r.w?'<b>물을 막았어요</b>':'<span style="color:var(--coral)"><b>물이 스며들었어요</b></span>'))+'<br>';
   html+='🪶 무게 시험 : '+(r.l===null?'<span style="color:#8fa2a8">아직</span>':(r.l?'<b>가벼워요</b>':'<span style="color:var(--coral)"><b>무거워요</b></span>'))+'<br>';
   if(isDone(mi)){
@@ -518,6 +548,13 @@ function showStatus(){
       : '🌂 <b>우산에는 쓸 수 없어요.</b> 조건 하나를 못 채웠거든요.';
   }else{
     html+='🌂 <span style="color:#8fa2a8">아직 판정할 수 없어요 — 시험이 하나 남았습니다.</span>';
+  }
+  if(isDone(mi)){
+    var sp = sweetSpots(m);
+    html += '<br><span style="font-size:.95rem;color:#4a636a;">코팅을 늘리면 물은 더 잘 막지만 그만큼 무거워져요. '
+      + (sp.length ? '이 재료는 코팅 ' + sp.map(function(c){ return c + '번'; }).join('·') + '일 때 두 조건을 모두 채웁니다.'
+                   : '이 재료는 코팅을 어떻게 해도 두 조건을 함께 채우지 못해요.')
+      + '</span>';
   }
   box.innerHTML=html;
 }
@@ -561,21 +598,21 @@ function drawDrop(x,y,s){
   cx.closePath(); cx.fill();
 }
 function drawWaterScene(){
-  var m=MATS[mi];
+  var m=MATS[mi], wp=passesWater(m);
   cx.fillStyle='#173238'; cx.font="700 15px 'Noto Sans KR',sans-serif"; cx.textAlign='left';
   cx.fillText('💧 물 시험', 14, 26);
   drawCan();
 
   /* 스며든 정도 */
   var wet=0;
-  if(!m.waterproof){
+  if(!wp){
     for(var i=0;i<DROPX.length;i++){
       var q=Math.min(1,Math.max(0,(waterT*1.55)-i*0.11));
       if(q>0.55) wet=Math.max(wet,(q-0.55)/0.45);
     }
   }
   /* 천 */
-  cx.fillStyle = m.waterproof ? m.col : mix(m.col, 0.32*wet);
+  cx.fillStyle = wp ? m.col : mix(m.col, 0.32*wet);
   cx.strokeStyle=m.line; cx.lineWidth=2;
   rr(SHEET_X,SHEET_Y,SHEET_W,SHEET_H,6); cx.fill(); cx.stroke();
   cx.font='26px serif'; cx.textAlign='center'; cx.textBaseline='middle';
@@ -594,7 +631,7 @@ function drawWaterScene(){
         x=bx; y=86+(SHEET_Y-86)*(p/0.55);
       }else{
         var r2=(p-0.55)/0.45;
-        if(m.waterproof){
+        if(wp){
           /* 표면 위를 가까운 가장자리까지 미끄러져 간 뒤 가장자리에서 아래로 떨어진다(뚫고 지나가지 않음) */
           var dir = bx < SHEET_X+SHEET_W/2 ? -1 : 1, edge = dir<0 ? SHEET_X-4 : SHEET_X+SHEET_W+4;
           if(r2<0.45){ var ts=r2/0.45; x=bx+(edge-bx)*ts*ts; y=SHEET_Y-5; }
@@ -608,7 +645,7 @@ function drawWaterScene(){
   /* 결과 글 */
   cx.textAlign='center';
   if(waterDone){
-    if(m.waterproof){
+    if(wp){
       cx.fillStyle='#22707c'; cx.font="700 15px 'Noto Sans KR',sans-serif";
       cx.fillText('물방울이 또르르 굴러떨어졌어요 — 물을 막습니다', W/2, 232);
     }else{
@@ -621,7 +658,7 @@ function drawWaterScene(){
   }
 }
 function drawLiftScene(){
-  var m=MATS[mi];
+  var m=MATS[mi], lt=passesLight(m);
   cx.strokeStyle='#c9d6d2'; cx.lineWidth=1;
   cx.beginPath(); cx.moveTo(0,248); cx.lineTo(W,248); cx.stroke();
   cx.fillStyle='#173238'; cx.font="700 15px 'Noto Sans KR',sans-serif"; cx.textAlign='left';
@@ -634,7 +671,7 @@ function drawLiftScene(){
   var lift=0, shake=0;
   if(liftT>0){
     var e=Math.min(1, liftT*1.25); e=e*e*(3-2*e);
-    if(m.light) lift = 86*e;
+    if(lt) lift = 86*e;
     else{ shake = Math.sin(liftT*Math.PI*6)*3*(1-liftT*0.4); lift = 3*Math.sin(liftT*Math.PI); }
   }
   var py = PLANK_REST - lift + shake;
@@ -656,19 +693,19 @@ function drawLiftScene(){
   cx.fillText('✋', 308, py+14);
   cx.textBaseline='alphabetic';
 
-  if(liftT>0 && m.light){
+  if(liftT>0 && lt){
     cx.font='18px serif';
     cx.fillText('✨', 316, py-4);
     cx.fillText('✨', 132, py-14);
   }
-  if(liftT>0 && !m.light){
+  if(liftT>0 && !lt){
     cx.fillStyle='#c1443c'; cx.font="700 15px 'Noto Sans KR',sans-serif";
     cx.fillText('끙...', 330, py+6);
   }
 
   cx.textAlign='center';
   if(liftDone){
-    if(m.light){
+    if(lt){
       cx.fillStyle='#22707c'; cx.font="700 15px 'Noto Sans KR',sans-serif";
       cx.fillText('번쩍! 가벼워요 — 들고 다닐 수 있습니다', W/2, 440);
     }else{
@@ -734,6 +771,11 @@ function setBtns(off){
 function finishTest(){
   busy=false; setBtns(false);
   renderTable(); renderKnow(); draw(); showStatus();
+  if(isDone(mi)){
+    var key = mi + '|' + coat;
+    if (!tlog.some(function(x){ return x.key === key; }))
+      tlog.push({key:key, i:mi, c:coat, w:res[mi].w, l:res[mi].l, ok:verdict(mi)});
+  }
   if(isDone(mi)){
     notify(MATS[mi].n+' 판정 완료! '+(verdict(mi)?'우산에 쓸 수 있어요 🌂':'우산에는 쓸 수 없어요'));
   }else{
@@ -848,6 +890,27 @@ function renderValidation(){
           '하지만 <b>두 조건을 겹쳐 놓으면</b> 남는 것은 확 줄어들어요.';
   if(dN<MATS.length) msg+='<br><span style="color:var(--brass-dark)">아직 시험하지 않은 재료가 '+(MATS.length-dN)+'가지 있어요. 모두 시험하면 더 확실해집니다.</span>';
   document.getElementById('countInsight').innerHTML='<div class="insight-box warm">'+msg+'</div>';
+
+  /* ③ 코팅 횟수에 따라 */
+  var cc='';
+  if(tlog.length){
+    cc='<div class="know-list">';
+    tlog.slice().sort(function(a,b){ return (a.i-b.i)||(a.c-b.c); }).forEach(function(x){
+      cc+='<div class="know '+(x.ok?'measured':'derived')+'"><span class="tag">코팅 '+x.c+'번</span><span>'
+        +MATS[x.i].emo+' <b>'+MATS[x.i].n+'</b> — 💧 '+(x.w?'막음':'스며듦')+' · 🪶 '+(x.l?'가벼움':'무거움')
+        +' → '+(x.ok?'🌂 쓸 수 있음':'쓸 수 없음')+'</span></div>';
+    });
+    cc+='</div>';
+  }else{
+    cc='<div class="know-list"><div class="know unknown"><span class="tag">아직</span><span>코팅 횟수를 바꿔 같은 재료를 다시 시험해 보세요.</span></div></div>';
+  }
+  document.getElementById('coatCard').innerHTML=cc;
+  var tips=[];
+  MATS.forEach(function(m2){ var sp=sweetSpots(m2); if(sp.length && sp.length<4) tips.push(m2.n+' → 코팅 '+sp.map(function(c){ return c+'번'; }).join('·')); });
+  document.getElementById('coatInsight').innerHTML='<div class="insight-box">코팅을 늘리면 <b>물은 더 잘 막지만 그만큼 무거워집니다.</b> '
+    +'그래서 코팅이 너무 적으면 물이 새고, 너무 많으면 무거워서 못 씁니다. 두 조건을 함께 채우는 구간이 있는 재료 — '
+    +(tips.length?tips.join(' / '):'아직 없음')+'.<br>'
+    +'<span style="color:var(--brass-dark)">※ 물 막는 힘과 무게를 숫자로 나타낸 것은 맞물림을 보여 주기 위한 교육용 모형값입니다.</span></div>';
 }
 
 /* ===== 확인 문제 ===== */
@@ -888,7 +951,7 @@ document.getElementById('hintBtn').addEventListener('click',function(){
   this.textContent=s?'힌트 숨기기':'힌트 보기';
 });
 
-buildRows(); syncScene(); renderTable(); renderKnow(); draw(); showStatus();
+buildRows(); buildCoat(); syncScene(); renderTable(); renderKnow(); draw(); showStatus();
 </script>
 <script id="fxPrincipleJs">
 (function(){

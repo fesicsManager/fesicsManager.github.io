@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,8 +439,23 @@ var LAB = (function(){
         {n:'(가) 학교 앞 어린이 보호 구역에서 차량 속도를 낮게 제한', s:'(가) 보호 구역 속도', g:[1, 1, 1, 1], why:['어린이 안전 — 정당', '속도를 낮추면 사고 위험이 줄어듦', '학교 앞 구역에만 적용', '아이의 생명·안전 > 조금 늦어지는 불편']},
         {n:'(나) 감염병 유행을 이유로 기간 정함 없이 모든 시민의 야간 외출을 전면 금지', s:'(나) 원안', g:[1, 1, 0, 0], why:['감염병 확산 방지 — 정당', '외출을 줄이면 접촉이 줄어듦', '모든 시민·기한 없음·전면 금지 — 더 덜 아픈 방법이 있음', '기한 없는 전면 금지로 잃는 자유가 너무 큼']},
         {n:'(나) 고친 안 — 확진자·밀접 접촉자만, 정해진 기간 동안 외출 제한', s:'(나) 고친 안', g:[1, 1, 1, 1], why:['감염병 확산 방지 — 정당', '감염 위험이 있는 사람의 접촉을 줄임', '대상과 기간을 꼭 필요한 만큼으로 줄임', '공익이 제한되는 자유보다 크다고 볼 여지가 커짐']},
-        {n:'(다) 특정 지역 출신이라는 이유로 공무원 채용에서 제외', s:'(다) 지역 출신 제외', g:[0, -1, -1, -1], why:['출신 지역에 따른 차별 — 목적부터 정당하지 않음', '—', '—', '—']}
+        {n:'(다) 특정 지역 출신이라는 이유로 공무원 채용에서 제외', s:'(다) 지역 출신 제외', g:[0, -1, -1, -1], why:['출신 지역에 따른 차별 — 목적부터 정당하지 않음', '—', '—', '—']},
+        {n:'(라) 내가 조건을 정하는 야간 외출 제한 (아래 두 칸)', s:'(라) 내 조건', mine:true}
       ];
+      var TGT = [{n:'모든 시민', v:0}, {n:'위험 지역 주민', v:1}, {n:'확진자·밀접 접촉자', v:2}];
+      var DUR = [{n:'기한 없음', v:0}, {n:'3개월', v:1}, {n:'2주', v:2}];
+      /* (라) 내 조건: 대상을 좁히고 기간을 정해야 침해의 최소성을 넘고,
+         좁힌 정도가 충분해야 법익의 균형성까지 넘는다. */
+      function myBill(ti, di){
+        var t = TGT[ti], d = DUR[di], sc = t.v + d.v;
+        var minimal = t.v >= 1 && d.v >= 1, balance = minimal && sc >= 3;
+        var g = [1, 1, minimal ? 1 : 0, minimal ? (balance ? 1 : 0) : -1];
+        var why = ['감염병 확산 방지 — 정당', '외출을 줄이면 접촉이 줄어듦',
+          minimal ? '대상을 ' + t.n + '으로, 기간을 ' + d.n + '으로 줄임' : '대상(' + t.n + ')과 기간(' + d.n + ') 가운데 좁히지 않은 것이 있음 — 더 덜 아픈 방법이 있음',
+          minimal ? (balance ? '공익이 제한되는 자유보다 크다고 볼 여지가 커짐' : '좁혔지만 아직 잃는 자유가 커서 균형이 기울어짐') : '—'];
+        return {n:'(라) 대상 ' + t.n + ' · 기간 ' + d.n, s:'(라) ' + t.n + '·' + d.n, g:g, why:why, mine:true, sc:sc};
+      }
+      var PG = ['찍지 않음', '법률로써', '목적의 정당성', '방법의 적절성', '침해의 최소성', '법익의 균형성', '네 관문 모두 통과'];
       var BS = ['국회가 만든 법률', '행정 기관 내부 지침'];
       var GN = ['목적의 정당성', '방법의 적절성', '침해의 최소성', '법익의 균형성'];
       return {
@@ -447,13 +464,26 @@ var LAB = (function(){
         shortHint: '웹툰 표의 (가)·(나)·(다)를 모두 넣고, (나) 원안과 고친 안을 비교해 보세요. 근거를 &lsquo;내부 지침&rsquo;으로 바꾸면 어디서 걸리나요?',
         params: [
           {key:'b', type:'seg', label:'가상 법률안', cols:2, value:0, options:BL.map(function(x){ return x.n; })},
-          {key:'f', type:'seg', label:'제한의 근거', cols:2, value:0, options:BS, note:'헌법 제37조 제2항은 &lsquo;법률로써&rsquo; 제한하라고 정해요.'}
+          {key:'f', type:'seg', label:'제한의 근거', cols:2, value:0, options:BS, note:'헌법 제37조 제2항은 &lsquo;법률로써&rsquo; 제한하라고 정해요.'},
+          {key:'tgt', type:'seg', label:'(라) 제한할 대상', cols:3, value:0, options:TGT.map(function(x){ return x.n; })},
+          {key:'dur', type:'seg', label:'(라) 제한할 기간', cols:3, value:0, options:DUR.map(function(x){ return x.n; })},
+          {key:'pg', type:'seg', label:'먼저 찍기 — 어디에서 걸릴까?', cols:2, value:0, options:PG,
+            note:'찍은 뒤 판정기에 넣어 보세요. (라)에서는 대상·기간을 바꿔 가며 어디까지 넘을 수 있는지 찾아보세요.'}
         ],
         compute: function(p){
-          var B = BL[p.b], marks = [], stopAt = -1;
-          if (p.f === 1) return {B:B, form:false, marks:['—', '—', '—', '—'], stopAt:0, pass:false, gate:'법률로써'};
-          for (var i = 0; i < 4; i++){ if (B.g[i] === 1) marks.push('○'); else if (B.g[i] === 0){ marks.push('×'); if (stopAt < 0) stopAt = i + 1; } else marks.push('—'); }
-          return {B:B, form:true, marks:marks, stopAt:stopAt, pass:stopAt < 0, gate:stopAt > 0 ? GN[stopAt - 1] : ''};
+          var B = BL[p.b].mine ? myBill(p.tgt, p.dur) : BL[p.b], marks = [], stopAt = -1, out;
+          if (p.f === 1) out = {B:B, form:false, marks:['—', '—', '—', '—'], stopAt:0, pass:false, gate:'법률로써'};
+          else {
+            for (var i = 0; i < 4; i++){ if (B.g[i] === 1) marks.push('○'); else if (B.g[i] === 0){ marks.push('×'); if (stopAt < 0) stopAt = i + 1; } else marks.push('—'); }
+            out = {B:B, form:true, marks:marks, stopAt:stopAt, pass:stopAt < 0, gate:stopAt > 0 ? GN[stopAt - 1] : ''};
+          }
+          out.mine = !!B.mine; out.tgt = p.tgt; out.dur = p.dur;
+          out.where = !out.form ? 1 : (out.pass ? 6 : out.stopAt + 1);
+          if (p.pg > 0){
+            out.pg = p.pg; out.hit = p.pg === out.where;
+            out.pmsg = (out.hit ? '맞음 ✓' : '아님 ✕') + ' — 실제로는 ' + (out.where === 6 ? '네 관문 모두 통과' : PG[out.where] + '에서 걸림');
+          }
+          return out;
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
           var gx = [], n = 5, L = 40, R = W - 40, y = H * 0.5;
@@ -472,20 +502,33 @@ var LAB = (function(){
           if (r && tau >= 1) tf(c, r.pass ? '네 관문 통과 — 그래도 본질적 내용은 침해 불가' : (r.form ? r.gate + '에서 걸림' : '법률이 아닌 내부 지침 — 제37조 제2항의 &lsquo;법률로써&rsquo;에 어긋남').replace(/&lsquo;|&rsquo;/g, '\''), 16, H - 16, {bold:true, color:r.pass ? PAL[1] : PAL[4]});
         },
         stats: function(p, r){
-          var out = [['법률안', r.B.n], ['제한의 근거', BS[p.f], p.f ? PAL[4] : PAL[1]]];
+          var out = [];
+          if (r.pg) out.push(['먼저 찍은 곳', PG[r.pg] + ' → ' + r.pmsg, r.hit ? PAL[1] : PAL[4]]);
+          out.push(['법률안', r.B.n], ['제한의 근거', BS[p.f], p.f ? PAL[4] : PAL[1]]);
           if (!r.form) out.push(['판정', '걸림 — 법률이 아닌 내부 지침만으로는 기본권을 제한할 수 없음', PAL[4]]);
           else { GN.forEach(function(g, i){ out.push([g, r.marks[i] + ' ' + r.B.why[i], r.marks[i] === '○' ? PAL[1] : r.marks[i] === '×' ? PAL[4] : PAL[7]]); });
             out.push(['판정', r.pass ? '통과 (판정기 기준)' : '걸림 — ' + r.gate, r.pass ? PAL[1] : PAL[4]]); }
+          if (r.mine) out.push(['조건을 더 좁히면', r.pass ? '이보다 더 좁힐 필요는 줄어들지만, 본질적 내용은 어떤 경우에도 침해할 수 없어요' : '대상을 좁히고 기간을 정하면 침해의 최소성을 넘고, 충분히 좁히면 법익의 균형성까지 넘어요', PAL[7]]);
           return out;
         },
-        columns: ['법률안', '근거', '목적', '방법', '최소성', '균형성', '판정'],
-        record: function(p, r){ return {b:p.b, f:p.f, m:r.marks, pass:r.pass}; },
-        row: function(d){ return [BL[d.b].s, d.f ? '내부 지침' : '법률'].concat(d.m).concat([d.pass ? '통과' : '걸림']); },
+        columns: ['법률안', '근거', '목적', '방법', '최소성', '균형성', '판정', '먼저 찍기'],
+        record: function(p, r){ return {b:p.b, f:p.f, m:r.marks, pass:r.pass, mine:r.mine, tgt:r.tgt, dur:r.dur, where:r.where, pg:r.pg || 0, hit:r.hit, s:r.B.s}; },
+        row: function(d){ return [d.s || BL[d.b].s, d.f ? '내부 지침' : '법률'].concat(d.m).concat([d.pass ? '통과' : '걸림', d.pg ? PG[d.pg] + (d.hit ? ' ○' : ' ✕') : '—']); },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ps = rec.filter(function(d){ return d.pg; });
+          var pcard = !ps.length ? '' : card('어디에서 걸릴까 — 먼저 찍고 맞혀 보기', tableHTML(['법률안', '내가 찍은 곳', '실제', '결과'],
+              ps.map(function(d){ return [d.s || BL[d.b].s, PG[d.pg], d.where === 6 ? '모두 통과' : PG[d.where], d.hit ? '맞음 ○' : '아님 ✕']; })) +
+            '<p class="ask">맞힌 ' + ps.filter(function(d){ return d.hit; }).length + ' / ' + ps.length + '개. ' +
+            '목적이 정당해도 걸릴 수 있는 까닭은 무엇인가요? 관문은 앞에서 걸리면 뒤를 따질 필요가 없습니다.</p>');
+          var ms = {}; rec.forEach(function(d){ if (d.mine) ms[d.tgt + '_' + d.dur] = d; });
+          var mk = Object.keys(ms);
+          var mcard = !mk.length ? '' : card('(라) 대상·기간을 바꾸면 어디까지 넘나', tableHTML(['대상', '기간', '최소성', '균형성', '판정'],
+              mk.map(function(k){ var d = ms[k]; return [TGT[d.tgt].n, DUR[d.dur].n, d.m[2], d.m[3], d.where === 6 ? '모두 통과' : PG[d.where] + '에서 걸림']; })) +
+            '<p class="ask">대상만 좁혔을 때와 기간만 정했을 때 결과가 같았나요? 침해의 최소성은 <b>대상과 기간을 함께</b> 봅니다. 둘을 모두 좁혔는데도 균형성에서 걸린 경우가 있었나요?</p>');
+          box.innerHTML = '<div class="vgrid">' + pcard + mcard +
             card('웹툰 #4 판정표와 내 기록', '<div id="rl1"></div><p class="ask">(나)는 목적이 정당한데도 걸렸습니다. 원안과 고친 안에서 무엇이 달라졌기에 &lsquo;침해의 최소성&rsquo; 결과가 바뀌었나요?</p>') +
             card('근거를 바꾸면', '<div id="rl2"></div><p class="ask">과제: 학교 규칙이나 우리 지역의 조례 중 학생의 자유를 제한하는 규정 하나를 골라 네 단계 판정표에 넣고, 각 단계의 판단 근거를 적어 보세요. 결론보다 근거가 중요합니다.</p>') + '</div>';
-          $('rl1').innerHTML = tableHTML(['법률안', '목적', '방법', '최소성', '균형성', '내 기록'], BL.map(function(B, i){ var m = B.g.map(function(v){ return v === 1 ? '○' : v === 0 ? '×' : '—'; }); var g = rec.filter(function(d){ return d.b === i && d.f === 0; }); return [B.s].concat(m).concat([g.length ? (g[g.length - 1].pass ? '통과' : '걸림') : '아직']); }));
+          $('rl1').innerHTML = tableHTML(['법률안', '목적', '방법', '최소성', '균형성', '내 기록'], BL.map(function(B, i){ if (!B.g) return null; var m = B.g.map(function(v){ return v === 1 ? '○' : v === 0 ? '×' : '—'; }); var g = rec.filter(function(d){ return d.b === i && d.f === 0; }); return [B.s].concat(m).concat([g.length ? (g[g.length - 1].pass ? '통과' : '걸림') : '아직']); }).filter(function(x){ return x; }));
           var a = rec.filter(function(d){ return d.f === 0; }), b = rec.filter(function(d){ return d.f === 1; });
           function pr(g){ return g.length ? g.filter(function(d){ return d.pass; }).length + ' / ' + g.length + '건 통과' : '기록 없음'; }
           $('rl2').innerHTML = tableHTML(['제한의 근거', '통과'], [['국회가 만든 법률', pr(a)], ['행정 기관 내부 지침', pr(b)]]) + '<p class="msg">내부 지침만으로 정한 제한은 네 관문에 들어가기도 전에 걸립니다.</p>';
@@ -497,7 +540,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

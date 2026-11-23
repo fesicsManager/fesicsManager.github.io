@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -308,6 +310,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -443,6 +452,17 @@ var LAB = (function(){
         {n:'국내 공장 과자를 국내 마트에 판매', s:'국내 과자', k:'-', a:2, mv:'none', what:'과자'}
       ];
       var CL = ['수출 (돈이 들어옴)', '수입 (돈이 나감)', '국제 거래 아님'];
+      /* 물건의 방향과 돈의 방향을 학생이 직접 놓고, 그 조합에서 무엇이 되는지 스스로 판정한다 */
+      var USE = ['카드 그대로', '내가 놓은 화살표로'];
+      var MD = ['우리나라 → 외국', '외국 → 우리나라', '국경을 넘지 않음'];
+      var CF = ['외국 → 우리나라 (들어옴)', '우리나라 → 외국 (나감)', '국내에서만 오감'];
+      function myCard(p){
+        var mv = p.mdir === 0 ? 'out' : p.mdir === 1 ? 'in' : 'none';
+        var a = p.cash === 0 ? 0 : p.cash === 1 ? 1 : 2;
+        var contra = (mv === 'none') !== (p.cash === 2);
+        return {n:'내가 놓은 화살표', s:'내 화살표', k:'-', a:a, mv:mv, what:'물건', contra:contra};
+      }
+      function cardOf(p){ return p.use === 1 ? myCard(p) : CD[p.t]; }
       var CS = ['수출', '수입', '해당 없음'];
       return {
         sceneHeight: 400,
@@ -450,11 +470,21 @@ var LAB = (function(){
         shortHint: '카드 8장을 모두 분류해 보세요. 특히 물건·사람이 나가는데 돈도 나가는 카드를 찾아보세요.',
         params: [
           {key:'t', type:'seg', label:'거래 카드', cols:2, value:0, options:CD.map(function(x){ return x.n; })},
+          {key:'use', type:'seg', label:'무엇으로 판정할까', cols:2, value:0, options:USE},
+          {key:'mdir', type:'seg', label:'내가 놓는 화살표 ① 물건·사람이 가는 쪽', cols:3, value:0, options:MD},
+          {key:'cash', type:'seg', label:'내가 놓는 화살표 ② 돈이 가는 쪽', cols:3, value:0, options:CF},
           {key:'g', type:'seg', label:'나의 예측', cols:3, value:1, options:CL}
         ],
-        compute: function(p){ var d = CD[p.t]; return {d:d, ok:p.g === d.a}; },
+        compute: function(p){ var d = cardOf(p);
+          var contra = !!d.contra;
+          var why = p.use === 0 ? ''
+            : contra ? '국경을 넘지 않는 거래인데 돈만 국경을 넘을 수는 없어요 (또는 그 반대) — 화살표를 다시 놓아 보세요'
+            : d.a === 2 ? '물건도 돈도 국경을 넘지 않으니 국제 거래가 아니에요'
+            : '돈이 ' + (d.a === 0 ? '들어오니 수출' : '나가니 수입') + '이에요 — 분류를 정하는 것은 물건의 방향이 아니라 돈의 방향입니다'
+            + ((d.mv === 'in') === (d.a === 0) ? '. 물건과 돈이 같은 쪽으로 가는 조합이라 더 헷갈려요' : '');
+          return {d:d, ok:p.g === d.a, use:p.use, contra:contra, why:why}; },
         draw: function(c, W, H, p, r, tau){
-          var d = CD[p.t], mid = W / 2, k = r ? Math.min(tau / 0.8, 1) : 0;
+          var d = cardOf(p), mid = W / 2, k = r ? Math.min(tau / 0.8, 1) : 0;
           c.fillStyle = '#EEF3F8'; c.fillRect(0, 40, mid - 4, H - 120); c.fillStyle = '#F7F1E8'; c.fillRect(mid + 4, 40, mid - 4, H - 120);
           seg(c, mid, 30, mid, H - 70, '#1E2833', 3, [10, 6]);
           txt(c, '우리나라', mid / 2, 30, {align:'center', bold:true, color:PAL[0]}); txt(c, '외국', mid * 1.5, 30, {align:'center', bold:true, color:PAL[2]});
@@ -473,8 +503,8 @@ var LAB = (function(){
             }
           }
           if (r && k >= 1){
-            txt(c, '분류: ' + CS[d.a] + (d.k !== '-' ? ' (' + d.k + ')' : ''), 20, H - 40, {bold:true, color:PAL[3]});
-            txt(c, r.ok ? '예측 일치' : '예측과 다름 — 돈의 방향을 보세요', 20, H - 14, {bold:true, color:r.ok ? PAL[1] : PAL[4]});
+            txtFit(c, '분류: ' + CS[d.a] + (d.k !== '-' ? ' (' + d.k + ')' : ''), 20, H - 40, {bold:true, color:PAL[3]}, W - 40);
+            txtFit(c, r.contra ? '화살표가 서로 맞지 않아요' : (r.ok ? '예측 일치' : '예측과 다름 — 돈의 방향을 보세요'), 20, H - 14, {bold:true, color:r.contra ? PAL[6] : (r.ok ? PAL[1] : PAL[4])}, W - 40);
           }
         },
         stats: function(p, r){
@@ -482,19 +512,23 @@ var LAB = (function(){
           var mTxt = d.a === 0 ? '외국 → 우리나라 (들어옴)' : d.a === 1 ? '우리나라 → 외국 (나감)' : '국내에서만 오감';
           return [['거래', d.n], ['움직인 것', mvTxt], ['돈의 방향', mTxt, PAL[1]], ['분류', CS[d.a] + (d.k !== '-' ? ' · ' + d.k : ''), PAL[3]],
             ['나의 예측', CL[p.g] + (r.ok ? ' — 일치' : ' — 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['내가 놓은 화살표 판정', r.use === 1 ? r.why : '카드에 적힌 거래로 보았어요', r.contra ? PAL[6] : (r.use === 1 ? PAL[0] : '#4A5868')],
             ['한 줄 정리', d.a === 2 ? '국경을 넘지 않으면 국제 거래가 아니에요' : (d.mv === 'in') === (d.a === 0) ? '움직인 것과 돈이 같은 방향인 카드 — 헷갈리기 쉬우니 돈만 따라가세요' : '움직인 것과 돈이 반대 방향 — 물건이 나가면 돈은 들어와요']];
         },
-        columns: ['거래', '종류', '나의 예측', '분류', '일치'],
-        record: function(p, r){ return {t:p.t, g:p.g, ok:r.ok}; },
-        row: function(d){ return [CD[d.t].s, CD[d.t].k, CS[d.g], CS[CD[d.t].a], d.ok ? '예' : '아니오']; },
+        columns: ['거래', '물건 방향', '돈 방향', '나의 예측', '분류', '일치'],
+        record: function(p, r){ return {t:p.t, g:p.g, ok:r.ok, use:p.use, mdir:p.mdir, cash:p.cash, a:r.d.a, nm:r.d.s, contra:r.contra}; },
+        row: function(d){ return [d.use === 1 ? '내 화살표' : CD[d.t].s,
+          d.use === 1 ? MD[d.mdir].replace('우리나라', '우리').replace('우리나라', '우리') : (CD[d.t].mv === 'out' ? '우리 → 외국' : CD[d.t].mv === 'in' ? '외국 → 우리' : '국내'),
+          d.use === 1 ? (d.cash === 0 ? '들어옴' : d.cash === 1 ? '나감' : '국내') : (CD[d.t].a === 0 ? '들어옴' : CD[d.t].a === 1 ? '나감' : '국내'),
+          CS[d.g], CS[d.a == null ? CD[d.t].a : d.a], d.contra ? '모순' : (d.ok ? '예' : '아니오')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('카드별 마지막 분류 결과', '<div id="ex1"></div><p class="ask">"사람이나 물건이 나갔으니 수출"이라고 생각하기 쉬운 카드는 무엇이었나요? 돈의 방향으로 다시 설명해 보세요.</p>') +
             card('상품·서비스별 일치율', '<div id="ex2"></div><p class="ask">과제: 우리 가족이 최근 한 달 동안 한 소비 중 외국과 관련된 것을 찾아 "돈이 나간 거래(수입)"로 분류하고, 우리 지역에 외국인의 돈이 들어오는 거래를 세 가지 찾아보세요.</p>') + '</div>';
-          var last = {}; rec.forEach(function(d){ last[d.t] = d; });
+          var last = {}; rec.forEach(function(d){ if (d.use !== 1) last[d.t] = d; });
           $('ex1').innerHTML = tableHTML(['거래', '나의 예측', '분류', ''], Object.keys(last).map(Number).sort(function(a, b){ return a - b; }).map(function(t){ var d = last[t]; return [CD[t].s, CS[d.g], CS[CD[t].a], d.ok ? '○' : '×']; })) + (Object.keys(last).length < 8 ? '<p class="msg">아직 확인하지 않은 카드가 ' + (8 - Object.keys(last).length) + '장 있어요.</p>' : '');
-          var g = groupBy(rec, function(d){ return CD[d.t].k === '-' ? '국내 거래' : CD[d.t].k; });
-          $('ex2').innerHTML = hbars(Object.keys(g).map(function(k){ var a = g[k], ok = a.filter(function(d){ return d.ok; }).length / a.length * 100; return {label:k + ' (' + a.length + '회)', v:ok, color:k === '서비스' ? PAL[3] : PAL[0], text:f(ok, 0) + '%'}; }), 100);
+          var g = groupBy(rec, function(d){ return d.use === 1 ? '내가 놓은 화살표' : (CD[d.t].k === '-' ? '국내 거래' : CD[d.t].k); });
+          $('ex2').innerHTML = hbars(Object.keys(g).map(function(k){ var a = g[k], ok = a.filter(function(d){ return d.ok; }).length / a.length * 100; return {label:k + ' (' + a.length + '회)', v:ok, color:k === '서비스' ? PAL[3] : (k === '내가 놓은 화살표' ? PAL[6] : PAL[0]), text:f(ok, 0) + '%'}; }), 100);
         }
       };
     })();
@@ -503,7 +537,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

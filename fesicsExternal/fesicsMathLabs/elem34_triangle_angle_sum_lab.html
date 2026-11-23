@@ -288,6 +288,7 @@ var LAB = {
     var kind=(Math.max(g.a,g.b,g.c)>90.5)?'둔각삼각형':((Math.max(g.a,g.b,g.c)>89.5)?'직각삼각형':'예각삼각형');
     return {a:r1(g.a),b:r1(g.b),c:r1(g.c),sum:r1(sum),kind:kind};
   },
+  guess:{label:'세 각의 합(°)',key:'sum',tol:0.6},
   headA:['번호','각 1','각 2','각 3','세 각의 합','종류'],
   rowA:function(r,i){ return [i+1,r.a+'°',r.b+'°',r.c+'°','<b>'+r.sum+'°</b>',r.kind]; },
   analyze:function(rec){
@@ -340,6 +341,91 @@ var LAB = {
        + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
   }
   document.getElementById('controls').innerHTML = h;
+
+  /* ===== 먼저 맞혀 보기 (261123) — 실행 전에 결과를 적거나 골라 두면 실행 뒤 채점한다 ===== */
+  var GUESS = LAB.guess || null, gIn = null, gLast = null;
+  if(GUESS){
+    var gd = document.createElement('div');
+    gd.className = 'ctrl';
+    gd.style.cssText = 'background:#fff8ee;border:2px dashed #d98e3b;border-radius:.7rem;padding:.7rem .8rem';
+    var gh = '<div class="row" style="display:block"><span>✏️ 먼저 맞혀 보기 — ' + GUESS.label + '</span></div>';
+    if(GUESS.opts){
+      gh += '<select id="s_guess" aria-label="예측 고르기" style="width:100%;font-family:inherit;font-size:1rem;padding:.45rem .5rem;border:2px solid var(--line);border-radius:.6rem;background:#fff"><option value="">— 고르지 않음 —</option>';
+      for(var gj=0; gj<GUESS.opts.length; gj++){ gh += '<option value="' + gj + '">' + GUESS.opts[gj] + '</option>'; }
+      gh += '</select>';
+    } else {
+      gh += '<input type="number" id="s_guess" step="any" aria-label="예측 적기" placeholder="숫자를 적어 보자" style="width:100%;font-family:inherit;font-size:1rem;padding:.45rem .5rem;border:2px solid var(--line);border-radius:.6rem">';
+    }
+    gh += '<p class="hint" style="margin:.35rem 0 0">비워 두고 실행해도 된다. 적어 두면 실행 뒤 맞았는지 채점해 준다.</p>';
+    gd.innerHTML = gh;
+    document.getElementById('controls').appendChild(gd);
+    gIn = document.getElementById('s_guess');
+  }
+  function gActual(rec){
+    if(!GUESS) return null;
+    var v = GUESS.get ? GUESS.get(rec, S) : rec[GUESS.key];
+    if(v === null || v === undefined || v === '' || v === '-') return null;
+    if(typeof v === 'number' && !isFinite(v)) return null;
+    return v;
+  }
+  function gGrade(rec){
+    if(!GUESS) return rec;
+    var act = gActual(rec), raw = gIn ? gIn.value : '';
+    rec.gAct = act; rec.gGuess = null; rec.gHit = null; gLast = null;
+    if(raw === '' || act === null) return rec;
+    if(GUESS.opts){
+      var gi = parseInt(raw, 10);
+      if(!(gi >= 0)) return rec;
+      rec.gGuess = GUESS.opts[gi];
+      rec.gHit = (gi === Number(act));
+    } else {
+      var gv = parseFloat(raw);
+      if(!isFinite(gv)) return rec;
+      rec.gGuess = gv;
+      var tol = (GUESS.tol || 0) + (GUESS.rel || 0) * Math.abs(Number(act));
+      rec.gHit = (Math.abs(gv - Number(act)) <= tol + 1e-9);
+    }
+    gLast = rec;
+    return rec;
+  }
+  function gShow(v){ return (GUESS && GUESS.opts) ? GUESS.opts[Number(v)] : v; }
+  function gMsg(){
+    if(!gLast) return '';
+    return ' ✏️ 내 예측 ' + gLast.gGuess + ' → 실제 ' + gShow(gLast.gAct)
+         + (gLast.gHit ? ' · 맞았다!' : ' · 틀렸다. 왜 그런지 따져 보자.');
+  }
+  function headAx(){ return GUESS ? LAB.headA.concat(['내 예측','채점']) : LAB.headA; }
+  function rowAx(r, i){
+    var c = LAB.rowA(r, i);
+    if(GUESS){
+      c = c.concat([
+        (r.gGuess === null || r.gGuess === undefined) ? '—' : r.gGuess,
+        (r.gHit === null || r.gHit === undefined) ? '—'
+          : '<span class="' + (r.gHit ? 'ok' : 'no') + '">' + (r.gHit ? '맞음' : '틀림') + '</span>'
+      ]);
+    }
+    return c;
+  }
+  function gAug(res){
+    if(!GUESS || !res) return res;
+    var tried = 0, hit = 0, gk;
+    for(gk = 0; gk < records.length; gk++){
+      if(records[gk].gHit === true || records[gk].gHit === false){ tried++; if(records[gk].gHit) hit++; }
+    }
+    if(res.stats){
+      res.stats = res.stats.concat([{
+        t: '먼저 맞혀 보기 채점',
+        big: tried ? (hit + ' / ' + tried + ' 맞음') : '예측 없음',
+        p: tried ? ('예측한 값: ' + GUESS.label + ' — 틀린 기록은 위 표에서 조건과 함께 살펴보자.')
+                 : ('실행 전에 ' + GUESS.label + ' 을(를) 적어 두면 여기서 채점된다.')
+      }]);
+    }
+    if(tried){
+      res.concl = String(res.concl || '') + '<br>· <b>내 예측</b>은 ' + tried + '번 가운데 ' + hit + '번 맞았다.'
+        + (hit === tried ? ' 어떤 규칙으로 맞혔는지 말로 적어 보자.' : ' 틀린 조건을 골라 한 번 더 해 보자.');
+    }
+    return res;
+  }
 
   var btnAct = document.getElementById('btnAct');
   var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
@@ -396,7 +482,7 @@ var LAB = {
         animating = false; ran = true; lock(false);
         if(ACT_LABEL === null) ACT_LABEL = btnAct.textContent;
         btnAct.textContent = '값을 바꾸면 다시 실행';
-        records.push(LAB.record(S));
+        records.push(gGrade(LAB.record(S)));
         if(!window.__fxNudged && records.length >= (typeof MIN === 'number' ? MIN : 4)){
           window.__fxNudged = true;
           /* 기록이 분석에 필요한 만큼 모이면 '데이터 확인' 으로 가자고 알린다 (261120) */
@@ -416,7 +502,7 @@ var LAB = {
           })();
         }
         renderA(); renderB();
-        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)';
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)' + gMsg();
         readout(); paint(1);
       }
     }
@@ -431,15 +517,15 @@ var LAB = {
   }
   function renderA(){
     document.getElementById('cntA').textContent = records.length;
-    document.getElementById('thA').innerHTML = th(LAB.headA);
+    document.getElementById('thA').innerHTML = th(headAx());
     var tb = document.getElementById('tbA');
     if(records.length === 0){
-      tb.innerHTML = '<tr><td colspan="' + LAB.headA.length + '" class="empty">아직 기록이 없다.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="' + headAx().length + '" class="empty">아직 기록이 없다.</td></tr>';
       return;
     }
     var s = '';
     for(var i=0;i<records.length;i++){
-      var cells = LAB.rowA(records[i], i);
+      var cells = rowAx(records[i], i);
       s += '<tr>';
       for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
       s += '</tr>';
@@ -451,7 +537,7 @@ var LAB = {
     var lack = document.getElementById('lack'), an = document.getElementById('analysis');
     if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
     lack.classList.add('hidden'); an.classList.remove('hidden');
-    var res = LAB.analyze(records);
+    var res = gAug(LAB.analyze(records));
     document.getElementById('thB').innerHTML = th(res.head);
     var s = '';
     for(var i=0;i<res.rows.length;i++){

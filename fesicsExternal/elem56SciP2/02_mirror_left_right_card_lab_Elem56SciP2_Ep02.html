@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -299,9 +300,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,6 +441,10 @@ var LAB = (function(){
       var SYM = [true, false, false, false, true, false];
       var MIR = ['↑', '←', '좌우가 뒤집힌 ㄱ', '좌우가 뒤집힌 3', '↓', '좌우가 뒤집힌 글자'];
       var PG = ['① 위아래와 좌우가 모두 바뀌어 보인다', '② 좌우만 바뀌어 보이고 위아래는 그대로다', '③ 위아래만 바뀌어 보인다', '④ 아무것도 바뀌지 않는다'];
+      /* 거울을 바닥에 눕히면 바뀌는 쪽이 달라진다 */
+      var MP = ['앞에 세우기 (정면에서 보기)', '바닥에 눕히기 (위에서 내려다보기)'];
+      var VMIR = ['↓', '→', '위아래가 뒤집힌 ㄱ', '위아래가 뒤집힌 3', '↑', '위아래가 뒤집힌 글자'];
+      var VSYM = [false, true, false, false, false, false];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       function arrowShape(c, x, y, s, dir, col){
         var a = s * 0.36, hw = s * 0.16;
@@ -461,13 +467,24 @@ var LAB = (function(){
         sceneHeight: function(w){ return w < 560 ? 360 : 330; },
         minRec: 4,
         idle: '카드와 예측을 고른 뒤 <b>거울에 비추기</b>를 누르세요.',
-        shortHint: '위쪽 화살표, 오른쪽 화살표, 글자 ㄱ, 숫자 3을 차례로 거울에 비추어 보세요.',
+        shortHint: '카드를 세운 거울로 먼저 비추고, 같은 카드를 눕힌 거울로도 비춰 보세요. 바뀌는 쪽이 달라지나요?',
         params: [
           {key:'k', type:'seg', label:'거울에 비출 카드', cols:3, value:1, options:CD},
-          {key:'g', type:'seg', label:'예측: 그림 카드를 거울 앞에 세우고 거울에 비친 모습을 보면?', cols:2, value:0, options:PG,
+          {key:'mp', type:'seg', label:'거울 놓는 자리', cols:2, value:0, options:MP},
+          {key:'g', type:'seg', label:'예측: 거울에 비친 모습은?', cols:2, value:0, options:PG,
             note:'뭉치는 "거울은 몽땅 뒤집개야! ①"이라고 했어요.'}
         ],
-        compute: function(p){ return {k:p.k, sym:SYM[p.k], mir:MIR[p.k], lr:SYM[p.k] ? '그대로' : '바뀜', ud:'그대로', ok:p.g === 1}; },
+        compute: function(p){
+          var lay = p.mp === 1;
+          var sym = lay ? VSYM[p.k] : SYM[p.k];
+          var mir = lay ? VMIR[p.k] : MIR[p.k];
+          var want = lay ? 2 : 1;
+          return {k:p.k, lay:lay, sym:sym, mir:mir,
+            lr:lay ? '그대로' : (sym ? '그대로' : '바뀜'),
+            ud:lay ? (sym ? '그대로' : '바뀜') : '그대로',
+            ok:p.g === want, want:want,
+            why:lay ? '눕힌 거울은 거울 면에 수직인 쪽, 곧 위아래를 뒤집어 보여요'
+              : '세운 거울은 거울 면에 수직인 쪽, 곧 앞뒤를 뒤집는데 우리 눈에는 좌우가 바뀐 것처럼 보여요'}; },
         draw: function(c, W, H, p, r, tau){
           var nar = W < 560, pw = nar ? (W - 40) / 2 : 230, s = Math.min(110, pw - 30), x1 = 15 + pw / 2, x2 = nar ? W - 15 - pw / 2 : x1 + pw + 40, cy = 40 + s / 2 + 12;
           T(c, '카드를 앞에서 본 모습', x1, 26, nar ? 12 : 14, '#1E2833', 'center', true);
@@ -476,9 +493,13 @@ var LAB = (function(){
           cardAt(c, x1, cy, s, p.k);
           if (r){
             var e = Math.min(1, tau * 1.4);
-            c.save(); c.globalAlpha = e; c.translate(x2, 0); c.scale(-1, 1); cardAt(c, 0, cy, s, p.k); c.restore(); c.globalAlpha = 1;
+            c.save(); c.globalAlpha = e;
+            if (p.mp === 1){ c.translate(0, 2 * cy); c.scale(1, -1); cardAt(c, x2, cy, s, p.k); }
+            else { c.translate(x2, 0); c.scale(-1, 1); cardAt(c, 0, cy, s, p.k); }
+            c.restore(); c.globalAlpha = 1;
             if (tau >= 0.75){
-              T(c, '위', x2 + pw / 2 - 6, 50, 11, PAL[1], 'right', true); T(c, '아래', x2 + pw / 2 - 6, 34 + s + 18, 11, PAL[1], 'right', true);
+              T(c, p.mp === 1 ? '아래' : '위', x2 + pw / 2 - 6, 50, 11, PAL[1], 'right', true);
+              T(c, p.mp === 1 ? '위' : '아래', x2 + pw / 2 - 6, 34 + s + 18, 11, PAL[1], 'right', true);
             }
           } else {
             T(c, '?', x2, cy + 10, 30, '#9AA5B1', 'center', true);
@@ -488,29 +509,34 @@ var LAB = (function(){
           T(c, '카드: ' + CD[p.k], tx, y0, fs, '#1E2833', 'left', true);
           if (r && tau >= 0.95){
             T(c, '거울 속: ' + r.mir, tx, y0 + lh, fs, PAL[5], 'left', true);
-            T(c, '위아래: 그대로 · 좌우: ' + r.lr + (r.sym ? ' (좌우가 같은 모양)' : ''), tx, y0 + lh * 2, nar ? 12 : 15, r.sym ? PAL[1] : PAL[4], 'left', true);
-            T(c, '별 표시: 왼쪽 위 → 거울 속 오른쪽 위', tx, y0 + lh * 3, nar ? 12 : 14, PAL[6], 'left');
-            T(c, r.ok ? '○ 예측이 맞았어요 — 좌우만 바뀌어 보여요' : '✕ 예측과 달라요 — 좌우만 바뀌어 보여요', tx, y0 + lh * 4, nar ? 12 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
+            T(c, '위아래: ' + r.ud + ' · 좌우: ' + r.lr, tx, y0 + lh * 2, nar ? 12 : 15, r.sym ? PAL[1] : PAL[4], 'left', true);
+            T(c, p.mp === 1 ? '별 표시: 왼쪽 위 → 거울 속 왼쪽 아래' : '별 표시: 왼쪽 위 → 거울 속 오른쪽 위', tx, y0 + lh * 3, nar ? 12 : 14, PAL[6], 'left');
+            T(c, (r.ok ? '○ 예측이 맞았어요 — ' : '✕ 예측과 달라요 — ') + (p.mp === 1 ? '위아래만 바뀌어 보여요' : '좌우만 바뀌어 보여요'), tx, y0 + lh * 4, nar ? 12 : 15, r.ok ? PAL[1] : PAL[4], 'left', true);
           }
         },
         stats: function(p, r){
-          return [['카드', CD[r.k]], ['거울 속 모습', r.mir, PAL[5]], ['위아래', '그대로', PAL[1]], ['좌우', r.lr + (r.sym ? ' (좌우가 같은 모양이라 바뀌어도 같아 보임)' : ''), r.sym ? PAL[1] : PAL[4]],
-            ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]]];
+          return [['카드', CD[r.k]], ['거울 놓는 자리', MP[p.mp]], ['거울 속 모습', r.mir, PAL[5]],
+            ['위아래', r.ud, r.ud === '그대로' ? PAL[1] : PAL[4]],
+            ['좌우', r.lr + (r.sym && !r.lay ? ' (좌우가 같은 모양이라 바뀌어도 같아 보임)' : ''), r.lr === '그대로' ? PAL[1] : PAL[4]],
+            ['왜 그럴까', r.why, PAL[6]],
+            ['내 예측', PG[p.g] + (r.ok ? ' — ○' : ' — ✕ (이번에는 ' + PG[r.want].slice(2) + ')'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['카드', '거울 속 모습', '위아래', '좌우'],
-        record: function(p, r){ return {k:p.k, g:p.g}; },
-        row: function(d){ return [CD[d.k], MIR[d.k], '그대로', SYM[d.k] ? '그대로' : '바뀜']; },
+        columns: ['카드', '거울 자리', '거울 속 모습', '위아래', '좌우'],
+        record: function(p, r){ return {k:p.k, g:p.g, mp:p.mp, mir:r.mir, ud:r.ud, lr:r.lr}; },
+        row: function(d){ return [CD[d.k], d.mp === 1 ? '눕힘' : '세움', d.mir || MIR[d.k], d.ud || '그대로', d.lr || (SYM[d.k] ? '그대로' : '바뀜')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('카드와 거울 속 모습', '<div id="mr1"></div><p class="ask">위아래가 바뀌어 보인 카드가 하나라도 있었나요? 위쪽 화살표는 왜 좌우도 그대로처럼 보였을까요?</p>') +
+            card('카드와 거울 속 모습', '<div id="mr1"></div><p class="ask">같은 카드를 세운 거울과 눕힌 거울로 비춰 비교해 보세요. 바뀌는 쪽이 왜 달라졌나요?</p>') +
             card('바뀐 것 세어 보기', '<div id="mr2"></div><p class="ask">과제: 우유갑 두 개와 작은 거울 두 개로 잠망경을 만들어 보세요. 거울 테두리는 테이프로 감싸 손을 다치지 않게 하세요.</p>') + '</div>';
           var seen = {};
           rec.forEach(function(d){ seen[d.k] = 1; });
           var ks = Object.keys(seen).map(Number).sort(function(a, b){ return a - b; });
-          $('mr1').innerHTML = tableHTML(['카드', '거울 속 모습', '위아래', '좌우'], ks.map(function(k){ return [CD[k], MIR[k], '그대로', SYM[k] ? '그대로' : '바뀜']; }));
-          var lr = ks.filter(function(k){ return !SYM[k]; }).length;
-          $('mr2').innerHTML = hbars([{label:'위아래가 바뀐 카드', v:0, color:PAL[1], text:'0장'}, {label:'좌우가 바뀐 카드', v:lr, color:PAL[4], text:lr + '장'}, {label:'비춰 본 카드', v:ks.length, color:PAL[0], text:ks.length + '장'}], Math.max(ks.length, 1)) +
-            '<p class="msg">거울 속에서 위아래가 바뀐 카드는 없었어요. 왼쪽과 오른쪽 모양이 다른 카드는 모두 좌우가 바뀌어 보였어요.</p>';
+          var by2 = groupBy(rec, function(d){ return (d.mp || 0) + '|' + d.k; });
+          $('mr1').innerHTML = tableHTML(['카드', '거울 자리', '거울 속 모습', '위아래', '좌우'], Object.keys(by2).sort().map(function(key){ var d = by2[key][0];
+            return [CD[d.k], d.mp === 1 ? '눕힘' : '세움', d.mir || MIR[d.k], d.ud || '그대로', d.lr || (SYM[d.k] ? '그대로' : '바뀜')]; }));
+          var udn = rec.filter(function(d){ return d.ud === '바뀜'; }).length, lrn = rec.filter(function(d){ return d.lr === '바뀜'; }).length;
+          $('mr2').innerHTML = hbars([{label:'위아래가 바뀐 기록', v:udn, color:PAL[1], text:udn + '번'}, {label:'좌우가 바뀐 기록', v:lrn, color:PAL[4], text:lrn + '번'}, {label:'비춰 본 카드', v:ks.length, color:PAL[0], text:ks.length + '장'}], Math.max(rec.length, 1)) +
+            '<p class="msg">거울을 세우면 좌우가, 눕히면 위아래가 바뀌어 보여요. 바뀌는 쪽은 거울 면이 어느 쪽을 마주 보느냐로 정해집니다.</p>';
         }
       };
     })();
@@ -519,7 +545,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

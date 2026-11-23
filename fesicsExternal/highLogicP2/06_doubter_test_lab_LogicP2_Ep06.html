@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,6 +436,20 @@ function hbars(items, max){
 var LAB = (function(){
       var CW = 900;
       function tw(c, s, x, y, mw, o){ o = o || {}; s = String(s); c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(s).width; if (mw > 20 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
+      /* 좁은 화면용: 많이 눌리는 긴 글을 두 줄로 나눠 적는다 */
+      function tw2(c, s, x, y, mw, lh, o){
+        o = o || {}; s = String(s); c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
+        if (c.measureText(s).width <= mw){ tw(c, s, x, y, mw, o); return 1; }
+        var ws = s.split(' '), best = -1, bd = 1e9, i, w1, w2, d;
+        for (i = 1; i < ws.length; i++){
+          w1 = c.measureText(ws.slice(0, i).join(' ')).width; w2 = c.measureText(ws.slice(i).join(' ')).width;
+          d = Math.abs(w1 - w2); if (Math.max(w1, w2) <= mw && d < bd){ bd = d; best = i; }
+        }
+        if (best < 0){ tw(c, s, x, y, mw, o); return 1; }
+        tw(c, ws.slice(0, best).join(' '), x, y, mw, o);
+        tw(c, ws.slice(best).join(' '), x, y + lh, mw, o);
+        return 2;
+      }
       function tfit(c, s, x, y, o){ o = o || {}; var al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; tw(c, s, x, y, mw, o); }
       var AR = [
         {short:'뭉치는 정직', con:'뭉치는 정직하다', pre:'뭉치가 "나는 거짓말을 안 한다"고 말했다', src:'뭉치 자신', circ:true, kind:'자기 보증',
@@ -452,41 +468,87 @@ var LAB = (function(){
         {short:'다리 하중 검사', con:'이 다리는 안전하다', pre:'외부 기관의 하중 검사를 통과했다', src:'외부 기관의 검사', circ:false, kind:'독립된 근거', fix:'—'}
       ];
       var JG = ['순환 — 독립된 근거가 아니다', '독립된 근거다'];
+      /* 같은 결론에 어떤 출처를 붙이느냐에 따라 고리가 끊기는지가 달라진다 */
+      var SRC = [{n:'논증에 적힌 그대로'},
+        {n:'본인·같은 자료의 말', src:'본인 또는 같은 자료', circ:true, kind:'자기 보증', fix:'다른 사람이 확인한 기록'},
+        {n:'같은 말을 바꿔 쓰기', src:'같은 말을 바꿔 씀', circ:true, kind:'동어 반복', fix:'구체적 행동과 결과'},
+        {n:'외부 기관의 검사·조사', src:'외부 기관의 검사·조사', circ:false, kind:'독립된 근거', fix:'—'},
+        {n:'다른 사람이 확인한 기록', src:'다른 사람이 확인한 기록', circ:false, kind:'독립된 근거', fix:'—'}];
       function box(c, x, y, w, h, fill, stroke, dash){ c.fillStyle = fill; c.fillRect(x, y, w, h); c.strokeStyle = stroke; c.lineWidth = 2; c.setLineDash(dash || []); c.strokeRect(x, y, w, h); c.setLineDash([]); }
       return {
-        sceneHeight: 440,
+        sceneHeight: function(w){ return w < 560 ? 510 : 440; },
         idle: '논증과 나의 판정을 고른 뒤 <b>의심하는 사람 세우기</b>를 누르세요.',
         shortHint: '순환과 독립된 근거가 섞이도록 다섯 개 이상 검사해 보세요. 동어 반복과 질문 속 전제도 꼭 해 보세요.',
         params: [
           {key:'a', type:'seg', label:'검사할 논증', cols:2, value:1, options:AR.map(function(x){ return x.con + ' ← ' + x.pre; })},
+          {key:'sv', type:'seg', label:'근거를 어디서 가져올까', cols:2, value:0, options:SRC.map(function(x){ return x.n; }),
+            note:'같은 결론에 출처만 바꿔 붙여 보세요. 어느 출처를 고르면 고리가 끊기는지 직접 찾을 수 있습니다.'},
           {key:'j', type:'seg', label:'나의 판정', cols:2, value:0, options:JG,
             note:'결론을 의심하는 사람도 그 전제는 받아들일 수 있을까요? 근거의 출처가 결론과 같은 곳인지 보세요.'}
         ],
-        compute: function(p){ var a = AR[p.a]; return {a:a, ok:(p.j === 0) === a.circ}; },
+        compute: function(p){
+          var a0 = AR[p.a], s = SRC[p.sv], a = a0;
+          if (s && s.src){
+            a = {short:a0.short, con:a0.con, src:s.src, circ:s.circ, kind:s.kind, fix:s.fix,
+              pre:s.circ ? ('"' + a0.con + '" 를 ' + s.src + '이(가) 뒷받침한다') : ('"' + a0.con + '" 를 ' + s.src + '가 따로 확인했다')};
+          }
+          return {a:a, base:a0, sv:p.sv, ok:(p.j === 0) === a.circ, changed:(a.circ !== a0.circ)};
+        },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var a = AR[p.a], k = r ? tau : 0, bw = Math.min(W - 160, 560), bx = 110;
-          c.fillStyle = PAL[7]; c.beginPath(); c.arc(54, 70, 20, 0, Math.PI * 2); c.fill(); c.fillRect(40, 92, 28, 48);
-          tw(c, '?', 54, 77, 30, {align:'center', bold:true, color:'#fff'}); tw(c, '의심하는 사람', 54, 166, 100, {align:'center', color:'#4A5868'});
-          var doubt = r && k > 0.2;
-          box(c, bx, 30, bw, 60, doubt ? '#F1EEF8' : '#F7F9FC', doubt ? PAL[3] : '#C9D3DE');
-          tw(c, '결론: ' + a.con, bx + 12, 66, bw - 24, {bold:true});
-          if (doubt) seg(c, 76, 64, bx - 4, 60, PAL[3], 2, [5, 4]);
-          var py = 190, pdoubt = r && a.circ && k > 0.6;
-          box(c, bx, py, bw, 60, pdoubt ? '#FBEAEA' : (r && !a.circ && k > 0.6 ? '#E7F5EE' : '#F7F9FC'), pdoubt ? PAL[4] : (r && !a.circ && k > 0.6 ? PAL[1] : '#C9D3DE'));
-          tw(c, '전제: ' + a.pre, bx + 12, py + 36, bw - 24, {bold:true});
-          arrow(c, bx + bw * 0.35, py - 2, bx + bw * 0.35, 94, PAL[0], 3);
-          tw(c, '근거', bx + bw * 0.35 + 10, 145, 80, {color:PAL[0]});
-          if (r && k > 0.35){
-            if (a.circ){
-              var u = Math.min(1, (k - 0.35) / 0.3), x2 = bx + bw * 0.7;
-              c.strokeStyle = PAL[4]; c.lineWidth = 3; c.setLineDash([7, 5]); c.beginPath(); c.moveTo(x2, 92); c.lineTo(x2, 92 + (py - 94) * u); c.stroke(); c.setLineDash([]);
-              if (u >= 1) arrow(c, x2, py - 30, x2, py - 2, PAL[4], 3);
-              tw(c, '출처: ' + a.src, x2 + 10, 145, W - x2 - 20, {bold:true, color:PAL[4]});
-            } else {
-              var ey = 290;
-              box(c, bx + bw * 0.45, ey, bw * 0.55, 50, '#E7F5EE', PAL[1]);
-              tw(c, '결론 바깥: ' + a.src, bx + bw * 0.45 + 10, ey + 32, bw * 0.55 - 20, {bold:true, color:PAL[1]});
-              arrow(c, bx + bw * 0.72, ey - 2, bx + bw * 0.72, py + 62, PAL[1], 3);
+          var a = r ? r.a : AR[p.a], k = r ? tau : 0, narrow = W < 560;
+          var bw = narrow ? W - 40 : Math.min(W - 160, 560), bx = narrow ? 20 : 110;
+          var doubt = r && k > 0.2, py, xa, x2, ey;
+          if (narrow){
+            /* 좁은 화면: 사람·결론·전제를 위아래로 쌓고 긴 글은 두 줄로 적는다 */
+            c.fillStyle = PAL[7]; c.beginPath(); c.arc(46, 52, 18, 0, Math.PI * 2); c.fill(); c.fillRect(32, 72, 28, 42);
+            tw(c, '?', 46, 59, 30, {align:'center', bold:true, color:'#fff'});
+            tw(c, '의심하는 사람', 76, 58, W - 96, {color:'#4A5868'});
+            box(c, bx, 124, bw, 64, doubt ? '#F1EEF8' : '#F7F9FC', doubt ? PAL[3] : '#C9D3DE');
+            tw2(c, '결론: ' + a.con, bx + 12, 150, bw - 24, 22, {bold:true});
+            if (doubt) seg(c, 70, 104, 70, 122, PAL[3], 2, [5, 4]);
+            py = 290;
+            box(c, bx, py, bw, 64, (r && a.circ && k > 0.6) ? '#FBEAEA' : (r && !a.circ && k > 0.6 ? '#E7F5EE' : '#F7F9FC'), (r && a.circ && k > 0.6) ? PAL[4] : (r && !a.circ && k > 0.6 ? PAL[1] : '#C9D3DE'));
+            tw2(c, '전제: ' + a.pre, bx + 12, py + 26, bw - 24, 22, {bold:true});
+            xa = bx + bw * 0.3;
+            arrow(c, xa, py - 2, xa, 192, PAL[0], 3);
+            tw(c, '근거', xa + 8, 240, 70, {color:PAL[0]});
+            if (r && k > 0.35){
+              if (a.circ){
+                var u = Math.min(1, (k - 0.35) / 0.3); x2 = bx + bw * 0.72;
+                c.strokeStyle = PAL[4]; c.lineWidth = 3; c.setLineDash([7, 5]); c.beginPath(); c.moveTo(x2, 190); c.lineTo(x2, 190 + (py - 222) * u); c.stroke(); c.setLineDash([]);
+                if (u >= 1) arrow(c, x2, py - 30, x2, py - 2, PAL[4], 3);
+                tw(c, '출처: ' + a.src, 20, 268, W - 40, {bold:true, color:PAL[4]});
+              } else {
+                ey = 374;
+                box(c, bx + bw * 0.25, ey, bw * 0.75, 54, '#E7F5EE', PAL[1]);
+                tw2(c, '결론 바깥: ' + a.src, bx + bw * 0.25 + 10, ey + 22, bw * 0.75 - 20, 20, {bold:true, color:PAL[1]});
+                arrow(c, bx + bw * 0.6, ey - 2, bx + bw * 0.6, py + 66, PAL[1], 3);
+              }
+            }
+          } else {
+            c.fillStyle = PAL[7]; c.beginPath(); c.arc(54, 70, 20, 0, Math.PI * 2); c.fill(); c.fillRect(40, 92, 28, 48);
+            tw(c, '?', 54, 77, 30, {align:'center', bold:true, color:'#fff'}); tw(c, '의심하는 사람', 54, 166, 100, {align:'center', color:'#4A5868'});
+            box(c, bx, 30, bw, 60, doubt ? '#F1EEF8' : '#F7F9FC', doubt ? PAL[3] : '#C9D3DE');
+            tw(c, '결론: ' + a.con, bx + 12, 66, bw - 24, {bold:true});
+            if (doubt) seg(c, 76, 64, bx - 4, 60, PAL[3], 2, [5, 4]);
+            py = 190;
+            var pdoubt = r && a.circ && k > 0.6;
+            box(c, bx, py, bw, 60, pdoubt ? '#FBEAEA' : (r && !a.circ && k > 0.6 ? '#E7F5EE' : '#F7F9FC'), pdoubt ? PAL[4] : (r && !a.circ && k > 0.6 ? PAL[1] : '#C9D3DE'));
+            tw(c, '전제: ' + a.pre, bx + 12, py + 36, bw - 24, {bold:true});
+            arrow(c, bx + bw * 0.35, py - 2, bx + bw * 0.35, 94, PAL[0], 3);
+            tw(c, '근거', bx + bw * 0.35 + 10, 145, 80, {color:PAL[0]});
+            if (r && k > 0.35){
+              if (a.circ){
+                var u2 = Math.min(1, (k - 0.35) / 0.3); x2 = bx + bw * 0.7;
+                c.strokeStyle = PAL[4]; c.lineWidth = 3; c.setLineDash([7, 5]); c.beginPath(); c.moveTo(x2, 92); c.lineTo(x2, 92 + (py - 94) * u2); c.stroke(); c.setLineDash([]);
+                if (u2 >= 1) arrow(c, x2, py - 30, x2, py - 2, PAL[4], 3);
+                tw(c, '출처: ' + a.src, x2 + 10, 145, W - x2 - 20, {bold:true, color:PAL[4]});
+              } else {
+                ey = 290;
+                box(c, bx + bw * 0.45, ey, bw * 0.55, 50, '#E7F5EE', PAL[1]);
+                tw(c, '결론 바깥: ' + a.src, bx + bw * 0.45 + 10, ey + 32, bw * 0.55 - 20, {bold:true, color:PAL[1]});
+                arrow(c, bx + bw * 0.72, ey - 2, bx + bw * 0.72, py + 62, PAL[1], 3);
+              }
             }
           }
           if (!r){ tfit(c, '실행하면 의심이 어디까지 번지는지 보여요', 20, H - 18, {color:'#4A5868'}); return; }
@@ -501,14 +563,21 @@ var LAB = (function(){
             ['형식', a.kind === '전제를 깐 질문' ? '질문 — 예·아니오 어느 쪽으로 답해도 숨은 전제를 인정하게 됨' : a.circ ? '형식으로는 타당할 수 있음 (P이므로 P) — 문제는 쓸모' : '전제가 참이면 결론을 뒷받침'],
             ['의심하는 사람 검사', a.circ ? '전제를 받아들일 수 없음 — ' + a.kind : '전제를 받아들일 수 있음', a.circ ? PAL[4] : PAL[1]],
             ['독립된 근거로 바꾸면', a.fix, PAL[0]],
+            ['내가 고른 출처', SRC[r.sv].n, PAL[3]],
+            ['원래 논증과 비교', r.changed
+              ? (a.circ ? '출처를 바꾸니 고리가 <b>생겼습니다</b> (원래는 독립된 근거였습니다)' : '출처를 바꾸니 고리가 <b>끊어졌습니다</b> (원래는 순환이었습니다)')
+              : '출처를 바꿔도 판정은 그대로입니다', r.changed ? PAL[6] : PAL[7]],
             ['나의 판정', JG[p.j] + (r.ok ? ' — 일치' : ' — 다름'), r.ok ? PAL[1] : PAL[4]]];
         },
-        columns: ['논증', '근거 출처', '검사 결과', '나의 판정', '일치'],
-        record: function(p, r){ return {a:p.a, j:p.j, ok:r.ok}; },
-        row: function(d){ var a = AR[d.a]; return [a.short, a.src, a.circ ? a.kind : '독립된 근거', d.j === 0 ? '순환' : '독립', d.ok ? '예' : '아니오']; },
+        columns: ['논증', '고른 출처', '근거 출처', '검사 결과', '나의 판정', '일치'],
+        record: function(p, r){ return {a:p.a, j:p.j, ok:r.ok, sv:r.sv, src:r.a.src, circ:r.a.circ, kind:r.a.kind, changed:r.changed}; },
+        row: function(d){ var a = AR[d.a]; return [a.short, d.sv == null ? '−' : SRC[d.sv].n,
+          d.src || a.src, (d.circ == null ? a.circ : d.circ) ? (d.kind || a.kind) : '독립된 근거',
+          d.j === 0 ? '순환' : '독립', d.ok ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('유형별 나의 일치율', '<div id="lp6a"></div><p class="ask">순환 논증은 형식으로는 타당한데 왜 증명이 되지 못하나요? 동어 반복이 자기 보증보다 알아차리기 어려운 까닭은 무엇일까요?</p>') +
+            card('출처를 바꿔 고리를 끊어 본 기록', '<div id="lp6c"></div><p class="ask">같은 결론인데 어느 출처를 붙였을 때 고리가 끊어졌나요? "누가 말했는가"가 아니라 <b>어디서 왔는가</b>가 왜 중요한지 적어 보세요.</p>') +
             card('독립된 근거로 바꾸기', '<div id="lp6b"></div><p class="ask">과제: 광고·홍보문·설문 문항에서 근거와 결론의 출처가 같은 사례 두 개와 전제를 깔고 있는 질문 하나를 찾아, 의심하는 사람 검사를 하고 독립된 근거로 바꾼 문장을 써 보세요.</p>') + '</div>';
           var kinds = ['자기 보증', '동어 반복', '전제를 깐 질문', '독립된 근거'], items = [];
           kinds.forEach(function(kn){
@@ -520,6 +589,19 @@ var LAB = (function(){
           var seen = {}, rows = [];
           rec.forEach(function(d){ var a = AR[d.a]; if (seen[d.a] || !a.circ) return; seen[d.a] = 1; rows.push([a.short, a.src, a.fix]); });
           $('lp6b').innerHTML = rows.length ? tableHTML(['논증', '지금 출처', '독립된 근거 예'], rows) : '<p class="msg">순환 논증을 아직 기록하지 않았어요.</p>';
+          (function(){
+            var gr = rec.filter(function(d){ return d.sv != null && d.sv > 0; });
+            if (!gr.length){ $('lp6c').innerHTML = '<p class="msg">같은 결론에 <b>출처를 바꿔</b> 붙여 보세요. 어느 출처가 고리를 끊는지 여기에서 모아 줍니다.</p>'; return; }
+            var seen2 = {}, rows2 = [], broke = 0;
+            gr.forEach(function(d){
+              var k = d.a + '|' + d.sv; if (seen2[k]) return; seen2[k] = 1;
+              if (d.changed && !d.circ) broke++;
+              rows2.push([AR[d.a].short, SRC[d.sv].n, d.circ ? '순환 (' + d.kind + ')' : '독립된 근거', d.changed ? '바뀜' : '그대로']);
+            });
+            $('lp6c').innerHTML = tableHTML(['결론', '붙인 출처', '검사 결과', '원래와'], rows2, 'wrap') +
+              (broke ? '<p class="msg">출처를 바꿔 고리를 끊은 기록이 <b>' + broke + '개</b> 있습니다. 결론이 같아도 <b>근거가 결론 바깥에서 왔는지</b>가 증명을 가릅니다.</p>'
+                     : '<p class="msg"><b>외부 기관의 검사</b>나 <b>다른 사람이 확인한 기록</b>을 붙여 보세요 — 같은 결론에서도 고리가 끊어집니다.</p>');
+          })();
         }
       };
     })();
@@ -528,7 +610,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

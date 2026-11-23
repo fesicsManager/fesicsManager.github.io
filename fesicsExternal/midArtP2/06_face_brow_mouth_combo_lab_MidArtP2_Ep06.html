@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -463,17 +465,25 @@ var LAB = (function(){
       var MO = [{n:'올린 입꼬리', s:'올림', cv:1}, {n:'일자 입', s:'일자', cv:0}, {n:'내린 입꼬리', s:'내림', cv:-1}];
       var SY = [{n:'기호 없음', s:'없음', add:''}, {n:'이마 땀방울', s:'땀방울', add:'당황'}, {n:'볼 빗금', s:'볼 빗금', add:'부끄러움'}];
       var EM = [['멋쩍은 웃음·미안함', '걱정', '슬픔'], ['기쁨', '무표정', '불만'], ['짓궂음·자신만만', '화남', '몹시 화남']];
-      var AG = [['갈림', '중간', '대체로 일치'], ['대체로 일치', '중간', '중간'], ['갈림', '거의 모두 일치', '대체로 일치']];
-      function agCol(a){ return a === '갈림' ? PAL[4] : a === '중간' ? PAL[6] : PAL[1]; }
-      function calc(p){ var e = EM[p.b][p.m], a = AG[p.b][p.m]; return {e:e, a:a, full:SY[p.s].add ? e + ' + ' + SY[p.s].add : e}; }
+      var EMO = ['아직 안 고름', '기쁨', '슬픔', '화남', '걱정', '당황', '부끄러움', '무표정', '짓궂음'];
+      var EK = [[6, 4, 2], [1, 7, 3], [8, 3, 3]];     /* 눈썹×입 조합을 만화에서 흔히 읽는 감정 (교육용 모형) */
+      function ansOf(p){ return p.s === 1 ? 5 : p.s === 2 ? 6 : EK[p.b][p.m]; }
+      function calc(p){
+        var e = EM[p.b][p.m], an = ansOf(p);
+        return {e:e, ans:an, my:p.my, hit:(p.my === 0 ? null : p.my === an),
+          full:SY[p.s].add ? e + ' + ' + SY[p.s].add : e};
+      }
       return {
         sceneHeight: 400,
-        idle: '눈썹·입·기호를 고른 뒤 <b>표정 그리기</b>를 누르세요. 눈은 바뀌지 않습니다.',
-        shortHint: '기호 없이 아홉 칸을 모두 기록해 보세요. 그다음 한 칸을 골라 땀방울과 볼 빗금을 더해 보세요.',
+        idle: '눈썹·입·기호를 고르고 <b>내가 읽은 감정</b>을 먼저 적은 뒤 <b>표정 그리기</b>를 누르세요. 눈은 바뀌지 않습니다.',
+        shortHint: '아홉 칸을 돌면서 <b>내가 읽은 감정</b>을 먼저 적고 기록하세요. 그다음 땀방울·볼 빗금을 더해 답이 뒤집히는지 보세요.',
         params: [
           {key:'b', type:'seg', label:'눈썹', cols:3, value:1, options:BW.map(function(x){ return x.n; })},
           {key:'m', type:'seg', label:'입', cols:3, value:1, options:MO.map(function(x){ return x.n; })},
-          {key:'s', type:'seg', label:'약속 기호', cols:3, value:0, options:SY.map(function(x){ return x.n; })}
+          {key:'s', type:'seg', label:'약속 기호', cols:3, value:0, options:SY.map(function(x){ return x.n; }),
+            note:'약속 기호는 눈썹·입보다 세게 작용해서, 같은 얼굴인데도 읽히는 감정을 바꿔 버립니다.'},
+          {key:'my', type:'seg', label:'내가 읽은 감정 (먼저 고르기)', cols:3, value:0, options:EMO,
+            note:'먼저 골라 두면 만화에서 흔히 읽는 답과 얼마나 갈렸는지 바로 채점해 줍니다.'}
         ],
         compute: function(p){ return calc(p); },
         draw: function(c, W, H, p, r, tau){
@@ -490,27 +500,40 @@ var LAB = (function(){
           if (p.s === 2){ [-1, 1].forEach(function(sd){ for (var i = 0; i < 3; i++){ var bx = cx + sd * R * 0.55 - 10 + i * 9; seg(c, bx, cy + R * 0.28, bx + 7, cy + R * 0.16, '#E07A7A', 3); } }); }
           if (W > 640){ var gx = W * 0.7, gy = 70, cs = 52;
             txt(c, '눈썹 \\ 입', gx, gy - 12, {color:'#4A5868'});
-            for (var b = 0; b < 3; b++) for (var m = 0; m < 3; m++){ var on = b === p.b && m === p.m; c.fillStyle = on ? agCol(AG[b][m]) : '#EEF1F5'; c.fillRect(gx + m * cs, gy + b * cs, cs - 4, cs - 4);
+            for (var b = 0; b < 3; b++) for (var m = 0; m < 3; m++){ var on = b === p.b && m === p.m; c.fillStyle = on ? PAL[0] : '#EEF1F5'; c.fillRect(gx + m * cs, gy + b * cs, cs - 4, cs - 4);
               if (on) txt(c, '●', gx + m * cs + cs / 2 - 2, gy + b * cs + cs / 2 + 4, {align:'center', color:'#fff'}); }
             BW.forEach(function(x, i){ txt(c, x.s, gx - 8, gy + i * cs + cs / 2 + 4, {align:'right', color:'#4A5868'}); });
             MO.forEach(function(x, i){ txt(c, x.s, gx + i * cs + cs / 2 - 2, gy + 3 * cs + 16, {align:'center', color:'#4A5868'}); }); }
-          txt(c, r ? '읽히는 감정: ' + q.full + ' · 답의 일치: ' + q.a : '예상: 이 조합은 어떤 감정으로 읽힐까요?', 20, H - 14, {bold:true, color:r ? agCol(q.a) : '#4A5868'});
+          txt(c, r ? (q.hit === null ? '흔한 답: ' + EMO[q.ans] : (q.hit ? '맞음 — ' : '갈림 — ') + EMO[q.ans]) : '어떤 감정으로 읽힐까?',
+            20, H - 14, {bold:true, color:r ? (q.hit === false ? PAL[4] : PAL[1]) : '#4A5868'});
         },
         stats: function(p, r){
-          return [['눈', '그대로 (바꾸지 않음)'], ['눈썹 · 기울기', BW[p.b].n + ' · ' + sgn(BW[p.b].ang, 0) + '°', PAL[0]], ['입', MO[p.m].n, PAL[3]],
-            ['읽히는 감정 (가상 결과)', r.e, PAL[5]], ['답의 일치 (가상)', r.a, agCol(r.a)],
-            ['약속 기호', p.s ? SY[p.s].n + ' → "' + SY[p.s].add + '"이 덧붙음 — 문화마다 다른 약속' : '없음']];
+          var s = [['눈', '그대로 (바꾸지 않음)'], ['눈썹 · 기울기', BW[p.b].n + ' · ' + sgn(BW[p.b].ang, 0) + '°', PAL[0]], ['입', MO[p.m].n, PAL[3]],
+            ['약속 기호', p.s ? SY[p.s].n + ' → 읽히는 감정을 "' + SY[p.s].add + '"으로 바꿈 — 문화마다 다른 약속' : '없음', p.s ? PAL[6] : null],
+            ['내가 읽은 감정', r.my ? EMO[r.my] : '아직 고르지 않았어요 — 위에서 골라 보세요.'],
+            ['만화에서 흔히 읽는 답', EMO[r.ans] + ' (눈썹·입 조합을 읽는 교육용 모형값)', PAL[5]]];
+          if (r.hit !== null) s.push(['내 답과 견주면', r.hit ? '✅ 같아요' : '❌ 갈렸어요 — 같은 얼굴도 사람마다 다르게 읽힙니다', r.hit ? PAL[1] : PAL[4]]);
+          s.push(['눈썹·입만 보면', EM[p.b][p.m] + (p.s ? ' — 그런데 기호가 붙어 답이 바뀌었어요' : '')]);
+          return s;
         },
-        columns: ['눈썹', '입', '기호', '감정', '일치'],
-        record: function(p, r){ return {b:p.b, m:p.m, s:p.s}; },
-        row: function(d){ return [BW[d.b].s, MO[d.m].s, SY[d.s].s, EM[d.b][d.m] + (SY[d.s].add ? ' + ' + SY[d.s].add : ''), AG[d.b][d.m]]; },
+        columns: ['눈썹', '입', '기호', '내가 읽은 감정', '흔히 읽는 답', '같나?'],
+        record: function(p, r){ return {b:p.b, m:p.m, s:p.s, my:r.my, ans:r.ans, hit:r.hit}; },
+        row: function(d){ return [BW[d.b].s, MO[d.m].s, SY[d.s].s, d.my ? EMO[d.my] : '—', EMO[d.ans],
+          d.hit === null ? '—' : (d.hit ? '○ 같음' : '× 갈림')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('내가 만든 아홉 칸 표정표', '<div id="a6a"></div><p class="ask">눈을 하나도 안 바꿨는데 감정이 몇 가지로 갈렸나요? 답이 가장 잘 일치하는 칸과 가장 갈리는 칸은 어디인가요?</p>') +
             card('정리', '<div id="a6b"></div><p class="ask">과제: 같은 눈을 가진 동그라미 얼굴로 아홉 칸 표정표를 그려 보세요. 친구 다섯 명에게 칸마다 감정 이름을 적게 하고, 답이 가장 많이 갈린 칸과 가장 일치한 칸을 찾아 이유를 써 보세요.</p>') + '</div>';
-          var have = {}; rec.forEach(function(d){ have[d.b + '_' + d.m] = 1; });
-          $('a6a').innerHTML = tableHTML(['눈썹 \\ 입'].concat(MO.map(function(m){ return m.s; })), BW.map(function(b, i){ return [b.s].concat(MO.map(function(m, j){ return have[i + '_' + j] ? EM[i][j] + ' (' + AG[i][j] + ')' : '·'; })); })) + '<p class="msg">채운 칸 ' + Object.keys(have).length + ' / 9</p>';
-          $('a6b').innerHTML = '<p>표정은 <b>눈썹의 각도 × 입 모양 × 약속 기호 × 몸짓</b>의 조합입니다. 얼굴을 작게 그리는 먼 장면이나 뒷모습 장면에서는 몸짓이 더 중요해져요.</p>';
+          var have = {}; rec.forEach(function(d){ if (!d.s) have[d.b + '_' + d.m] = d; });
+          $('a6a').innerHTML = tableHTML(['눈썹 \\ 입'].concat(MO.map(function(m){ return m.s; })), BW.map(function(b, i){ return [b.s].concat(MO.map(function(m, j){
+            var d = have[i + '_' + j]; if (!d) return '·';
+            return (d.my ? EMO[d.my] : '—') + ' / ' + EMO[d.ans] + (d.hit === null ? '' : (d.hit ? ' ○' : ' ×'));
+          })); })) + '<p class="msg">기호 없이 채운 칸 ' + Object.keys(have).length + ' / 9 (왼쪽이 내가 읽은 감정, 오른쪽이 흔히 읽는 답)</p>';
+          var tried = rec.filter(function(d){ return d.hit !== null; }), same = tried.filter(function(d){ return d.hit; });
+          var sym = rec.filter(function(d){ return d.s; }), symFlip = sym.filter(function(d){ return d.ans !== EK[d.b][d.m]; });
+          $('a6b').innerHTML = '<p>' + (tried.length ? '내가 읽은 감정을 적은 기록 ' + tried.length + '개 가운데 <b>' + same.length + '개</b>가 흔히 읽는 답과 같았고, <b>' + (tried.length - same.length) + '개</b>는 갈렸습니다. 갈린 칸이 바로 ‘사람마다 다르게 읽히는’ 표정이에요.' : '내가 읽은 감정을 먼저 골라 기록하면, 흔히 읽는 답과 얼마나 갈리는지 셀 수 있어요.') + '</p>' +
+            '<p>' + (symFlip.length ? '약속 기호를 붙인 기록 ' + sym.length + '개 가운데 <b>' + symFlip.length + '개</b>에서 읽히는 답이 눈썹·입만 볼 때와 달라졌습니다 — 기호 하나가 눈썹·입보다 세게 작용했다는 뜻이죠.' : '땀방울이나 볼 빗금을 붙여 보면 같은 얼굴인데도 답이 바뀌는 것을 볼 수 있어요.') + '</p>' +
+            '<p>표정은 <b>눈썹의 각도 × 입 모양 × 약속 기호 × 몸짓</b>의 조합입니다. 얼굴을 작게 그리는 먼 장면이나 뒷모습 장면에서는 몸짓이 더 중요해져요.</p>';
         }
       };
     })();
@@ -519,7 +542,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -433,11 +435,13 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var CS = [
-        {n:'손으로 음식을 먹는 관습', s:'손 식사', harm:false},
-        {n:'장례 방식의 차이', s:'장례 방식', harm:false},
-        {n:'인사할 때의 신체 접촉', s:'인사 접촉', harm:false},
-        {n:'아동에게 위해를 가하는 관행', s:'아동 위해', harm:true},
-        {n:'특정 집단의 교육 기회 박탈', s:'교육 박탈', harm:true}
+        {n:'손으로 음식을 먹는 관습', s:'손 식사', lv:0},
+        {n:'장례 방식의 차이', s:'장례 방식', lv:0},
+        {n:'인사할 때의 신체 접촉', s:'인사 접촉', lv:1},
+        {n:'성년식에서 몸에 흉터를 내는 관습 (경계 사례)', s:'성년식 흉터', lv:3},
+        {n:'혼인 상대를 집안이 정하는 관습 (경계 사례)', s:'집안이 정한 혼인', lv:3},
+        {n:'아동에게 위해를 가하는 관행', s:'아동 위해', lv:5},
+        {n:'특정 집단의 교육 기회 박탈', s:'교육 박탈', lv:5}
       ];
       var AT = [
         {n:'자문화 중심주의', s:'자문화 중심'},
@@ -446,6 +450,8 @@ var LAB = (function(){
         {n:'문화 상대주의 (보편 인권 한계 포함)', s:'상대주의+인권'}
       ];
       var BIN = ['맥락 속에서 이해', '보편 기준으로 따짐', '열등하다고 봄', '무조건 따름'];
+      /* 인권 침해 정도를 3 이상으로 보면 ‘보편 기준으로 따질 문제’로 넘어간다 — 교육용 모형 기준선 */
+      function harmOf(hv){ return (+hv) >= 3; }
       function judge(a, h){
         if (a === 0) return h ? {bin:1, err:'결론은 맞지만 근거가 "낯섦"이라 위험'} : {bin:2, err:'낯섦을 열등으로 봄 (자문화 중심의 오류)'};
         if (a === 1) return h ? {bin:3, err:'인권 침해까지 본받을 것으로 봄'} : {bin:3, err:'자기 문화를 낮추고 무조건 따름'};
@@ -454,13 +460,14 @@ var LAB = (function(){
       }
       return {
         sceneHeight: 420,
-        idle: '사례와 태도를 고른 뒤 <b>이 태도로 판정하기</b>를 누르세요.',
-        shortHint: '한 태도로 다섯 사례를 모두 판정해 보고, 다른 태도와 비교해 보세요.',
+        idle: '사례 · 인권 침해 정도 · 태도를 고른 뒤 <b>이 태도로 판정하기</b>를 누르세요.',
+        shortHint: '한 태도로 일곱 사례를 모두 판정해 보세요. 경계 사례에서는 침해 정도를 2와 3 사이로 밀어 판정이 어떻게 갈리는지 보세요.',
         params: [
           {key:'c', type:'seg', label:'사례', cols:2, value:0, options:CS.map(function(x){ return x.n; })},
+          {key:'hv', type:'range', label:'내가 본 인권 침해 정도 (3부터 보편 기준으로 따질 문제)', min:0, max:5, step:1, value:2, fmt:function(v){ return v + ' / 5'; }},
           {key:'a', type:'seg', label:'문화를 보는 태도', cols:2, value:0, options:AT.map(function(x){ return x.n; })}
         ],
-        compute: function(p){ var h = CS[p.c].harm, j = judge(p.a, h); return {bin:j.bin, err:j.err, ok:j.bin === (h ? 1 : 0) && !j.err, harm:h, ref:h ? 1 : 0}; },
+        compute: function(p){ var h = harmOf(p.hv), j = judge(p.a, h), lv = CS[p.c].lv; return {bin:j.bin, err:j.err, ok:j.bin === (h ? 1 : 0) && !j.err, harm:h, ref:h ? 1 : 0, hv:+p.hv, lv:lv, gap:Math.abs(+p.hv - lv), edge:lv === 3}; },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.8, 1) : 0, bw = (W - 50) / 2, bh = 92, y0 = 150;
           for (var i = 0; i < 4; i++){
@@ -472,19 +479,21 @@ var LAB = (function(){
           var cw = Math.min(260, W - 60), sx = W / 2 - cw / 2, sy = 50;
           var tx = r ? 20 + (r.bin % 2) * (bw + 10) + bw / 2 - Math.min(cw, bw - 20) / 2 : sx, ty = r ? y0 + Math.floor(r.bin / 2) * (bh + 12) + 38 : sy;
           var e = 1 - Math.pow(1 - k, 3), x1 = sx + (tx - sx) * e, y1 = sy + (ty - sy) * e, w1 = cw - (cw - Math.min(cw, bw - 20)) * e;
-          c.fillStyle = CS[p.c].harm ? '#FBEFD5' : '#FFFFFF'; c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.fillRect(x1, y1, w1, 44); c.strokeRect(x1, y1, w1, 44);
+          c.fillStyle = harmOf(p.hv) ? '#FBEFD5' : '#FFFFFF'; c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.fillRect(x1, y1, w1, 44); c.strokeRect(x1, y1, w1, 44);
           txt(c, CS[p.c].s, x1 + w1 / 2, y1 + 22, {align:'center', base:'middle', bold:true});
           txt(c, AT[p.a].s + '의 눈으로', 20, 30, {bold:true, color:PAL[3]});
           if (r && k >= 1) txt(c, r.err ? '⚠ ' + (W < 500 ? r.err.split(' (')[0] : r.err) : '✓ 기준에 맞는 판단', 20, H - 14, {bold:true, color:r.err ? PAL[4] : PAL[1]});
         },
         stats: function(p, r){
           return [['사례', CS[p.c].n], ['태도', AT[p.a].n, PAL[3]], ['이 태도의 판정', BIN[r.bin], r.ok ? PAL[1] : PAL[4]],
-            ['기본권 침해 여부', r.harm ? '있음 → 보편 기준으로 따질 문제' : '없음 → 맥락 속에서 이해할 문제', PAL[0]],
-            ['판단의 문제점', r.err || '없음 — 맥락은 존중하고 선은 지킴', r.err ? PAL[4] : PAL[1]]];
+            ['내가 본 침해 정도', r.hv + ' / 5 → ' + (r.harm ? '보편 기준으로 따질 문제' : '맥락 속에서 이해할 문제'), PAL[0]],
+            ['국제 인권 기준으로 보면', r.lv + ' / 5' + (r.edge ? ' — 보는 사람에 따라 갈리는 경계 사례예요' : r.gap <= 1 ? ' — 내가 본 정도와 가까워요' : ' — 내가 본 정도와 ' + r.gap + '칸 차이가 나요'), r.edge ? PAL[6] : r.gap <= 1 ? PAL[1] : PAL[4]],
+            ['판단의 문제점', r.err || '없음 — 맥락은 존중하고 선은 지킴', r.err ? PAL[4] : PAL[1]],
+            ['경계에서', '같은 관습도 본인 동의·나이·되돌릴 수 있는지에 따라 침해 정도가 달라져요. 2와 3 사이에서 결론이 뒤집히는 것을 확인해 보세요.', '#4A5868']];
         },
-        columns: ['사례', '태도', '판정', '기준과 일치', '문제점'],
-        record: function(p, r){ return {c:p.c, a:p.a, bin:r.bin, ok:r.ok, err:r.err}; },
-        row: function(d){ return [CS[d.c].s, AT[d.a].s, BIN[d.bin], d.ok ? '예' : '아니오', d.err ? d.err.split(' (')[0] : '-']; },
+        columns: ['사례', '침해 정도', '태도', '판정', '기준과 일치'],
+        record: function(p, r){ return {c:p.c, a:p.a, bin:r.bin, ok:r.ok, err:r.err, hv:r.hv, lv:r.lv}; },
+        row: function(d){ return [CS[d.c].s, d.hv + ' / 5 (기준 ' + d.lv + ')', AT[d.a].s, BIN[d.bin], d.ok ? '예' : '아니오']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('태도 × 사례 판정표', '<div id="ca1"></div><p class="ask">모든 칸에서 기준과 맞는 태도는 무엇인가요? 극단적 상대주의는 어느 사례에서 걸렸나요?</p>') +
@@ -494,7 +503,8 @@ var LAB = (function(){
           $('ca1').innerHTML = tableHTML(['태도'].concat(CS.map(function(x){ return x.s; })), rows);
           var g = groupBy(rec, function(d){ return d.a; }), items = [];
           AT.forEach(function(a, i){ var x = g[i]; if (!x) return; var v = x.filter(function(d){ return d.ok; }).length / x.length * 100; items.push({label:a.s, v:v, color:v >= 99 ? PAL[1] : PAL[4], text:f(v, 0) + '%'}); });
-          $('ca2').innerHTML = hbars(items, 100);
+          $('ca2').innerHTML = hbars(items, 100) +
+            '<p class="msg">경계 사례(성년식 흉터 · 집안이 정한 혼인)는 침해 정도를 2로 보면 맥락 속에서 이해할 문제로, 3으로 보면 보편 기준으로 따질 문제로 갈립니다.</p>';
         }
       };
     })();
@@ -503,7 +513,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

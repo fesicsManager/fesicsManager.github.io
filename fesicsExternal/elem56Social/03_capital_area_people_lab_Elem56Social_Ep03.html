@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,50 +439,71 @@ var LAB = (function(){
       var PRED = [{n:'약 10%', v:10}, {n:'약 25%', v:25}, {n:'약 절반', v:50}, {n:'약 90%', v:90}];
       function isCap(i){ return CAP.indexOf(i) >= 0; }
       var OUT = []; (function(){ for (var z = 0; z < 100; z++) if (CAP.indexOf(z) < 0) OUT.push(z); })();
+      /* 권역별 땅 넓이·사람 수 — 전체의 몇 %인지 교육용으로 어림한 값 */
+      var REG = [
+        {n:'수도권', area:12, pop:50}, {n:'충청권', area:16, pop:11}, {n:'영남권', area:32, pop:25},
+        {n:'호남권', area:21, pop:10}, {n:'강원권', area:17, pop:3}
+      ];
+      function cellsOf(n){ if (n === 12) return CAP; var out = []; for (var i = 0; i < 100 && out.length < n; i++) out.push(i); return out; }
+      function outOf(cells){ var o = []; for (var z = 0; z < 100; z++) if (cells.indexOf(z) < 0) o.push(z); return o; }
       return {
         sceneHeight: function(w){ return w < 500 ? 440 : 420; },
         idle: '보기와 나의 예측을 고른 뒤 <b>사람 점 놓기</b>를 누르세요.',
         shortHint: '"둘 다 + 인구 밀도"로 꼭 해 보세요. 예측도 바꿔 가며 기록해 보세요.',
         params: [
           {key:'v', type:'seg', label:'무엇을 볼까', cols:3, value:2, options:VIEW},
-          {key:'g', type:'seg', label:'나의 예측 (수도권에 사는 사람)', cols:4, value:0, options:PRED.map(function(x){ return x.n; }),
-            note:'뭉치는 "땅이 12%니까 사람도 10%쯤!"이라고 했어요.'}
+          {key:'g', type:'seg', label:'나의 예측 (이 권역에 사는 사람)', cols:4, value:0, options:PRED.map(function(x){ return x.n; }),
+            note:'뭉치는 "땅이 12%니까 사람도 10%쯤!"이라고 했어요.'},
+          {key:'rg', type:'seg', label:'권역', cols:3, value:0, options:REG.map(function(x){ return x.n; }),
+            note:'권역을 바꾸면 땅과 사람의 관계가 뒤집히는 곳을 찾을 수 있어요. ※ 땅 넓이·사람 수 비율은 교육용 어림값이에요.'}
         ],
-        compute: function(p){ var dCap = 50 / 12, dOut = 50 / 88; return {area:12, pop:50, dCap:dCap, dOut:dOut, ratio:dCap / dOut, ok:p.g === 2}; },
+        compute: function(p){
+          var rg = REG[p.rg], A = rg.area, P = rg.pop, dCap = P / A, dOut = (100 - P) / (100 - A), best = 0;
+          PRED.forEach(function(q, i){ if (Math.abs(q.v - P) < Math.abs(PRED[best].v - P)) best = i; });
+          var vd = P > A * 1.3 ? '땅보다 사람이 훨씬 많이 모여 있어요' : P > A ? '땅보다 사람이 조금 더 많아요' : '땅에 비해 사람이 적어요 — 관계가 뒤집혔어요';
+          return {rg:rg, ri:p.rg, area:A, pop:P, dCap:dCap, dOut:dOut, ratio:dCap / dOut, ans:best, ok:p.g === best, vd:vd}; },
         draw: function(c, W, H, p, r, tau){
           var k = r ? Math.min(tau / 0.85, 1) : 0, narrow = W < 500, size = narrow ? Math.min((W - 40) / 10, 24) : Math.min((H - 80) / 10, 30), gx = 20, gy = 14;
-          for (var i = 0; i < 100; i++){ var x = gx + (i % 10) * size, y = gy + Math.floor(i / 10) * size; c.fillStyle = isCap(i) ? '#BFD4EE' : '#E6EBF1'; c.fillRect(x + 1, y + 1, size - 2, size - 2); }
+          var rg = REG[p.rg], cells = cellsOf(rg.area), OUT2 = outOf(cells);
+          for (var i = 0; i < 100; i++){ var x = gx + (i % 10) * size, y = gy + Math.floor(i / 10) * size; c.fillStyle = cells.indexOf(i) >= 0 ? '#BFD4EE' : '#E6EBF1'; c.fillRect(x + 1, y + 1, size - 2, size - 2); }
           if (narrow) txt(c, '개략', gx + size * 10, gy + size * 10 + 18, {color:'#9AA5B1', align:'right'});
           else txt(c, '개략', gx, gy + size * 10 + 18, {color:'#9AA5B1'});
           if (r && p.v > 0){
             var n = Math.round(100 * k);
             for (var j = 0; j < n; j++){
-              var inCap = j < 50, cell = inCap ? CAP[j % 12] : 0, cx, cy;
-              if (inCap){ var sub = Math.floor(j / 12); cx = gx + (cell % 10) * size + size * (0.25 + (sub % 2) * 0.5); cy = gy + Math.floor(cell / 10) * size + size * (0.25 + Math.floor(sub / 2) * 0.5); }
-              else { var found = OUT[Math.floor((j - 50) * 88 / 50)]; cx = gx + (found % 10 + 0.5) * size; cy = gy + (Math.floor(found / 10) + 0.5) * size; }
+              var inCap = j < rg.pop, cell = inCap ? cells[j % cells.length] : 0, cx, cy;
+              if (inCap){ var sub = Math.floor(j / cells.length); cx = gx + (cell % 10) * size + size * (0.25 + (sub % 2) * 0.5); cy = gy + Math.floor(cell / 10) * size + size * (0.25 + Math.floor(sub / 2) * 0.5); }
+              else { var found = OUT2[Math.min(OUT2.length - 1, Math.max(0, Math.floor((j - rg.pop) * OUT2.length / Math.max(1, 100 - rg.pop))))]; cx = gx + (found % 10 + 0.5) * size; cy = gy + (Math.floor(found / 10) + 0.5) * size; }
               c.fillStyle = inCap ? PAL[0] : PAL[2]; c.beginPath(); c.arc(cx, cy, Math.max(2, size * 0.13), 0, Math.PI * 2); c.fill();
             }
           }
           var bx = narrow ? 20 : gx + size * 10 + 30, by = narrow ? gy + size * 10 + 36 : 40, bw = narrow ? W - 40 : W - bx - 20;
           function bar(y, label, v, col){ txt(c, label, bx, y - 6, {color:'#4A5868'}); c.fillStyle = '#E6EBF1'; c.fillRect(bx, y, bw, 18); c.fillStyle = col; c.fillRect(bx, y, bw * v / 100 * (r ? k : 0), 18); if (r && k >= 1) txt(c, '약 ' + v + '%', bx + Math.min(bw * v / 100 + 6, bw - 60), y + 15, {bold:true}); }
-          if (p.v !== 1) bar(by + 4, '수도권 땅 넓이', 12, '#7FA6D8');
-          if (p.v !== 0) bar(by + (p.v === 2 ? 58 : 4), '수도권 사람 수', 50, PAL[0]);
+          if (p.v !== 1) bar(by + 4, rg.n + ' 땅 넓이', rg.area, '#7FA6D8');
+          if (p.v !== 0) bar(by + (p.v === 2 ? 58 : 4), rg.n + ' 사람 수', rg.pop, PAL[0]);
           if (r && k >= 1 && p.v === 2){ txt(c, '인구 밀도 약 ' + Math.round(r.ratio) + '배', bx, by + (narrow ? 106 : 120), {bold:true, color:PAL[4]}); }
         },
         stats: function(p, r){
-          return [['수도권 땅 넓이', '전체의 약 12%', '#7FA6D8'], ['수도권 사람 수', '전체의 약 절반 (2019년 무렵부터 절반 넘음)', PAL[0]],
-            ['칸 하나에 사는 사람 (모형)', '수도권 약 ' + f(r.dCap, 1) + '명 · 나머지 약 ' + f(r.dOut, 1) + '명'],
-            ['인구 밀도 차이', '수도권이 약 ' + Math.round(r.ratio) + '배 빽빽함', PAL[4]],
-            ['나의 예측', PRED[p.g].n + (r.ok ? ' — 맞음' : ' — 실제는 약 절반'), r.ok ? PAL[1] : PAL[4]]];
+          return [[r.rg.n + ' 땅 넓이', '전체의 약 ' + r.area + '%', '#7FA6D8'],
+            [r.rg.n + ' 사람 수', '전체의 약 ' + r.pop + '%' + (r.ri === 0 ? ' (2019년 무렵부터 절반 넘음)' : ''), PAL[0]],
+            ['칸 하나에 사는 사람 (모형)', r.rg.n + ' 약 ' + f(r.dCap, 1) + '명 · 나머지 약 ' + f(r.dOut, 1) + '명'],
+            ['인구 밀도 차이', r.ratio >= 1 ? r.rg.n + '이 약 ' + f(r.ratio, 1) + '배 빽빽함' : '나머지 지역이 약 ' + f(1 / r.ratio, 1) + '배 빽빽함', PAL[4]],
+            ['나의 예측', PRED[p.g].n + (r.ok ? ' — 맞음' : ' — 실제는 약 ' + r.pop + '%'), r.ok ? PAL[1] : PAL[4]],
+            ['판정', r.vd, r.pop > r.area ? PAL[4] : PAL[1]]];
         },
-        columns: ['보기', '나의 예측', '면적', '인구', '맞음'],
-        record: function(p, r){ return {v:p.v, g:p.g, ok:r.ok}; },
-        row: function(d){ return [VIEW[d.v], PRED[d.g].n, '약 12%', '약 50%', d.ok ? '○' : '✕']; },
+        columns: ['권역', '보기', '나의 예측', '면적', '인구', '맞음'],
+        record: function(p, r){ return {v:p.v, g:p.g, rg:p.rg, area:r.area, pop:r.pop, ok:r.ok}; },
+        row: function(d){ return [REG[d.rg].n, VIEW[d.v], PRED[d.g].n, '약 ' + d.area + '%', '약 ' + d.pop + '%', d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('수도권: 땅과 사람', '<div id="ca1"></div><p class="ask">땅은 열 칸 중 한 칸인데 사람은 열 명 중 몇 명인가요? 사람이 수도권에 모이는 까닭을 세 가지 말해 보세요.</p>') +
             card('나의 예측 기록', '<div id="ca2"></div><p class="ask">과제: 통계 누리집에서 우리 시·도의 인구와 면적을 찾아, 우리나라 전체에서 각각 몇 %인지 막대 두 개로 그려 비교해 보세요.</p>') + '</div>';
-          $('ca1').innerHTML = hbars([{label:'땅 넓이', v:12, color:'#7FA6D8', text:'약 12%'}, {label:'사람 수', v:50, color:PAL[0], text:'약 50%'}, {label:'뭉치 생각', v:10, color:PAL[6], text:'약 10%'}], 100);
+          var seen = {}, items = [];
+          rec.forEach(function(d){ if (seen[d.rg]) return; seen[d.rg] = 1;
+            items.push({label:REG[d.rg].n + ' 땅', v:d.area, color:'#7FA6D8', text:'약 ' + d.area + '%'});
+            items.push({label:REG[d.rg].n + ' 사람', v:d.pop, color:d.pop > d.area ? PAL[0] : PAL[2], text:'약 ' + d.pop + '%'}); });
+          items.push({label:'뭉치 생각', v:10, color:PAL[6], text:'약 10%'});
+          $('ca1').innerHTML = hbars(items, 100) + '<p class="msg">수도권은 땅보다 사람이 많고, 강원·호남권은 거꾸로예요. 사람은 <b>땅 넓이만큼</b> 살지 않아요.</p>';
           var g = groupBy(rec, function(d){ return d.g; }), rows = [];
           Object.keys(g).forEach(function(key){ rows.push([PRED[key].n, g[key].length + '번', key === '2' ? '맞음' : '다름']); });
           $('ca2').innerHTML = tableHTML(['나의 예측', '기록', '실제(약 절반)와'], rows);
@@ -492,7 +515,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

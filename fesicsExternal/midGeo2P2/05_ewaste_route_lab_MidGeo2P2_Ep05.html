@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -439,15 +441,31 @@ var LAB = (function(){
         {n:'서랍 속에 보관', s:'서랍 보관', rec:'없음 — 자원이 서랍에 잠김', harm:'당장은 없음 (배터리 부풂 주의)', record:'남지 않음', abroad:false},
         {n:'"중고"라는 이름으로 수출 → 비공식 분해', s:'수출·비공식 분해', rec:'일부 — 구리만 뽑고 나머지는 버림', harm:'큼 — 전선 태우기 연기·오염이 현지 주민과 땅을 해침', record:'세계 통계에서 잘 안 잡힘', abroad:true}
       ];
+      /* 휴대폰 한 대에 든 금속과 유해 물질 (대략값) · 길마다 건지는 비율과 새는 비율 (교육용 모형값) */
+      var AU = 0.03, CU = 15, TOX = 0.5;        /* 금 g · 구리 g · 유해 물질 g */
+      var GET = [0.9, 0, 0, 0.3], LEAK = [0.05, 1, 0, 0.8];
+      function village(n, rc){
+        var share = [rc / 100, (1 - rc / 100) * 0.4, (1 - rc / 100) * 0.4, (1 - rc / 100) * 0.2];
+        var au = 0, cu = 0, tox = 0;
+        for (var i = 0; i < 4; i++){ var m = n * share[i]; au += m * AU * GET[i]; cu += m * CU * GET[i]; tox += m * TOX * LEAK[i]; }
+        return {share:share, au:au, cu:cu / 1000, tox:tox / 1000};   /* 금 g · 구리 kg · 유해 물질 kg */
+      }
       return {
         sceneHeight: 420,
         idle: '통계 연도와 휴대폰이 갈 길을 고른 뒤 <b>휴대폰 따라가기</b>를 누르세요.',
         shortHint: '네 경로를 모두 따라가 보고, 두 연도의 세계 통계도 비교해 보세요.',
         params: [
           {key:'y', type:'seg', label:'세계 통계 연도', cols:2, value:1, options:YR.map(function(x){ return x.n; })},
-          {key:'rt', type:'seg', label:'망가진 휴대폰이 갈 길', cols:2, value:0, options:RT.map(function(x){ return x.n; })}
+          {key:'rt', type:'seg', label:'망가진 휴대폰이 갈 길', cols:2, value:0, options:RT.map(function(x){ return x.n; })},
+          {key:'n', type:'range', label:'우리 동네에서 한 해에 버리는 휴대폰', min:100, max:10000, step:100, value:1000, fmt:function(v){ return f(v, 0) + '대'; }},
+          {key:'rc', type:'range', label:'그 가운데 정식 수거함으로 가는 비율', min:0, max:100, step:5, value:25, fmt:function(v){ return f(v, 0) + '%'; },
+            note:'나머지는 일반 쓰레기 4 : 서랍 4 : 수출 2로 나뉜다고 둡니다. 휴대폰 한 대에 금 약 0.03g, 구리 약 15g이 들어 있고 유해 물질은 약 0.5g으로 잡은 교육용 모형값입니다.'}
         ],
-        compute: function(p){ var y = YR[p.y], rt = RT[p.rt]; return {y:y, rt:rt, recMt:y.mt * y.rate / 100, unk:y.mt * (1 - y.rate / 100)}; },
+        compute: function(p){
+          var y = YR[p.y], rt = RT[p.rt], V = village(p.n, p.rc), V0 = village(p.n, 0), V100 = village(p.n, 100);
+          return {y:y, rt:rt, recMt:y.mt * y.rate / 100, unk:y.mt * (1 - y.rate / 100),
+            n:p.n, rc:p.rc, V:V, gapAu:V100.au - V.au, cutTox:V0.tox - V.tox};
+        },
         draw: function(c, W, H, p, r, tau){
           c.fillStyle = '#F7F9FC'; c.fillRect(0, 0, W, H);
           var y = YR[p.y], n = Math.round(y.mt), cols = 16, s = Math.min(18, (W - 40) / cols), g = n * y.rate / 100, k = r ? Math.min(1, tau * 1.3) : 1;
@@ -468,16 +486,34 @@ var LAB = (function(){
               if (rt.abroad) for (var j = 0; j < 4; j++) glow(c, tx - 10 + j * 8, hy - 34 - j * 8, 14, 'rgba(90,90,90,.6)', 0.6);
             }
           }
-          if (r && tau >= 1) txt(c, '금속 회수 ' + r.rt.rec.split(' — ')[0] + ' · 피해 ' + r.rt.harm.split(' — ')[0], W / 2, H - 14, {bold:true, align:'center', color:p.rt === 0 ? PAL[1] : PAL[4]});
+          if (r && tau >= 1){
+            var narrow2 = W < 460;
+            /* 좁은 화면: 한 줄로 쓰면 글자가 눌려 읽히지 않으므로 작은 글씨로 나눠 쓴다 */
+            function line(s, yy, col, sz){ c.font = '700 ' + sz + 'px ' + FONT; c.fillStyle = col; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(s, W / 2, yy); }
+            var rcol = p.rt === 0 ? PAL[1] : PAL[4];
+            if (narrow2){
+              line('금속 ' + r.rt.rec.split(' — ')[0] + ' · 피해 ' + r.rt.harm.split(' — ')[0], H - 64, rcol, 12);
+              line('동네 ' + f(r.n, 0) + '대 · 수거 ' + f(r.rc, 0) + '%', H - 46, PAL[3], 12);
+              line('금 ' + f(r.V.au, 1) + 'g · 구리 ' + f(r.V.cu, 1) + 'kg', H - 28, PAL[3], 12);
+              line('유해 ' + f(r.V.tox, 2) + 'kg 샘', H - 10, PAL[4], 12);
+            } else {
+              line('금속 회수 ' + r.rt.rec.split(' — ')[0] + ' · 피해 ' + r.rt.harm.split(' — ')[0], H - 34, rcol, 16);
+              line('동네 ' + f(r.n, 0) + '대 · 정식 수거 ' + f(r.rc, 0) + '% → 금 ' + f(r.V.au, 1) + 'g · 구리 ' + f(r.V.cu, 1) + 'kg 회수, 유해 ' + f(r.V.tox, 2) + 'kg 샘', H - 10, PAL[3], 16);
+            }
+          }
         },
         stats: function(p, r){
           return [['세계 전자 폐기물 (' + r.y.n + ')', '약 ' + f(r.y.mt * 100, 0) + '만 톤'], ['기록상 제대로 수거·재활용', '약 ' + r.y.rate + '% (약 ' + f(r.recMt * 100, 0) + '만 톤)', PAL[1]],
             ['기록이 잘 남지 않은 몫', '약 ' + f(100 - r.y.rate, 1) + '%', PAL[7]], ['내 휴대폰의 길', r.rt.n],
-            ['금속 회수', r.rt.rec, PAL[0]], ['사람·환경 피해', r.rt.harm, r.rt.abroad || p.rt === 1 ? PAL[4] : PAL[1]], ['기록', r.rt.record]];
+            ['금속 회수', r.rt.rec, PAL[0]], ['사람·환경 피해', r.rt.harm, r.rt.abroad || p.rt === 1 ? PAL[4] : PAL[1]], ['기록', r.rt.record],
+            ['우리 동네 셈 (교육용 모형)', f(r.n, 0) + '대 가운데 정식 수거 ' + f(r.rc, 0) + '% — 일반 쓰레기 ' + f(r.V.share[1] * 100, 0) + '% · 서랍 ' + f(r.V.share[2] * 100, 0) + '% · 수출 ' + f(r.V.share[3] * 100, 0) + '%'],
+            ['되찾은 금속', '금 약 ' + f(r.V.au, 1) + 'g · 구리 약 ' + f(r.V.cu, 1) + 'kg', PAL[1]],
+            ['새는 유해 물질', '약 ' + f(r.V.tox, 2) + 'kg', PAL[4]],
+            ['수거율을 100%로 올리면', '금을 ' + f(r.gapAu, 1) + 'g 더 건지고, 지금까지보다 유해 물질이 더 줄어요 (0%일 때보다 이미 ' + f(r.cutTox, 2) + 'kg 덜 샘)', PAL[6]]];
         },
-        columns: ['연도', '휴대폰의 길', '금속 회수', '피해'],
-        record: function(p, r){ return {y:p.y, rt:p.rt}; },
-        row: function(d){ return [YR[d.y].s, RT[d.rt].s, RT[d.rt].rec.split(' — ')[0], RT[d.rt].harm.split(' — ')[0]]; },
+        columns: ['연도', '휴대폰의 길', '대수', '수거율', '금 g', '유해 kg'],
+        record: function(p, r){ return {y:p.y, rt:p.rt, n:r.n, rc:r.rc, au:r.V.au, cu:r.V.cu, tox:r.V.tox}; },
+        row: function(d){ return [YR[d.y].s, RT[d.rt].s, f(d.n, 0) + '대', f(d.rc, 0) + '%', f(d.au, 1), f(d.tox, 2)]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('세계 통계 — 기록상 재활용 비율', '<div id="hv9"></div><p class="ask">전자 폐기물의 양과 재활용 비율은 각각 어떻게 바뀌었나요? 재활용 비율이 올랐는데도 기록이 잘 안 남는 양이 줄지 않은 까닭은?</p>') +
@@ -487,7 +523,13 @@ var LAB = (function(){
           Object.keys(ys).forEach(function(k){ var y = YR[k]; items.push({label:y.n + ' 재활용 비율', v:y.rate, color:PAL[1], text:'약 ' + y.rate + '%'}); items.push({label:y.n + ' 기록 불분명 양', v:y.mt * (1 - y.rate / 100), color:PAL[7], text:'약 ' + f(y.mt * (1 - y.rate / 100) * 100, 0) + '만 톤'}); });
           $('hv9').innerHTML = hbars(items, 60);
           var seen = {}; rec.forEach(function(d){ seen[d.rt] = 1; });
-          $('hv10').innerHTML = tableHTML(['길', '금속 회수', '피해', '기록'], Object.keys(seen).map(function(k){ var t = RT[k]; return [t.s, t.rec, t.harm, t.record]; }));
+          var vs = {}, vrows = [];
+          rec.forEach(function(d){ var kk = d.n + '_' + d.rc; if (vs[kk]) return; vs[kk] = 1;
+            vrows.push([f(d.n, 0) + '대', f(d.rc, 0) + '%', f(d.au, 1) + 'g', f(d.cu, 1) + 'kg', f(d.tox, 2) + 'kg']); });
+          vrows.sort(function(a, b){ return parseFloat(a[1]) - parseFloat(b[1]); });
+          $('hv10').innerHTML = tableHTML(['길', '금속 회수', '피해', '기록'], Object.keys(seen).map(function(k){ var t = RT[k]; return [t.s, t.rec, t.harm, t.record]; })) +
+            (vrows.length ? '<p class="msg">수거율을 바꿔 본 우리 동네 셈 (교육용 모형값)</p>' +
+              tableHTML(['대수', '정식 수거율', '되찾은 금', '되찾은 구리', '새는 유해 물질'], vrows) : '');
         }
       };
     })();
@@ -496,7 +538,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

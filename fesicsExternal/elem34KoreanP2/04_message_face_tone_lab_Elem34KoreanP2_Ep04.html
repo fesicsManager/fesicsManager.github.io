@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>메시지도 말과 똑같이 전해지나</h1>
-    <p>같은 말 <b>“알았어.”</b>를 얼굴 보고 말할 때와 메시지로 보낼 때를 비교해요. 무엇이 함께 가고 무엇이 빠지는지 보고, 받은 친구 10명 중 <b>‘화난 것 같다’</b>고 느낀 친구를 세어요. 보내기 전 점검도 해 보세요.<br><span style="font-size:.9em;color:#a86825">※ 친구 30명(세 모둠)의 결과는 제로 랩의 가상 자료예요.</span></p>
+    <p>같은 말 <b>“알았어.”</b>를 얼굴 보고 말할 때와 메시지로 보낼 때를 비교해요. 메시지에서는 <b>표정 · 목소리 · 몸짓</b>이 빠져요. 빠진 셋을 글로 채우는 말(웃는 얼굴 · 느낌표 · 다음에 할 일)을 <b>내가 골라 담아</b> 보고, 몇 개를 채웠을 때 오해가 사라지는지 찾아보세요. 받은 친구 10명 중 ‘화난 것 같다’고 느낀 친구를 셉니다.<br><span style="font-size:.9em;color:#a86825">※ 느낀 친구 수는 <b>교육용 모형값</b>이에요. 아무것도 안 담으면 4명, 하나 담으면 3명, 둘 담으면 1명, 셋 다 담으면 0명으로 계산합니다(얼굴 보고 말하면 0명). 실제로는 받는 친구와 상황에 따라 달라져요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -428,24 +430,39 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var WAY = [
-        {n:'웃으며 얼굴 보고 “알았어.”', s:'얼굴 보고', msg:'알았어.', ch:[1, 1, 1, 1], angry:0, heart:true},
-        {n:'메시지로 “알았어.”', s:'메시지', msg:'알았어.', ch:[1, 0, 0, 0], angry:4, heart:false},
-        {n:'메시지로 “알았어! 내일 도서관에서 보자.”', s:'메시지+덧붙임', msg:'알았어! 내일 도서관에서 보자.', ch:[1, 0, 0, 0], angry:0, heart:true}
+        {n:'웃으며 얼굴 보고 “알았어.”', s:'얼굴 보고'},
+        {n:'메시지로 보내기', s:'메시지'}
       ];
+      var ADD = ['웃는 얼굴 😊 (표정 대신)', '느낌표 ! (목소리 대신)', '다음에 할 일 (몸짓 대신)'];
+      var ANGRY = [4, 3, 1, 0];   /* 담은 개수 0·1·2·3개일 때 ‘화난 것 같다’고 느낀 친구 — 교육용 모형값 */
+      /* 내가 담은 말로 메시지와 전해지는 것을 다시 만든다 */
+      function MODEL(p){
+        var face = p.w === 0, a = [p.a0 === 0, p.a1 === 0, p.a2 === 0];
+        var fill = face ? 3 : (a[0] ? 1 : 0) + (a[1] ? 1 : 0) + (a[2] ? 1 : 0);
+        var msg = '알았어' + (!face && a[1] ? '!' : '.') + (!face && a[2] ? ' 내일 도서관에서 보자.' : '') + (!face && a[0] ? ' 😊' : '');
+        return {face:face, a:a, fill:fill, msg:msg,
+          ch:face ? [1, 1, 1, 1] : [1, a[0] ? 1 : 0, a[1] ? 1 : 0, a[2] ? 1 : 0],
+          angry:face ? 0 : ANGRY[fill], heart:face || fill > 0,
+          n:face ? '웃으며 얼굴 보고 “알았어.”' : '메시지로 “' + msg + '”',
+          s:face ? '얼굴 보고' : (fill ? '메시지+' + fill + '개' : '메시지')};
+      }
       var CH = ['글자', '표정', '목소리', '몸짓'];
       var ROOM = ['한 사람과 하는 대화', '여러 사람이 있는 대화방'], TIME = ['오후 4시', '밤 11시'];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
       return {
         sceneHeight: 420,
-        idle: '전하는 방법과 대화방·시간을 고른 뒤 <b>전해 보기</b>를 누르세요.',
-        shortHint: '세 가지 방법을 모두 해 보세요. 같은 ‘알았어’인데 어디서 오해가 생기나요?',
+        idle: '전하는 방법과 담을 말, 대화방·시간을 고른 뒤 <b>전해 보기</b>를 누르세요.',
+        shortHint: '아무것도 안 담은 메시지부터 하나씩 담아 보세요. 몇 개를 담았을 때 오해가 사라지나요?',
         params: [
-          {key:'w', type:'seg', label:'전하는 방법', cols:3, value:1, options:WAY.map(function(x){ return x.n; })},
+          {key:'w', type:'seg', label:'전하는 방법', cols:2, value:1, options:WAY.map(function(x){ return x.n; })},
+          {key:'a0', type:'seg', label:'담을 말 ① 웃는 얼굴 😊 (표정 대신)', cols:2, value:1, options:['담는다', '담지 않는다']},
+          {key:'a1', type:'seg', label:'담을 말 ② 느낌표 ! (목소리 대신)', cols:2, value:1, options:['담는다', '담지 않는다']},
+          {key:'a2', type:'seg', label:'담을 말 ③ “내일 도서관에서 보자.” (몸짓 대신)', cols:2, value:1, options:['담는다', '담지 않는다'], note:'빠진 표정·목소리·몸짓을 글로 채우는 말이에요.'},
           {key:'room', type:'seg', label:'대화방 (메시지일 때)', cols:2, value:0, options:ROOM},
           {key:'t', type:'seg', label:'보내는 시간 (메시지일 때)', cols:2, value:0, options:TIME}
         ],
         compute: function(p){
-          var w = WAY[p.w], face = p.w === 0, chk = [];
+          var w = MODEL(p), face = w.face, chk = [];
           if (face) chk = [['마음이 표정·목소리로 함께 가요', 1]];
           else {
             chk.push([w.heart ? '내 마음이 글에 들어 있어요' : '글자만 가요 — 마음이 안 보여요', w.heart ? 1 : 0]);
@@ -453,19 +470,23 @@ var LAB = (function(){
             chk.push([p.t === 1 ? '늦은 시간이에요 — 내일 보내는 게 좋아요' : '괜찮은 시간이에요', p.t === 1 ? 0 : 1]);
           }
           var good = chk.filter(function(x){ return x[1]; }).length;
-          return {w:w, face:face, chk:chk, good:good};
+          return {w:w, face:face, chk:chk, good:good, fill:w.fill, angry:w.angry};
         },
         draw: function(c, W, H, p, r, tau){
-          var w = WAY[p.w], face = p.w === 0, sz = W < 500 ? 14 : 17, k = r ? Math.min(1, tau / 0.5) : 0;
+          var w = MODEL(p), face = w.face, sz = W < 500 ? 14 : 17, k = r ? Math.min(1, tau / 0.5) : 0;
           var lx = 46, rx = W - 46, y0 = 70;
           if (face){ c.fillStyle = PAL[0]; c.beginPath(); c.arc(lx, y0, 24, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.arc(lx, y0 + 2, 12, 0.2, Math.PI - 0.2); c.stroke(); }
           else { c.fillStyle = '#26313D'; c.fillRect(lx - 18, y0 - 30, 36, 60); c.fillStyle = '#CFE6FA'; c.fillRect(lx - 14, y0 - 24, 28, 44); }
           T(c, '나', lx, y0 + 50, 14, '#4A5868', 'center', true);
           c.fillStyle = PAL[3]; c.beginPath(); c.arc(rx, y0, 22, 0, Math.PI * 2); c.fill();
           T(c, '친구', rx, y0 + 50, 14, '#4A5868', 'center', true);
-          c.font = '700 ' + sz + 'px ' + FONT; var bw = Math.min(W - 150, c.measureText('“' + w.msg + '”').width + 20);
+          var mz = sz, ms = '“' + w.msg + '”';
+          c.font = '700 ' + mz + 'px ' + FONT;
+          while (mz > 10 && c.measureText(ms).width > W - 170){ mz--; c.font = '700 ' + mz + 'px ' + FONT; }   /* 좁은 화면: 말풍선 안에 들어가게 */
+          while (ms.length > 4 && c.measureText(ms).width > W - 170) ms = ms.slice(0, -2) + '”';
+          var bw = Math.min(W - 150, c.measureText(ms).width + 20);
           c.fillStyle = '#fff'; c.strokeStyle = '#B8C3D0'; c.lineWidth = 1.5; c.fillRect(W / 2 - bw / 2, 20, bw, 30); c.strokeRect(W / 2 - bw / 2, 20, bw, 30);
-          T(c, '“' + w.msg + '”', W / 2, 41, sz, '#1E2833', 'center', true);
+          T(c, ms, W / 2, 41, mz, '#1E2833', 'center', true);
           CH.forEach(function(nm, i){
             var y = 138 + i * 28, on = w.ch[i] === 1, x1 = 80, x2 = W - 80;
             T(c, nm, 20, y + 5, 14, on ? '#1E2833' : '#8C99A8', 'left', true);
@@ -480,28 +501,53 @@ var LAB = (function(){
             c.fillStyle = bad ? PAL[4] : '#B8C3D0'; c.beginPath(); c.arc(cx, 290, 10, 0, Math.PI * 2); c.fill(); c.fillRect(cx - 8, 302, 16, 18); }
           if (k2 >= 1){
             T(c, '‘화난 것 같다’ ' + w.angry + '명', 20, 350, 18, w.angry ? PAL[4] : PAL[1], 'left', true);
-            if (!face) T(c, '보내기 전 점검 ' + r.good + ' / 3', 20, 384, 16, r.good === 3 ? PAL[1] : PAL[6], 'left', true);
+            if (!face) T(c, '담은 말 ' + w.fill + ' / 3 · 보내기 전 점검 ' + r.good + ' / 3', 20, 384, 16, r.good === 3 && !w.angry ? PAL[1] : PAL[6], 'left', true);
           }
         },
         stats: function(p, r){
-          var out = [['전한 방법', r.w.n], ['함께 간 것', CH.filter(function(x, i){ return r.w.ch[i]; }).join(' · '), PAL[1]],
-            ['빠진 것', r.face ? '없음' : '표정 · 목소리 · 몸짓', r.face ? PAL[1] : PAL[4]],
-            ['‘화난 것 같다’고 느낀 친구(가상)', r.w.angry + '명 / 10명', r.w.angry ? PAL[4] : PAL[1]]];
+          var gone = [];
+          CH.forEach(function(nm, i){ if (!r.w.ch[i]) gone.push(nm); });
+          var put = [];
+          ADD.forEach(function(nm, i){ if (!r.face && r.w.a[i]) put.push(nm.split(' (')[0]); });
+          var judge = r.face ? '얼굴을 보고 말하면 표정·목소리·몸짓이 함께 가요'
+            : r.w.angry === 0 ? '빠진 셋을 글로 다 채웠어요 — 오해가 사라졌어요'
+            : r.w.fill === 0 ? '글자만 보냈어요 — 열 명 가운데 ' + r.w.angry + '명이 화난 것으로 읽었어요'
+            : '아직 ' + (3 - r.w.fill) + '개가 덜 채워졌어요 — ' + r.w.angry + '명이 화난 것으로 읽었어요';
+          var out = [['전한 방법', r.w.n],
+            ['담은 말', r.face ? '(얼굴 보고 말함)' : (put.length ? put.join(' · ') + ' (' + r.w.fill + '/3)' : '없음 (0/3)'), r.w.fill === 3 ? PAL[1] : PAL[6]],
+            ['함께 간 것', CH.filter(function(x, i){ return r.w.ch[i]; }).join(' · '), PAL[1]],
+            ['빠진 것', gone.length ? gone.join(' · ') : '없음', gone.length ? PAL[4] : PAL[1]],
+            ['‘화난 것 같다’고 느낀 친구', r.w.angry + '명 / 10명', r.w.angry ? PAL[4] : PAL[1]],
+            ['판정', judge, r.w.angry ? PAL[4] : PAL[1]]];
           r.chk.forEach(function(x, i){ out.push([r.face ? '얼굴 보고 말하기' : '보내기 전 점검 ' + (i + 1), x[0], x[1] ? PAL[1] : PAL[6]]); });
           return out;
         },
-        columns: ['방법', '화난 것 같다', '점검'],
-        record: function(p, r){ return {w:p.w, a:r.w.angry, g:r.good, n:r.chk.length}; },
-        row: function(d){ return [WAY[d.w].s, d.a + '명', d.g + '/' + d.n]; },
+        columns: ['방법', '담은 말', '화난 것 같다', '점검'],
+        record: function(p, r){
+          var put = [];
+          ADD.forEach(function(nm, i){ if (!r.face && r.w.a[i]) put.push(nm.split(' ')[0]); });
+          return {s:r.w.s, face:r.face, fill:r.w.fill, put:put.length ? put.join('·') : '없음',
+            a:r.w.angry, g:r.good, n:r.chk.length};
+        },
+        row: function(d){ return [d.s, d.put, d.a + '명', d.g + '/' + d.n]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('같은 ‘알았어’ — 화난 것 같다고 느낀 친구(가상)', '<div id="ms1"></div><p class="ask">같은 말인데 왜 메시지에서만 오해가 생겼을까요? 말을 조금 덧붙였더니 왜 오해가 사라졌을까요?</p>') +
+            card('내가 담은 말 — 화난 것 같다고 느낀 친구', '<div id="ms1"></div><p class="ask">몇 개를 담았을 때 오해가 사라졌나요? 담은 말이 빠진 표정·목소리·몸짓 가운데 무엇을 채워 주었는지 말해 보세요.</p>') +
             card('내가 해 본 방법', '<div id="ms2"></div><p class="ask">과제: ‘응’, ‘몰라’, ‘그래’ 같은 짧은 답장을 하나 골라, 오해가 생기지 않게 한 문장을 덧붙여 다시 써 보세요. 가족에게 두 가지를 보여 주고 느낌이 어떻게 다른지 물어보세요.</p>') + '</div>';
-          $('ms1').innerHTML = hbars(WAY.map(function(w){ return {label:w.s, v:w.angry, color:w.angry ? PAL[4] : PAL[1], text:w.angry + '명 / 10명'}; }), 10);
-          $('ms2').innerHTML = tableHTML(['방법', '해 봄', '마지막 점검'], WAY.map(function(w, i){
-            var a = rec.filter(function(d){ return d.w === i; });
-            return [w.s, a.length ? a.length + '번' : '<span style="color:#8C99A8">아직</span>', a.length ? a[a.length - 1].g + ' / ' + a[a.length - 1].n : '—'];
-          }));
+          $('ms1').innerHTML = hbars(rec.map(function(d){
+            return {label:d.s + ' (담은 말 ' + d.put + ')', v:d.a, color:d.a ? PAL[4] : PAL[1], text:d.a + '명 / 10명'};
+          }), 10);
+          var msgRec = rec.filter(function(d){ return !d.face; });
+          var zero = msgRec.filter(function(d){ return d.a === 0; });
+          var none = msgRec.filter(function(d){ return d.fill === 0; });
+          var tip = zero.length && none.length
+            ? '아무것도 안 담았을 때는 ' + none[0].a + '명이 화난 것으로 읽었는데, ' + zero[0].fill + '개를 담았을 때는 0명이 되었어요. 메시지가 나빠서가 아니라 <b>빠진 것을 글로 채우지 않아서</b> 생긴 오해였어요.'
+            : '아무것도 안 담은 메시지와 셋 다 담은 메시지를 모두 기록하면, 무엇이 오해를 없앴는지 알 수 있어요.';
+          $('ms2').innerHTML = tableHTML(['담은 개수', '해 봄', '화난 것 같다(평균)'], [0, 1, 2, 3].map(function(k){
+            var a = msgRec.filter(function(d){ return d.fill === k; });
+            return [k + '개', a.length ? a.length + '번' : '<span style="color:#8C99A8">아직</span>',
+              a.length ? f(mean(a.map(function(d){ return d.a; })), 1) + '명' : '—'];
+          })) + '<p class="msg">' + tip + '</p>';
         }
       };
     })();
@@ -510,7 +556,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

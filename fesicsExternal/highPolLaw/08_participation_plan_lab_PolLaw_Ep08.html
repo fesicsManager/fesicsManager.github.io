@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -214,7 +215,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>참여 통로 조합기 — 한 방이 아니라 누적</h1>
-    <p>바꾸고 싶은 것을 고르고 <b>근거 만들기 → 의견 전달 → 결정에 압력</b> 세 단계의 통로를 조합해 보세요. 조합에 따라 변화 가능성과 걸리는 시간, 부딪힐 한계가 나옵니다.<br><span style="font-size:.9em;color:#a86825">※ 변화 가능성 지수와 기간은 통로의 성격을 비교하려는 가상 모형입니다. 청원·주민 청구 등의 요건 수치는 법령과 지자체 안내로 확인하세요.</span></p>
+    <p>바꾸고 싶은 것을 고르고 <b>근거 만들기 → 의견 전달 → 결정에 압력</b> 세 단계의 통로를 조합해 보세요. 통로마다 드는 <b>품</b>(모을 사람·매달릴 날)이 달라서, <b>쓸 수 있는 품</b>을 줄이면 뒤 단계부터 포기해야 합니다. 조합에 따라 변화 가능성과 걸리는 시간, 품 1당 지수, 부딪힐 한계가 나옵니다.<br><span style="font-size:.9em;color:#a86825">※ 변화 가능성 지수·기간·품은 통로의 성격을 비교하려는 교육용 모형값입니다. 청원·주민 청구 등의 요건 수치는 법령과 지자체 안내로 확인하세요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,21 +440,34 @@ var LAB = (function(){
       var S1 = [{n:'정보공개청구', e:[0.15, 0.15, 0.15], d:20, lim:'비공개 사유로 거부될 수 있음', ev:true}, {n:'직접 조사·설문', e:[0.1, 0.1, 0.1], d:14, lim:'표본이 작으면 설득력이 약함', ev:true}, {n:'건너뜀', e:[0, 0, 0], d:0, lim:'', ev:false}];
       var S2 = [{n:'민원 제기', e:[0.3, 0.15, 0.05], d:14, lim:'담당 부서 판단에 달림'}, {n:'주민참여예산 제안', e:[0.1, 0.35, 0.02], d:120, lim:'전체 예산 중 비중이 작음'}, {n:'입법예고 의견', e:[0.02, 0.02, 0.25], d:30, lim:'반영 여부는 행정청 재량'}, {n:'청원', e:[0.1, 0.1, 0.2], d:60, lim:'요건 미달이면 종결'}];
       var S3 = [{n:'언론·공론화', e:[0.2, 0.15, 0.15], d:20, lim:'관심이 금방 식을 수 있음'}, {n:'주민조례 청구', e:[0.02, 0.05, 0.3], d:180, lim:'서명 요건을 채워야 함'}, {n:'선거에서 묻기', e:[0.1, 0.1, 0.15], d:365, lim:'결과가 나오기까지 오래 걸림'}, {n:'건너뜀', e:[0, 0, 0], d:0, lim:''}];
+      /* 통로마다 드는 '품' — 모아야 할 사람과 매달려야 할 날을 하나로 합친 교육용 모형값 */
+      var C1 = [6, 20, 0], C2 = [4, 18, 10, 24], C3 = [20, 40, 12, 0];
       function plan(p){
-        var g = GOAL[p.g].k, a = S1[p.a], b = S2[p.b], c3 = S3[p.c], boost = a.ev ? 1.4 : 1;
-        var es = [a.e[g], Math.min(0.9, b.e[g] * boost), Math.min(0.9, c3.e[g] * boost)], left = 1, cum = [];
+        var g = GOAL[p.g].k, a = S1[p.a], b = S2[p.b], c3 = S3[p.c];
+        var budget = (p.m == null ? 100 : p.m);
+        var cost = [C1[p.a], C2[p.b], C3[p.c]], on = [true, true, true];
+        var need = cost[0] + cost[1] + cost[2], tot = need, drop = [];
+        for (var i = 2; i >= 0 && tot > budget; i--){ if (cost[i] > 0){ on[i] = false; tot -= cost[i]; drop.unshift(i + 1); } }
+        var boost = (a.ev && on[0]) ? 1.4 : 1;
+        var es = [on[0] ? a.e[g] : 0, on[1] ? Math.min(0.9, b.e[g] * boost) : 0, on[2] ? Math.min(0.9, c3.e[g] * boost) : 0];
+        var left = 1, cum = [];
         es.forEach(function(e){ left *= 1 - e; cum.push((1 - left) * 100); });
-        return {es:es, cum:cum, idx:(1 - left) * 100, days:a.d + b.d + c3.d, steps:[a, b, c3], used:(a.e[g] > 0 ? 1 : 0) + 1 + (c3.e[g] > 0 ? 1 : 0)};
+        var idx = (1 - left) * 100;
+        return {es:es, cum:cum, idx:idx, days:(on[0] ? a.d : 0) + (on[1] ? b.d : 0) + (on[2] ? c3.d : 0),
+          steps:[a, b, c3], on:on, cost:tot, need:need, budget:budget, drop:drop,
+          eff:idx / Math.max(1, tot), used:(es[0] > 0 ? 1 : 0) + (es[1] > 0 ? 1 : 0) + (es[2] > 0 ? 1 : 0)};
       }
       return {
         sceneHeight: 400,
         idle: '목표와 세 단계 통로를 고른 뒤 <b>계획 실행해 보기</b>를 누르세요.',
-        shortHint: '한 목표에서 통로 하나만 쓴 계획과 세 개를 겹친 계획을 비교해 보세요.',
+        shortHint: '한 목표에서 통로 하나만 쓴 계획과 세 개를 겹친 계획을 비교하고, 쓸 수 있는 품을 30·50·100으로 바꿔서도 해 보세요.',
         params: [
           {key:'g', type:'seg', label:'바꾸고 싶은 것', cols:3, value:0, options:GOAL.map(function(x){ return x.n; })},
           {key:'a', type:'seg', label:'1단계 · 근거 만들기', cols:3, value:0, options:S1.map(function(x){ return x.n; })},
           {key:'b', type:'seg', label:'2단계 · 의견 전달', cols:2, value:0, options:S2.map(function(x){ return x.n; })},
-          {key:'c', type:'seg', label:'3단계 · 결정에 압력', cols:2, value:0, options:S3.map(function(x){ return x.n; })}
+          {key:'c', type:'seg', label:'3단계 · 결정에 압력', cols:2, value:0, options:S3.map(function(x){ return x.n; })},
+          {key:'m', type:'range', label:'쓸 수 있는 품 (사람·날)', min:10, max:100, step:5, value:100, fmt:function(v){ return v + '품'; },
+            note:'통로마다 드는 품이 다릅니다(교육용 모형값). 품이 모자라면 뒤 단계부터 포기해야 해요. 품을 줄여 보면 "많이 켤수록 좋다"가 깨집니다.'}
         ],
         compute: function(p){ return plan(p); },
         draw: function(c, W, H, p, r, tau){
@@ -471,27 +486,40 @@ var LAB = (function(){
           if (r){ var step = Math.min(2, Math.floor(k * 3)), v = o.cum[step] * Math.min(1, k * 3 - step + 0.001); var prev = step ? o.cum[step - 1] : 0; v = prev + (o.cum[step] - prev) * Math.min(1, k * 3 - step); c.fillStyle = PAL[1]; c.fillRect(20, by, bl * v / 100, 28); txt(c, f(v, 0), 26 + bl * v / 100, by + 21, {bold:true}); }
           var ly = by + 70;
           if (r && k >= 1){
-            var lims = o.steps.map(function(s){ return s.lim; }).filter(function(x){ return x; });
+            var lims = o.steps.map(function(s, i){ return o.on[i] ? s.lim : ''; }).filter(function(x){ return x; });
             txt(c, '예상 기간 약 ' + o.days + '일', 20, ly, {bold:true});
             lims.slice(0, 2).forEach(function(l, j){ txt(c, '· ' + (l.length > (W - 50) / 17 ? l.slice(0, Math.floor((W - 50) / 17)) + '…' : l), 20, ly + 32 + j * 28, {color:PAL[7]}); });
           }
           txt(c, GOAL[p.g].n, 20, 34, {bold:true});
         },
         stats: function(p, r){
-          return [['목표', GOAL[p.g].n], ['계획', S1[p.a].n + ' → ' + S2[p.b].n + ' → ' + S3[p.c].n], ['변화 가능성 지수 (모형)', f(r.idx, 0) + ' / 100', r.idx >= 50 ? PAL[1] : PAL[6]],
-            ['쓴 통로 수', r.used + '개'], ['예상 기간', '약 ' + r.days + '일', PAL[0]], ['부딪힐 한계', r.steps.map(function(s){ return s.lim; }).filter(function(x){ return x; }).join(' / '), PAL[7]]];
+          var st = [['목표', GOAL[p.g].n], ['계획', S1[p.a].n + ' → ' + S2[p.b].n + ' → ' + S3[p.c].n], ['변화 가능성 지수 (모형)', f(r.idx, 0) + ' / 100', r.idx >= 50 ? PAL[1] : PAL[6]],
+            ['쓴 통로 수', r.used + '개'], ['예상 기간', '약 ' + r.days + '일', PAL[0]],
+            ['쓴 품 / 쓸 수 있는 품', r.cost + ' / ' + r.budget + ' (교육용 모형값)', r.drop.length ? PAL[4] : PAL[1]],
+            ['품 1당 지수', f(r.eff, 2) + ' (같은 품이면 이 값이 큰 쪽이 나은 계획)', PAL[0]]];
+          if (r.drop.length) st.push(['품이 모자라 포기한 단계', r.drop.join('·') + '단계 (고른 계획은 ' + r.need + '품 필요)', PAL[4]]);
+          else st.push(['판정', '쓸 수 있는 품 안에서 계획을 다 해냈습니다', PAL[1]]);
+          st.push(['부딪힐 한계', r.steps.map(function(s, i){ return r.on[i] ? s.lim : ''; }).filter(function(x){ return x; }).join(' / ') || '없음', PAL[7]]);
+          return st;
         },
-        columns: ['목표', '1단계', '2단계', '3단계', '통로 수', '지수', '기간'],
-        record: function(p, r){ return {g:p.g, a:p.a, b:p.b, c:p.c, used:r.used, idx:r.idx, d:r.days}; },
-        row: function(d){ return [GOAL[d.g].s, S1[d.a].n, S2[d.b].n, S3[d.c].n, d.used, f(d.idx, 0), d.d + '일']; },
+        columns: ['목표', '1단계', '2단계', '3단계', '통로 수', '지수', '기간', '품', '품 1당', '포기'],
+        record: function(p, r){ return {g:p.g, a:p.a, b:p.b, c:p.c, used:r.used, idx:r.idx, d:r.days, cost:r.cost, eff:r.eff, bud:r.budget, drop:r.drop.join('·')}; },
+        row: function(d){ return [GOAL[d.g].s, S1[d.a].n, S2[d.b].n, S3[d.c].n, d.used, f(d.idx, 0), d.d + '일', d.cost + '/' + d.bud, f(d.eff, 2), d.drop || '—']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('쓴 통로 수와 변화 가능성', '<canvas class="chart" id="pp1"></canvas><p class="ask">통로를 겹칠수록 지수가 어떻게 변했나요? 대신 무엇을 더 써야 했나요(기간)?</p>') +
+            card('쓴 품과 변화 가능성', '<canvas class="chart" id="pp3"></canvas><p class="ask">품을 많이 들인 계획이 꼭 지수가 높았나요? 왼쪽 위에 찍힌 점(적은 품에 높은 지수)이 가장 알뜰한 계획이에요.</p>') +
+            card('품 1당 지수가 가장 좋았던 계획', '<div id="pp4"></div><p class="ask">같은 품을 쓸 수 있다면 어느 조합을 고르겠어요? 품을 절반으로 줄이면 어느 단계를 먼저 포기하는 게 손해가 적을까요?</p>') +
             card('목표별 가장 높았던 계획', '<div id="pp2"></div><p class="ask">과제: 학교나 지역에서 바꾸고 싶은 것 하나를 정해, 오늘의 통로 중 세 가지를 결합한 실행 계획을 단계별로 쓰고 각 단계에 필요한 자료와 예상 장애물을 적어 보세요.</p>') + '</div>';
           drawScatter($('pp1'), {series:[{color:PAL[0], pts:rec.map(function(d){ return {x:d.used, y:d.idx}; })}], xLabel:'쓴 통로 수', yLabel:'변화 가능성 지수', xHi:3, xStep:1});
           var rows = [];
           GOAL.forEach(function(g, i){ var a = rec.filter(function(d){ return d.g === i; }); if (!a.length) return; var b = a.reduce(function(m, d){ return d.idx > m.idx ? d : m; }); rows.push([g.s, S1[b.a].n + ' → ' + S2[b.b].n + ' → ' + S3[b.c].n, f(b.idx, 0), b.d + '일']); });
           $('pp2').innerHTML = tableHTML(['목표', '계획', '지수', '기간'], rows);
+          drawScatter($('pp3'), {series:[{color:PAL[2], pts:rec.map(function(d){ return {x:d.cost || 0, y:d.idx}; })}], xLabel:'쓴 품 (모형값)', yLabel:'변화 가능성 지수'});
+          var er = rec.slice().sort(function(x, y){ return (y.eff || 0) - (x.eff || 0); }).slice(0, 5).map(function(d){
+            return [S1[d.a].n + ' → ' + S2[d.b].n + ' → ' + S3[d.c].n, (d.cost || 0) + '품', f(d.idx, 0), f(d.eff || 0, 2), d.drop || '—'];
+          });
+          $('pp4').innerHTML = tableHTML(['계획', '품', '지수', '품 1당', '포기'], er, 'wrap');
         }
       };
     })();
@@ -500,7 +528,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

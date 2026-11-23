@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -308,6 +310,13 @@ function axisFrom(lo, hi){
   if (hi - lo <= 0) hi = lo + 1;
   var step = niceStep((hi - lo) / 4);
   return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+/* 폭(maxW)을 넘으면 글자 크기를 줄여서 (11px 아래로는 안 줄임) */
+function txtFit(c, s, x, y, o, maxW){
+  o = o || {}; var fs = 18; c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT;
+  var w = c.measureText(s).width; if (maxW && w > maxW) fs = Math.max(11, Math.floor(18 * maxW / w));
+  c.font = (o.bold ? '700 ' : '') + fs + 'px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 function txt(c, s, x, y, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
@@ -435,57 +444,85 @@ var LAB = (function(){
       var SRC = [{n:'우리 반 사물함 (가상 기록)', unit:'일주일 동안 떨어진 물건', v:[2, 9]}, {n:'주차장 연구 (대략)', unit:'종이를 버린 사람 (깨끗한 곳 = 1)', v:[1, 2]}];
       var FL = ['깨끗한 곳', '어지러운 곳'];
       var GU = ['① 어지러운 곳에서 더 많이 버렸다', '② 두 곳이 똑같았다', '③ 깨끗한 곳에서 더 많이 버렸다', '④ 두 곳 모두 아무도 버리지 않았다'];
+      /* 바닥에 이미 떨어져 있던 쓰레기 수를 0~10으로 조절해, 몇 개부터 신호가 되는지 스스로 찾게 한다
+         (교육용 모형: 사물함 자료는 2 + 0.7×개수, 주차장 자료는 1 + 0.1×개수로 어림) */
+      function modelOf(s, pre){ return s === 0 ? 2 + Math.round(0.7 * pre) : 1 + 0.1 * pre; }
+      function cleanOf(s){ return modelOf(s, 0); }
+      /* 깨끗할 때의 1.5배를 넘으면 "바닥이 신호를 보냈다"고 본다 */
+      function f2(x){ return f(x, 1); }
+      function signalAt(s){ var base = cleanOf(s);
+        for (var i = 1; i <= 10; i++) if (modelOf(s, i) >= base * 1.5) return i;
+        return null; }
       return {
         sceneHeight: function(w){ return w < 500 ? 380 : 400; },
-        idle: '자료, 바닥 상태, 나의 짐작을 고른 뒤 <b>일주일 관찰하기</b>를 누르세요.',
-        shortHint: '같은 자료에서 깨끗한 곳과 어지러운 곳을 모두 관찰해 보세요. 결과 비교 탭에서 나란히 볼 수 있어요.',
+        idle: '자료, 이미 떨어져 있던 쓰레기 수, 나의 짐작을 고른 뒤 <b>일주일 관찰하기</b>를 누르세요.',
+        shortHint: '쓰레기 수를 0개부터 1개씩 올려 보세요. 몇 개부터 버리는 사람이 눈에 띄게 늘어나는지 찾아보세요.',
         params: [
           {key:'s', type:'seg', label:'자료', cols:2, value:0, options:SRC.map(function(x){ return x.n; })},
-          {key:'f', type:'seg', label:'바닥 상태', cols:2, value:0, options:FL},
+          {key:'pre', type:'range', label:'바닥에 이미 떨어져 있던 쓰레기 수', min:0, max:10, step:1, value:0, fmt:function(v){ return v + '개'; }},
           {key:'g', type:'seg', label:'나의 짐작 — 바닥에 버린 사람은 어느 쪽이 많았을까?', cols:2, value:1, options:GU,
             note:'뭉치는 "쓰레기는 각자 마음이지, 바닥이랑 상관없어!"라고 했어요.'}
         ],
         compute: function(p){
-          var s = SRC[p.s];
-          return {s:s, v:s.v[p.f], other:s.v[1 - p.f], ok:p.g === 0};
+          var s = SRC[p.s], pre = p.pre, fl = pre > 0 ? 1 : 0;
+          var v = modelOf(p.s, pre), clean = cleanOf(p.s), at = signalAt(p.s);
+          var isSig = v >= clean * 1.5;
+          return {s:s, pre:pre, f:fl, v:v, clean:clean, other:clean, ok:p.g === 0, at:at, isSig:isSig,
+            sigMsg:pre === 0 ? '깨끗한 바닥이에요 — 여기가 견줄 기준입니다'
+              : isSig ? '쓰레기 ' + pre + '개면 벌써 신호가 돼요 (깨끗할 때의 ' + f2(v / clean) + '배)'
+              : '아직 신호가 되기에는 모자라요 (깨끗할 때의 ' + f2(v / clean) + '배)',
+            atMsg:at === null ? '10개까지는 신호가 되지 않았어요' : '쓰레기 ' + at + '개부터 신호가 돼요 (깨끗할 때의 1.5배를 넘는 지점)'};
         },
         draw: function(c, W, H, p, r, tau){
-          var gy = H * 0.62, k = r ? Math.min(tau / 0.85, 1) : 0, messy = p.f === 1;
+          var gy = H * 0.62, k = r ? Math.min(tau / 0.85, 1) : 0, pf = p.pre > 0 ? 1 : 0, messy = pf === 1;
           c.fillStyle = messy ? '#E9E2D3' : '#F2F4F7'; c.fillRect(16, 40, W - 32, gy - 30);
-          txt(c, FL[p.f] + ' — ' + (p.s === 0 ? '사물함 줄' : '주차장'), 16, 28, {bold:true});
+          txtFit(c, (p.pre === 0 ? FL[0] : '쓰레기 ' + p.pre + '개 있는 바닥') + ' — ' + (p.s === 0 ? '사물함 줄' : '주차장'), 16, 28, {bold:true}, W - 32);
           if (p.s === 0){ var lw = (W - 40) / 6; for (var i = 0; i < 6; i++){ c.fillStyle = '#B9C3CF'; c.fillRect(20 + i * lw, 50, lw - 6, gy - 80); c.fillStyle = '#9AA5B1'; c.fillRect(20 + i * lw + lw - 20, 50 + (gy - 80) / 2, 6, 14); } }
           else { for (var cI = 0; cI < 3; cI++){ c.fillStyle = PAL[cI * 2 % 8]; c.fillRect(30 + cI * (W - 60) / 3, gy - 70, (W - 60) / 3 - 20, 40); } }
-          if (messy){ for (var m = 0; m < 6; m++){ c.fillStyle = '#A8702F'; c.fillRect(30 + (m * 97) % (W - 70), gy - 6 - (m % 2) * 8, 14, 8); } }
+          for (var m = 0; m < p.pre; m++){ c.fillStyle = '#A8702F'; c.fillRect(30 + (m * 97) % (W - 70), gy - 6 - (m % 3) * 8, 14, 8); }
           seg(c, 16, gy + 10, W - 16, gy + 10, '#9AA5B1', 2);
-          var total = p.s === 0 ? SRC[0].v[p.f] : SRC[1].v[p.f] * 3, shown = r ? Math.floor(total * k + 0.0001) : 0;
+          var mv = modelOf(p.s, p.pre);
+          var total = p.s === 0 ? mv : Math.round(mv * 3), shown = r ? Math.floor(total * k + 0.0001) : 0;
           for (var d = 0; d < shown; d++){ var x = 40 + ((d * 61) % (W - 90)), y = gy - 2 - (d % 3) * 6; c.fillStyle = PAL[4]; c.beginPath(); c.arc(x, y, 6, 0, Math.PI * 2); c.fill(); }
           if (r){ var wx = 16 + (W - 32) * ((tau * 1.3) % 1); c.fillStyle = '#26313D'; c.beginPath(); c.arc(wx, gy - 70, 10, 0, Math.PI * 2); c.fill(); c.fillRect(wx - 8, gy - 58, 16, 34); }
-          var by = gy + 34, bl = W - (W < 480 ? 175 : 140), mx   /* 좁은 화면: 막대 끝 숫자(9개) 자리를 남김 */ = Math.max(SRC[p.s].v[0], SRC[p.s].v[1]);
+          var by = gy + 34, bl = W - (W < 480 ? 175 : 140);
+          var vals = [cleanOf(p.s), mv], mx = Math.max(modelOf(p.s, 10), vals[0], vals[1]);
+          var nm2 = ['깨끗한 바닥 (0개)', '지금 (' + p.pre + '개)'];
           for (var b = 0; b < 2; b++){
-            var yy = by + b * 28, val = SRC[p.s].v[b], on = b === p.f || (r && tau >= 1);
-            txt(c, FL[b], 16, yy + 14, {color:'#4A5868'});
+            var yy = by + b * 28, val = vals[b], on = b === 0 || r;
+            txtFit(c, nm2[b], 16, yy + 14, {color:'#4A5868'}, 100);
             c.fillStyle = '#E6EBF1'; c.fillRect(120, yy, bl, 18);
-            if (on && r){ c.fillStyle = b ? PAL[4] : PAL[1]; c.fillRect(120, yy, bl * val / mx * (b === p.f ? k : 1), 18); txt(c, p.s === 0 ? val + '개' : (val === 1 ? '1' : '약 2'), 126 + bl * val / mx, yy + 15, {bold:true}); }
+            if (on && r){ c.fillStyle = b ? PAL[4] : PAL[1]; c.fillRect(120, yy, bl * val / mx * (b === 1 ? k : 1), 18);
+              txtFit(c, p.s === 0 ? f(val, 0) + '개' : f(val, 1) + '배', 126 + bl * val / mx, yy + 15, {bold:true}, Math.max(40, W - (126 + bl * val / mx) - 6)); }
           }
-          if (r && tau >= 1) txt(c, SRC[p.s].unit, 16, H - 6, {color:'#4A5868'});
+          if (r && tau >= 1) txtFit(c, SRC[p.s].unit, 16, H - 6, {color:'#4A5868'}, W - 32);
         },
         stats: function(p, r){
-          var nm = p.s === 0 ? function(v){ return v + '개'; } : function(v){ return v === 1 ? '1 (기준)' : '약 2배'; };
-          return [['자료', r.s.n], ['보는 것', r.s.unit], [FL[p.f], nm(r.v), p.f ? PAL[4] : PAL[1]], [FL[1 - p.f], nm(r.other)],
-            ['결과', '어지러운 곳에서 더 많이 버렸어요', PAL[3]],
-            ['나의 짐작', GU[p.g] + (r.ok ? ' — 결과와 맞음' : ' — 결과와 다름'), r.ok ? PAL[1] : PAL[4]]];
+          var nm = p.s === 0 ? function(v){ return f(v, 0) + '개'; } : function(v){ return f(v, 1) + '배 (깨끗한 곳 = 1)'; };
+          return [['자료', r.s.n], ['보는 것', r.s.unit],
+            ['이미 떨어져 있던 쓰레기', r.pre + '개'],
+            ['이 바닥에서 버린 양', nm(r.v), r.isSig ? PAL[4] : PAL[1]],
+            ['깨끗한 바닥(0개)에서', nm(r.clean)],
+            ['신호가 되었나', r.sigMsg, r.isSig ? PAL[4] : '#4A5868'],
+            ['몇 개부터 신호가 되나', r.atMsg, PAL[3]],
+            ['나의 짐작', GU[p.g] + (r.ok ? ' — 결과와 맞음' : ' — 결과와 다름'), r.ok ? PAL[1] : PAL[4]],
+            ['※', '쓰레기 개수에 따른 값은 두 연구의 양 끝값(0개와 10개)을 잇는 교육용 모형값입니다.']];
         },
-        columns: ['자료', '바닥', '값', '나의 짐작', '맞음'],
-        record: function(p, r){ return {s:p.s, f:p.f, g:p.g, ok:r.ok}; },
-        row: function(d){ var v = SRC[d.s].v[d.f]; return [d.s === 0 ? '사물함' : '주차장', FL[d.f], d.s === 0 ? v + '개' : (v === 1 ? '1' : '약 2배'), GU[d.g].slice(0, 1), d.ok ? '○' : '✕']; },
+        columns: ['자료', '이미 있던 쓰레기', '버린 양', '신호?', '나의 짐작', '맞음'],
+        record: function(p, r){ return {s:p.s, pre:r.pre, v:r.v, g:p.g, ok:r.ok, isSig:r.isSig}; },
+        row: function(d){ return [d.s === 0 ? '사물함' : '주차장', (d.pre == null ? 0 : d.pre) + '개',
+          d.s === 0 ? f(d.v, 0) + '개' : f(d.v, 1) + '배', d.isSig ? '예' : '아니오', GU[d.g].slice(0, 1), d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
-            card('바닥 상태별 비교', '<div id="lt1"></div><p class="ask">두 자료 모두 어지러운 곳이 더 많았나요? 바꾼 것이 바닥 상태뿐이라면, 바닥이 어떤 "신호"를 보낸 걸까요?</p>') +
+            card('쓰레기 수에 따른 비교', '<div id="lt1"></div><p class="ask">쓰레기 몇 개부터 버리는 사람이 눈에 띄게 늘었나요? 그 지점이 두 자료에서 같았나요?</p>') +
             card('나의 짐작', '<div id="lt2"></div><p class="ask">과제: 교실이나 집 앞 공공장소 한 곳을 정해 일주일 동안 날마다 떨어진 쓰레기 수를 세어 보세요. 함께 치운 날과 그다음 날의 수를 비교해 보세요. 주울 때는 장갑이나 집게를 쓰고, 깨진 유리처럼 위험한 것은 어른에게 알리세요.</p>') + '</div>';
           var rows = [];
-          SRC.forEach(function(s, i){ var seen = rec.filter(function(d){ return d.s === i; }); if (!seen.length) return;
-            rows.push([s.n, i === 0 ? s.v[0] + '개' : '1 (기준)', i === 0 ? s.v[1] + '개' : '약 2배']); });
-          $('lt1').innerHTML = tableHTML(['자료', '깨끗한 곳', '어지러운 곳'], rows) + (rows.length < 2 ? '<p class="msg">두 자료를 모두 관찰해 보세요.</p>' : '');
+          var by2 = groupBy(rec, function(d){ return d.s + '|' + (d.pre == null ? 0 : d.pre); });
+          Object.keys(by2).sort().forEach(function(key){ var d = by2[key][0];
+            rows.push([d.s === 0 ? '사물함' : '주차장', (d.pre == null ? 0 : d.pre) + '개',
+              d.s === 0 ? f(d.v, 0) + '개' : f(d.v, 1) + '배', d.isSig ? '신호가 됨' : '아직 아님']); });
+          $('lt1').innerHTML = tableHTML(['자료', '이미 있던 쓰레기', '버린 양', '신호?'], rows) +
+            '<p class="msg">사물함 자료는 쓰레기 ' + signalAt(0) + '개부터, 주차장 자료는 ' + signalAt(1) + '개부터 신호가 됩니다.</p>';
           var g = groupBy(rec, function(d){ return d.g; }), items = [];
           Object.keys(g).forEach(function(key){ items.push({label:GU[key].slice(0, 1) + ' ' + GU[key].slice(2, 12), v:g[key].length, color:+key === 0 ? PAL[1] : PAL[7], text:g[key].length + '번'}); });
           $('lt2').innerHTML = hbars(items, rec.length);
@@ -497,7 +534,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

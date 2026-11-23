@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -437,6 +439,13 @@ var LAB = (function(){
         {n:'(라) 아무것도 없는 빈 화면', s:'빈 화면', q:2, look:9, c:PAL[7]}
       ];
       var CT = [{n:'숫자 견주기 (우리 반이 좋아하는 과일)', s:'숫자 견주기', aid:'막대그래프'}, {n:'순서 알리기 (라면 끓이는 순서)', s:'순서 알리기', aid:'번호 매긴 그림'}, {n:'생김새 알리기 (우리 동네 나무)', s:'생김새 알리기', aid:'사진'}];
+      var CH = [300, 20, 10, 0];                         /* 화면에 적힌 글자 수(어림) */
+      var NM = ['글자 그대로', '글자 절반으로', '글자 두 배로', '핵심 20자만'], NK = [1, 0.5, 2, -1];
+      var BR = [3.5, 3.384, 1.517, 2];                   /* 화면 종류가 돕는 정도 — 교육용 모형값 */
+      function chOf(si, ni){ return NK[ni] < 0 ? 20 : Math.round(CH[si] * NK[ni]); }
+      function memF(ch){ return 1 / (1 + ch / 120); }    /* 글자가 많으면 기억이 떨어진다 */
+      function qOf(si, ni){ return Math.max(0, Math.min(3, BR[si] * memF(chOf(si, ni)))); }
+      function lookOf(si, ni){ return Math.max(0, Math.min(10, Math.round(SC[si].look + (CH[si] - chOf(si, ni)) / 60))); }
       var S = 2606;
       function R(){ S = (S * 1664525 + 1013904223) >>> 0; return S / 4294967296; }
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
@@ -446,15 +455,18 @@ var LAB = (function(){
         shortHint: '(가)와 (나)를 먼저 비교하고, 나머지 화면도 해 보세요. 발표 내용을 바꾸면 (나)의 자료가 바뀌어요.',
         params: [
           {key:'s', type:'seg', label:'발표 화면', cols:2, value:0, options:SC.map(function(x){ return x.n; })},
-          {key:'ct', type:'seg', label:'발표 내용', cols:1, value:0, options:CT.map(function(x){ return x.n; })}
+          {key:'ct', type:'seg', label:'발표 내용', cols:1, value:0, options:CT.map(function(x){ return x.n; })},
+          {key:'nc', type:'seg', label:'화면에 적은 글자 수', cols:2, value:0, options:NM,
+            note:'같은 화면이라도 글자 수를 내가 정할 수 있어요. 글자가 많아지면 청중이 화면만 읽어서 기억이 떨어져요. ※ 기억 점수와 쳐다본 사람 수는 교육용 모형값이에요.'}
         ],
         compute: function(p){
-          var sc = SC[p.s], q = [], look = [];
+          var sc = SC[p.s], q = [], ch = chOf(p.s, p.nc), qb = qOf(p.s, p.nc), lk = lookOf(p.s, p.nc);
           for (var i = 0; i < 10; i++){
-            var v = sc.q + (R() - 0.5) * 1.2; q.push(Math.max(0, Math.min(3, Math.round(v))));
-            look.push(i < sc.look);
+            var v = qb + (R() - 0.5) * 1.2; q.push(Math.max(0, Math.min(3, Math.round(v))));
           }
-          return {sc:sc, q:q, avg:mean(q), look:sc.look, aid:CT[p.ct].aid};
+          var avg = mean(q);
+          var vd = avg >= 2.3 ? '글자가 적어 잘 기억했어요' : avg >= 1.6 ? '반쯤만 기억했어요' : '글자가 많아 거의 기억하지 못했어요';
+          return {sc:sc, q:q, avg:avg, look:lk, ch:ch, nc:p.nc, aid:CT[p.ct].aid, vd:vd};
         },
         draw: function(c, W, H, p, r, tau){
           var sc = SC[p.s], ct = CT[p.ct], sw = Math.min(W * 0.6, W - 110), sh = Math.min(200, sw * 0.62), sx = 16, sy = 20;
@@ -483,26 +495,35 @@ var LAB = (function(){
             if (show && tau > 0.75) T(c, r.q[a] + '', 30 + a * cs, ay + 5, 13, '#fff', 'center', true);
           }
           T(c, sc.s + ' · ' + ct.s, 20, ay - 24, 14, sc.c, 'left', true);
-          if (r && tau >= 1) T(c, '평균 ' + f(r.avg, 1) + '개 맞힘 · 발표자를 본 친구 ' + r.look + '명', 20, ay + 40, W < 500 ? 14 : 16, '#1E2833', 'left', true);
+          if (r && tau >= 1){
+            T(c, '평균 ' + f(r.avg, 1) + '개 · 글자 ' + r.ch + '자', 20, ay + 40, W < 500 ? 14 : 16, '#1E2833', 'left', true);
+            T(c, '발표자를 본 친구 ' + r.look + '명', 20, ay + 64, W < 500 ? 14 : 16, '#4A5868', 'left', true);
+          }
         },
         stats: function(p, r){
           return [['화면', r.sc.n, r.sc.c], ['발표 내용', CT[p.ct].n],
+            ['화면 글자 수', r.ch + '자 (' + NM[r.nc] + ')'],
             ['맞힌 질문 수 (평균)', '약 ' + f(r.avg, 1) + '개 / 3개', PAL[0]],
             ['발표자를 쳐다본 친구', r.look + '명 / 10명', PAL[5]],
-            ['이 내용에 알맞은 자료', r.aid + (p.s === 1 ? ' — 지금 화면에 들어 있어요' : '')]];
+            ['이 내용에 알맞은 자료', r.aid + (p.s === 1 ? ' — 지금 화면에 들어 있어요' : '')],
+            ['판정', r.vd, r.avg >= 2.3 ? PAL[1] : r.avg >= 1.6 ? PAL[6] : PAL[4]]];
         },
-        columns: ['화면', '내용', '맞힌 수', '발표자 봄'],
-        record: function(p, r){ return {s:p.s, ct:p.ct, avg:r.avg, look:r.look}; },
-        row: function(d){ return [SC[d.s].s, CT[d.ct].s, f(d.avg, 1) + '개', d.look + '명']; },
+        columns: ['화면', '내용', '글자 수', '맞힌 수', '발표자 봄'],
+        record: function(p, r){ return {s:p.s, ct:p.ct, nc:p.nc, ch:r.ch, avg:r.avg, look:r.look}; },
+        row: function(d){ return [SC[d.s].s, CT[d.ct].s, d.ch + '자', f(d.avg, 1) + '개', d.look + '명']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('화면별 평균 맞힌 질문 수 (3개 중)', '<div id="sv1"></div><p class="ask">글자가 가장 많은 화면이 가장 많이 기억되었나요? "발표자를 본 친구"와 함께 생각해 보세요.</p>') +
             card('화면별 발표자를 본 친구 (10명 중)', '<div id="sv2"></div><p class="ask">과제: 내가 좋아하는 것 하나를 1분 동안 소개하는 발표를 준비하고, 종이 한 장에 핵심 낱말 세 개와 그림 하나만 그려 화면 대신 들고 발표해 보세요. 가족에게 기억나는 것 세 가지를 물어보세요.</p>') + '</div>';
           var a = [], b = [];
-          SC.forEach(function(sc, i){ var g = rec.filter(function(d){ return d.s === i; }); if (!g.length) return;
+          SC.forEach(function(sc, i){ var g = rec.filter(function(d){ return d.s === i && d.nc === 0; }); if (!g.length) return;
             var v = mean(g.map(function(d){ return d.avg; })); a.push({label:sc.s, v:v, color:sc.c, text:'약 ' + f(v, 1) + '개'});
             b.push({label:sc.s, v:g[0].look, color:PAL[5], text:g[0].look + '명'}); });
-          $('sv1').innerHTML = hbars(a, 3); $('sv2').innerHTML = hbars(b, 10);
+          var gl = rec.filter(function(d){ return d.nc !== 0; });
+          gl.slice(-4).forEach(function(d){ a.push({label:SC[d.s].s + ' · ' + d.ch + '자', v:d.avg, color:PAL[3], text:f(d.avg, 1) + '개'});
+            b.push({label:SC[d.s].s + ' · ' + d.ch + '자', v:d.look, color:PAL[3], text:d.look + '명'}); });
+          $('sv1').innerHTML = a.length ? hbars(a, 3) + '<p class="msg">같은 화면이라도 글자 수를 바꾸면 기억이 달라져요.</p>' : '<p class="msg">기록이 아직 없어요.</p>';
+          $('sv2').innerHTML = b.length ? hbars(b, 10) : '<p class="msg">기록이 아직 없어요.</p>';
         }
       };
     })();
@@ -511,7 +532,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

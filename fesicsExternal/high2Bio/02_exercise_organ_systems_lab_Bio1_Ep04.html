@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -306,9 +307,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -453,7 +455,9 @@ return {
   params: [
     {key:'i', type:'seg', label:'운동 강도 (자전거 페달 일률)', cols:3, value:3, options:INT.map(function(x){ return x.name; })},
     {key:'m', type:'range', label:'체중', min:45, max:80, step:5, value:60, fmt:function(v){ return v + ' kg'; }},
-    {key:'f', type:'seg', label:'체력', value:0, options:FIT.map(function(x){ return x.name + '<small>최대 산소 섭취량 ' + x.vmax + ' mL/kg/min</small>'; })}
+    {key:'f', type:'seg', label:'체력', value:0, options:FIT.map(function(x){ return x.name + '<small>최대 산소 섭취량 ' + x.vmax + ' mL/kg/min</small>'; })},
+    {key:'g', type:'range', label:'짐작 — 이 조건의 심장 박동 수', min:50, max:200, step:5, value:120, fmt:function(v){ return v + ' 회/분'; },
+      note:'같은 일률에서 체력만 바꿔 보세요. 심박이 얼마나 달라질지 먼저 적고 맞혀 보세요.'}
   ],
   compute: function(p){
     var I = INT[p.i], F = FIT[p.f], rest = 3.5 * p.m, vmax = F.vmax * p.m;
@@ -463,7 +467,9 @@ return {
     var vco2 = vo2 * rer, hr = F.hr0 + (HRMAX - F.hr0) * frac;
     var kcal = 3.941 * vo2 / 1000 + 1.106 * vco2 / 1000, watts = kcal * 69.78;
     var r10 = function(x){ return Math.round(x / 10) * 10; };
-    return {I:I, vo2:r10(vo2), vco2:r10(vco2), rer:rer, hr:Math.round(hr), kcal:kcal, EW:watts, eff:I.W ? I.W / watts * 100 : null, frac:frac};
+    var hrR = Math.round(hr);
+    return {I:I, vo2:r10(vo2), vco2:r10(vco2), rer:rer, hr:hrR, kcal:kcal, EW:watts, eff:I.W ? I.W / watts * 100 : null, frac:frac,
+      g:p.g, gdiff:hrR - p.g, ghit:Math.abs(hrR - p.g) <= 8};
   },
   draw: function(c, W, H, p, r, tau){
     var I = INT[p.i], cx = 110, cy = 200, hr = r ? r.hr : FIT[p.f].hr0, spin = r && I.W != null ? tau * 20 * (1 + I.W / 100) : 0;
@@ -497,16 +503,18 @@ return {
     var a = [['산소 섭취량 VO₂', r.vo2 + ' mL/min', '#3A8FB7'], ['이산화 탄소 배출량 VCO₂', r.vco2 + ' mL/min'], ['호흡률 VCO₂ ÷ VO₂', f(r.rer, 2)],
       ['심장 박동 수', r.hr + ' 회/분', '#C8463D'], ['에너지 소비', f(r.kcal, 2) + ' kcal/분 (' + Math.round(r.EW) + ' W)', '#2E9E78']];
     if (r.eff != null) a.push(['효율 = 한 일 ÷ 소비 에너지', f(r.eff, 1) + ' %']);
+    a.push(['짐작한 심박 → 실제', r.g + ' → ' + r.hr + ' 회/분 (' + (r.gdiff > 0 ? '+' : '') + r.gdiff + ')' + (r.ghit ? ' · 맞힘' : ' · 빗나감'), r.ghit ? '#2E9E78' : '#C8463D']);
     return a;
   },
-  columns: ['강도', '체중 (kg)', '체력', 'VO₂ (mL/min)', 'VCO₂ (mL/min)', '호흡률', '심박 (회/분)', '에너지 (kcal/분)', '효율 (%)'],
-  record: function(p, r){ return {i:p.i, W:r.I.W, m:p.m, f:p.f, vo2:r.vo2, vco2:r.vco2, rer:r.rer, hr:r.hr, kcal:r.kcal, eff:r.eff}; },
-  row: function(d){ return [INT[d.i].name, d.m, FIT[d.f].name, d.vo2, d.vco2, f(d.rer, 2), d.hr, f(d.kcal, 2), d.eff == null ? '−' : f(d.eff, 1)]; },
+  columns: ['강도', '체중 (kg)', '체력', 'VO₂ (mL/min)', 'VCO₂ (mL/min)', '호흡률', '심박 (회/분)', '짐작 심박', '맞힘', '에너지 (kcal/분)', '효율 (%)'],
+  record: function(p, r){ return {i:p.i, W:r.I.W, m:p.m, f:p.f, vo2:r.vo2, vco2:r.vco2, rer:r.rer, hr:r.hr, kcal:r.kcal, eff:r.eff, g:r.g, ghit:r.ghit}; },
+  row: function(d){ return [INT[d.i].name, d.m, FIT[d.f].name, d.vo2, d.vco2, f(d.rer, 2), d.hr, d.g == null ? '−' : d.g, d.g == null ? '−' : (d.ghit ? '○' : '×'), f(d.kcal, 2), d.eff == null ? '−' : f(d.eff, 1)]; },
   verify: function(rec, box){
     box.innerHTML = legend(FIT.map(function(x, i){ return {color:PAL[i], label:x.name}; })) + '<div class="vgrid">' +
       card('운동 강도와 산소 섭취량', '<canvas class="chart" id="ch1" role="img" aria-label="운동과 기관계의 통합 작용 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><ul class="readout" id="ro1"></ul><p class="ask">일률이 50 W 늘 때마다 산소 섭취량은 얼마씩 늘어나나요? 산소는 근육 세포에서 무엇을 만드는 데 쓰일까요?</p>') +
       card('산소 섭취량과 심장 박동', '<canvas class="chart" id="ch2" role="img" aria-label="운동과 기관계의 통합 작용 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas><p class="ask">같은 산소 섭취량에서 운동선수의 심장 박동이 더 느린 까닭은 순환계의 어떤 차이 때문일까요?</p>') +
-      card('에너지 소비와 효율', '<div id="ro3"></div><p class="ask">소비한 에너지 가운데 페달을 돌리는 일로 쓰이지 않은 나머지는 어디로 갈까요? 운동할 때 몸이 더워지는 것과 연결해 보세요.</p>') + '</div>';
+      card('에너지 소비와 효율', '<div id="ro3"></div><p class="ask">소비한 에너지 가운데 페달을 돌리는 일로 쓰이지 않은 나머지는 어디로 갈까요? 운동할 때 몸이 더워지는 것과 연결해 보세요.</p>') +
+      card('짐작한 심박 채점', '<div id="ro4"></div><p class="ask">같은 일률에서 체력이 다른 두 사람의 심박이 왜 달랐나요? 한 번에 내보내는 피의 양(1회 박출량)과 연결해 보세요.</p>') + '</div>';
     var ex = rec.filter(function(d){ return d.W != null; }), lines = [], ro = [];
     FIT.forEach(function(x, i){ var g = ex.filter(function(d){ return d.f === i; }); if (distinct(g.map(function(d){ return d.W; })) >= 2){ var L = linfit(g.map(function(d){ return {x:d.W, y:d.vo2}; })); lines.push({k:L.k, b:L.b, color:PAL[i]});
       ro.push('<li>' + dot(PAL[i]) + x.name + ': 1 W당 <b>' + f(L.k, 1) + ' mL/min</b>, 절편 ' + Math.round(L.b) + ' mL/min</li>'); } });
@@ -515,6 +523,25 @@ return {
     drawScatter($('ch2'), {xLabel:'VO₂ (mL/min)', yLabel:'심장 박동 (회/분)', series:FIT.map(function(x, i){ return {color:PAL[i], pts:rec.filter(function(d){ return d.f === i; }).map(function(d){ return {x:d.vo2, y:d.hr}; })}; })});
     var ew = ex.filter(function(d){ return d.eff != null; });
     $('ro3').innerHTML = ew.length ? hbars(ew.map(function(d){ return {label:INT[d.i].name + ', ' + d.m + ' kg', v:d.eff, color:PAL[d.f], text:f(d.eff, 1) + ' %'}; }), 30) : '<p class="msg">50 W 이상으로 운동한 기록이 있으면 효율을 비교할 수 있어요.</p>';
+    /* 짐작 채점 — 특히 '같은 일률 · 다른 체력' 짝에서 짐작이 어떻게 빗나갔는지 본다 */
+    (function(){
+      var gr = rec.filter(function(d){ return d.g != null; });
+      if (!gr.length){ $('ro4').innerHTML = '<p class="msg">짐작한 심박을 적고 측정하면 여기에서 채점해 줍니다.</p>'; return; }
+      var hit = gr.filter(function(d){ return d.ghit; }).length;
+      var err = gr.reduce(function(a, d){ return a + Math.abs(d.hr - d.g); }, 0) / gr.length;
+      var rows = gr.map(function(d){ return [INT[d.i].name, FIT[d.f].name, d.g, d.hr, (d.hr - d.g > 0 ? '+' : '') + (d.hr - d.g), d.ghit ? '○' : '×']; });
+      var html = '<p>맞힌 횟수 <b>' + hit + ' / ' + gr.length + '</b> (8회/분 안쪽) · 평균 오차 <b>' + f(err, 1) + ' 회/분</b></p>' +
+        tableHTML(['강도', '체력', '짐작', '실제', '차이', '맞힘'], rows);
+      var byW = groupBy(gr.filter(function(d){ return d.W != null; }), function(d){ return d.W; });
+      var pairs = [];
+      Object.keys(byW).forEach(function(k){
+        var a = byW[k].filter(function(d){ return d.f === 0; })[0], b = byW[k].filter(function(d){ return d.f === 1; })[0];
+        if (a && b) pairs.push('<li>' + k + ' W — ' + FIT[0].name + ' ' + a.hr + '회/분, ' + FIT[1].name + ' ' + b.hr + '회/분 (차이 <b>' + (a.hr - b.hr) + '회/분</b>)</li>');
+      });
+      html += pairs.length ? '<ul class="readout">' + pairs.join('') + '</ul>' :
+        '<p class="msg">같은 일률에서 <b>체력만</b> 바꿔 두 번 기록하면, 같은 일을 할 때 심박이 얼마나 달라지는지 짝지어 보여 줍니다.</p>';
+      $('ro4').innerHTML = html;
+    })();
   }
 };
 })();
@@ -523,7 +550,8 @@ return {
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

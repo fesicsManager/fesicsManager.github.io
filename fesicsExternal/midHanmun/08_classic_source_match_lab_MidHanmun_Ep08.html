@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -61,6 +61,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -294,9 +295,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -465,6 +467,8 @@ var LAB = (function anonymous(
 
 
       var BK = ['논어', '맹자', '순자', '회남자', '열자'];
+      var GN = ['유가 세 권(논어·맹자·순자)', '그 밖(회남자·열자)'];
+      function grp(i){ return i <= 2 ? 0 : 1; }
       var EX = [
         {ko:'과유불급', h:'過猶不及', b:0, q:'過猶不及 (선진)', mean:'지나침은 미치지 못함과 같다'},
         {ko:'온고지신', h:'溫故知新', b:0, q:'溫故而知新 (위정)', mean:'옛것을 익혀 새것을 앎'},
@@ -479,13 +483,16 @@ var LAB = (function anonymous(
         shortHint: '여섯 표현을 모두 이어 보세요.',
         params: [
           {key:'e', type:'seg', label:'표현', cols:3, value:0, options:EX.map(function(x){ return x.ko; })},
-          {key:'b', type:'seg', label:'출전이라고 생각하는 책', cols:5, value:0, options:BK.map(function(x){ return '『' + x + '』'; })}
+          {key:'b', type:'seg', label:'출전이라고 생각하는 책', cols:5, value:0, options:BK.map(function(x){ return '『' + x + '』'; })},
+          {key:'gmode', type:'seg', label:'무엇까지 맞히면 맞음으로 볼까', cols:2, value:0, options:['책 한 권까지', '묶음(유가 / 그 밖)까지'],
+            note:'범위를 넓히면 책을 틀려도 묶음이 같으면 맞음이 됩니다. 두 범위의 적중률 차이가 "어디까지 알고 있나"를 보여 줍니다.'}
         ],
-        compute: function(p){ var e = EX[p.e]; return {e:e, ok:e.b === p.b}; },
+        compute: function(p){ var e = EX[p.e], ex = e.b === p.b;
+          return {e:e, exact:ex, ok:p.gmode ? grp(p.b) === grp(e.b) : ex, gmode:p.gmode}; },
         draw: function(c, W, H, p, r, tau){
           var e = EX[p.e], n = BK.length, bw = (W - 30) / n, by = H - 120;
           for (var i = 0; i < n; i++){
-            var x = 15 + i * bw, hl = r && tau > 0.5 && (i === p.b || (!r.ok && tau > 0.75 && i === e.b));
+            var x = 15 + i * bw, hl = r && tau > 0.5 && (i === p.b || (!r.exact && tau > 0.75 && i === e.b));
             c.fillStyle = hl ? (i === e.b ? '#2E9E78' : '#C8463D') : '#7A5A3A'; c.fillRect(x + 8, by, bw - 16, 96);
             c.fillStyle = 'rgba(255,255,255,.18)'; c.fillRect(x + 12, by + 6, 4, 84);
             T(c, BK[i], x + bw / 2, by + 56, {size:Math.min(17, bw * 0.24), bold:true, align:'center', color:'#fff', max:bw - 20});
@@ -493,7 +500,7 @@ var LAB = (function anonymous(
           var cx = W / 2, cy = 40;
           if (r){
             var k1 = ease(tau / 0.5), tx = 15 + p.b * bw + bw / 2; cx = W / 2 + (tx - W / 2) * k1; cy = 40 + (by - 90 - 40) * k1;
-            if (!r.ok && tau > 0.6){ var k2 = ease((tau - 0.6) / 0.3), t2 = 15 + e.b * bw + bw / 2; cx = tx + (t2 - tx) * k2; }
+            if (!r.exact && tau > 0.6){ var k2 = ease((tau - 0.6) / 0.3), t2 = 15 + e.b * bw + bw / 2; cx = tx + (t2 - tx) * k2; }
           }
           var cw = Math.min(220, W * 0.6);
           cx = Math.max(cw / 2 + 4, Math.min(W - cw / 2 - 4, cx));
@@ -501,25 +508,39 @@ var LAB = (function anonymous(
           T(c, e.h, cx, cy + 34, {size:26, bold:true, align:'center', max:cw - 16});
           T(c, e.ko, cx, cy + 60, {size:15, align:'center', color:'#4A5868'});
           if (r && tau >= 0.9){
-            T(c, (r.ok ? '○ ' : '✕ ') + '『' + BK[e.b] + '』 ' + e.q, W / 2, 140, {bold:true, align:'center', color:r.ok ? PAL[1] : PAL[4], max:W - 30, size:17});
+            T(c, (r.exact ? '○ ' : '✕ ') + '『' + BK[e.b] + '』 ' + e.q, W / 2, 140, {bold:true, align:'center', color:r.exact ? PAL[1] : PAL[4], max:W - 30, size:17});
             T(c, '뜻: ' + e.mean, W / 2, 172, {align:'center', color:'#4A5868', max:W - 30, size:16});
           }
         },
         stats: function(p, r){
           return [['표현', r.e.ko + ' ' + r.e.h, PAL[0]], ['내가 고른 책', '『' + BK[p.b] + '』'], ['실제 출전', '『' + BK[r.e.b] + '』 — ' + r.e.q, r.ok ? PAL[1] : PAL[4]],
-            ['판정', r.ok ? '맞음' : '다름', r.ok ? PAL[1] : PAL[4]], ['지금 쓰는 뜻', r.e.mean, PAL[3]]];
+            ['판정', r.ok ? '맞음' : '다름', r.ok ? PAL[1] : PAL[4]], ['지금 쓰는 뜻', r.e.mean, PAL[3]],
+            ['맞음으로 보는 범위', ['책 한 권까지', '묶음(유가 / 그 밖)까지'][r.gmode]],
+            ['책까지 맞혔나', r.exact ? '맞음' : '다름 — 『' + BK[r.e.b] + '』', r.exact ? PAL[1] : PAL[4]],
+            ['이 표현이 든 묶음', GN[grp(r.e.b)] + (r.gmode ? (grp(p.b) === grp(r.e.b) ? ' — 내 답과 같은 묶음' : ' — 내 답과 다른 묶음') : ''), PAL[6]]];
         },
-        columns: ['표현', '고른 책', '실제 출전', '판정'],
-        record: function(p, r){ return {e:p.e, b:p.b, ok:r.ok}; },
-        row: function(d){ return [EX[d.e].ko, BK[d.b], BK[EX[d.e].b], d.ok ? '○' : '✕']; },
+        columns: ['표현', '고른 책', '실제 출전', '판정', '범위', '묶음'],
+        record: function(p, r){ return {e:p.e, b:p.b, ok:r.ok, exact:r.exact, gmode:r.gmode}; },
+        row: function(d){ return [EX[d.e].ko, BK[d.b], BK[EX[d.e].b], d.ok ? '○' : '✕', d.gmode ? '묶음' : '책', grp(d.b) === grp(EX[d.e].b) ? '같음' : '다름']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('표현별 출전 잇기 결과', '<div id="mh8a"></div><p class="ask">가장 많이 나온 책은 무엇인가요? 한 권의 책에서 우리말 표현이 여러 개 나온 까닭을 생각해 보세요.</p>') +
+            card('책 한 권까지 vs 묶음까지 — 그리고 일상어 속 고전의 비중', '<div id="mh8c"></div><p class="ask">책은 틀렸지만 묶음은 맞은 적이 있나요? 한 묶음에서 표현이 몰려 나온 까닭을 생각해 보세요.</p>') +
             card('지금도 쓰이는 전문 분야 한자어', '<div id="mh8b"></div><p class="ask">과제: 고전에서 온 표현 다섯 개를 골라 출전·원문 맥락·현대 용법을 정리하고, 그중 현대에 뜻이 달라진 것을 찾아보세요.</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.e; }), items = [];
           EX.forEach(function(x, i){ var g = by[i]; if (!g) return; var ok = g.filter(function(d){ return d.ok; }).length / g.length * 100;
             items.push({label:x.ko + ' → ' + BK[x.b], v:ok, color:ok >= 50 ? PAL[1] : PAL[4], text:f(ok, 0) + '%'}); });
           $('mh8a').innerHTML = hbars(items, 100) + (Object.keys(by).length < 6 ? '<p class="msg">아직 잇지 않은 표현이 있어요.</p>' : '');
+          var cnt = [0, 0, 0, 0, 0]; EX.forEach(function(x){ cnt[x.b]++; });
+          var gc = [0, 0]; EX.forEach(function(x){ gc[grp(x.b)]++; });
+          var rowsB = BK.map(function(b, i){ return ['『' + b + '』', EX.filter(function(x){ return x.b === i; }).map(function(x){ return x.ko; }).join(', ') || '—', cnt[i] + '개 (' + f(cnt[i] / EX.length * 100, 0) + '%)']; });
+          rowsB.push(['<b>' + GN[0] + '</b>', '', '<b>' + gc[0] + ' / ' + EX.length + ' (' + f(gc[0] / EX.length * 100, 0) + '%)</b>']);
+          rowsB.push(['<b>' + GN[1] + '</b>', '', '<b>' + gc[1] + ' / ' + EX.length + ' (' + f(gc[1] / EX.length * 100, 0) + '%)</b>']);
+          var exn = rec.filter(function(d){ return d.exact; }).length, grn = rec.filter(function(d){ return grp(d.b) === grp(EX[d.e].b); }).length;
+          $('mh8c').innerHTML = tableHTML(['책 · 묶음', '여기서 온 표현', '표현 수'], rowsB) +
+            hbars([{label:'책까지 맞힘', v:exn / rec.length * 100, color:PAL[0], text:exn + '/' + rec.length + ' (' + f(exn / rec.length * 100, 0) + '%)'},
+                   {label:'묶음까지 맞힘', v:grn / rec.length * 100, color:PAL[1], text:grn + '/' + rec.length + ' (' + f(grn / rec.length * 100, 0) + '%)'}], 100) +
+            '<p class="msg">두 값의 차이가 "책은 몰라도 어느 계열인지는 알았다"는 몫이에요. 표현 ' + EX.length + '개 가운데 ' + gc[0] + '개가 유가 세 권에서 왔습니다.</p>';
           $('mh8b').innerHTML = tableHTML(['분야', '용어', '뜻의 구성'], [['법률', '善意 / 惡意', '어떤 사실을 모름 / 알고 있음 (일상 뜻과 다름)'], ['법률', '過失 · 故意', '부주의로 잘못함 / 일부러'],
             ['의학', '高血壓 · 貧血', '높은 혈압 / 피가 모자람'], ['경제', '需要 · 供給', '필요해서 구함 / 대어 줌'], ['학술', '假說 · 歸納 · 演繹', '임시 설명 / 모아서 이끎 / 펼쳐 냄']]);
         }
@@ -531,7 +552,8 @@ var LAB = (function anonymous(
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

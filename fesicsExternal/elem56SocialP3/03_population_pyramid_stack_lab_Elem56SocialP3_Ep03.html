@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -301,9 +302,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -438,11 +440,29 @@ function hbars(items, max){
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
       var AG = ['0~14세', '15~39세', '40~64세', '65세 이상'];
-      var NA = [{n:'나라 가', v:[45, 35, 16, 4], shape:0, c:PAL[1]}, {n:'나라 나', v:[11, 27, 42, 20], shape:2, c:PAL[3]}];
+      var NA = [{n:'나라 가', v:[45, 35, 16, 4], shape:0, c:PAL[1]}, {n:'나라 나', v:[11, 27, 42, 20], shape:2, c:PAL[3]},
+        {n:'나라 다 — 내가 정한 나라 (아래 슬라이더)', v:null, shape:0, c:PAL[0], custom:true}];
       var LK = [{n:'어린이 (0~14세)', s:'어린이', idx:[0]}, {n:'일하는 나이 (15~64세)', s:'15~64세', idx:[1, 2]}, {n:'노인 (65세 이상)', s:'노인', idx:[3]}];
       var SH = ['아래가 넓은 삼각형', '모든 나이대가 같은 네모', '아래가 좁은 항아리'];
       function T(c, s, x, y, sz, col, al, b){ c.font = (b ? '700 ' : '') + sz + 'px ' + FONT; c.fillStyle = col || '#1E2833'; c.textAlign = al || 'left'; c.textBaseline = 'alphabetic'; c.fillText(s, x, y); }
-      function sum(na, lk){ var s = 0; lk.idx.forEach(function(i){ s += na.v[i]; }); return s; }
+      function sumV(V, lk){ var s = 0; lk.idx.forEach(function(i){ s += V[i]; }); return s; }
+      /* 쌓은 모양을 미리 정해 두지 않고 막대에서 가려낸다 */
+      function shapeOf(V){ var mx = 0; V.forEach(function(x, i){ if (x > V[mx]) mx = i; });
+        if (mx === 0 && V[0] >= V[1] * 1.15) return 0;
+        if (V[0] < V[2]) return 2;
+        return 1; }
+      /* 해마다 태어나는 아기 수가 세대마다 g 배로 바뀌고, 한 나이대를 넘길 때마다 s 비율이 살아남는다고 보는
+         아주 단순한 교육용 모형. 네 나이대 폭은 15·25·25·20년으로 어림한다. */
+      function mkV(g, s){
+        var w = [15, 25, 25, 20], raw = [], b = 1, i;
+        for (i = 0; i < 4; i++){ raw.push(b * w[i] * Math.pow(s, i)); b = b / g; }
+        var tot = raw.reduce(function(a, x){ return a + x; }, 0);
+        var out = raw.map(function(x){ return Math.max(0, Math.round(x / tot * 100)); });
+        var d = 100 - out.reduce(function(a, x){ return a + x; }, 0);
+        out[1] = Math.max(0, out[1] + d);
+        return out;
+      }
+      function vOf(p){ var na = NA[p.c]; return na.custom ? mkV(p.bt / 100, p.lf / 100) : na.v; }
       return {
         sceneHeight: 400,
         idle: '나라, 살펴볼 나이대, 예측 모양을 고른 뒤 <b>막대 쌓기</b>를 누르세요.',
@@ -450,15 +470,20 @@ var LAB = (function(){
         params: [
           {key:'c', type:'seg', label:'나라 (인구 100명, 가상)', cols:2, value:0, options:NA.map(function(x){ return x.n; })},
           {key:'lk', type:'seg', label:'살펴볼 나이대', cols:3, value:0, options:LK.map(function(x){ return x.n; })},
-          {key:'g', type:'seg', label:'예측: 쌓은 모양은?', cols:3, value:0, options:SH, note:'사람은 아기로 태어나니까 어느 나라나 아래가 넓을까요?'}
+          {key:'g', type:'seg', label:'예측: 쌓은 모양은?', cols:3, value:0, options:SH, note:'사람은 아기로 태어나니까 어느 나라나 아래가 넓을까요?'},
+          {key:'bt', type:'range', label:'나라 다 — 태어나는 아기 수가 한 세대마다', min:50, max:160, step:10, value:100, fmt:function(x){ return (x / 100).toFixed(1) + '배'; }},
+          {key:'lf', type:'range', label:'나라 다 — 다음 나이대까지 살아남는 비율', min:50, max:100, step:5, value:80, fmt:function(x){ return x + '%'; }, note:'나라 다를 고르면 이 두 값으로 네 막대를 계산해요. 1.0배보다 작게 두면(아기가 줄어들면) 몇 세대 뒤 모양이 어떻게 되나요? (단순한 교육용 모형)'}
         ],
         compute: function(p){
-          var na = NA[p.c], lk = LK[p.lk], s = sum(na, lk), mx = 0;
-          na.v.forEach(function(v, i){ if (v > na.v[mx]) mx = i; });
-          return {na:na, lk:lk, s:s, shape:na.shape, ok:p.g === na.shape, maxAge:AG[mx]};
+          var na = NA[p.c], V = vOf(p), lk = LK[p.lk], s = sumV(V, lk), mx = 0;
+          V.forEach(function(v, i){ if (v > V[mx]) mx = i; });
+          var shape = shapeOf(V);
+          return {na:na, V:V, lk:lk, s:s, shape:shape, ok:p.g === shape, maxAge:AG[mx],
+            kids:V[0], olds:V[3], ratio:(V[3] ? V[0] / V[3] : null), aging:(V[3] >= 14)};
         },
         draw: function(c, W, H, p, r, tau){
-          var na = NA[p.c], lk = LK[p.lk], narrow = W < 560, lw = narrow ? 64 : 84, maxw = W - lw - 40, cx = lw + 20 + maxw / 2;
+          var na = NA[p.c], V = vOf(p), lk = LK[p.lk], narrow = W < 560, lw = narrow ? 64 : 84, maxw = W - lw - 40, cx = lw + 20 + maxw / 2;
+          var scale = Math.max(45, V[0], V[1], V[2], V[3]);
           var bh = narrow ? 44 : 50, gap = 8, y0 = H - 70;
           T(c, na.n + ' (인구 100명)', 20, 26, narrow ? 14 : 17, na.c, 'left', true);
           for (var i = 0; i < 4; i++){
@@ -466,9 +491,9 @@ var LAB = (function(){
             T(c, AG[i], lw + 6, y + bh / 2 + 5, narrow ? 11 : 14, '#4A5868', 'right');
             c.strokeStyle = '#D5DCE4'; c.lineWidth = 1; c.strokeRect(lw + 20, y, maxw, bh);
             if (k > 0){
-              var w = na.v[i] / 45 * maxw * k, on = lk.idx.indexOf(i) >= 0;
+              var w = V[i] / scale * maxw * k, on = lk.idx.indexOf(i) >= 0;
               c.globalAlpha = on ? 1 : 0.35; c.fillStyle = na.c; c.fillRect(cx - w / 2, y, w, bh); c.globalAlpha = 1;
-              if (k >= 1) T(c, na.v[i] + '명', cx, y + bh / 2 + 6, narrow ? 13 : 16, on ? '#fff' : '#1E2833', 'center', true);
+              if (k >= 1) T(c, V[i] + '명', cx, y + bh / 2 + 6, narrow ? 13 : 16, on ? '#fff' : '#1E2833', 'center', true);
             }
           }
           if (r && tau >= 0.8){
@@ -477,26 +502,34 @@ var LAB = (function(){
           }
         },
         stats: function(p, r){
-          return [['나라', r.na.n + ' (가상)'], ['쌓은 모양', SH[r.shape], r.na.c],
+          return [['나라', r.na.n + ' (가상)'], ['나이대별 사람 수', AG.map(function(a, i){ return a + ' ' + r.V[i] + '명'; }).join(' · ')],
+            ['쌓은 모양 (막대에서 가려냄)', SH[r.shape], r.na.c],
             [r.lk.n, r.s + '명 / 100명', PAL[0]], ['가장 긴 막대', r.maxAge],
+            ['어린이 ÷ 노인', r.ratio === null ? '노인이 0명이라 셀 수 없어요' : '약 ' + f(r.ratio, 1) + '배', PAL[1]],
+            ['노인이 많은 나라인가 (65세 이상 14% 이상)', r.aging ? '✅ 그렇다 — ' + r.olds + '명' : '❌ 아니다 — ' + r.olds + '명', r.aging ? PAL[6] : PAL[1]],
             ['내 예측', SH[p.g] + (r.ok ? ' — ○' : ' — ✕'), r.ok ? PAL[1] : PAL[4]],
             ['우리나라는?', '나라 나와 닮았어요 — 2024년 65세 이상 20% 넘음', PAL[6]]];
         },
-        columns: ['나라', '살펴본 나이대', '사람 수', '예측 모양', '맞음'],
-        record: function(p, r){ return {c:p.c, lk:p.lk, s:r.s, g:p.g, ok:r.ok}; },
-        row: function(d){ return [NA[d.c].n, LK[d.lk].s, d.s + '명', SH[d.g], d.ok ? '○' : '✕']; },
+        columns: ['나라', '어린이', '노인', '쌓인 모양', '살펴본 나이대', '사람 수', '예측 모양', '맞음'],
+        record: function(p, r){ return {c:p.c, lk:p.lk, s:r.s, g:p.g, ok:r.ok, V:r.V, shape:r.shape, bt:p.bt, lf:p.lf, aging:r.aging}; },
+        row: function(d){ return [NA[d.c].custom ? ('나라 다 (아기 ' + (d.bt / 100).toFixed(1) + '배 · 살아남음 ' + d.lf + '%)') : NA[d.c].n, d.V[0] + '명', d.V[3] + '명', SH[d.shape], LK[d.lk].s, d.s + '명', SH[d.g], d.ok ? '○' : '✕']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('두 나라의 나이대별 사람 수', '<div id="pp1"></div><p class="ask">나라 가와 나라 나에서 어린이 막대는 각각 몇 명이었나요? "어느 나라나 어린이가 가장 많다"는 말이 맞나요?</p>') +
             card('살펴본 나이대 견주기', '<div id="pp2"></div><p class="ask">과제: 통계 누리집에서 우리나라 인구 피라미드를 찾아보고, 가장 긴 막대가 어느 나이대인지 적어 보세요. 다른 나라 하나도 찾아 모양을 비교해 보세요.</p>') + '</div>';
           var seen = groupBy(rec, function(d){ return d.c; }), rows = [];
-          NA.forEach(function(na, i){ if (!seen[i]) return; rows.push([na.n].concat(na.v.map(function(v){ return v + '명'; })).concat([SH[na.shape]])); });
+          NA.forEach(function(na, i){ var g = seen[i]; if (!g) return; var V = g[g.length - 1].V;
+            rows.push([na.n].concat(V.map(function(v){ return v + '명'; })).concat([SH[shapeOf(V)]])); });
           $('pp1').innerHTML = tableHTML(['나라', '0~14세', '15~39세', '40~64세', '65세 이상', '모양'], rows) + (rows.length < 2 ? '<p class="msg">아직 쌓지 않은 나라가 있어요.</p>' : '');
           var items = [];
           NA.forEach(function(na, ci){ LK.forEach(function(lk, li){
-            if (!rec.some(function(d){ return d.c === ci && d.lk === li; })) return;
-            var s = sum(na, lk); items.push({label:na.n + ' · ' + lk.s, v:s, color:na.c, text:s + '명'}); }); });
-          $('pp2').innerHTML = hbars(items, 100) + '<p class="msg">우리나라는 나라 나처럼 어린이가 적고 노인이 많아지는 항아리 모양이에요.</p>';
+            var x = rec.filter(function(d){ return d.c === ci && d.lk === li; }); if (!x.length) return;
+            var s = sumV(x[x.length - 1].V, lk); items.push({label:na.n + ' · ' + lk.s, v:s, color:na.c, text:s + '명'}); }); });
+          $('pp2').innerHTML = hbars(items, 100) + '<p class="msg">우리나라는 나라 나처럼 어린이가 적고 노인이 많아지는 항아리 모양이에요.</p>'
+            + (function(){ var cu = rec.filter(function(d){ return NA[d.c].custom; });
+              if (cu.length < 2) return '<p class="msg">나라 다를 골라 <b>태어나는 아기 수</b>를 1.3배 · 1.0배 · 0.7배로 바꿔 가며 쌓아 보세요. 같은 수명이어도 아기가 줄면 삼각형이 항아리로 바뀝니다.</p>';
+              var k = {}; cu.forEach(function(d){ k[(d.bt / 100).toFixed(1) + '배 / 살아남음 ' + d.lf + '%'] = SH[d.shape] + ' (어린이 ' + d.V[0] + '명 · 노인 ' + d.V[3] + '명)'; });
+              return '<p class="msg">나라 다로 돌려 본 결과 — ' + Object.keys(k).map(function(x){ return x + ' → ' + k[x]; }).join(' / ') + '. 아기가 <b>줄어드는</b> 쪽으로 두면 아래가 좁아지고, 오래 사는 비율이 높아지면 위가 두꺼워집니다. 모양은 미리 정해 둔 것이 아니라 <b>막대에서 가려낸</b> 결과입니다. (단순한 교육용 모형)</p>'; })();
         }
       };
     })();
@@ -505,7 +538,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

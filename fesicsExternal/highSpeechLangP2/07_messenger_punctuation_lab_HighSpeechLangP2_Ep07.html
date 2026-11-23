@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -298,9 +299,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -473,51 +475,82 @@ return (function(){
       var R = [{s:'알겠어', v:[9, 9, 2]}, {s:'알겠어.', v:[3, 10, 7]}, {s:'알겠어~', v:[15, 4, 1]}, {s:'알겠어ㅎㅎ', v:[16, 3, 1]}, {s:'ㅇㅇ', v:[4, 12, 4]}];
       var K = ['기꺼이 맡았다', '마지못해 맡았다', '화가 났다'], KC = [PAL[1], PAL[6], PAL[4]];
       function top(v){ var m = Math.max(v[0], v[1], v[2]), o = []; v.forEach(function(n, i){ if (n === m) o.push(i); }); return o; }
+      var WHO = ['친한 친구', '선생님', '처음 보는 사람'];
+      /* 받는 사람에 따라 같은 기호가 다르게 읽힌다고 본 교육용 모형값.
+         사람 수 20명을 옮기기만 하므로 합은 늘 20명이다 */
+      function adj(sv, who){
+        var v = [sv.v[0], sv.v[1], sv.v[2]], light = /[~ㅎ]/.test(sv.s), m;
+        if (who === 1){
+          m = Math.round(v[2] * 0.6); v[0] += m; v[2] -= m;        /* 격식으로 읽혀 화남이 줄어든다 */
+          if (light){ m = Math.min(v[0], 4); v[0] -= m; v[1] += m; } /* 가벼운 기호는 선생님께는 어색하게 읽힌다 */
+        } else if (who === 2){
+          m = Math.min(v[0], 5); v[0] -= m; v[1] += Math.ceil(m / 2); v[2] += Math.floor(m / 2);
+          if (!light){ m = Math.min(v[0], 2); v[0] -= m; v[2] += m; } /* 기호가 없으면 더 차갑게 읽힌다 */
+        }
+        return v;
+      }
       return {
         sceneHeight: 430,
-        idle: '답장과 나의 예측을 고른 뒤 <b>이 답장 보내기</b>를 누르세요.',
+        idle: '답장·받는 사람·나의 예측을 고른 뒤 <b>이 답장 보내기</b>를 누르세요. 같은 마침표가 관계에 따라 다르게 읽히는지 보세요.',
         shortHint: '다섯 답을 모두 보내 보세요. 마침표 하나로 ‘화가 났다’가 몇 명 늘었나요?',
         params: [
           {key:'r', type:'seg', label:'답장 (낱말은 같음)', cols:3, value:1, options:R.map(function(x){ return x.s; })},
+          {key:'w', type:'seg', label:'받는 사람 (답장은 같음)', cols:3, value:0, options:WHO},
           {key:'g', type:'seg', label:'나의 예측 — 가장 많은 해석', cols:3, value:0, options:K}
         ],
-        compute: function(p){ var x = R[p.r], t = top(x.v); return {x:x, t:t, ok:t.indexOf(p.g) >= 0}; },
+        compute: function(p){ var x = R[p.r], who = p.w || 0, v = adj(x, who), t = top(v);
+          var base = top(x.v);
+          return {x:x, v:v, who:who, t:t, ok:t.indexOf(p.g) >= 0,
+            moved:(t.join(',') !== base.join(',')),
+            baseT:base}; },
         draw: function(c, W, H, p, r, tau){
-          var x = R[p.r];
+          var x = R[p.r], vv = r ? r.v : x.v;
           rbox(c, 20, 12, W - 40, 170, '#B9CBDD');
           rbox(c, 32, 22, Math.min(W - 70, 380), 78, '#fff');
-          wrapT(c, '제로: 내일 실험 준비 네가 맡아 줄 수 있어? 갑자기 부탁해서 미안해 ㅠㅠ', 44, 44, Math.min(W - 94, 356), 20, {size:14});
+          wrapT(c, (p.w === 1 ? '선생님' : p.w === 2 ? '처음 보는 사람' : '제로') + ': 내일 실험 준비 네가 맡아 줄 수 있어? 갑자기 부탁해서 미안해 ㅠㅠ', 44, 44, Math.min(W - 94, 356), 20, {size:14});
           var a = r ? ph(tau, 0, 0.3) : 1;
           c.globalAlpha = a; c.font = '700 20px ' + FONT; var bw = c.measureText(x.s).width + 30;
           rbox(c, W - 32 - bw, 118, bw, 46, '#FFE14D'); tx(c, x.s, W - 32 - bw / 2, 148, {bold:true, size:20, align:'center'}); c.globalAlpha = 1;
           if (!r){ tx(c, '나의 예측: ' + K[p.g], 20, H - 18, {color:'#4A5868'}); return; }
           var b = ph(tau, 0.3, 0.85), shown = Math.round(20 * b), cols = 10, cs = Math.min(36, (W - 40) / cols - 4), k = 0;
-          for (var j = 0; j < 3; j++) for (var q = 0; q < x.v[j]; q++){
+          for (var j = 0; j < 3; j++) for (var q = 0; q < vv[j]; q++){
             if (k < shown){ var cx = 20 + (k % cols) * (cs + 4), cy = 200 + Math.floor(k / cols) * (cs + 4); c.fillStyle = KC[j]; c.fillRect(cx, cy, cs, cs); }
             k++;
           }
           var ly = 200 + 2 * (cs + 4) + 26;
-          K.forEach(function(s, j){ tx(c, s + ' ' + (tau > 0.85 ? x.v[j] : Math.round(x.v[j] * b)) + '명', 20, ly + j * 24, {size:15, bold:true, color:KC[j]}); });
+          K.forEach(function(s, j){ tx(c, s + ' ' + (tau > 0.85 ? vv[j] : Math.round(vv[j] * b)) + '명', 20, ly + j * 24, {size:15, bold:true, color:KC[j]}); });
           if (tau > 0.9){
-            tx(c, '최다: ' + r.t.map(function(i){ return K[i]; }).join(' = '), W - 20, ly, {size:14, bold:true, align:'right', color:'#26313D'});
-            mark(c, W - 46, ly + 46, 22, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4], ph(tau, 0.9, 1));
+            /* 좁은 화면: 오른쪽에 두면 왼쪽 인원 글과 겹치므로 목록 아래에 적는다 */
+            var narrow = W < 560, ty = narrow ? ly + K.length * 24 + 6 : ly;
+            tx(c, '최다: ' + r.t.map(function(i){ return K[i]; }).join(' = '), narrow ? 20 : W - 20, ty, {size:14, bold:true, align:narrow ? 'left' : 'right', color:'#26313D'});
+            mark(c, narrow ? W / 2 : W - 46, ty + (narrow ? 34 : 46), narrow ? 18 : 22, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4], ph(tau, 0.9, 1));
           }
         },
         stats: function(p, r){
           var x = r.x;
-          return [['답장', x.s], ['기꺼이 · 마지못해 · 화가 났다', x.v.join(' · ') + ' (20명)'], ['가장 많은 해석', r.t.map(function(i){ return K[i]; }).join(' = ') + (r.t.length > 1 ? ' (동률)' : ''), PAL[3]],
-            ['나의 예측', K[p.g], PAL[0]], ['판정', r.ok ? '맞혔어요' : '달라요', r.ok ? PAL[1] : PAL[4]], ['‘화가 났다’ (기호 없는 ‘알겠어’ 대비)', x.v[2] + '명 (' + sgn(x.v[2] - 2, 0) + ')', PAL[4]]];
+          return [['답장 · 받는 사람', x.s + ' → ' + WHO[r.who]], ['기꺼이 · 마지못해 · 화가 났다 (교육용 모형값)', r.v.join(' · ') + ' (20명)'],
+            ['가장 많은 해석', r.t.map(function(i){ return K[i]; }).join(' = ') + (r.t.length > 1 ? ' (동률)' : ''), PAL[3]],
+            ['나의 예측', K[p.g], PAL[0]], ['판정', r.ok ? '맞혔어요' : '달라요', r.ok ? PAL[1] : PAL[4]],
+            ['받는 사람을 바꾸면', r.who === 0 ? '친한 친구 기준입니다. 선생님·처음 보는 사람으로 바꿔 보세요.'
+              : (r.moved ? '가장 많은 해석이 친한 친구일 때(' + r.baseT.map(function(i){ return K[i]; }).join(' = ') + ')와 달라졌습니다'
+                         : '가장 많은 해석은 친한 친구일 때와 같지만 사람 수는 달라졌습니다'), r.moved ? PAL[4] : PAL[6]],
+            ['‘화가 났다’', r.v[2] + '명', PAL[4]]];
         },
-        columns: ['답장', '기꺼이', '마지못해', '화남', '나의 예측', '맞음'],
-        record: function(p, r){ return {r:p.r, g:p.g, ok:r.ok}; },
-        row: function(d){ var x = R[d.r]; return [x.s, x.v[0], x.v[1], x.v[2], K[d.g].slice(0, 4), d.ok ? '예' : '아니오']; },
+        columns: ['답장', '받는 사람', '기꺼이', '마지못해', '화남', '가장 많은 해석'],
+        record: function(p, r){ return {r:p.r, g:p.g, ok:r.ok, w:r.who, v:r.v.slice(), t:r.t.slice()}; },
+        row: function(d){ return [R[d.r].s, WHO[d.w], d.v[0], d.v[1], d.v[2], d.t.map(function(i){ return K[i].slice(0, 4); }).join('=')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('답장별 해석 (20명)', '<div id="sl7a"></div><p class="ask">‘알겠어.’를 ‘기꺼이’로 읽은 사람도 3명 있어요. 기호의 뜻이 사전처럼 하나로 정해져 있지 않다는 것을 이 숫자로 설명해 보세요.</p>') +
+            card('받는 사람에 따라 달라지는 읽기', '<div id="sl7c"></div><p class="ask">같은 ‘알겠어.’ 가 친한 친구와 선생님에게 다르게 읽혔나요? 기호의 뜻이 관계에 따라 달라진다는 것을 숫자로 설명해 보세요.</p>') +
             card('‘화가 났다’로 읽은 사람', '<div id="sl7b"></div><p class="ask">과제: ‘내일 봐’를 마침표·물결표·ㅎㅎ·이모티콘·느낌표로 다섯 가지 써서 가족과 친구 다섯 명에게 느낌을 물어보세요. 세대나 관계에 따라 해석이 같은 곳과 다른 곳을 표로 정리해 보세요.</p>') + '</div>';
           var tried = groupBy(rec, function(d){ return d.r; });
           $('sl7a').innerHTML = tableHTML(['답장', '기꺼이', '마지못해', '화가 났다', '내 예측'], R.map(function(x, i){ var a = tried[i]; return [x.s, x.v[0], x.v[1], x.v[2], a ? a.map(function(d){ return K[d.g].slice(0, 4) + (d.ok ? ' ○' : ' ✕'); }).filter(function(v, k, arr){ return arr.indexOf(v) === k; }).join(', ') : '<span style="color:#8C99A8">—</span>']; }));
           $('sl7b').innerHTML = hbars(R.map(function(x){ return {label:x.s, v:x.v[2], color:PAL[4], text:x.v[2] + '명'}; }), 20);
+          $('sl7c').innerHTML = tableHTML(['답장'].concat(WHO.map(function(w){ return w + ' — 가장 많은 해석 (화남 인원)'; })),
+            R.map(function(x, i){ return [x.s].concat(WHO.map(function(w, j){ var v = adj(x, j);
+              return top(v).map(function(k){ return K[k].slice(0, 4); }).join('=') + ' (' + v[2] + '명)'; })); })) +
+            '<p class="msg">같은 답장이라도 받는 사람이 누구냐에 따라 가장 많은 해석이 바뀌어요. 선생님에게는 마침표가 ‘격식’으로, 물결표나 ㅎㅎ는 되레 ‘가벼움’으로 읽히기 쉬워요. 숫자는 교육용 모형값이에요.</p>';
         }
       };
     })();
@@ -527,7 +560,8 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

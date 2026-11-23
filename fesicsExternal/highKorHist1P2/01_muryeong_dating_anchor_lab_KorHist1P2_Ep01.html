@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -296,9 +297,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -479,14 +481,32 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
         {n:'벽돌', info:[0, 0, 1, 1], main:2, span:150, why:'중국 남조식 벽돌무덤 양식 — 무덤 짓는 기술과 교류', pos:[0.2, 0.3]}
       ];
       var INF = ['연대', '주인', '교류', '기술'];
-      function model(p){ var a = AR[p.a]; return {a:a, ok:a.info[p.my] === 1, main:p.my === a.main, n:a.info.reduce(function(s, v){ return s + v; }, 0)}; }
+      /* 유물마다 '이 유물만으로 말할 수 있는 연대 구간' — 양식·유통 시기로 본 교육용 모형값 */
+      var WIN = [[523, 523], [450, 560], [400, 600], [500, 560], [480, 560]];
+      var CB = ['고른 유물 하나만', '지석을 빼고 넷을 겹치기', '다섯을 모두 겹치기'];
+      function combine(idxs){
+        var lo = -9999, hi = 9999;
+        idxs.forEach(function(i){ lo = Math.max(lo, WIN[i][0]); hi = Math.min(hi, WIN[i][1]); });
+        if (hi < lo){ var t = lo; lo = hi; hi = t; }
+        return {lo:lo, hi:hi, span:hi - lo, center:(lo + hi) / 2};
+      }
+      function model(p){
+        var a = AR[p.a], cb = (p.cb == null ? 0 : p.cb);
+        var idxs = cb === 0 ? [p.a] : (cb === 1 ? [1, 2, 3, 4] : [0, 1, 2, 3, 4]);
+        var w = combine(idxs);
+        return {a:a, ok:a.info[p.my] === 1, main:p.my === a.main, n:a.info.reduce(function(s, v){ return s + v; }, 0),
+          cb:cb, lo:w.lo, hi:w.hi, cspan:w.span, center:w.center, half:Math.max(0.5, w.span / 2),
+          used:idxs.map(function(i){ return AR[i].n; }).join(' + ')};
+      }
       return {
         sceneHeight: 450,
-        idle: '유물과 내가 예상한 정보를 고른 뒤 <b>유물 읽기</b>를 누르세요.',
+        idle: '유물·예상·겹쳐 볼 묶음을 고른 뒤 <b>유물 읽기</b>를 누르세요. 지석 없이 어디까지 좁혀지는지 겹쳐 보세요.',
         shortHint: '다섯 유물을 모두 읽어 보세요. 연대를 몇 년 폭까지 좁혀 주는 유물은 무엇인가요?',
         params: [
           {key:'a', type:'seg', label:'유물', cols:3, value:1, options:AR.map(function(x){ return x.n; })},
-          {key:'my', type:'seg', label:'이 유물이 가장 크게 말해 주는 것 (나의 예상)', cols:4, value:3, options:INF}
+          {key:'my', type:'seg', label:'이 유물이 가장 크게 말해 주는 것 (나의 예상)', cols:4, value:3, options:INF},
+          {key:'cb', type:'seg', label:'연대를 좁힐 때 무엇을 겹쳐 볼까', cols:3, value:0, options:CB,
+            note:'유물마다 말할 수 있는 연대 구간이 다릅니다. 여러 개를 겹치면 겹치는 구간만 남습니다.'}
         ],
         compute: function(p){ return model(p); },
         draw: function(c, W, H, p, r, tau){
@@ -507,27 +527,42 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
           var ly = iy + 88, lx = 20, lw = W - 40, X = function(y){ return lx + (y - 400) / 250 * lw; };
           seg(c, lx, ly, lx + lw, ly, '#8C99A8', 2);
           [400, 450, 500, 550, 600, 650].forEach(function(y){ seg(c, X(y), ly - 5, X(y), ly + 5, '#8C99A8', 1.5); tx(c, y, X(y), ly + 22, {align:'center', size:sz - 4, color:'#7A8794'}); });
-          var half = r ? lerp(125, m.a.span / 2, ease((tau - 0.4) / 0.6)) : 125, cx = X(523);
+          var half = r ? lerp(125, m.half, ease((tau - 0.4) / 0.6)) : 125, cx = X(r ? m.center : 523);
           c.fillStyle = 'rgba(43,95,163,.22)'; c.fillRect(Math.max(lx, cx - half / 250 * lw), ly - 16, Math.min(lx + lw, cx + half / 250 * lw) - Math.max(lx, cx - half / 250 * lw), 32);
-          if (r && m.a.span === 1 && tau > 0.9){ seg(c, cx, ly - 22, cx, ly + 10, PAL[4], 3); tx(c, '523', cx, ly - 28, {align:'center', bold:true, size:sz, color:PAL[4]}); }
-          tx(c, r ? (m.a.span === 1 ? '연대 기준점: 523년 — 함께 나온 유물이 모두 "520년대"를 얻음' : '이 유물만으로는 약 ±' + Math.round(m.a.span / 2) + '년 (모형)') : '연대 폭: 아직 모름', 20, H - 14, {bold:true, size:sz - 1, color:r ? (m.a.span === 1 ? PAL[1] : PAL[2]) : '#4A5868'});
+          if (r && m.cspan <= 1 && tau > 0.9){ seg(c, cx, ly - 22, cx, ly + 10, PAL[4], 3); tx(c, '523', cx, ly - 28, {align:'center', bold:true, size:sz, color:PAL[4]}); }
+          tx(c, r ? (m.cspan <= 1 ? '연대 기준점: 523년 — 함께 나온 유물이 모두 "520년대"를 얻음'
+            : (m.cb === 0 ? '이 유물만으로는 ' + m.lo + '~' + m.hi + '년 (폭 ' + m.cspan + '년, 모형)'
+                          : m.used + ' 를 겹치면 ' + m.lo + '~' + m.hi + '년 (폭 ' + m.cspan + '년, 모형)'))
+            : '연대 폭: 아직 모름', 20, H - 14, {bold:true, size:sz - 1, color:r ? (m.cspan <= 1 ? PAL[1] : PAL[2]) : '#4A5868'});
         },
         stats: function(p, r){
           return [['유물', r.a.n], ['주는 정보', INF.filter(function(x, j){ return r.a.info[j]; }).join(' · '), PAL[0]], ['근거', r.a.why],
             ['나의 예상', INF[p.my] + (r.main ? ' — 가장 큰 정보와 같음' : r.ok ? ' — 이 유물이 주는 정보 중 하나' : ' — 이 유물은 그 정보를 주지 않음'), r.main ? PAL[1] : r.ok ? PAL[6] : PAL[4]],
-            ['연대를 좁히는 폭 (모형)', r.a.span === 1 ? '1년 이내 (523년)' : '약 ±' + Math.round(r.a.span / 2) + '년', r.a.span === 1 ? PAL[1] : PAL[2]],
+            ['겹쳐 본 유물', CB[r.cb] + ' — ' + r.used, PAL[3]],
+            ['좁혀진 연대 구간 (교육용 모형값)', r.lo + ' ~ ' + r.hi + '년 (폭 ' + r.cspan + '년)', r.cspan <= 1 ? PAL[1] : PAL[2]],
+            ['지석이 있을 때와 비교', r.cb === 1
+              ? '지석을 빼고 넷을 겹쳐도 폭이 ' + r.cspan + '년까지만 좁혀집니다. 지석을 넣으면 523년 한 해로 못 박힙니다.'
+              : (r.cb === 2 ? '지석이 들어가면 다른 유물의 구간이 넓어도 523년 한 해로 정해집니다.'
+                            : '“지석을 빼고 넷을 겹치기”를 골라, 지석 없이 어디까지 좁혀지는지 보세요.'), PAL[6]],
             ['교차 확인', p.a === 0 ? '『삼국사기』(사마, 523년 5월 사망) · 『양서』(521년 영동대장군)와 일치' : '날짜가 없으므로 지석의 연대를 빌려 씀']];
         },
-        columns: ['유물', '나의 예상', '맞음', '연대 폭'],
-        record: function(p, r){ return {a:p.a, my:p.my, ok:r.ok, main:r.main}; },
-        row: function(d){ return [AR[d.a].n, INF[d.my], d.main ? '◎' : d.ok ? '○' : '✕', AR[d.a].span === 1 ? '523년' : '±' + Math.round(AR[d.a].span / 2) + '년']; },
+        columns: ['겹친 것', '나의 예상', '맞음', '연대 구간', '폭'],
+        record: function(p, r){ return {a:p.a, my:p.my, ok:r.ok, main:r.main, cb:r.cb, lo:r.lo, hi:r.hi, cspan:r.cspan}; },
+        row: function(d){ return [d.cb === 0 ? AR[d.a].n : CB[d.cb], INF[d.my], d.main ? '◎' : d.ok ? '○' : '✕',
+          d.lo + '~' + d.hi, d.cspan + '년']; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('유물 다섯 가지 × 정보 네 칸', '<div id="mr1"></div><p class="ask">과제: 무령왕릉 유물 5가지(지석 · 금제 관꾸미개 · 금송 관 · 오수전 · 벽돌)가 "연대 · 주인 · 교류 · 기술" 네 칸 중 어떤 정보를 주는지 표에 표시해 보세요.</p>') +
+            card('지석 없이 어디까지 좁혀지나', '<div id="mr3"></div><p class="ask">지석을 빼고 넷을 겹쳤을 때 남은 구간은 몇 년이었나요? 어느 유물이 구간을 가장 많이 좁혀 주었는지 적어 보세요.</p>') +
             card('지석 · 『삼국사기』 · 『양서』 나란히 놓기', '<div id="mr2"></div><p class="ask">세 기록에서 일치하는 점과 지석에만 있는 정보를 구분해 보세요. 왜 지석이 금 장식보다 "귀한" 사료인가요?</p>') + '</div>';
           var seen = {}; rec.forEach(function(d){ seen[d.a] = d; });
           $('mr1').innerHTML = tableHTML(['유물', '연대', '주인', '교류', '기술', '내 예상'], AR.map(function(a, i){ var d = seen[i];
             return [a.n].concat(a.info.map(function(v){ return v ? '✓' : ''; })).concat([d ? INF[d.my] + (d.ok ? ' ○' : ' ✕') : '—']); }));
+          var w4 = combine([1, 2, 3, 4]), w5 = combine([0, 1, 2, 3, 4]);
+          $('mr3').innerHTML = tableHTML(['겹친 것', '연대 구간', '폭'],
+            AR.map(function(a, i){ return [a.n + ' 하나만', WIN[i][0] + '~' + WIN[i][1], (WIN[i][1] - WIN[i][0]) + '년']; })
+              .concat([['지석 빼고 넷', w4.lo + '~' + w4.hi, w4.span + '년'], ['다섯 모두', w5.lo + '~' + w5.hi, w5.span + '년']])) +
+            '<p class="msg">구간을 겹치면 <b>가장 늦은 시작</b>과 <b>가장 이른 끝</b>만 남아요. 지석 없이 넷을 겹쳐도 폭이 ' + w4.span + '년까지만 줄어드는데, 지석 하나가 들어가면 523년 한 해로 못 박혀요. 구간 값은 교육용 모형값이에요.</p>';
           $('mr2').innerHTML = tableHTML(['항목', '지석', '『삼국사기』', '『양서』'], [['이름', '사마왕', '사마', '—'], ['사망', '523년 5월 7일, 62세', '재위 23년(523) 5월', '—'], ['작호', '영동대장군', '—', '521년 영동대장군']]) +
             '<p class="msg">지석에만 있는 정보: 나이(62세), 사망한 날짜(7일). 세 기록이 겹치는 부분은 단단합니다.</p>';
         }
@@ -539,7 +574,8 @@ function drawWorld(c, x, y, w, h, fill, labels, size){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -215,7 +216,7 @@ tbody tr:hover{background:#F5F8FB}
 <div class="container">
   <header>
     <h1>게임은 규칙이 없을수록 재미있을까</h1>
-    <p>같은 열 명이 5분짜리 <b>꼬리잡기</b>를 <b>규칙만 바꿔</b> 했어요. 판을 고르면 서로 부딪힌 횟수, 말다툼 횟수, 끝나고 "또 하고 싶다"는 사람 수가 나와요.<br><span style="font-size:.9em;color:#a86825">※ 꼬리잡기 기록은 제로 랩의 가상 실험이에요. 화면에서 아이들이 움직이는 길과 부딪힌 자리는 그림이에요.</span></p>
+    <p>같은 열 명이 5분짜리 <b>꼬리잡기</b>를 <b>규칙만 바꿔</b> 했어요. 판을 고르면 서로 부딪힌 횟수, 말다툼 횟수, 끝나고 "또 하고 싶다"는 사람 수가 나와요.<br><span style="font-size:.9em;color:#a86825">※ 꼬리잡기 기록은 제로 랩의 가상 실험이에요. 화면에서 아이들이 움직이는 길과 부딪힌 자리는 그림이에요.</span><br><span style="font-size:.9em;color:#a86825">※ <b>규칙 카드를 한 장씩 켜고 꺼 보기</b>를 켜면 카드마다 맡은 몫으로 부딪힘·말다툼·또 하고 싶다를 셈해 줘요. 교육용 모형값이에요.</span></p>
   </header>
 
   <div class="tabs" role="tablist">
@@ -291,9 +292,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -434,6 +436,15 @@ var LAB = (function(){
         {n:'함께 정하고 모두 끝까지 지키기', s:'모두 지키기', bump:1, fight:0, again:9, cs:'all', c:'#2E9E78'}
       ];
       var CARD = ['선 밖으로 안 나가기', '꼬리만 잡기', '잃으면 응원', '심판 따르기'];
+      /* 규칙 카드를 한 장씩 켜고 끌 때 5분 꼬리잡기를 셈하는 교육용 모형.
+         카드마다 맡은 몫이 다르다 — 선·꼬리 카드는 부딪힘을, 꼬리·심판 카드는 말다툼을 줄이고,
+         응원 카드는 "또 하고 싶다"를 늘린다. */
+      function myGame(on){
+        var bump = Math.max(0, Math.round(6 - 2.5 * on[0] - 2.5 * on[1]));
+        var fight = Math.max(0, Math.round(4 - 1.6 * on[1] - 2.4 * on[3]));
+        var again = Math.max(0, Math.min(10, Math.round(3 + 2.2 * on[2] + 1.2 * on[0] + 1.3 * on[1] + 1.3 * on[3])));
+        return {bump:bump, fight:fight, again:again};
+      }
       function sm(c, s, x, y, col, bold){ c.font = (bold ? '700 ' : '') + '13px ' + FONT; c.fillStyle = col; c.textAlign = 'center'; c.fillText(s, x, y); c.textAlign = 'left'; }
       return {
         sceneHeight: 440,
@@ -441,15 +452,29 @@ var LAB = (function(){
         idle: '꼬리잡기 판을 고르고 <b>5분 꼬리잡기</b>를 누르세요.',
         shortHint: '네 가지 판을 모두 해 보고, 부딪힘·말다툼·"또 하고 싶다"를 견주어 보세요.',
         params: [
-          {key:'u', type:'seg', label:'꼬리잡기 판 (같은 10명, 5분)', cols:2, value:0, options:RU.map(function(x){ return x.n; }), note:'바꾸는 것은 규칙을 다루는 방법 하나뿐이에요.'}
+          {key:'u', type:'seg', label:'꼬리잡기 판 (같은 10명, 5분)', cols:2, value:0, options:RU.map(function(x){ return x.n; }), note:'바꾸는 것은 규칙을 다루는 방법 하나뿐이에요.'},
+          {key:'c', type:'seg', label:'규칙 카드를 한 장씩 켜고 꺼 보기', cols:1, value:0, options:['안 함(위 네 판 그대로)', '아래 네 장을 내가 켜고 끄기'], note:'켜면 카드 네 장을 따로 켜고 꺼요. 어떤 카드가 빠질 때 다툼이 생기나요?'},
+          {key:'k0', type:'seg', label:'① 선 밖으로 안 나가기', cols:2, value:0, options:['끔', '켬']},
+          {key:'k1', type:'seg', label:'② 꼬리만 잡기', cols:2, value:0, options:['끔', '켬']},
+          {key:'k2', type:'seg', label:'③ 잃으면 응원', cols:2, value:0, options:['끔', '켬']},
+          {key:'k3', type:'seg', label:'④ 심판 따르기', cols:2, value:0, options:['끔', '켬']}
         ],
-        compute: function(p){ var q = RU[p.u]; return {q:q, bump:q.bump, fight:q.fight, again:q.again, pct:q.again * 10}; },
+        compute: function(p){
+          if (p.c === 1){
+            var on = [p.k0, p.k1, p.k2, p.k3], m = myGame(on), nOn = on.reduce(function(s, x){ return s + x; }, 0);
+            var offNm = CARD.filter(function(nm, i){ return !on[i]; });
+            var q2 = {n:'내가 켠 카드 ' + nOn + '장', s:'카드 ' + nOn + '장(' + on.map(function(x, i){ return x ? (i + 1) + '' : '-'; }).join('') + ')',
+              bump:m.bump, fight:m.fight, again:m.again, cs:'mine', on:on, c:'#3A8FB7'};
+            return {mine:true, q:q2, bump:m.bump, fight:m.fight, again:m.again, pct:m.again * 10, on:on, nOn:nOn, off:offNm};
+          }
+          var q = RU[p.u]; return {q:q, bump:q.bump, fight:q.fight, again:q.again, pct:q.again * 10};
+        },
         draw: function(c, W, H, p, r, tau){
-          var q = RU[p.u];
+          var q = (r && r.q) ? r.q : RU[p.u];
           c.fillStyle = '#F3F6EE'; c.fillRect(0, 0, W, H);
           var cw = (W - 30) / 4, t = r ? Math.min(1, tau / 0.8) : 0;
           CARD.forEach(function(nm, i){
-            var x = 10 + i * (cw + 3.3), on = q.cs === 'all' || (q.cs === 'some' && i % 2 === 0), shake = q.cs === 'change' && r ? Math.sin(t * 40 + i) * 4 : 0;
+            var x = 10 + i * (cw + 3.3), on = q.on ? !!q.on[i] : (q.cs === 'all' || (q.cs === 'some' && i % 2 === 0)), shake = q.cs === 'change' && r ? Math.sin(t * 40 + i) * 4 : 0;
             c.save(); c.translate(x + cw / 2, 30); c.rotate(shake * 0.03);
             c.fillStyle = q.cs === 'none' ? '#E6EBF1' : (on ? '#2E9E78' : (q.cs === 'change' ? '#F3D9A4' : '#FFFFFF')); c.fillRect(-cw / 2, -18, cw, 36);
             c.strokeStyle = '#8C99A8'; c.lineWidth = 1; c.strokeRect(-cw / 2, -18, cw, 36);
@@ -457,7 +482,7 @@ var LAB = (function(){
             if (q.cs === 'none'){ seg(c, -cw / 2 + 4, -14, cw / 2 - 4, 14, '#C8463D', 2); }
             c.restore();
           });
-          var lab = {none:'규칙 카드 없음', some:'잘하는 친구만 지킴', change:'질 것 같으면 바꿈', all:'모두 함께 지킴'}[q.cs];
+          var lab = {none:'규칙 카드 없음', some:'잘하는 친구만 지킴', change:'질 것 같으면 바꿈', all:'모두 함께 지킴', mine:'내가 켠 카드로 놀기'}[q.cs];
           c.font = '14px ' + FONT; c.fillStyle = '#4A5868'; c.textAlign = 'center'; c.fillText(lab, W / 2, 66); c.textAlign = 'left';
           var fx = 30, fy = 80, fw = W - 60, fh = H - 200;
           c.fillStyle = '#DDEBCB'; c.fillRect(fx, fy, fw, fh);
@@ -480,18 +505,28 @@ var LAB = (function(){
           var py = H - 84, pw = (W - 40) / 10, show = r && tau > 0.82;
           for (var j = 0; j < 10; j++){ c.fillStyle = !show ? '#C9D2DC' : (j < q.again ? '#2E9E78' : '#E1B8B3'); c.beginPath(); c.arc(20 + pw * j + pw / 2, py, Math.min(11, pw * 0.34), 0, Math.PI * 2); c.fill(); }
           txt(c, show ? '"또 하고 싶다" ' + q.again + '명' : '같은 친구 10명', 20, H - 40, {bold:show, color:show ? '#1F6B4F' : '#6B7685'});
-          if (r) txt(c, q.s, W - 20, H - 40, {align:'right', bold:true, color:q.c});
+          if (r) txt(c, q.s, W - 20, W < 560 ? H - 100 : H - 40, {align:'right', bold:true, color:q.c});
           meter(c, 20, H - 34, Math.min(150, W * 0.4), Math.round(t * 5) + '분 / 5분');
         },
         stats: function(p, r){
+          if (r.mine) return [['켠 카드', r.nOn + '장' + (r.off.length ? ' (빠진 카드: ' + r.off.join(' · ') + ')' : ' — 네 장 모두'), r.q.c],
+            ['서로 부딪힌 횟수', r.bump + '번', PAL[4]],
+            ['말다툼 횟수', r.fight === 0 ? '0번' : r.fight + '번', PAL[6]],
+            ['판정', r.fight === 0 ? (r.bump <= 1 ? '다툼도 부딪힘도 없었어요 ✓' : '말다툼은 없지만 부딪혀요 — ①·②를 켜 보세요') : (!r.on[3] ? '심판 카드가 빠져 말다툼이 남아요' : '꼬리 카드가 빠져 말다툼이 남아요'), r.fight === 0 && r.bump <= 1 ? PAL[1] : PAL[4]],
+            ['끝나고 "또 하고 싶다"', r.again + '명 (10명 중 ' + r.pct + '%)', PAL[1]],
+            ['자료', '교육용 모형값 (카드마다 줄여 주는 것이 다름)', PAL[7]]];
           return [['판', r.q.n, r.q.c], ['서로 부딪힌 횟수', '약 ' + r.bump + '번', PAL[4]], ['말다툼 횟수', r.fight === 0 ? '0번' : '약 ' + r.fight + '번', PAL[6]],
             ['끝나고 "또 하고 싶다"', r.again + '명 (10명 중 ' + r.pct + '%)', PAL[1]], ['자료', '제로 랩의 가상 실험', PAL[7]]];
         },
         columns: ['판', '부딪힘', '말다툼', '또 하고 싶다'],
-        record: function(p, r){ return {u:p.u, bump:r.bump, fight:r.fight, again:r.again}; },
-        row: function(d){ return [RU[d.u].s, '약 ' + d.bump + '번', d.fight === 0 ? '0번' : '약 ' + d.fight + '번', d.again + '명']; },
+        record: function(p, r){ if (r.mine) return {mine:true, on:r.on, nOn:r.nOn, s:r.q.s, bump:r.bump, fight:r.fight, again:r.again}; return {u:p.u, bump:r.bump, fight:r.fight, again:r.again}; },
+        row: function(d){ if (d.mine) return [d.s, d.bump + '번', d.fight === 0 ? '0번' : d.fight + '번', d.again + '명']; return [RU[d.u].s, '약 ' + d.bump + '번', d.fight === 0 ? '0번' : '약 ' + d.fight + '번', d.again + '명']; },
         verify: function(rec, box){
-          box.innerHTML = '<div class="vgrid">' +
+          var ms = rec.filter(function(d){ return d.mine; });
+          var mcard = !ms.length ? '' : card('카드를 한 장씩 켜고 끈 결과', tableHTML(['켠 카드', '부딪힘', '말다툼', '또 하고 싶다'],
+              ms.map(function(d){ return [CARD.filter(function(nm, i){ return d.on[i]; }).join(' · ') || '없음', d.bump + '번', d.fight === 0 ? '0번' : d.fight + '번', d.again + '명']; })) +
+            '<p class="ask">네 장을 모두 켠 판에서 한 장만 꺼 보세요. <b>말다툼</b>이 생기는 것은 어느 카드를 뺄 때인가요? <b>부딪힘</b>이 늘어나는 것은 어느 카드인가요? 카드마다 맡은 몫이 달라요.</p>');
+          box.innerHTML = '<div class="vgrid">' + mcard +
             card('끝나고 "또 하고 싶다" (10명 중)', '<div id="tr1"></div><p class="ask">규칙이 없는 판이 가장 재미있었나요? 뭉치의 "규칙이 없을수록 재미있어!"를 기록으로 고쳐 말해 보세요.</p>') +
             card('부딪힘과 말다툼', '<div id="tr2"></div><p class="ask">과제: 가족이나 친구와 할 놀이 하나를 골라, 시작 전에 "안전 규칙 하나, 공평 규칙 하나, 졌을 때 할 일 하나"를 함께 정해 적고 놀아 본 뒤 지켜졌는지 표시해 보세요. 넓고 평평한 곳에서, 밀거나 옷을 잡아당기지 않기. 아프거나 어지러우면 바로 멈추고 어른에게 말하기.</p>') + '</div>';
           var g = groupBy(rec, function(d){ return d.u; }), it = [], rows = [];
@@ -506,7 +541,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 

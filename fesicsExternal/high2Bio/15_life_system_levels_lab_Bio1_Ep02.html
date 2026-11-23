@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
 <script id="fxRafThrottle">
 (function(){
   if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
@@ -62,6 +62,7 @@ header p{margin:0; color:var(--sub); max-width:62ch}
 
 /* 레이아웃 */
 .lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
 @media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
 .card + .card{margin-top:1rem}
@@ -290,9 +291,10 @@ function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : ''
 function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
 function fitCanvas(cv){
   var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  var c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {c:c, W:W, H:H};
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
 }
 function niceStep(raw){
   var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
@@ -433,6 +435,11 @@ var LAB = (function(){
         ['해바라기 잎의 표피 세포', '해바라기의 표피 조직', '해바라기의 표피 조직계', '해바라기의 잎', '해바라기 한 포기', '밭의 해바라기 전체', '밭의 해바라기·곤충·잡초 전체', '밭의 생물 + 햇빛·물·흙']];
       var SIZE = ['약 10~100 μm', '약 1 mm', '약 1 cm', '약 10 cm', '약 1 m 이하', '약 1 m', '약 100 m~1 km', '약 1 km', '약 1 km 이상'];
       var FN = ['생명 활동의 기본 단위', '같은 모양·기능의 세포 모임', '여러 조직이 모인 식물의 기능 단위', '특정 기능(펌프·광합성)', '관련 기관이 함께 일함(순환·소화)', '독립적으로 살아가는 한 생명체', '같은 종 — 출생·사망·밀도', '여러 종 — 먹고 먹히는 관계', '생물과 환경이 물질·에너지를 주고받음'];
+      /* '이 단계에서 새로 생기는 것' — 조직계와 기관은 둘 다 '여러 조직이 모임'이라 답이 겹친다(그 자리가 헷갈리는 자리다) */
+      var NEW = ['생명 활동의 기본 단위가 된다', '같은 세포들이 모여 한 가지 일을 한다', '여러 조직이 모여 하나의 기능 덩어리가 된다',
+        '기능 덩어리들이 이어져 한 흐름을 이룬다', '혼자서 살아가는 단위가 된다', '같은 종의 수와 밀도가 생긴다',
+        '서로 다른 종 사이의 관계가 생긴다', '생물이 아닌 환경과 주고받음이 생긴다'];
+      var NEWOF = [0, 1, 2, 2, 3, 4, 5, 6, 7];   /* 단계 → 새로 생기는 것 */
       return {
         sceneHeight: 460,
         idle: '생물·항목·나의 예측을 고른 뒤 <b>단계 확인하기</b>를 누르세요.',
@@ -441,11 +448,14 @@ var LAB = (function(){
           {key:'k', type:'seg', label:'생물', cols:2, value:0, options:['동물 (고라니)', '식물 (해바라기)']},
           {key:'i', type:'seg', label:'항목 (동물 · 식물 순서)', cols:2, value:3, options:['근육 세포 · 표피 세포', '근육 조직 · 표피 조직', '심장 · 표피 조직계', '순환계 · 잎', '고라니 한 마리 · 해바라기 한 포기', '숲의 고라니 전체 · 밭의 해바라기 전체', '숲의 모든 생물 · 밭의 모든 생물', '숲 전체 · 밭 전체 (생물 + 환경)'],
             note:'고른 생물 쪽 항목이 장면 위쪽에 나옵니다. 심장과 잎은 같은 칸에 있어도 단계가 같을까요?'},
-          {key:'g', type:'seg', label:'나의 예측 단계', cols:3, value:3, options:NAMES}
+          {key:'g', type:'seg', label:'나의 예측 단계', cols:3, value:3, options:NAMES},
+          {key:'fg', type:'seg', label:'짐작 — 이 단계에서 새로 생기는 것', cols:2, value:0, options:NEW,
+            note:'단계를 맞히는 것만으로는 부족합니다. 왜 그 단계인지, 무엇이 새로 생기는지가 기준입니다.'}
         ],
         compute: function(p){
-          var lv = LAD[p.k][p.i];
-          return {item:ITEMS[p.k][p.i], lv:lv, match:p.g === lv, size:SIZE[lv], fn:FN[lv]};
+          var lv = LAD[p.k][p.i], ni = NEWOF[lv];
+          return {item:ITEMS[p.k][p.i], lv:lv, match:p.g === lv, size:SIZE[lv], fn:FN[lv],
+            ni:ni, fg:p.fg, fnMatch:(p.fg === ni)};
         },
         draw: function(c, W, H, p, r, tau){
           var lad = LAD[p.k], item = ITEMS[p.k][p.i], lv = lad[p.i];
@@ -467,15 +477,19 @@ var LAB = (function(){
         },
         stats: function(p, r){
           return [['항목', r.item], ['정답 단계', NAMES[r.lv], PAL[1]], ['나의 예측', NAMES[p.g] + (r.match ? ' — 일치' : ' — 다름'), r.match ? PAL[1] : PAL[4]],
-            ['대략 크기', r.size], ['이 단계의 특징', r.fn, PAL[3]]];
+            ['대략 크기', r.size], ['이 단계의 특징', r.fn, PAL[3]],
+            ['새로 생기는 것 — 정답', NEW[r.ni], PAL[3]],
+            ['새로 생기는 것 — 나의 짐작', NEW[r.fg] + (r.fnMatch ? ' — 맞힘' : ' — 빗나감'), r.fnMatch ? PAL[1] : PAL[4]]];
         },
-        columns: ['생물', '항목', '정답', '나의 예측', '일치'],
-        record: function(p, r){ return {k:p.k, i:p.i, lv:r.lv, g:p.g, m:r.match}; },
-        row: function(d){ return [d.k ? '식물' : '동물', ITEMS[d.k][d.i], NAMES[d.lv], NAMES[d.g], d.m ? '예' : '아니오']; },
+        columns: ['생물', '항목', '정답', '나의 예측', '일치', '새로 생기는 것(짐작)', '맞힘'],
+        record: function(p, r){ return {k:p.k, i:p.i, lv:r.lv, g:p.g, m:r.match, ni:r.ni, fg:r.fg, fm:r.fnMatch}; },
+        row: function(d){ return [d.k ? '식물' : '동물', ITEMS[d.k][d.i], NAMES[d.lv], NAMES[d.g], d.m ? '예' : '아니오',
+          d.fg == null ? '−' : NEW[d.fg], d.fg == null ? '−' : (d.fm ? '○' : '×')]; },
         verify: function(rec, box){
           box.innerHTML = '<div class="vgrid">' +
             card('단계별 정답률', '<div id="ls1"></div><p class="ask">가장 많이 틀린 단계는 어디인가요? 헷갈린 두 단계를 가르는 기준을 한 문장으로 쓰세요.</p>') +
-            card('동물과 식물의 차이', '<div id="ls2"></div><p class="ask">과제: 교실(학생·화분·공기·빛)을 하나의 생태계로 보고 개체·개체군·군집·생태계 예를 하나씩 들어 보세요.</p>') + '</div>';
+            card('동물과 식물의 차이', '<div id="ls2"></div><p class="ask">과제: 교실(학생·화분·공기·빛)을 하나의 생태계로 보고 개체·개체군·군집·생태계 예를 하나씩 들어 보세요.</p>') +
+            card('새로 생기는 것 맞히기', '<div id="ls3"></div><p class="ask">조직계와 기관은 둘 다 "여러 조직이 모임"입니다. 그렇다면 둘을 가르는 것은 무엇인가요? (식물·동물 어느 쪽에 있는지와 연결해 보세요)</p>') + '</div>';
           var by = groupBy(rec, function(d){ return d.lv; }), items = [];
           Object.keys(by).sort(function(a, b){ return a - b; }).forEach(function(k){ var g = by[k], ok = g.filter(function(d){ return d.m; }).length / g.length * 100;
             items.push({label:NAMES[k], v:ok, color:ok >= 70 ? PAL[1] : PAL[4], text:f(ok, 0) + '% (' + g.length + '회)'}); });
@@ -483,6 +497,16 @@ var LAB = (function(){
           var bk = groupBy(rec, function(d){ return d.k; }), rows = [];
           [0, 1].forEach(function(k){ var g = bk[k]; if (!g) return; rows.push([k ? '식물' : '동물', g.length + '회', f(g.filter(function(d){ return d.m; }).length / g.length * 100, 0) + '%', k ? '조직 → 조직계 → 기관' : '기관 → 기관계 → 개체']); });
           $('ls2').innerHTML = tableHTML(['생물', '기록', '정답률', '고유 단계'], rows) + (rows.length < 2 ? '<p class="msg">다른 생물도 기록해 보세요.</p>' : '');
+          (function(){
+            var gr = rec.filter(function(d){ return d.fg != null; });
+            if (!gr.length){ $('ls3').innerHTML = '<p class="msg">"새로 생기는 것"을 골라 확인하면 여기에서 채점해 줍니다.</p>'; return; }
+            var hit = gr.filter(function(d){ return d.fm; }).length;
+            var both = gr.filter(function(d){ return d.m && d.fm; }).length;
+            var onlyLv = gr.filter(function(d){ return d.m && !d.fm; }).length;
+            var wrong = gr.filter(function(d){ return !d.fm; }).map(function(d){ return [NAMES[d.lv], NEW[d.fg], NEW[d.ni]]; });
+            $('ls3').innerHTML = '<p>새로 생기는 것 <b>' + hit + ' / ' + gr.length + '</b> 맞혔습니다. 단계와 기능을 <b>모두</b> 맞힌 것은 ' + both + '회, 단계만 맞힌 것은 ' + onlyLv + '회입니다.</p>' +
+              (wrong.length ? tableHTML(['단계', '나의 짐작', '정답'], wrong) : '<p class="msg">모두 맞혔어요. 조직계·기관처럼 답이 겹치는 단계도 넣어 보세요.</p>');
+          })();
         }
       };
     })();
@@ -491,7 +515,8 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
-function sizeScene(){ scene.style.height = (typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(scene.clientWidth) : LAB.sceneHeight) + 'px'; }
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
 function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
