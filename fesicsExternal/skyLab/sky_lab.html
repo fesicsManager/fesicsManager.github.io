@@ -105,9 +105,10 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
           <div><span>해 뜨는 때</span><b id="roRise">—</b></div>
           <div><span>해 지는 때</span><b id="roSet">—</b></div>
         </div>
+        <div class="note" id="sunWords" style="display:none">고도는 지평선에서 올려다본 <b>각도</b>, 방위는 해가 어느 <b>쪽</b>에 있는지예요. <b>남중 고도</b>는 해가 하루 중 가장 높이 떴을 때의 고도예요.</div>
         <div id="decRow" class="note" style="display:none"></div>
         <canvas id="graph"></canvas>
-        <div class="note">해의 고도가 하루 동안 어떻게 바뀌는지 — 굵은 선이 오늘입니다.</div>
+        <div class="note">굵은 선은 <b>고른 날짜</b>에 해가 하루 동안 얼마나 높이 떠 있는지 보여 줍니다.</div>
       </div>
 
       <div class="card" id="moonCard" style="margin-top:14px">
@@ -437,8 +438,8 @@ function phaseName(elong, k){
   var e = elong, W = 12;
   if (e <= W || e >= 360 - W) return '삭(그믐달 뒤)';
   if (Math.abs(e - 180) <= W) return '보름달';
-  if (Math.abs(e - 90)  <= W) return '상현달';
-  if (Math.abs(e - 270) <= W) return '하현달';
+  if (Math.abs(e - 90)  <= W) return '상현달(보름달 되기 전 반달)';
+  if (Math.abs(e - 270) <= W) return '하현달(보름달 지난 반달)';
   if (e < 90)  return '초승달';
   if (e < 180) return '차오르는 달';
   if (e < 270) return '기우는 달';
@@ -551,8 +552,12 @@ function updateReadouts(){
   var dm = info.dayMin;
   document.getElementById('roDay').textContent =
     (dm >= 1439) ? '하루 종일' : (dm <= 1 ? '해가 안 뜸' : Math.floor(dm/60) + '시간 ' + (dm%60) + '분');
-  document.getElementById('roRise').textContent = hhmm(info.rise);
-  document.getElementById('roSet').textContent = hhmm(info.set);
+  /* 백야·극야에서 해 뜨는 때가 '—' 로만 떠서 값이 빠진 것처럼 보였다 (261123) */
+  var noRS = (dm >= 1439) ? '없음 (하루 종일 떠 있어요)'
+           : (dm <= 1)    ? '없음 (하루 종일 안 떠요)' : '—';
+  document.getElementById('roRise').textContent = info.rise === null ? noRS : hhmm(info.rise);
+  document.getElementById('roSet').textContent  = info.set  === null ? noRS : hhmm(info.set);
+  document.getElementById('sunWords').style.display = level <= 1 ? '' : 'none';
 
   var dr = document.getElementById('decRow');
   dr.style.display = level >= 3 ? '' : 'none';
@@ -637,7 +642,10 @@ function syncLabels(){
   var md = monthDay(day);
   document.getElementById('lbDate').textContent = md[0] + '월 ' + md[1] + '일';
   document.getElementById('lbTime').textContent = hhmm(minute);
-  document.getElementById('lbLat').textContent = Math.abs(lat).toFixed(1) + '°' + (lat >= 0 ? 'N' : 'S');
+  /* 초등에서 'N' 이 무엇인지 적힌 데가 없었다 (261123) */
+  document.getElementById('lbLat').textContent = level <= 1
+    ? (lat >= 0 ? '북위 ' : '남위 ') + Math.abs(lat).toFixed(1) + '°'
+    : Math.abs(lat).toFixed(1) + '°' + (lat >= 0 ? 'N' : 'S');
   sDate.value = day; sTime.value = minute; sLat.value = lat;
 }
 sDate.oninput = function(){ day = +sDate.value; syncLabels(); render(); };
@@ -680,11 +688,11 @@ var EXAMPLES = [
   {name:'동지', lv:1, go:function(){ day = 356; minute = 750; lat = 37.5; showSeason = true; }},
   {name:'춘분', lv:1, go:function(){ day = 80; minute = 750; lat = 37.5; showSeason = true; }},
   {name:'적도에서', lv:2, go:function(){ day = 172; minute = 750; lat = 0; showSeason = true; }},
-  {name:'북극에서(백야)', lv:2, go:function(){ day = 172; minute = 60; lat = 89; showSeason = true; }},
+  {name:'북극에서 — 해가 안 져요(백야)', lv:2, go:function(){ day = 172; minute = 60; lat = 89; showSeason = true; }},
   {name:'겨울 밤하늘', lv:2, go:function(){ day = 15; minute = 1260; lat = 37.5; showStars = true; showTrail = false; }},
   {name:'별의 일주운동 보기', lv:2, go:function(){ day = 15; minute = 1320; lat = 37.5; showStars = true; showTrail = true; }},
   {name:'보름달', lv:2, go:function(){ day = fullMoonDay(1); minute = 1260; lat = 37.5; showMoon = true; }},
-  {name:'남반구 위도로', lv:3, go:function(){ day = 172; minute = 750; lat = -33.9; showSeason = true; }}
+  {name:'남반구에서 보기', lv:3, go:function(){ day = 172; minute = 750; lat = -33.9; showSeason = true; }}
 ];
 function buildExamples(){
   var box = document.getElementById('examples');
@@ -711,6 +719,7 @@ function setLevel(lv){
   var btns = document.querySelectorAll('.lv');
   for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('on', +btns[i].dataset.lv === lv);
   buildExamples();
+  syncLabels();   /* 위도 이름표(북위/N)가 수준을 따라 바뀌도록 (261123) */
   render(); save();
 }
 var lvBtns = document.querySelectorAll('.lv');
