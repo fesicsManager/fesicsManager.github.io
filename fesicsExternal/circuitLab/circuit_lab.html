@@ -104,7 +104,7 @@ input[type=number]{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15
       </div>
       <div class="exrow" id="examples"></div>
       <div class="warn hidden" id="warn"></div>
-      <div class="hint" id="hint">부품을 고른 뒤, 칸 위에서 <b>끌어서</b> 놓으면 놓입니다. <b>선</b>으로 양 끝을 이어야 전류가 흘러요.</div>
+      <div class="hint" id="hint"><b>①</b> 위에서 부품을 고르고 → <b>②</b> 칸 위의 한 점에서 다음 점까지 <b>끌면</b> 놓입니다. → <b>③</b> <b>선</b>으로 부품의 양 끝을 이어야 전류가 흘러요.</div>
     </section>
 
     <aside>
@@ -118,6 +118,11 @@ input[type=number]{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15
         </div>
         <div class="measure" id="acRow" style="display:none">
           실효값(rms) — 전압 <b id="roVr">0 V</b> · 전류 <b id="roIr">0 A</b>
+        </div>
+        <div class="prop" id="acFreqRow" style="display:none">
+          <label>진동수 <b id="lb_acF">1.000Hz</b></label>
+          <input type="range" id="acF" min="0.05" max="60" step="0.05" value="1">
+          <input type="number" id="acFn" min="0.01" max="60" step="0.001" value="1">
         </div>
         <div class="measure" id="rcRow" style="display:none">
           시간 <b id="roT">0.0 s</b> · 축전기 전압 <b id="roVc">0 V</b>
@@ -927,6 +932,23 @@ function buildProps(){
 }
 function lastResDirty(){ if (!hasCap){ lastRes = solve(0); computeWireCurrents(); } save(); }
 
+/* 측정값 칸의 진동수 조절 — 교류 전원을 고르지 않고도 바꿀 수 있게 (261123) */
+function setSrcFreq(v){
+  if (!isFinite(v)) return;
+  v = Math.max(0.01, Math.min(60, v));
+  var src = els.filter(function(e){ return e.type === 'acsource'; })[0];
+  if (!src || src.props.f === v) return;
+  src.props.f = v;
+  scope = []; acHold = 0; acSince = simTime; acStableAt = 0;
+  buildProps(); lastResDirty();
+}
+(function(){
+  var sl = document.getElementById('acF');
+  if (sl) sl.oninput = function(){ setSrcFreq(parseFloat(sl.value)); };
+  var nb = document.getElementById('acFn');
+  if (nb) nb.oninput = function(){ setSrcFreq(parseFloat(nb.value)); };
+})();
+
 
 /* ---------- 합선 찾기 ---------- */
 function shortedBattery(){
@@ -993,21 +1015,29 @@ function updateReadouts(){
        구간에서 영원히 '재는 중…' 이었다. 0.3% 안으로 들면 적고, 한 번 적은 값은
        회로나 진동수가 바뀔 때까지 그대로 둔다 — 그러면 숫자가 다시 바뀌지 않는다 (261122) */
     var sig = (src ? src.props.f : 0) + '/' + els.length + '/' + (hasCap ? 1 : 0);
-    if (sig !== acSig){ acSig = sig; acHold = 0; acSince = simTime; }
+    if (sig !== acSig){ acSig = sig; acHold = 0; acSince = simTime; acStableAt = 0; }
     /* 진동수를 옮기면 오실로스코프에 옛 진동수의 점이 남아 있고, 코일·축전기의 흔들림도 1~2 초 남는다.
        창 하나가 다 찰 때까지는 재지 않고, 붙들기는 흔들림이 가라앉은 뒤에만 한다 —
        1.5Hz 에서 2.44 Ω·2.93 Ω(참값 3.29 Ω) 을 붙들고 멎은 적이 있다. 그 사이에도 잰 값은 보여 준다 (261122) */
     var since = simTime - acSince;
-    var fresh = since >= win;
-    if (!fresh) acZ = 0;
+    /* 공명에서 먼 진동수(10Hz)에서는 1Hz 쯤의 자체 흔들림이 2 초쯤 남는데,
+       '자리 잡기 전에도 잰 값을 보여 준다'고 해 놓으니 9.27 Ω 이 떴다 — 참값은 31.1 Ω.
+       틀린 숫자보다 '재는 중'이 낫다. 두 창이 거의 같아질 때까지는 숫자를 안 적는다 (261123) */
+    acMeasure = { since: since, win: win };
     if (acHold){ acZ = acHold; acReady = true; }
-    else if (fresh && acZ){
-      acReady = true;                       /* 자리 잡기 전에도 잰 값을 보여 준다 */
-      if (prev && prev.full && prev.i > 1e-6 && since >= 2 * win + 1.5){
-        var zPrev = prev.v / prev.i;
-        if (Math.abs(acZ - zPrev) <= Math.max(zPrev, acZ) * 0.003){ acHold = acZ; }
-      }
-    }
+    else if (since >= 2 * win && acZ && prev && prev.full && prev.i > 1e-6){
+      var zPrev = prev.v / prev.i;
+      /* 2~4Hz 처럼 셋째 자리가 계속 흔들리는 구간에서 영원히 '재는 중…' 이던 일이 있어,
+         오래 걸리면 자릿수를 조금 눅인다 (261122·261123) */
+      var tol = since >= 20 * win + 6 ? 0.03 : 0.01;
+      if (Math.abs(acZ - zPrev) <= Math.max(zPrev, acZ) * tol){
+        /* 흔들림이 사그라드는 동안에도 두 창이 한순간 같아 보여서 27.37 Ω 을 붙들었다 (참값 31.1).
+           한 창 길이만큼 내내 같아야 자리 잡은 것으로 본다 (261123) */
+        if (!acStableAt) acStableAt = since;
+        if (since - acStableAt >= win){ acHold = acZ; acReady = true; }
+        else acZ = 0;
+      } else { acStableAt = 0; acZ = 0; }
+    } else acZ = 0;
   }
   document.getElementById('roI').textContent = fmt(hasAC && acReady ? ir : I, 'A');
   /* 전압에 최대값, 전류에 rms 를 적어 놓으니 화면의 V/I 가 Z 와 안 맞았다 (5.0/1.07=4.67, Z=3.29).
@@ -1015,14 +1045,32 @@ function updateReadouts(){
   document.getElementById('roV').textContent = hasAC
     ? ((acReady && vr ? vr : V / Math.SQRT2).toFixed(1) + ' V')
     : (V ? V.toFixed(1) + ' V' : '0 V');
-  document.getElementById('lbI').textContent = hasAC ? '전류(rms)' : '전체 전류';
-  document.getElementById('lbV').textContent = hasAC ? '전압(rms)' : '전지 전압';
-  document.getElementById('lbR').textContent = hasAC ? '임피던스 Z' : '전체 저항';
+  /* 초등 수준에서도 'rms'·'임피던스 Z'·'실효값' 이 그대로 보였다 — 수준 단추가
+     부품과 보기만 가리고 측정값 이름은 안 가렸다 (261123) */
+  document.getElementById('lbI').textContent = hasAC ? (level >= 2 ? '전류(rms)' : '전류') : '전체 전류';
+  document.getElementById('lbV').textContent = hasAC ? (level >= 2 ? '전압(rms)' : '전압') : '전지 전압';
+  document.getElementById('lbR').textContent = (hasAC && level >= 3) ? '임피던스 Z' : '전체 저항';
+  /* '재는 중…' 만 떠 있으면 얼마나 기다려야 하는지 알 수 없어, 10초를 기다리고도
+     고장인 줄 알았다는 말이 나왔다. 얼마나 찼는지 함께 적는다 (261123) */
   document.getElementById('roR').textContent =
-    hasAC ? (acReady ? fmt(acZ, 'Ω') : '재는 중…')
+    hasAC ? (acReady ? fmt(acZ, 'Ω')
+                     : '재는 중… ' + acMeasure.since.toFixed(1) + '초')
           : (I > 1e-6 ? fmt(V / I, 'Ω') : '— Ω');
   var ar = document.getElementById('acRow');
-  ar.style.display = hasAC ? '' : 'none';
+  ar.style.display = (hasAC && level >= 3) ? '' : 'none';
+  /* 진동수는 교류 전원을 눌러야 나와서, 값을 바꾸고 임피던스를 견주기가 번거로웠다 —
+     측정값 칸에 함께 둔다 (261123) */
+  var fr = document.getElementById('acFreqRow');
+  fr.style.display = hasAC ? '' : 'none';
+  if (hasAC){
+    var srcEl = els.filter(function(e){ return e.type === 'acsource'; })[0];
+    var srcF = srcEl ? srcEl.props.f : 1;
+    document.getElementById('lb_acF').textContent = srcF.toFixed(srcF < 10 ? 3 : 1) + 'Hz';
+    var slF = document.getElementById('acF');
+    if (document.activeElement !== slF) slF.value = srcF;
+    var nbF = document.getElementById('acFn');
+    if (document.activeElement !== nbF && parseFloat(nbF.value) !== srcF) nbF.value = srcF;
+  }
   if (hasAC){
     document.getElementById('roVr').textContent = fmt(vr, 'V');
     document.getElementById('roIr').textContent = fmt(ir, 'A');
@@ -1294,6 +1342,8 @@ function stepSim(wallDt){
 }
 
 var acSig = '', acHold = 0, acSince = 0;   /* 교류 임피던스: 한 번 자리 잡은 값을 붙들어 둔다 (261122) */
+var acMeasure = { since: 0, win: 1 };      /* '재는 중' 에 얼마나 찼는지 적기 위해 (261123) */
+var acStableAt = 0;                        /* 두 창이 같아진 때 (261123) */
 var lastT = 0;
 function loop(ts){
   var dt = lastT ? Math.min(0.05, (ts - lastT) / 1000) : 0.016;
