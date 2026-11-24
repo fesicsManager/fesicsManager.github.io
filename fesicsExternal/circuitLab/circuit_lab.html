@@ -983,6 +983,28 @@ function shortedBattery(){
 }
 
 /* ---------- 측정값 ---------- */
+/* 따로 떨어진 회로를 둘 그려 놓으면 전지 전압을 모두 더하고 전류는 가장 큰 것만 적어,
+   서로 상관없는 두 회로가 한 회로처럼 보였다. '전지 한 개 → 두 개' 보기에서
+   위쪽 1.5V·아래쪽 3V 인데 '전지 전압 4.5V' 가 떴다 (261124) */
+function sourceLoops(){
+  var p = {};
+  function find(k){ while (p[k] !== k){ p[k] = p[p[k]]; k = p[k]; } return k; }
+  function join(a, b){
+    if (p[a] === undefined) p[a] = a;
+    if (p[b] === undefined) p[b] = b;
+    var ra = find(a), rb = find(b);
+    if (ra !== rb) p[ra] = rb;
+  }
+  for (var i = 0; i < els.length; i++) join(els[i].x1 + ',' + els[i].y1, els[i].x2 + ',' + els[i].y2);
+  var seen = {}, n = 0;
+  for (var i = 0; i < els.length; i++){
+    var e = els[i];
+    if (e.type !== 'battery' && e.type !== 'acsource') continue;
+    var r = find(e.x1 + ',' + e.y1);
+    if (!seen[r]){ seen[r] = 1; n++; }
+  }
+  return n;
+}
 function updateReadouts(){
   var bat = els.filter(function(e){ return e.type === 'battery' || e.type === 'acsource'; });
   var I = 0, V = 0, P = lastRes && lastRes.ok ? lastRes.totalP : 0;
@@ -1055,8 +1077,9 @@ function updateReadouts(){
     : (V ? V.toFixed(1) + ' V' : '0 V');
   /* 초등 수준에서도 'rms'·'임피던스 Z'·'실효값' 이 그대로 보였다 — 수준 단추가
      부품과 보기만 가리고 측정값 이름은 안 가렸다 (261123) */
-  document.getElementById('lbI').textContent = hasAC ? (level >= 2 ? '전류(rms)' : '전류') : '전체 전류';
-  document.getElementById('lbV').textContent = hasAC ? (level >= 2 ? '전압(rms)' : '전압') : '전지 전압';
+  /* 교류 전원은 고등에만 있는데 'rms' 이름이 중등에도 떴다. 실효값은 고등 말이다 (261124) */
+  document.getElementById('lbI').textContent = hasAC ? (level >= 3 ? '전류(실효값)' : '전류') : '전체 전류';
+  document.getElementById('lbV').textContent = hasAC ? (level >= 3 ? '전압(실효값)' : '전압') : '전지 전압';
   document.getElementById('lbR').textContent = (hasAC && level >= 3) ? '임피던스 Z' : '전체 저항';
   /* '재는 중…' 만 떠 있으면 얼마나 기다려야 하는지 알 수 없어, 10초를 기다리고도
      고장인 줄 알았다는 말이 나왔다. 얼마나 찼는지 함께 적는다 (261123) */
@@ -1115,7 +1138,15 @@ function updateReadouts(){
     /* 전압만 숫자로 남으니, 그게 전지에 적힌 값이라는 뜻을 이름에 적는다 (261122) */
     document.getElementById('lbV').textContent = '전지에 적힌 전압';
   }
+  var manyLoops = sourceLoops() > 1;
+  if (manyLoops){
+    document.getElementById('roI').textContent = '—';
+    document.getElementById('roV').textContent = '—';
+    document.getElementById('roR').textContent = '—';
+    document.getElementById('roP').textContent = '—';
+  }
   if (!els.length) msg = '';
+  else if (manyLoops) msg = '따로 떨어진 회로를 둘 이상 그렸어요. 합쳐서 적을 수 없어 측정값을 — 로 두었어요. 부품마다 적힌 값을 견줘 보세요.';
   else if (!bat.length) msg = (level >= 3 ? '전지나 교류 전원이 없어요.' : '전지가 없어요.') + ' 위에서 전원을 골라 놓고, 전원에서 나와 다시 전원으로 돌아오는 길을 이어 주세요.';
   else if (shorted) msg = '합선이에요. 실제 회로라면 아주 큰 전류가 흘러 전선이 뜨거워져요. 전원의 두 끝을 곧바로 잇는 선을 끊고, 그 자리에 전구나 저항을 넣어 주세요. 이 실험에서는 합선일 때 전류 값을 — 로 적어요.';
   /* 전압계를 직렬로 넣으면 1.5e-7 A 가 흘러 이 안내가 안 나왔다. 화면에 0 으로 보이면 안내한다 (261122) */
@@ -1172,6 +1203,21 @@ var EXAMPLES = [
     addWire(9, 4, 12, 4);
     addPart('bulb', 12, 4, 15, 4);
     addWire(15, 4, 17, 4); addWire(17, 4, 17, 12); addWire(17, 12, 3, 12); addWire(3, 12, 3, 9);
+  }},
+  /* 초등 과정에서 가장 많이 하는 활동은 전지 수를 늘려 밝기를 견주는 것인데,
+     초등 보기가 전구를 잇는 것뿐이라 그 활동을 열 자리가 없었다 (261124) */
+  {name:'전지 한 개 → 두 개(밝아져요)', lv:1, build:function(){
+    /* 위 회로 — 전지 한 개 */
+    addPart('battery', 3, 2, 3, 5);
+    addWire(3, 5, 3, 6); addWire(3, 6, 6, 6);
+    addPart('bulb', 6, 6, 9, 6);
+    addWire(9, 6, 12, 6); addWire(12, 6, 12, 1); addWire(12, 1, 3, 1); addWire(3, 1, 3, 2);
+    /* 아래 회로 — 같은 전지 두 개를 한 줄로 */
+    addPart('battery', 3, 9, 3, 11);
+    addPart('battery', 3, 11, 3, 13);
+    addWire(3, 13, 6, 13);
+    addPart('bulb', 6, 13, 9, 13);
+    addWire(9, 13, 12, 13); addWire(12, 13, 12, 8); addWire(12, 8, 3, 8); addWire(3, 8, 3, 9);
   }},
   {name:'전류계·전압계', lv:2, build:function(){
     addPart('battery', 3, 9, 3, 6);
