@@ -33,6 +33,7 @@ main.layout>*{min-width:0;}
 /* 다시 맞추기가 돌기 전 한 프레임이라도 상자보다 넓어지면 가로로 넘친다 (261122) */
 canvas#dome{width:100%;max-width:100%;height:auto;display:block;border-radius:11px;background:#0b1118;border:1px solid #070c11;}
 canvas#graph{width:100%;max-width:100%;height:auto;display:block;border-radius:9px;background:#f6faf9;border:1px solid #dce8e5;margin-top:4px;}
+canvas#moonModel{width:100%;max-width:100%;height:auto;display:block;border-radius:9px;background:#121a2b;border:1px solid #27304a;margin-top:8px;}
 .rowbtns{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;}
 button.act{font-weight:700;font-size:14.5px;padding:9px 14px;border-radius:9px;border:1.5px solid #cddad6;
   background:#fff;color:var(--ink-soft);cursor:pointer;touch-action:manipulation;}
@@ -121,6 +122,8 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
           <div><span>고도</span><b id="roMAlt">—</b></div>
           <div><span>방위</span><b id="roMAz">—</b></div>
         </div>
+        <canvas id="moonModel"></canvas>
+        <div class="note" id="moonWords">위에서 내려다본 그림이에요. 해는 늘 <b>달의 한쪽 반</b>만 비춥니다. 달이 지구 둘레를 돌면 그 밝은 쪽이 지구에서 <b>얼마나 보이는지</b>가 달라져요. 달이 이지러지는 것은 <b>지구 그림자 때문이 아닙니다.</b></div>
       </div>
     </aside>
   </main>
@@ -263,6 +266,8 @@ var playDay = false, playYear = false;
 /* ---------- 그리기 바탕 ---------- */
 var cv = document.getElementById('dome'), ctx = cv.getContext('2d');
 var gc = document.getElementById('graph'), gx2 = gc.getContext('2d');
+var mm = document.getElementById('moonModel'), mx = mm.getContext('2d');
+var mmW = 300, mmH = 186;
 var W = 900, H = 600, cx = 450, cy = 350, R = 268;
 var ELEV = 22;                 /* 남쪽에서 비스듬히 내려다본 각 */
 var scale = 1;
@@ -286,6 +291,13 @@ function fitAll(){
   gc.width = Math.round(gw * dpr); gc.height = Math.round(gh * dpr);
   gc.style.height = 'auto';   /* 폭이 먼저 줄고 높이가 남아 한순간 찌그러졌다 — 높이는 브라우저가 비율대로 (261122) */
   gx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  /* 달 위상 모형도 그래프와 같은 방식으로 (261124) */
+  var mw = mm.clientWidth || gw, mh = Math.max(130, Math.round(mw * 0.62));
+  mm.width = Math.round(mw * dpr); mm.height = Math.round(mh * dpr);
+  mm.style.height = 'auto';
+  mx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  mmW = mw; mmH = mh;
 }
 function lw(px){ return px / scale; }
 
@@ -417,21 +429,22 @@ function drawTrails(lst){
 }
 
 /* ---------- 달 ---------- */
-function drawMoonDisc(x, y, r, k, ang){
-  ctx.save();
-  ctx.translate(x, y); ctx.rotate(ang);
-  ctx.fillStyle = 'rgba(70,78,92,.95)';
-  ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.2832); ctx.fill();
+function drawMoonDisc(x, y, r, k, ang){ drawMoonDiscOn(ctx, x, y, r, k, ang); }
+function drawMoonDiscOn(c, x, y, r, k, ang){
+  c.save();
+  c.translate(x, y); c.rotate(ang);
+  c.fillStyle = 'rgba(70,78,92,.95)';
+  c.beginPath(); c.arc(0, 0, r, 0, 6.2832); c.fill();
   var a = (1 - 2 * k) * r, P = [], th;
   for (th = -90; th <= 90; th += 6) P.push([r * cos(th), r * sin(th)]);
   for (th = 90; th >= -90; th -= 6) P.push([a * cos(th), r * sin(th)]);
-  ctx.fillStyle = '#f5f0e0';
-  ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]);
-  for (var i = 1; i < P.length; i++) ctx.lineTo(P[i][0], P[i][1]);
-  ctx.closePath(); ctx.fill();
+  c.fillStyle = '#f5f0e0';
+  c.beginPath(); c.moveTo(P[0][0], P[0][1]);
+  for (var i = 1; i < P.length; i++) c.lineTo(P[i][0], P[i][1]);
+  c.closePath(); c.fill();
   /* 흰 테두리를 한 바퀴 둘러 놓으니 '초승달도 둥근 테두리가 보인다'로 읽혔다.
      밤하늘에서는 안 보이는 쪽에 테두리가 없다 (261124) */
-  ctx.restore();
+  c.restore();
 }
 /* 밝은 쪽 비율 k 로 이름을 갈랐더니, 상현·하현 칸이 8% 밖에 안 돼 하루씩 넘길 때
    그냥 지나쳤다(1월 25일 43% 초승달 → 26일 55% 차오르는 달). 하루에 이각이 12.2°
@@ -527,6 +540,71 @@ function render(){
 
   updateReadouts();
   drawGraph();
+  drawMoonModel();
+}
+
+/* ---------- 달 위상이 왜 생기는지 — 위에서 내려다본 그림 ----------
+   달 모양이 바뀌는 '결과'만 보여 주니, 학생이 그 까닭을 '지구 그림자'로
+   메웠다. 해 쪽·지구·달의 자리를 함께 보여 준다 (261124) */
+function litCircle(c, x, y, r, faceRight, dark, light){
+  c.save();
+  c.fillStyle = dark;
+  c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fill();
+  c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.clip();
+  c.fillStyle = light;
+  c.fillRect(faceRight ? x : x - r, y - r, r, 2 * r);
+  c.restore();
+}
+function drawMoonModel(){
+  if (!showMoon || !mm.clientWidth) return;
+  var w = mmW, h = mmH;
+  mx.clearRect(0, 0, w, h);
+  mx.fillStyle = '#121a2b'; mx.fillRect(0, 0, w, h);
+
+  var ex = w * 0.44, ey = h * 0.52;
+  var orb = Math.min(h * 0.33, w * 0.19);
+  var rE = Math.max(7, orb * 0.30), rM = Math.max(5, orb * 0.19);
+
+  /* 해에서 오는 빛 — 오른쪽에서 왼쪽으로 나란히 */
+  mx.strokeStyle = 'rgba(255,214,102,.5)'; mx.lineWidth = 1.4;
+  for (var i = 0; i < 5; i++){
+    var yy = h * (0.17 + 0.165 * i), x0 = w - 8, x1 = ex + orb + rM + 14;
+    mx.beginPath(); mx.moveTo(x0, yy); mx.lineTo(x1, yy); mx.stroke();
+    mx.beginPath(); mx.moveTo(x1, yy); mx.lineTo(x1 + 6, yy - 4); mx.lineTo(x1 + 6, yy + 4); mx.closePath();
+    mx.fillStyle = 'rgba(255,214,102,.7)'; mx.fill();
+  }
+  mx.fillStyle = 'rgba(255,214,102,.85)';
+  mx.font = '600 11px "Noto Sans KR", sans-serif'; mx.textAlign = 'right'; mx.textBaseline = 'top';
+  mx.fillText('해 쪽', w - 8, 5);
+
+  /* 달이 도는 길 */
+  mx.strokeStyle = 'rgba(160,180,220,.35)'; mx.lineWidth = 1; mx.setLineDash([4, 4]);
+  mx.beginPath(); mx.arc(ex, ey, orb, 0, 6.2832); mx.stroke();
+  mx.setLineDash([]);
+
+  /* 지구 — 해 쪽 반만 밝다 */
+  litCircle(mx, ex, ey, rE, true, '#20365c', '#6fa8e6');
+  mx.fillStyle = 'rgba(220,232,255,.85)';
+  mx.font = '600 11px "Noto Sans KR", sans-serif'; mx.textAlign = 'center'; mx.textBaseline = 'top';
+  mx.fillText('지구', ex, ey + rE + 4);
+
+  /* 달 — 이각만큼 돌아간 자리, 해 쪽 반만 밝다 */
+  var e = cur.elong || 0;
+  var mxp = ex + orb * cos(e), myp = ey - orb * sin(e);
+  mx.strokeStyle = 'rgba(200,215,245,.45)'; mx.lineWidth = 1; mx.setLineDash([3, 3]);
+  mx.beginPath(); mx.moveTo(ex, ey); mx.lineTo(mxp, myp); mx.stroke();
+  mx.setLineDash([]);
+  litCircle(mx, mxp, myp, rM, true, '#464e5c', '#f5f0e0');
+  mx.strokeStyle = 'rgba(255,255,255,.5)'; mx.lineWidth = 1.4;
+  mx.beginPath(); mx.arc(mxp, myp, rM + 4, 0, 6.2832); mx.stroke();
+
+  /* 지구에서 보면 이렇게 보인다 */
+  var vr = Math.max(12, Math.min(h * 0.15, w * 0.075));
+  var vx = vr + 10, vy = h - vr - 10;
+  drawMoonDiscOn(mx, vx, vy, vr, cur.k || 0, e < 180 ? 0 : Math.PI);
+  mx.fillStyle = 'rgba(220,232,255,.8)';
+  mx.font = '600 11px "Noto Sans KR", sans-serif'; mx.textAlign = 'left'; mx.textBaseline = 'bottom';
+  mx.fillText('지구에서 보면', 6, vy - vr - 5);
 }
 
 /* ---------- 해 뜨고 지는 때는 날짜·위도가 바뀔 때만 다시 센다 ---------- */
