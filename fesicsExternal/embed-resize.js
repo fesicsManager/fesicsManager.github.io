@@ -146,3 +146,59 @@
   window.addEventListener('pagehide', pageHideHandler);
   window.addEventListener('pageshow', pageShowHandler);
 }());
+
+/* 막대(슬라이더) 끌기 보호 (261124) — iframe 안이든 밖이든 모든 실험에 적용.
+   글자를 끌어 선택한 범위에 막대가 들어가 있으면, 그 막대를 눌렀을 때 브라우저가 '선택한 내용 끌어 옮기기'로
+   받아들여 막대가 안 움직였다. 또 막대 칸이 9px 쯤이라 손잡이 위·아래 끝을 잡으면 막대를 놓치고 글자 선택이 시작됐다. */
+(function () {
+  'use strict';
+  if (window.__fxRangeGuard) return;
+  window.__fxRangeGuard = true;
+  function isRange(t) { return t && t.tagName === 'INPUT' && t.type === 'range'; }
+  function clearSel() { try { var s = window.getSelection(); if (s && s.rangeCount && !s.isCollapsed) s.removeAllRanges(); } catch (e) {} }
+  document.addEventListener('pointerdown', function (e) { if (isRange(e.target)) clearSel(); }, true);
+  document.addEventListener('mousedown', function (e) { if (isRange(e.target)) clearSel(); }, true);
+  /* 선택된 글자·막대를 통째로 끌어 옮기는 일은 실험에서 쓸 데가 없다 */
+  document.addEventListener('dragstart', function (e) {
+    var t = e.target;
+    if (isRange(t) || (t && t.nodeType === 3) || (t && t.nodeType === 1 && t.querySelector && t.querySelector('input[type=range]'))) e.preventDefault();
+  }, true);
+  /* 손잡이 위·아래 끝(막대 칸 밖 10px 안)을 눌러도 그 막대를 잡은 것으로 — 배치(여백)는 건드리지 않는다 */
+  var NEAR = 10, held = null;
+  function rangeNear(x, y) {
+    var list = document.querySelectorAll('input[type=range]');
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i].getBoundingClientRect();
+      if (!r.width || list[i].disabled) continue;
+      if (x >= r.left && x <= r.right && y >= r.top - NEAR && y <= r.bottom + NEAR) return list[i];
+    }
+    return null;
+  }
+  function setFromX(el, x) {
+    var r = el.getBoundingClientRect(), th = 14;
+    var t = Math.max(0, Math.min(1, (x - r.left - th / 2) / Math.max(1, r.width - th)));
+    var min = parseFloat(el.min) || 0, max = el.max === '' ? 100 : parseFloat(el.max), step = el.step === 'any' ? 0 : (parseFloat(el.step) || 1);
+    var v = min + t * (max - min);
+    if (step) v = min + Math.round((v - min) / step) * step;
+    var old = el.value; el.value = String(v);
+    if (el.value !== old) el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  document.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0 || e.pointerType !== 'mouse' || isRange(e.target)) return;
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'CANVAS') return;
+    var el = rangeNear(e.clientX, e.clientY);
+    if (!el) return;
+    e.preventDefault(); clearSel();
+    held = el; try { el.focus({ preventScroll: true }); } catch (er) {}
+    setFromX(el, e.clientX);
+  }, true);
+  document.addEventListener('pointermove', function (e) { if (held) { e.preventDefault(); setFromX(held, e.clientX); } }, true);
+  function release() { if (held) { held.dispatchEvent(new Event('change', { bubbles: true })); held = null; } }
+  document.addEventListener('pointerup', release, true);
+  document.addEventListener('pointercancel', release, true);
+  /* 막대 이름표(값 숫자)는 끌다가 선택되지 않게 */
+  var st = document.createElement('style');
+  st.textContent = '.prop label,label:has(+ input[type=range]){-webkit-user-select:none;user-select:none}';
+  (document.head || document.documentElement).appendChild(st);
+}());
