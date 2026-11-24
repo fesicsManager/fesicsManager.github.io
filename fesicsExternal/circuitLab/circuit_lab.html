@@ -457,7 +457,9 @@ function lead(L, bodyW){
 
 function drawEl(e, sel){
   var bri = 0;
-  if (e.type === 'bulb' && e.res) bri = Math.min(1, Math.abs(e.res.i) / 0.3);
+  /* 0.3A 에서 딱 멈춰 0.3A 와 0.6A 가 똑같아 보였다 — 전구가 그 위로는 안 밝아지는
+     것처럼 읽힌다. 멈추지 않고 차츰 느리게 밝아지게 둔다 (261124) */
+  if (e.type === 'bulb' && e.res) bri = (function(ii){ return ii <= 0.3 ? ii / 0.3 * 0.8 : 0.8 + 0.2 * (1 - Math.exp(-(ii - 0.3) / 0.3)); })(Math.abs(e.res.i));
   var s = cell;
   withEl(e, function(L){
     if (e.type === 'wire'){
@@ -631,16 +633,29 @@ function drawFlow(){
   for (var i = 0; i < els.length; i++){
     var e = els[i];
     var cur = (e.type === 'wire') ? (e.wi === undefined ? null : e.wi) : (e.res ? e.res.i : null);
-    if (cur === null || Math.abs(cur) < maxI * 0.02) continue;
-    var L = elLen(e), n = Math.max(1, Math.round(L * 1.6));
+    /* 아주 약한 가지에 아무것도 안 그려 '여긴 안 흐른다'로 보였다. 참말로 0 일 때만
+       빼고, 약한 것은 옅게라도 남긴다 (261124) */
+    if (cur === null || Math.abs(cur) < 1e-9) continue;
+    /* 둥근 점보다 화살표가 커서 1.6개/칸 으로는 사슬처럼 이어 보였다 (261124) */
+    var L = elLen(e), n = Math.max(1, Math.round(L * 0.9));
     var dir = cur >= 0 ? 1 : -1;
     var sp = 0.25 + 0.75 * Math.min(1, Math.abs(cur) / maxI);
+    /* 둥근 알갱이로 그려 놓으니 '전자가 + 에서 − 로 간다'로 읽혔다. 전류의 방향을
+       가리키는 화살표로 바꾼다 — 알갱이가 아니라 방향이라는 뜻이다 (261124) */
+    var ax = (e.x2 - e.x1), ay = (e.y2 - e.y1), aL = Math.hypot(ax, ay) || 1;
+    var ux = dir * ax / aL, uy = dir * ay / aL;
+    var hs = Math.max(3, cell * 0.17), faint = Math.abs(cur) < maxI * 0.02;
     for (var k = 0; k < n; k++){
       var t = ((flowPhase * sp + k / n) % 1);
       if (dir < 0) t = 1 - t;
       var px = gx(e.x1 + (e.x2 - e.x1) * t), py = gy(e.y1 + (e.y2 - e.y1) * t);
-      ctx.fillStyle = 'rgba(47,143,157,.85)';
-      ctx.beginPath(); ctx.arc(px, py, Math.max(2, cell * 0.11), 0, 6.2832); ctx.fill();
+      ctx.strokeStyle = faint ? 'rgba(47,143,157,.3)' : 'rgba(47,143,157,.9)';
+      ctx.lineWidth = Math.max(1.4, cell * 0.075); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(px - uy * hs * 0.6 - ux * hs * 0.5, py + ux * hs * 0.6 - uy * hs * 0.5);
+      ctx.lineTo(px + ux * hs * 0.5, py + uy * hs * 0.5);
+      ctx.lineTo(px + uy * hs * 0.6 - ux * hs * 0.5, py - ux * hs * 0.6 - uy * hs * 0.5);
+      ctx.stroke();
     }
   }
 }
