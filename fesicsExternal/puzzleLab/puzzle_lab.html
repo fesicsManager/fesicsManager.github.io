@@ -69,7 +69,7 @@ var engine = M.Engine.create(), world = engine.world;
 engine.gravity.y = 1;
 engine.positionIterations = 8; engine.velocityIterations = 8;
 
-function R(x, y, w, h, o){ return {t:'rect', x:x, y:y, w:w, h:h, a:(o && o.a) || 0, color:(o && o.color) || '#5d7470'}; }
+function R(x, y, w, h, o){ return {t:'rect', x:x, y:y, w:w, h:h, a:(o && o.a) || 0, e:(o && o.e) || 0, color:(o && o.color) || '#5d7470'}; }
 var LEVELS = [
   {name:'첫 미끄럼틀', kind:'draw', ink:700,
    text:'공이 바구니에 들어가도록 <b>선을 그어</b> 길을 만드세요. 공은 ▶ 를 누르면 떨어져요.',
@@ -105,7 +105,31 @@ var LEVELS = [
    text:'가까운 탑과 먼 탑, 빨간 상자 4개를 모두 떨어뜨리세요.',
    tip:'가까운 탑은 낮고 빠르게, 먼 탑은 높게 던져 보세요. 쏠 때마다 끄는 방향과 길이를 바꾸면 궤도가 달라져요.',
    cannon:{x:90, y:500}, platform:null, plats:[R(470, 460, 140, 18), R(860, 380, 160, 18)],
-   targets:[[470, 425, 46, 50], [470, 375, 46, 50], [860, 345, 46, 50], [860, 295, 46, 50]], statics:[]}
+   targets:[[470, 425, 46, 50], [470, 375, 46, 50], [860, 345, 46, 50], [860, 295, 46, 50]], statics:[]},
+  /* 261124 추가 세 단계 */
+  {name:'트램펄린', kind:'draw', ink:700,
+   text:'보라색 판은 아주 잘 튀는 트램펄린이에요. 공이 트램펄린에 튕겨 <b>높이 떠 있는 바구니</b>에 들어가게 길을 만드세요.',
+   tip:'튀는 정도(반발 계수)가 1 에 가까우면 공은 떨어진 높이만큼 거의 다시 올라가요. 그래서 바구니는 출발점보다 낮아야 해요.',
+   ball:{x:120, y:80, r:15}, goal:{x:790, y:400, w:140, h:100},
+   statics:[R(450, 570, 170, 16, {e:1, color:'#7b4ec9'})]},
+  {name:'시소 투석기', kind:'shoot', shots:4, fallY:620,
+   text:'시소 오른쪽 끝에 빨간 상자 두 개가 있어요. 시소 <b>왼쪽 끝</b>을 세게 맞혀 상자를 튕겨 내세요. 상자가 화면 아래로 떨어지면 성공!',
+   tip:'시소는 받침점을 중심으로 도는 지레예요. 한쪽 끝을 세게 누르면 반대쪽 끝이 들려 올라가요. 받침점에서 멀리 칠수록 돌리는 힘(돌림힘)이 커요.',
+   cannon:{x:100, y:300}, platform:null, plats:[], targets:[[860, 430, 44, 44], [860, 386, 44, 44]], statics:[],
+   extra:function(){
+     var pa = M.Bodies.rectangle(720, 460, 360, 14), pb = M.Bodies.rectangle(895, 437, 10, 40);
+     pa.plugin = {draw:'#8a6a4a'}; pb.plugin = {draw:'#8a6a4a'};
+     var plank = M.Body.create({parts:[pa, pb], density:0.002, friction:0.8});   /* 오른쪽 끝 턱: 쏘기 전에 상자가 미끄러져 내리지 않게 */
+     var piv = M.Constraint.create({bodyA:plank, pointB:{x:720, y:460}, stiffness:1, length:0});
+     var fulc = M.Bodies.polygon(720, 488, 3, 30, {isStatic:true, isSensor:true, angle:-Math.PI/2}); fulc.plugin = {draw:'#5d7470'};
+     var stopR = M.Bodies.rectangle(880, 540, 20, 80, {isStatic:true}); stopR.plugin = {draw:'#5d7470'};
+     M.Composite.add(world, [plank, piv, fulc, stopR]);
+   }},
+  {name:'아주 짧은 잉크', kind:'draw', ink:320,
+   text:'잉크가 조금밖에 없어요. 미끄럼틀 끝에 <b>짧은 점프대</b>를 그려 공을 멀리 날려 바구니에 넣으세요.',
+   tip:'빗면 끝에서 위로 꺾인 점프대를 지나면 공은 비스듬히 던져진 것처럼 포물선을 그려요. 빠를수록, 각이 45° 에 가까울수록 멀리 가요.',
+   ball:{x:70, y:80, r:15}, goal:{x:840, y:480, w:140, h:100},
+   statics:[R(260, 260, 520, 18, {a:0.55})]}
 ];
 
 var cv = document.getElementById('stage'), ctx = cv.getContext('2d');
@@ -116,7 +140,9 @@ try { rec = JSON.parse(localStorage.getItem('fxPuzzle') || '{}') || {}; } catch 
 function saveRec(){ try { localStorage.setItem('fxPuzzle', JSON.stringify(rec)); } catch (e) {} }
 
 function staticBody(s){
-  return M.Bodies.rectangle(s.x, s.y, s.w, s.h, {isStatic:true, angle:s.a, friction:0.05, render:{fill:s.color}});
+  var b = M.Bodies.rectangle(s.x, s.y, s.w, s.h, {isStatic:true, angle:s.a, friction:0.05, render:{fill:s.color}});
+  b.restitution = s.e || 0;   /* matter.js 는 고정 물체의 반발을 0 으로 바꿔 놓는다 — 만든 뒤에 다시 넣는다 */
+  return b;
 }
 function buildLevel(i){
   cur = i; lv = LEVELS[i];
@@ -133,7 +159,7 @@ function buildLevel(i){
     });
     placeBall();
   } else {
-    var plats = lv.plats || [lv.platform];
+    var plats = lv.plats || (lv.platform ? [lv.platform] : []);
     plats.forEach(function(p){ var b = staticBody(p); b.plugin = {draw:'#8a6a4a'}; M.Composite.add(world, b); bodies.push(b); });
     lv.targets.forEach(function(t){
       var b = M.Bodies.rectangle(t[0], t[1], t[2], t[3], {density:lv.heavy ? 0.006 : 0.002, friction:lv.heavy ? 0.15 : 0.6, restitution:0.05});
@@ -141,6 +167,7 @@ function buildLevel(i){
     });
     M.Composite.add(world, M.Bodies.rectangle(W/2, H + 200, W * 3, 40, {isStatic:true, isSensor:true}));
   }
+  if (lv.extra) lv.extra();
   document.getElementById('lvTitle').textContent = (i + 1) + '. ' + lv.name;
   document.getElementById('lvText').innerHTML = lv.text;
   var draw = lv.kind === 'draw';
@@ -246,6 +273,7 @@ function checkShootEnd(){
   if (shots >= lv.shots && left) msg('no', '공을 다 썼어요. 상자 ' + left + '개가 남았어요. 아래 ‘처음부터’ 를 눌러 다시 도전!');
 }
 function fallen(t){
+  if (lv.fallY) return t.position.y > lv.fallY;
   var plats = lv.plats || [lv.platform];
   var top = Math.max.apply(null, plats.map(function(p){ return p.y; }));
   return t.position.y > top + 40;
@@ -312,6 +340,10 @@ function render(){
     }
   }
   M.Composite.allBodies(world).forEach(function(b){
+    if (b.parts.length > 1){   /* 여러 조각으로 된 물체(턱 달린 시소)는 조각마다 */
+      b.parts.slice(1).forEach(function(q){ if (q.plugin && q.plugin.draw){ ctx.fillStyle = q.plugin.draw; drawBody(q); } });
+      return;
+    }
     if (!b.plugin || !b.plugin.draw) return;
     ctx.fillStyle = b.plugin.draw; drawBody(b);
   });

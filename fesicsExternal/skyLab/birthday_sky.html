@@ -184,6 +184,34 @@ function sunSet(y, mo, d, lat, lon){
   return {set:set, rise:rise};
 }
 
+/* 행성 — JPL 근사 궤도 요소(1800~2050년, 1° 안팎) [a, e, I, L, 근일점 경도, 승교점 경도] 와 100년당 변화 */
+var PLANETS = [
+  {name:'수성', color:'#d9c7a8', r:3.5, el:[0.38709927,0.20563593,7.00497902,252.25032350,77.45779628,48.33076593], rt:[0.00000037,0.00001906,-0.00594749,149472.67411175,0.16047689,-0.12534081]},
+  {name:'금성', color:'#fff3c4', r:6, el:[0.72333566,0.00677672,3.39467605,181.97909950,131.60246718,76.67984255], rt:[0.00000390,-0.00004107,-0.00078890,58517.81538729,0.00268329,-0.27769418]},
+  {name:'화성', color:'#ff8a5c', r:4.5, el:[1.52371034,0.09339410,1.84969142,-4.55343205,-23.94362959,49.55953891], rt:[0.00001847,0.00007882,-0.00813131,19140.30268499,0.44441088,-0.29257343]},
+  {name:'목성', color:'#ffe2b0', r:5.5, el:[5.20288700,0.04838624,1.30439695,34.39644051,14.72847983,100.47390909], rt:[-0.00011607,-0.00013253,-0.00183714,3034.74612775,0.21252668,0.20469106]},
+  {name:'토성', color:'#e8d59a', r:4.5, el:[9.53667594,0.05386179,2.48599187,49.95424423,92.59887831,113.66242448], rt:[-0.00125060,-0.00050991,0.00193609,1222.49362201,-0.41897216,-0.28867794]}
+];
+var EARTH = {el:[1.00000261,0.01671123,-0.00001531,100.46457166,102.93768193,0], rt:[0.00000562,-0.00004392,-0.01294668,35999.37244981,0.32327364,0]};
+function helio(o, T){
+  var e0 = o.el.map(function(v, i){ return v + o.rt[i] * T; });
+  var a = e0[0], e = e0[1], I = e0[2], L = e0[3], wb = e0[4], Om = e0[5];
+  var M = wrap360(L - wb), w = wb - Om, E = M + R2D * e * sin(M);
+  for (var k = 0; k < 8; k++) E = E - (E - R2D * e * sin(E) - M) / (1 - e * cos(E));
+  var xp = a * (cos(E) - e), yp = a * Math.sqrt(1 - e * e) * sin(E);
+  return [
+    (cos(w) * cos(Om) - sin(w) * sin(Om) * cos(I)) * xp + (-sin(w) * cos(Om) - cos(w) * sin(Om) * cos(I)) * yp,
+    (cos(w) * sin(Om) + sin(w) * cos(Om) * cos(I)) * xp + (-sin(w) * sin(Om) + cos(w) * cos(Om) * cos(I)) * yp,
+    (sin(w) * sin(I)) * xp + (cos(w) * sin(I)) * yp
+  ];
+}
+function planetRaDec(o, jd){
+  var T = (jd - 2451545.0) / 36525, p = helio(o, T), g = helio(EARTH, T);
+  var x = p[0] - g[0], y = p[1] - g[1], z = p[2] - g[2], eps = 23.43928;
+  var ye = y * cos(eps) - z * sin(eps), ze = y * sin(eps) + z * cos(eps);
+  return {ra:wrap360(Math.atan2(ye, x) * R2D), dec:Math.atan2(ze, Math.hypot(x, ye)) * R2D};
+}
+
 var state = null;
 function compute(){
   var ds = document.getElementById('inDate').value, ts = document.getElementById('inTime').value || '21:00';
@@ -194,6 +222,7 @@ function compute(){
   var elong = wrap360(mp.lam - sp.lam), k = (1 - cos(elong)) / 2;
   return {y:p[0], m:p[1], d:p[2], hour:hour, city:city, jd:jd, lst:lst,
           sun:altAz(sp.ra, sp.dec, lst, city[1]), moon:altAz(mp.ra, mp.dec, lst, city[1]), elong:elong, k:k,
+          planets:PLANETS.map(function(o){ var rd = planetRaDec(o, jd); return {name:o.name, color:o.color, r:o.r, rd:rd, a:altAz(rd.ra, rd.dec, lst, city[1])}; }),
           ss:sunSet(p[0], p[1], p[2], city[1], city[2])};
 }
 
@@ -231,6 +260,17 @@ function draw(st){
       ctx.fillStyle = '#fffbea'; ctx.beginPath(); ctx.arc(q.p[0], q.p[1], r, 0, 6.2832); ctx.fill();
       if (s[3] && s[2] < 1.7){ ctx.fillStyle = 'rgba(230,240,255,.9)'; ctx.fillText(s[3], q.p[0] + r + 4, q.p[1]); }
       ctx.globalAlpha = 1;
+    });
+  }
+  /* 행성 (261124) — 해가 진 뒤에만 그린다 */
+  if (st.sun.alt < -4){
+    st.planets.forEach(function(pl){
+      if (pl.a.alt < 0) return;
+      var p = proj(pl.a.alt, pl.a.az);
+      ctx.fillStyle = pl.color; ctx.shadowColor = pl.color; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(p[0], p[1], pl.r, 0, 6.2832); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = pl.color; ctx.font = '700 15px "Noto Sans KR",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(pl.name, p[0] + pl.r + 5, p[1]);
     });
   }
   /* 달 */
@@ -289,6 +329,8 @@ function update(){
   if (st.sun.alt > 0) f.push('이 시각에는 아직 <b>해가 떠 있어서</b> 별이 안 보여요. 시각을 밤으로 바꿔 보세요.');
   else if (st.sun.alt > -12) f.push('해가 막 져서 하늘이 아직 밝아요. 밝은 별만 보이기 시작할 때예요.');
   if (vn.con.length) f.push('보이는 별자리: <b>' + vn.con.join(', ') + '</b>');
+  var upP = st.planets.filter(function(p){ return p.a.alt > 3; });
+  if (st.sun.alt < -4 && upP.length) f.push('떠 있던 행성: <b>' + upP.map(function(p){ return p.name + '(' + dirName(p.a.az) + '쪽)'; }).join(', ') + '</b> — 행성은 별처럼 반짝이지 않고 또렷하게 빛나요.');
   if (vn.stars.length && st.sun.alt < -6) f.push('가장 밝게 빛나던 별: <b>' + vn.stars.join(', ') + '</b>');
   var days = Math.floor((Date.now() / 86400000 + 2440587.5) - st.jd);
   if (days > 0) f.push('그날부터 오늘까지 지구는 태양 둘레를 <b>' + (days / 365.25).toFixed(1) + '바퀴</b>, 스스로 <b>' + days.toLocaleString('ko-KR') + '번</b> 돌았어요.');
