@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>낙하 자석 실험실 — 구리관 속에서는 왜 천천히 떨어질까?</title>
+<style>
+:root{
+  --bg:#f6f9fc; --ink:#1f2937; --sub:#52627a; --line:#d7e0ec;
+  --card:#ffffff; --accent:#2563eb; --ok:#0f9d58; --no:#dc2626;
+}
+html{font-size:20px}
+@media (max-width:760px){html{font-size:19.5px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:1.2rem 0 3rem;
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.6;
+  background-color:var(--bg);
+  background-image:radial-gradient(circle,#ccd7e6 1.3px,transparent 1.3px);
+  background-size:22px 22px;
+}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .3rem}
+.lead{font-size:1rem;color:var(--sub);margin:0 0 1.1rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.6rem 1.1rem;
+  border:2px solid var(--line);border-radius:.7rem;background:#fff;color:var(--sub);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .1s,filter .15s}
+.tab-btn:hover{filter:brightness(.97);border-color:#b9c8dc}
+.tab-btn:active{transform:translateY(2px) scale(.98)}
+.tab-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) 1fr;gap:1rem;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:2px solid var(--line);border-radius:1rem;padding:1rem}
+.grid>*{min-width:0} /* 표가 넓어도 그리드 열이 화면 밖으로 늘어나지 않게 */
+.readout>*{min-width:0;overflow-wrap:anywhere}
+.card h2{font-size:1.1rem;margin:0 0 .7rem}
+canvas{width:100%;height:auto;display:block;border-radius:.7rem;background:#fff}
+.ctrl{margin:.9rem 0}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:1rem;font-weight:700;margin-bottom:.1rem}
+.ctrl .val{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;width:.95rem;height:.95rem;border-radius:.25rem;margin-right:.4rem;vertical-align:-.1rem}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;
+  cursor:pointer;touch-action:manipulation;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-moz-range-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#fff;border:4px solid var(--accent);margin-top:-7px;transition:transform .12s,box-shadow .12s}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;
+  border:4px solid var(--accent);transition:transform .12s,box-shadow .12s}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:active::-moz-range-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+.btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.65rem 1.15rem;border:none;
+  border-radius:.7rem;background:var(--accent);color:#fff;cursor:pointer;transition:filter .15s,transform .1s}
+.btn.alt{background:#0f9d58}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px) scale(.98)}
+.btn:disabled{background:#aebdd0;cursor:not-allowed;filter:none;transform:none}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.9rem}
+.readout div{background:#f1f6fd;border:1px solid var(--line);border-radius:.6rem;padding:.55rem .7rem;font-size:.95rem}
+.readout b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.95rem;color:var(--sub);margin-top:.7rem}
+.tablewrap{max-height:26rem;overflow:auto;border:1px solid var(--line);border-radius:.7rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .45rem;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:#eaf1fa;font-weight:700;z-index:2}
+tbody tr:nth-child(even){background:#fafcff}
+.empty{padding:1.6rem;text-align:center;color:var(--sub);font-size:1rem}
+.ok{color:var(--ok);font-weight:700}
+.no{color:var(--no);font-weight:700}
+.concl{background:#eef7ff;border:2px solid #a9cff5;border-radius:.8rem;padding:.9rem 1rem;font-size:1.05rem;margin-top:1rem}
+.hidden{display:none}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.9rem}
+.stat{background:#f4f8fe;border:1px solid var(--line);border-radius:.7rem;padding:.8rem}
+.stat h3{margin:0 0 .3rem;font-size:1rem}
+.stat p{margin:0;font-size:.95rem;color:var(--sub)}
+.stat .big{font-size:1.3rem;font-weight:800;color:var(--ink);margin-bottom:.2rem}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:normal;overflow-wrap:anywhere;max-width:100%}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem;display:block;max-width:100%;overflow-x:auto}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left;white-space:normal}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>낙하 자석 실험실 — 구리관 속에서는 왜 천천히 떨어질까?</h1>
+  <p class="lead">자석 세기와 구리관 두께를 바꾸어 1 m 떨어지는 시간을 재고, 관이 없을 때와 견준다.</p>
+
+  <div class="tabs">
+    <button class="tab-btn on" id="tabA">🔬 자유 탐구</button>
+    <button class="tab-btn" id="tabB">✅ 데이터 확인</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="과학 원리">
+<div class="fx-p-card">
+<h2>📖 과학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 변화를 방해하는 전류가 흐른다</h3>
+<p>자석이 구리관 속을 내려오면 관의 각 부분을 지나는 <b>자기 다발(자속)</b>이 시간에 따라 변한다. <b>패러데이 법칙</b>에 따라 변하는 자속은 기전력을 만들고, 구리가 도체이므로 벽에 <b>맴돌이 전류(와전류)</b>가 흐른다. 이 전류의 방향은 <b>렌츠 법칙</b>에 따라 자속의 변화를 <b>방해하는</b> 쪽이다 — 결과적으로 자석을 위로 당겨 올리는 힘이 생긴다. 구리는 자석에 붙지 않지만, <b>움직이는</b> 자석에는 이렇게 힘을 준다.</p>
+<h3>⚙️ 왜 F ∝ B² × 두께 × v 인가</h3>
+<ul>
+<li>기전력은 자속의 변화율이므로 <span class="fx-formula">ε ∝ B v</span> — 자석이 셀수록, 빠를수록 크다.</li>
+<li>전류는 <span class="fx-formula">I = ε ÷ R</span>. 벽이 두꺼우면 전류가 흐를 단면이 넓어져 저항 R 이 반비례로 작아진다 → <span class="fx-formula">I ∝ B v × 두께 ÷ ρ</span></li>
+<li>전류가 자기장 속에서 받는 힘은 <span class="fx-formula">F ∝ B I</span> 이므로, 합치면 <span class="fx-formula">F ∝ B² v × 두께 ÷ ρ</span></li>
+<li>B 가 두 번 들어가는 까닭: 한 번은 기전력을 만들 때, 한 번은 전류가 힘을 받을 때다. 그래서 자석 세기를 2배로 하면 막는 힘은 <b>4배</b>가 된다.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>막는 힘이 중력과 같아지면 더 이상 빨라지지 않는다. 그 속도가 <b>종단 속도</b>다.</p>
+<p><span class="fx-formula">종단 속도 v<sub>t</sub> = 0.165 ÷ (B² × 두께[mm])</span> (m/s)</p>
+<p>떨어지는 동안은 <span class="fx-formula">dv/dt = g (1 − v / v<sub>t</sub>)</span> 를 풀어 1 m 내려오는 데 걸린 시간을 구한다. 관이 없으면(두께 0) 막는 힘이 없으므로 <span class="fx-formula">t = √(2h/g) = 0.45 s</span> 다.</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· "구리관이 자석을 붙잡는다" → 구리는 자성체가 아니다. <b>움직일 때만</b> 힘이 생기고, 자석을 가만히 놓아 두면 아무 힘도 없다.<br>· "속도가 0이 된다" → 0이 아니라 <b>일정</b>해진다. 중력과 막는 힘이 같아진 상태이고, 자석은 계속 내려온다.<br>· "에너지가 사라졌다" → 자석이 잃은 역학적 에너지는 관에 흐른 전류의 <b>열</b>로 바뀐다. 오래 하면 관이 미지근해진다.</div>
+<div class="fx-note"><b>🧪 실제 실험과 다른 점</b><br>실제로는 관의 지름, 자석의 길이와 모양에 따라 제동 세기가 달라지고, 자석이 관 입구와 출구를 지날 때는 종단 속도에 아직 닿지 않는다. 이 실험은 그 복잡함을 상수 0.165 하나에 담았다.</div>
+<h3>🌍 생활 속에서</h3>
+<ul>
+<li>고속 열차와 놀이 기구의 <b>와전류 제동</b> — 닳는 부품 없이 멈춘다. 다만 완전히 세울 수는 없어서 마지막엔 마찰 제동을 쓴다.</li>
+<li>전동 공구의 전기 계량기, 금속 탐지기, 유도 가열(인덕션)도 모두 맴돌이 전류를 쓴다.</li>
+<li>변압기의 철심을 얇은 판을 겹쳐 만드는 이유도 이것이다 — 맴돌이 전류가 흐를 길을 끊어 열로 새는 에너지를 줄인다.</li>
+</ul>
+</div>
+</section>
+
+
+  <section id="paneA">
+    <div class="grid">
+      <div class="card">
+        <h2 id="cvTitle">실험판</h2>
+        <canvas id="cv" role="img" aria-label="낙하 자석 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
+      </div>
+      <div class="card">
+        <h2>조절하기</h2>
+        <div id="controls"></div>
+        <div class="btns">
+          <button class="btn" id="btnAct">실행</button>
+        </div>
+        <div class="readout" id="readout"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>기록표 <span style="font-weight:400;font-size:.95rem;color:var(--sub)">(<span id="cntA">0</span>개 기록됨)</span></h2>
+      <div class="tablewrap"><table><thead id="thA"></thead><tbody id="tbA"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="paneB" class="hidden">
+    <div class="card">
+      <h2>내가 기록한 데이터 분석</h2>
+      <div id="lack" class="empty">데이터 부족 — 기록이 4개 이상 있어야 분석할 수 있다. (지금 <span id="cntB">0</span>개)</div>
+      <div id="analysis" class="hidden">
+        <div class="tablewrap"><table><thead id="thB"></thead><tbody id="tbB"></tbody></table></div>
+        <div class="statgrid" id="statgrid"></div>
+        <div class="concl" id="concl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+
+function lbl(ctx,t,x,y,c,sz,al){ctx.fillStyle=c;ctx.font='bold '+(sz||18)+'px sans-serif';ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillText(t,x,y);}
+
+var HFALL = 1.0;          /* 떨어뜨리는 높이 (m) */
+var GACC  = 9.8;          /* 중력 가속도 (m/s^2) */
+var KBRK  = 0.165;        /* 제동 상수 — 종단 속도 = KBRK / (B^2 × 두께) */
+var TFREE = Math.sqrt(2*HFALL/GACC);   /* 관이 없을 때 걸리는 시간 ≈ 0.452 s */
+
+function vterm(B,th){ return (th<=0)?Infinity:(KBRK/(B*B*th)); }
+
+/* 종단 속도 vt 로 떨어질 때 x 만큼 가는 데 걸린 시간 (dv/dt = g(1 − v/vt)) */
+function fallTime(vt){
+  if(!isFinite(vt)) return TFREE;
+  function x(t){ return vt*t-(vt*vt/GACC)*(1-Math.exp(-GACC*t/vt)); }
+  var lo=0, hi=1;
+  while(x(hi)<HFALL && hi<4000) hi*=2;
+  var i,mid;
+  for(i=0;i<70;i++){ mid=(lo+hi)/2; if(x(mid)<HFALL) lo=mid; else hi=mid; }
+  return (lo+hi)/2;
+}
+/* 시간 t 에서의 낙하 거리 */
+function fallX(vt,t){
+  if(!isFinite(vt)) return Math.min(HFALL,0.5*GACC*t*t);
+  return Math.min(HFALL,vt*t-(vt*vt/GACC)*(1-Math.exp(-GACC*t/vt)));
+}
+
+var LAB = {
+  cw:440, ch:430, cvTitle:'낙하판 (높이 1 m)',
+  action:'놓아 보기',
+  hint0:'자석 세기와 관 두께를 정하고 놓아 보자. 두께 0 mm는 관이 없는 것(플라스틱 관)과 같다. 오른쪽 회색 자석은 늘 자유 낙하하는 견줌용이다.',
+  sliders:[
+    {id:'B',label:'자석 세기',min:0.1,max:1,value:0.5,step:0.1,color:'#dc2626',unit:' T',fmt:function(v){return v.toFixed(1)+' T';}},
+    {id:'th',label:'구리관 두께 (0 = 관 없음)',min:0,max:5,value:2,step:0.5,color:'#b45309',unit:' mm',fmt:function(v){return v.toFixed(1)+' mm';}}
+  ],
+  readout:function(S,ran){
+    var vt=vterm(S.B,S.th), tt=fallTime(vt);
+    return [{k:'종단 속도',v:isFinite(vt)?(vt<10?vt.toFixed(2):vt.toFixed(0))+' m/s':'없음(자유 낙하)'},
+            {k:ran?'1 m 걸린 시간':'걸릴 시간',v:ran?tt.toFixed(2)+' s':'? s'}];
+  },
+  doneMsg:function(S){
+    var vt=vterm(S.B,S.th), tt=fallTime(vt);
+    if(S.th<=0) return '관이 없으니 '+tt.toFixed(2)+'초 — 자유 낙하 그대로다. 막는 힘이 없었다.';
+    var ratio=tt/TFREE;
+    if(ratio<1.1) return tt.toFixed(2)+'초 걸렸다. 자유 낙하와 거의 같다 — 제동이 너무 약해 종단 속도('+vt.toFixed(1)+' m/s)에 닿기 전에 바닥에 왔다.';
+    return tt.toFixed(2)+'초 걸렸다. 자유 낙하('+TFREE.toFixed(2)+'초)보다 '+ratio.toFixed(1)+'배 느리다. 종단 속도 '+vt.toFixed(2)+' m/s로 거의 일정하게 내려왔다.';
+  },
+  draw:function(ctx,S,t,ran){
+    var vt=vterm(S.B,S.th), tt=fallTime(vt);
+    var p=(t===null)?0:Math.min(1,t);
+    var now=p*tt;                           /* 실험 시간을 2.4초 애니메이션에 담는다 */
+    var TOP=74, BOT=344, LEN=BOT-TOP;
+    var xA=150, xB=330;                     /* 왼쪽: 관 속 / 오른쪽: 자유 낙하 */
+
+    /* 관 */
+    var tw=6+S.th*4;                        /* 벽 두께를 그림으로 */
+    if(S.th>0){
+      ctx.fillStyle='#fed7aa';
+      ctx.fillRect(xA-26-tw,TOP,tw,LEN);
+      ctx.fillRect(xA+26,TOP,tw,LEN);
+      ctx.strokeStyle='#b45309'; ctx.lineWidth=1.6;
+      ctx.strokeRect(xA-26-tw,TOP,tw,LEN);
+      ctx.strokeRect(xA+26,TOP,tw,LEN);
+      lbl(ctx,'구리관 '+S.th.toFixed(1)+' mm',xA,TOP-30,'#92400e',14,'center');
+    } else {
+      ctx.setLineDash([4,5]); ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(xA-26,TOP); ctx.lineTo(xA-26,BOT); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xA+26,TOP); ctx.lineTo(xA+26,BOT); ctx.stroke();
+      ctx.setLineDash([]);
+      lbl(ctx,'관 없음',xA,TOP-30,'#64748b',14,'center');
+    }
+    ctx.fillStyle='#f8fafc'; ctx.fillRect(xA-26,TOP,52,LEN);
+    ctx.fillStyle='#f8fafc'; ctx.fillRect(xB-22,TOP,44,LEN);
+    ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1.4;
+    ctx.strokeRect(xA-26,TOP,52,LEN); ctx.strokeRect(xB-22,TOP,44,LEN);
+    lbl(ctx,'견줌용',xB,TOP-30,'#64748b',14,'center');
+
+    /* 눈금 (0~1 m) */
+    var i;
+    ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1;
+    for(i=0;i<=10;i++){
+      var y=TOP+LEN*i/10;
+      ctx.beginPath(); ctx.moveTo(34,y); ctx.lineTo(xA-30-tw,y); ctx.stroke();
+      if(i%2===0) lbl(ctx,(i/10).toFixed(1)+' m',30,y+5,'#94a3b8',12,'right');
+    }
+
+    /* 자석 그리기 */
+    function mag(x,y,strong){
+      ctx.fillStyle=strong?'#dc2626':'#94a3b8';
+      ctx.fillRect(x-16,y-11,32,11);
+      ctx.fillStyle=strong?'#1e293b':'#cbd5e1';
+      ctx.fillRect(x-16,y,32,11);
+      ctx.strokeStyle='#0f172a'; ctx.lineWidth=1.6; ctx.strokeRect(x-16,y-11,32,22);
+      ctx.fillStyle='#fff'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+      ctx.fillText('N',x,y-2); ctx.fillText('S',x,y+9);
+      ctx.textAlign='left';
+    }
+    var xa=fallX(vt,now), xb=Math.min(HFALL,0.5*GACC*now*now);
+    var ya=TOP+12+(LEN-24)*(xa/HFALL), yb=TOP+12+(LEN-24)*(xb/HFALL);
+    mag(xA,ya,true); mag(xB,yb,false);
+
+    /* 유도 전류 고리와 막는 힘 — 움직일 때만 */
+    if(p>0 && S.th>0 && xa<HFALL-1e-6){
+      ctx.strokeStyle='#0ea5e9'; ctx.lineWidth=2.4;
+      for(i=-1;i<=1;i+=2){
+        var ry=ya+i*30;
+        ctx.beginPath(); ctx.ellipse(xA,ry,26+tw/2,7,0,0,6.3); ctx.stroke();
+      }
+      lbl(ctx,'유도 전류',xA+34+tw,ya-30,'#0369a1',13);
+      ctx.strokeStyle='#16a34a'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(xA,ya-14); ctx.lineTo(xA,ya-40); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xA,ya-42); ctx.lineTo(xA-6,ya-32); ctx.lineTo(xA+6,ya-32); ctx.closePath();
+      ctx.fillStyle='#16a34a'; ctx.fill();
+      lbl(ctx,'막는 힘',xA+34+tw,ya-8,'#15803d',13);
+    }
+
+    /* 아래 눈금판 */
+    ctx.fillStyle='#f1f6fd'; ctx.fillRect(20,362,400,56);
+    ctx.strokeStyle='#c7d8ee'; ctx.lineWidth=2; ctx.strokeRect(20,362,400,56);
+    var txt;
+    if(t===null) txt='아직 놓지 않았다 (높이 1 m)';
+    else if(p<1) txt=now.toFixed(2)+'초 — '+xa.toFixed(2)+' m 내려옴';
+    else txt='관 속 '+tt.toFixed(2)+'초  /  견줌용 '+TFREE.toFixed(2)+'초  ('+(tt/TFREE).toFixed(1)+'배)';
+    lbl(ctx,txt,38,396,'#1f2937',18);
+  },
+  record:function(S){
+    var vt=vterm(S.B,S.th), tt=fallTime(vt);
+    return {B:S.B,th:S.th,vt:vt,t:tt,ratio:tt/TFREE};
+  },
+  headA:['번호','자석 세기(T)','관 두께(mm)','종단 속도(m/s)','1 m 걸린 시간(s)','자유 낙하의 몇 배'],
+  rowA:function(r,i){
+    return [i+1,r.B.toFixed(1),r.th.toFixed(1),isFinite(r.vt)?(r.vt<10?r.vt.toFixed(2):r.vt.toFixed(0)):'∞',
+            '<b>'+r.t.toFixed(2)+'</b>',r.ratio.toFixed(1)+'배'];
+  },
+  analyze:function(rec){
+    var rows=[],i,j;
+    for(i=0;i<rec.length;i++){
+      var r=rec[i];
+      rows.push([r.B.toFixed(1),r.th.toFixed(1),
+                 isFinite(r.vt)?(r.vt<10?r.vt.toFixed(2):r.vt.toFixed(0)):'∞',
+                 r.t.toFixed(2),r.ratio.toFixed(1)+'배',
+                 (r.th<=0)?'<span class="ok">제동 없음</span>':'제동']);
+    }
+    /* ① 두께 같고 자석 세기가 2배인 짝 — 종단 속도는 1/4 이어야 */
+    var bPair=null;
+    for(i=0;i<rec.length&&!bPair;i++) for(j=0;j<rec.length;j++){
+      var a=rec[i],b=rec[j];
+      if(a.th>0&&a.th===b.th&&Math.abs(b.B-2*a.B)<1e-9){ bPair={a:a,b:b,r:a.vt/b.vt}; break; }
+    }
+    /* ② 자석 같고 두께가 2배인 짝 — 종단 속도는 1/2 이어야 */
+    var tPair=null;
+    for(i=0;i<rec.length&&!tPair;i++) for(j=0;j<rec.length;j++){
+      var c=rec[i],d=rec[j];
+      if(c.th>0&&Math.abs(c.B-d.B)<1e-9&&Math.abs(d.th-2*c.th)<1e-9){ tPair={a:c,b:d,r:c.vt/d.vt}; break; }
+    }
+    /* ③ 관이 없을 때 */
+    var noTube=null;
+    for(i=0;i<rec.length;i++) if(rec[i].th<=0) noTube=rec[i].t;
+    var stats=[
+      {t:'자석 세기를 2배로 하면 종단 속도는',
+       big:(bPair===null)?'비교 없음':'1/'+bPair.r.toFixed(1),
+       p:(bPair===null)?'두께를 그대로 두고 0.3 T 와 0.6 T 처럼 2배 짝을 만들어 보자.':'4분의 1이 되었다. 막는 힘이 B 가 아니라 <b>B²</b> 에 비례하기 때문이다 — 유도 기전력도, 전류도 B 에 비례하므로 곱하면 B² 다.'},
+      {t:'관 두께를 2배로 하면 종단 속도는',
+       big:(tPair===null)?'비교 없음':'1/'+tPair.r.toFixed(1),
+       p:(tPair===null)?'자석을 그대로 두고 1.0 mm 와 2.0 mm 처럼 2배 짝을 만들어 보자.':'절반이 되었다. 벽이 두꺼우면 전류가 흐를 길이 넓어져 저항이 줄고, 그만큼 전류와 막는 힘이 커진다.'},
+      {t:'관이 없을 때(두께 0) 걸린 시간',
+       big:(noTube===null)?'기록 없음':noTube.toFixed(2)+' s',
+       p:(noTube===null)?'두께를 0 mm 로 두고 한 번 해 보자.':'자유 낙하 '+TFREE.toFixed(2)+' s 그대로다. 자석이어도 관이 없으면 유도 전류가 흐를 곳이 없다.'}
+    ];
+    var concl;
+    if(noTube===null&&bPair===null&&tPair===null){
+      concl='<b>더 해 보자</b> — 두께 0 mm(관 없음)를 한 번 기록하고, 자석 세기만 2배로 한 짝과 두께만 2배로 한 짝을 만들면 규칙이 숫자로 드러난다.';
+    } else {
+      var head='<b>정리</b> — 구리관 속에서 자석이 천천히 떨어진 것은 공기 저항이나 마찰 때문이 아니다. ';
+      var body='자석이 내려오면 관의 각 부분을 지나는 자기 다발이 변하고, <b>렌츠 법칙</b>에 따라 그 변화를 <b>방해하는</b> 방향으로 '
+             +'관 벽에 맴돌이 전류가 흐른다. 이 전류가 만드는 자기장이 자석을 위로 당겨 올려 낙하를 막는다. '
+             +'막는 힘은 <span class="ok">F ∝ B² × 두께 × v</span> 여서 속도가 커질수록 커지고, 결국 중력과 같아지는 <b>종단 속도</b>에서 일정해진다. ';
+      var tail='';
+      if(bPair) tail+='자석 세기를 2배로 하면 종단 속도가 1/'+bPair.r.toFixed(1)+'이 된 것이 B² 의 증거다. ';
+      if(tPair) tail+='두께를 2배로 하면 1/'+tPair.r.toFixed(1)+'이 된 것은 벽의 저항이 반으로 줄어든 결과다. ';
+      if(noTube!==null) tail+='관이 없으면 전류가 흐를 길이 없어 '+noTube.toFixed(2)+'초, 즉 자유 낙하 그대로였다. ';
+      concl=head+body+tail+'자석이 잃은 역학적 에너지는 사라진 것이 아니라 관에서 <b>열</b>로 바뀐다.';
+    }
+    return {head:['자석 세기(T)','관 두께(mm)','종단 속도(m/s)','1 m 걸린 시간(s)','자유 낙하의 몇 배','제동'],
+            rows:rows,stats:stats,concl:concl};
+  }
+};
+
+
+/* ================= 공통 엔진 ================= */
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  cv.width = LAB.cw; cv.height = LAB.ch;
+  cv.style.maxWidth = LAB.cw + 'px';
+  var ctx = cv.getContext('2d');
+  document.getElementById('cvTitle').textContent = LAB.cvTitle;
+
+  var S = {}, records = [], animating = false, ran = false, ACT_LABEL = null;
+  var DUR = 2400, MIN = 4;
+
+  var h = '', i;
+  for(i=0;i<LAB.sliders.length;i++){
+    var s = LAB.sliders[i];
+    h += '<div class="ctrl"><div class="row"><span><span class="chip" style="background:' + s.color + '"></span>'
+       + s.label + '</span><span class="val" id="v_' + s.id + '"></span></div>'
+       + '<input type="range" id="s_' + s.id + '" aria-label="' + s.label + '" min="' + s.min + '" max="' + s.max
+       + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
+  }
+  document.getElementById('controls').innerHTML = h;
+
+  var btnAct = document.getElementById('btnAct');
+  var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
+  var hint = document.getElementById('hint');
+  btnAct.textContent = LAB.action;
+
+  function readSliders(){
+    for(var i=0;i<LAB.sliders.length;i++){
+      var s = LAB.sliders[i];
+      var el = document.getElementById('s_' + s.id);
+      S[s.id] = parseFloat(el.value);
+      document.getElementById('v_' + s.id).textContent = s.fmt ? s.fmt(S[s.id]) : (S[s.id] + (s.unit || ''));
+    }
+  }
+  function lock(on){
+    for(var i=0;i<LAB.sliders.length;i++){ document.getElementById('s_' + LAB.sliders[i].id).disabled = on; }
+    btnAct.disabled = on || ran;
+    btnRec.disabled = on || !ran;
+  }
+  function readout(){
+    var arr = LAB.readout(S, ran), s = '';
+    for(var i=0;i<arr.length;i++){ s += '<div>' + arr[i].k + '<b>' + arr[i].v + '</b></div>'; }
+    document.getElementById('readout').innerHTML = s;
+  }
+  function paint(t){
+    ctx.clearRect(0,0,LAB.cw,LAB.ch);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,LAB.cw,LAB.ch);
+    ctx.strokeStyle = '#e5ecf5'; ctx.lineWidth = 2; ctx.strokeRect(1,1,LAB.cw-2,LAB.ch-2);
+    LAB.draw(ctx, S, t, ran);
+  }
+  function onSlide(){
+    if(animating) return;
+    readSliders(); ran = false;
+    if(ACT_LABEL !== null){ btnAct.textContent = ACT_LABEL; }
+    btnAct.disabled = false; btnRec.disabled = true;
+    hint.textContent = LAB.hint0;
+    readout(); paint(null);
+  }
+  for(i=0;i<LAB.sliders.length;i++){
+    document.getElementById('s_' + LAB.sliders[i].id).addEventListener('input', onSlide);
+  }
+
+  btnAct.addEventListener('click', function(){
+    if(animating || ran) return;
+    cv.scrollIntoView({behavior:'smooth', block:'center'});
+    animating = true; lock(true);
+    var t0 = performance.now();
+    function frame(now){
+      var p = Math.max(0, (now - t0) / DUR);
+      if(p > 1) p = 1;
+      paint(p);
+      if(p < 1){ requestAnimationFrame(frame); }
+      else {
+        animating = false; ran = true; lock(false);
+        if(ACT_LABEL === null) ACT_LABEL = btnAct.textContent;
+        btnAct.textContent = '값을 바꾸면 다시 실행';
+        records.push(LAB.record(S));
+        if(!window.__fxNudged && records.length >= (typeof MIN === 'number' ? MIN : 4)){
+          window.__fxNudged = true;
+          /* 기록이 분석에 필요한 만큼 모이면 '데이터 확인' 으로 가자고 알린다 (261120) */
+          (function(){
+            var host = document.getElementById('hint'), tb = document.getElementById('tabB');
+            if(!host || !tb || document.getElementById('fxNudge')) return;
+            var d = document.createElement('p');
+            d.id = 'fxNudge'; d.className = 'hint';
+            d.style.cssText = 'margin-top:.6rem;color:#1d4ed8;font-weight:700';
+            d.appendChild(document.createTextNode('기록이 ' + records.length + '개 모였어요. 이제 결과를 살펴볼까요? '));
+            var b = document.createElement('button');
+            b.type = 'button'; b.className = 'btn'; b.style.marginTop = '.4rem';
+            b.textContent = '데이터 확인 보기 →';
+            b.addEventListener('click', function(){ tb.click(); tb.scrollIntoView({behavior:'smooth', block:'start'}); });
+            d.appendChild(b);
+            host.parentNode.insertBefore(d, host.nextSibling);
+          })();
+        }
+        renderA(); renderB();
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)';
+        readout(); paint(1);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+
+  function th(list){
+    var s = '<tr>';
+    for(var i=0;i<list.length;i++){ s += '<th>' + list[i] + '</th>'; }
+    return s + '</tr>';
+  }
+  function renderA(){
+    document.getElementById('cntA').textContent = records.length;
+    document.getElementById('thA').innerHTML = th(LAB.headA);
+    var tb = document.getElementById('tbA');
+    if(records.length === 0){
+      tb.innerHTML = '<tr><td colspan="' + LAB.headA.length + '" class="empty">아직 기록이 없다.</td></tr>';
+      return;
+    }
+    var s = '';
+    for(var i=0;i<records.length;i++){
+      var cells = LAB.rowA(records[i], i);
+      s += '<tr>';
+      for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
+      s += '</tr>';
+    }
+    tb.innerHTML = s;
+  }
+  function renderB(){
+    document.getElementById('cntB').textContent = records.length;
+    var lack = document.getElementById('lack'), an = document.getElementById('analysis');
+    if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
+    lack.classList.add('hidden'); an.classList.remove('hidden');
+    var res = LAB.analyze(records);
+    document.getElementById('thB').innerHTML = th(res.head);
+    var s = '';
+    for(var i=0;i<res.rows.length;i++){
+      s += '<tr>';
+      for(var j=0;j<res.rows[i].length;j++){ s += '<td>' + res.rows[i][j] + '</td>'; }
+      s += '</tr>';
+    }
+    document.getElementById('tbB').innerHTML = s;
+    var g = '';
+    for(var k=0;k<res.stats.length;k++){
+      g += '<div class="stat"><h3>' + res.stats[k].t + '</h3><p class="big">' + res.stats[k].big
+         + '</p><p>' + res.stats[k].p + '</p></div>';
+    }
+    document.getElementById('statgrid').innerHTML = g;
+    document.getElementById('concl').innerHTML = res.concl;
+  }
+
+  var tabA = document.getElementById('tabA'), tabB = document.getElementById('tabB');
+  var paneA = document.getElementById('paneA'), paneB = document.getElementById('paneB');
+  tabA.addEventListener('click', function(){
+    tabA.classList.add('on'); tabB.classList.remove('on');
+    paneA.classList.remove('hidden'); paneB.classList.add('hidden');
+  });
+  tabB.addEventListener('click', function(){
+    tabB.classList.add('on'); tabA.classList.remove('on');
+    paneB.classList.remove('hidden'); paneA.classList.add('hidden');
+    renderB();
+  });
+
+  readSliders(); readout(); paint(null);
+  hint.textContent = LAB.hint0;
+  renderA(); renderB();
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 과학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+<!-- fxNoteLink:start -->
+<style>
+.fx-note-cta{margin-top:18px;padding:16px 18px;border-radius:14px;background:#fff8ee;border:1px dashed #d98e3b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:.98rem;line-height:1.6}
+.fx-note-cta a{display:inline-block;background:#173238;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:10px;white-space:nowrap}
+.fx-note-cta a:hover{filter:brightness(1.15)}
+</style>
+<script>
+(function(){
+  var href='../notes/high3EMQuantum/19_magnet_tube_braking_lab_EMQuantum_Ep05.html';
+  var ok=function(el){ return el && !/^(BUTTON|A|INPUT|NAV)$/.test(el.tagName) ? el : null; };
+  var host=ok(document.getElementById('validationContent'))||ok(document.getElementById('verifyContent'))||ok(document.getElementById('verifyTab'))
+    ||ok(document.getElementById('panel-verify'))||ok(document.getElementById('panel-validate'))||ok(document.getElementById('verifyBody'))
+    ||ok(document.querySelector('#tab-validate .card, #tab-validate, #tab-verify .card, #tab-verify'))
+    ||ok(document.querySelector('section#verify, section#validate, #verify.panel, #validate.panel'))
+    ||ok(document.querySelector('#paneB .card, #paneB'))
+    ||ok(document.querySelector('.app, main, .wrap'))||document.body;
+  if(host){
+    var d=document.createElement('div'); d.className='fx-note-cta';
+    d.innerHTML='<div>📝 실험을 마쳤다면 <b>자습 노트</b>에서 실험에서 본 현상을 원리로 정리해 보세요.</div><a href="'+href+'">자습 노트 열기 →</a>';
+    host.appendChild(d);
+  }
+})();
+</script>
+<!-- fxNoteLink:end -->
+<!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
+<script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+</html>
