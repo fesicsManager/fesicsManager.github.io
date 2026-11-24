@@ -74,6 +74,16 @@ button.act[disabled]{opacity:.45;cursor:default;}
   padding:9px 12px;font-size:14.5px;line-height:1.5;}
 .hint{margin-top:10px;font-size:14.5px;color:var(--ink-soft);line-height:1.55;background:#f6faf9;
   border-radius:10px;padding:10px 12px;border:1px dashed #b7cdc9;}
+/* 키보드만으로도 만들 수 있게 (261125) */
+.kbhelp{margin:8px 0 0;font-size:13px;color:var(--ink-soft);line-height:1.65;}
+.kbhelp b{color:var(--ink);}
+.kbhelp kbd{font-family:'IBM Plex Mono',monospace;font-size:12px;background:#eef4f3;border:1px solid #c8d8d5;
+  border-bottom-width:2px;border-radius:5px;padding:1px 5px;color:var(--ink);}
+/* 휴대폰에서는 자리만 차지한다 — 읽어 주는 장치에는 그대로 남긴다 */
+@media (max-width:640px){.kbhelp{position:absolute;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}
 
 /* 속성 */
 .prop{margin-top:9px;}
@@ -109,7 +119,12 @@ input[type=number]{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15
   <main class="layout">
     <section class="card">
       <div class="tools" id="tools"></div>
-      <canvas id="board"></canvas>
+      <canvas id="board" tabindex="0" role="application"
+        aria-label="회로를 만드는 모눈판. 화살표 키로 칸을 옮기고, 스페이스 키로 부품을 놓습니다."></canvas>
+      <p class="kbhelp" id="kbhelp">손이 불편하거나 마우스가 없을 때 — 모눈판을 <kbd>Tab</kbd> 으로 고른 뒤
+        <kbd>←↑↓→</kbd> 칸 옮기기 · <kbd>Space</kbd> 한 번 더 눌러 <b>시작점과 끝점</b> 찍기(부품이 놓입니다) ·
+        <kbd>Esc</kbd> 시작점 취소 · <kbd>Delete</kbd> 그 자리 지우기 · <kbd>?</kbd> 지금 무엇이 있는지 읽어 주기.</p>
+      <p class="sr" id="say" role="status" aria-live="polite"></p>
       <div class="rowbtns">
         <button class="act" id="btnZoomIn">화면 크게</button><button class="act" id="btnZoomOut">화면 작게</button><button class="act" id="btnUndo" title="마지막으로 한 일을 한 단계 되돌려요.">되돌리기</button>
         <button class="act" id="btnValues" title="회로 그림 옆에 적힌 부품 값을 보이거나 숨겨요.">부품 값 숨기기</button>
@@ -694,6 +709,31 @@ function render(){
     ctx.beginPath(); ctx.moveTo(gx(drag.x0), gy(drag.y0)); ctx.lineTo(gx(drag.x1), gy(drag.y1)); ctx.stroke();
     ctx.restore();
   }
+  drawKbCursor();
+}
+
+/* 키보드로 쓸 때의 커서 — 지금 칸과 찍어 둔 시작점 (261125) */
+function drawKbCursor(){
+  if (typeof kb === 'undefined' || !kb || !kb.on) return;
+  ctx.save();
+  if (kb.ax !== null){
+    var x2 = kb.x, y2 = kb.y;
+    if (Math.abs(x2 - kb.ax) >= Math.abs(y2 - kb.ay)) y2 = kb.ay; else x2 = kb.ax;
+    ctx.strokeStyle = 'rgba(217,142,59,.75)'; ctx.lineWidth = Math.max(3, cell * 0.12);
+    ctx.setLineDash([6, 5]); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(gx(kb.ax), gy(kb.ay)); ctx.lineTo(gx(x2), gy(y2)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#96591c';
+    ctx.beginPath(); ctx.arc(gx(kb.ax), gy(kb.ay), Math.max(4, cell * 0.17), 0, 7); ctx.fill();
+  }
+  var r = Math.max(7, cell * 0.33), cx = gx(kb.x), cy = gy(kb.y);
+  ctx.setLineDash([]);
+  /* 밝은 바탕에서도 어두운 바탕에서도 보이게 흰 테두리를 깔고 그린다 */
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(4, cell * 0.16);
+  ctx.strokeRect(cx - r, cy - r, r * 2, r * 2);
+  ctx.strokeStyle = '#246d78'; ctx.lineWidth = Math.max(2, cell * 0.08);
+  ctx.strokeRect(cx - r, cy - r, r * 2, r * 2);
+  ctx.restore();
 }
 
 /* ---------- 선에 흐르는 전류 ---------- */
@@ -836,6 +876,136 @@ cv.addEventListener('pointerup', function(ev){
   changed();
 });
 cv.addEventListener('pointercancel', function(){ drag.on = false; drag.moved = false; });
+
+/* ---------- 키보드만으로 만들기 (261125) ----------
+   마우스를 쓰지 못해도 모눈 위에 칸 하나를 '커서'로 두고 옮겨 가며
+   시작점·끝점을 찍어 부품을 놓는다. 끌기와 똑같은 결과가 나오게 맞췄다. */
+var kb = {on:false, x:2, y:7, ax:null, ay:null};
+
+function toolName(t){
+  for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].t === t) return TOOLS[i].name;
+  return t;
+}
+function say(msg){
+  var b = document.getElementById('say');
+  if (!b) return;
+  /* 같은 말을 거푸 하면 읽어 주는 장치가 건너뛴다 */
+  b.textContent = (b.textContent === msg) ? msg + ' ' : msg;
+}
+/* 받침이 있으면 앞말, 없으면 뒷말 — '전구를 / 선을' 이 바르게 나오게 */
+function josa(w, a, b){
+  for (var i = w.length - 1; i >= 0; i--){
+    var c = w.charCodeAt(i);
+    if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28) ? a : b;
+  }
+  return b;
+}
+function eul(w){ return w + josa(w, '을', '를'); }
+function nameAt(x, y){
+  var hit = elAt({x:x, y:y});
+  if (!hit) return null;
+  return hit.type === 'wire' ? '선' : toolName(hit.type);
+}
+function whatAt(x, y){
+  var hit = elAt({x:x, y:y});
+  if (!hit) return '빈 칸';
+  if (hit.type === 'wire') return '선';
+  var s = toolName(hit.type);
+  if (hit.type === 'switch') s += hit.props.closed ? ' (닫힘)' : ' (열림)';
+  return s;
+}
+function kbSee(){
+  /* 커서가 보이는 자리를 벗어나면 화면을 따라 옮긴다 */
+  if (kb.x < ox + 0.5)      ox = kb.x - 0.5;
+  if (kb.x > ox + VC - 1.5) ox = kb.x - VC + 1.5;
+  if (kb.y < oy + 0.5)      oy = kb.y - 0.5;
+  if (kb.y > oy + VR - 1.5) oy = kb.y - VR + 1.5;
+  clampView();
+}
+function kbMove(dx, dy){
+  kb.on = true;
+  kb.x = Math.max(0, Math.min(GW, kb.x + dx));
+  kb.y = Math.max(0, Math.min(GH, kb.y + dy));
+  kbSee();
+  say('가로 ' + kb.x + ', 세로 ' + kb.y + ' — ' + whatAt(kb.x, kb.y) +
+      (kb.ax === null ? '' : ' · 시작점에서 ' +
+        (Math.abs(kb.x - kb.ax) >= Math.abs(kb.y - kb.ay)
+          ? Math.abs(kb.x - kb.ax) + '칸 가로' : Math.abs(kb.y - kb.ay) + '칸 세로')));
+}
+function kbPut(){
+  kb.on = true;
+  if (tool === 'select' || tool === 'erase'){
+    var nmb = nameAt(kb.x, kb.y);
+    tapAt({x:kb.x, y:kb.y});
+    if (tool === 'erase') say(nmb ? eul(nmb) + ' 지웠어요.' : '여기엔 지울 것이 없어요.');
+    else if (!nmb) say('빈 칸이에요. 고른 것을 풀었어요.');
+    else {
+      var full = whatAt(kb.x, kb.y);
+      say(eul(nmb) + ' 골랐어요.' + (full === nmb ? '' : ' 지금 ' + full.replace(/^[^(]*\(|\)$/g, '') + '.'));
+    }
+    return;
+  }
+  if (kb.ax === null){
+    kb.ax = kb.x; kb.ay = kb.y;
+    say('시작점을 가로 ' + kb.x + ', 세로 ' + kb.y + ' 에 찍었어요. 화살표로 옮기고 스페이스를 한 번 더 누르세요.');
+    return;
+  }
+  /* 끌기와 같게 — 많이 움직인 쪽으로만 곧게 놓는다 */
+  var x1 = kb.ax, y1 = kb.ay, x2 = kb.x, y2 = kb.y;
+  if (Math.abs(x2 - x1) >= Math.abs(y2 - y1)) y2 = y1; else x2 = x1;
+  if (x1 === x2 && y1 === y2){
+    kb.ax = null; kb.ay = null;
+    say('시작점과 끝점이 같아요. 취소했습니다.');
+    return;
+  }
+  snapshot();
+  if (tool === 'wire') addWire(x1, y1, x2, y2);
+  else {
+    var e = addPart(tool, Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2));
+    selId = e.id;
+  }
+  kb.ax = null; kb.ay = null;
+  changed();
+  say(eul(toolName(tool)) + ' 놓았어요. ' + readSummary());
+}
+function readSummary(){
+  /* 화면이 가려져 그리기가 멈춘 동안에도 읽어 주는 값은 지금 값이어야 한다 */
+  try { updateReadouts(); } catch (e) {}
+  var i = document.getElementById('roI'), v = document.getElementById('roV');
+  if (!i || !v) return '';
+  return '전체 전류 ' + i.textContent + ', 전지 전압 ' + v.textContent + '.';
+}
+cv.addEventListener('focus', function(){
+  kb.on = true;
+  say('모눈판입니다. 지금 고른 것은 ' + toolName(tool) +
+      '. 화살표로 옮기고 스페이스로 시작점과 끝점을 찍으세요. 지금 자리는 가로 ' +
+      kb.x + ', 세로 ' + kb.y + ' — ' + whatAt(kb.x, kb.y) + '.');
+});
+cv.addEventListener('keydown', function(ev){
+  var k = ev.key, step = ev.shiftKey ? 5 : 1;
+  if (k === 'ArrowLeft')       kbMove(-step, 0);
+  else if (k === 'ArrowRight') kbMove(step, 0);
+  else if (k === 'ArrowUp')    kbMove(0, -step);
+  else if (k === 'ArrowDown')  kbMove(0, step);
+  else if (k === ' ' || k === 'Enter') kbPut();
+  else if (k === 'Escape'){
+    kb.on = true;
+    if (kb.ax !== null){ kb.ax = null; kb.ay = null; say('시작점을 취소했어요.'); }
+    else { selId = null; changed(); say('고른 것을 풀었어요.'); }
+  }
+  else if (k === 'Delete' || k === 'Backspace'){
+    kb.on = true;
+    var hit = elAt({x:kb.x, y:kb.y});
+    if (hit){ snapshot(); var nmz = hit.type === 'wire' ? '선' : toolName(hit.type);
+              els = els.filter(function(e){ return e !== hit; }); selId = null; changed();
+              say(eul(nmz) + ' 지웠어요.'); }
+    else say('여기엔 지울 것이 없어요.');
+  }
+  else if (k === '?' || k === '/') say('가로 ' + kb.x + ', 세로 ' + kb.y + ' — ' +
+      whatAt(kb.x, kb.y) + '. ' + readSummary());
+  else return;              /* 우리가 쓰지 않는 키는 브라우저에 넘긴다 (Tab 포함) */
+  ev.preventDefault();
+});
 
 function tapAt(p){
   var hit = elAt(p);
