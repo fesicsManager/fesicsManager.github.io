@@ -15,7 +15,10 @@ body{margin:0;background:radial-gradient(var(--grid) 1.2px,transparent 1.2px) 0 
   -webkit-text-size-adjust:100%;}
 .app{max-width:1500px;margin:0 auto;}
 h1{font-family:'Space Grotesk',sans-serif;font-size:27px;margin:0 0 4px;line-height:1.2;}
-.subtitle{color:var(--ink-soft);font-size:16px;margin:0 0 12px;}
+.subtitle{color:var(--ink-soft);font-size:16px;margin:0 0 6px;}
+/* 쪽을 열어도 어느 단원에 몇 분짜리로 쓰는지 적힌 데가 없었다 (261124) */
+.teach{color:var(--ink-soft);font-size:13.5px;margin:0 0 12px;}
+.teach b{color:var(--ink);}
 .backlink{display:none;margin:0 0 8px;font-size:14.5px;}
 .backlink a{color:var(--teal);font-weight:700;text-decoration:none;border-bottom:1.5px solid #bfdfe2;}
 .card{background:var(--card);border:1px solid #d5e0dc;border-radius:var(--radius);box-shadow:0 3px 0 rgba(23,50,56,.05);padding:14px 16px;}
@@ -74,6 +77,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
   <p class="backlink" id="backlink"><a href="https://fesics.kr/lab">← 페직스 실험실로</a></p>
   <h1>빛 실험대</h1>
   <p class="subtitle">렌즈와 거울을 놓고, 둥근 손잡이를 끌어 돌려 보세요. 렌즈를 지나거나 거울에 튕겨 나온 빛의 길을 하나하나 계산해서 그립니다.</p>
+  <p class="teach">수업에 쓴다면 — <b>중등 빛과 렌즈</b> · 물체를 옮기며 볼록렌즈가 만드는 상의 자리를 찾기 · <b>15분</b></p>
 
   <div class="levels">
     <button class="lv" data-lv="1">초등</button>
@@ -89,6 +93,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
         <button class="act on" id="btnAxis" title="중심선과 초점 표시를 보이거나 숨겨요. 단추에 불이 들어와 있으면 보이는 중이에요.">중심선(광축)·초점</button>
         <button class="act" id="btnGrid" title="바탕 모눈을 보이거나 숨겨요. 단추에 불이 들어와 있으면 보이는 중이에요.">모눈</button>
         <button class="act" id="btnUndo" disabled title="마지막으로 한 일을 한 단계 되돌려요.">되돌리기</button>
+        <button class="act" id="btnShare" title="지금 놓은 그대로 열리는 주소를 만들어 복사해요. 선생님이 나눠 주거나, 집에서 이어 열 때 쓰세요.">링크 만들기</button>
         <button class="act danger" id="btnClear" title="실험대에 놓은 부품을 모두 지워요.">전부 지우기</button>
       </div>
       <div class="exrow" id="examples"></div>
@@ -1084,12 +1089,59 @@ function undo(){
 }
 document.getElementById('btnUndo').onclick = undo;
 
+/* ---------- 지금 장면을 주소에 담기 (261124) ----------
+   선생님이 '이 장면을 열어 보세요' 를 링크로 줄 길이 없었고, 학생도 학교에서 만든 것을
+   집에서 이어 열 수 없었다(저장이 그 기기의 브라우저에만 남는다). 주소 뒤에 담는다. */
+function b64u(s){ return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function unb64u(s){ s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length % 4) s += '='; return decodeURIComponent(escape(atob(s))); }
+function sceneFromHash(){
+  var m = /[#&]s=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
+  if (!m) return null;
+  try { return JSON.parse(unb64u(m[1])); } catch (e) { return null; }
+}
+/* 자리와 각만 담고, 기본값과 같은 속성은 뺀다 (261124) */
+var PACK_T = ['laser','beam','point','object','lensConvex','lensConcave','mirrorPlane','mirrorConcave','mirrorConvex','glass','prism','screen'];
+function packScene(){
+  function r(n){ return Math.round(n * 10) / 10; }
+  return {v:1, lv:level, o:obs.map(function(x){
+    var a = [PACK_T.indexOf(x.type), r(x.x), r(x.y), Math.round(x.ang * 1000) / 1000];
+    var dp = defProps(x.type), extra = null;
+    for (var k in x.props) if (x.props[k] !== dp[k]){ extra = extra || {}; extra[k] = x.props[k]; }
+    if (extra) a.push(extra);
+    return a;
+  })};
+}
+function unpackScene(d){
+  if (!d || !d.o || !d.o.length) return false;
+  obs = d.o.map(function(a){
+    var t = PACK_T[a[0]] || 'laser', p = defProps(t);
+    if (a[4]) for (var k in a[4]) p[k] = a[4][k];
+    return {id:0, type:t, x:a[1], y:a[2], ang:a[3], props:p};
+  });
+  level = d.lv || 2;
+  nextId = 1; obs.forEach(function(o){ o.id = nextId++; });
+  return true;
+}
+function shareLink(data, btn){
+  var url = location.origin + location.pathname + '#s=' + b64u(JSON.stringify(data));
+  var old = btn.getAttribute('data-label') || btn.textContent;
+  btn.setAttribute('data-label', old);
+  function done(msg){ btn.textContent = msg; setTimeout(function(){ btn.textContent = old; }, 2400); }
+  try { history.replaceState(null, '', url); } catch (e) {}
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(function(){ done('링크를 복사했어요'); },
+                                            function(){ done('주소창의 주소를 복사하세요'); });
+  } else done('주소창의 주소를 복사하세요');
+}
+
 /* ---------- 저장 ---------- */
 function save(){
   try { localStorage.setItem('fxOptics', JSON.stringify({obs:obs, level:level})); } catch (e) {}
 }
 function load(){
   try {
+    var h = sceneFromHash();
+    if (h) return unpackScene(h);
     var d = JSON.parse(localStorage.getItem('fxOptics') || 'null');
     if (!d || !d.obs || !d.obs.length) return false;
     obs = d.obs; level = d.level || 2;
@@ -1195,6 +1247,8 @@ var OPT_QUESTS = [
      var pr = addObj('prism', 480, H/2, Math.PI/2); pr.props.size = 220; pr.props.n = 1.5; pr.props.disp = 0; }); },
    reveal:function(){ lqLight(); }}
 ];
+
+document.getElementById('btnShare').onclick = function(){ shareLink(packScene(), this); };
 
 /* ---------- 시작 ---------- */
 if (!load()) EXAMPLES[0].build();
