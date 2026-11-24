@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>물리 도전 퍼즐</title>
+<meta name="description" content="선을 그어 공을 바구니에 넣고, 공을 쏘아 상자 탑을 무너뜨리는 물리 퍼즐.">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+:root{--paper:#eef2f0;--grid:#c9d6d2;--ink:#173238;--ink-soft:#4a636a;--brass:#d98e3b;--brass-dark:#96591c;--teal:#246d78;--coral:#c1443c;--card:#fff;--radius:14px;}
+*{box-sizing:border-box;}
+body{margin:0;background:radial-gradient(var(--grid) 1.2px,transparent 1.2px) 0 0/20px 20px,var(--paper);font-family:'Noto Sans KR',sans-serif;color:var(--ink);
+  font-size:17px;line-height:1.55;padding:14px max(14px,env(safe-area-inset-right,0px)) 20px max(14px,env(safe-area-inset-left,0px));}
+.app{max-width:1200px;margin:0 auto;}
+.backlink{display:none;margin:0 0 8px;font-size:14.5px;}
+.backlink a{color:var(--teal);font-weight:700;text-decoration:none;}
+h1{font-family:'Space Grotesk','Noto Sans KR',sans-serif;font-size:27px;margin:0 0 4px;}
+.sub{color:var(--ink-soft);font-size:15.5px;margin:0 0 10px;}
+.levels{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.lvl{font:700 14px 'Noto Sans KR',sans-serif;padding:7px 12px;border-radius:999px;border:2px solid #b9c9c5;background:#fff;color:var(--ink-soft);cursor:pointer;}
+.lvl.on{background:var(--ink);border-color:var(--ink);color:#fff;}
+.lvl.done{border-color:var(--teal);color:var(--teal);}
+.lvl.on.done{color:#fff;}
+.card{background:var(--card);border:1px solid #d5e0dc;border-radius:var(--radius);box-shadow:0 3px 0 rgba(23,50,56,.05);padding:12px 14px;}
+.task{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px;}
+.task h2{font-size:18px;margin:0;}
+.meter{font-weight:700;color:var(--brass-dark);font-size:15px;}
+canvas#stage{width:100%;height:auto;display:block;border-radius:11px;background:#f8fbfa;border:1px solid #cddad6;touch-action:none;cursor:crosshair;}
+.rowbtns{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;}
+button.act{font:700 15px 'Noto Sans KR',sans-serif;padding:9px 14px;border-radius:10px;border:1.5px solid #9fb3ae;background:#fff;color:var(--ink-soft);cursor:pointer;touch-action:manipulation;}
+button.act.primary{background:var(--brass);border-color:var(--brass);color:var(--ink);}
+button.act[disabled]{opacity:.45;cursor:default;}
+.msg{margin-top:10px;border-radius:10px;padding:10px 12px;font-size:15.5px;display:none;}
+.msg.ok{display:block;background:#e4f5f6;color:#1f5d66;animation:pop .35s;}
+.msg.no{display:block;background:#fbeceb;color:#8e2f28;}
+.msg.info{display:block;background:#f6faf9;color:var(--ink-soft);border:1px dashed #b7cdc9;}
+@keyframes pop{0%{transform:scale(.94)}60%{transform:scale(1.03)}100%{transform:scale(1)}}
+:focus-visible{outline:2px solid #fff;outline-offset:1px;box-shadow:0 0 0 5px #173238;}
+</style>
+</head>
+<body>
+<div class="app">
+  <p class="backlink" id="backlink"><a href="https://fesics.kr/lab">← 페직스 실험실로</a></p>
+  <h1>🧩 물리 도전 퍼즐</h1>
+  <p class="sub">정답이 하나가 아니에요. 선을 그어 길을 만들고, 공을 쏘아 탑을 무너뜨려 보세요. 적게 쓸수록 별이 많아요.</p>
+  <div class="levels" id="levels"></div>
+  <div class="card">
+    <div class="task"><h2 id="lvTitle"></h2><span class="meter" id="meter"></span></div>
+    <div id="lvText" style="font-size:15.5px;margin-bottom:8px"></div>
+    <canvas id="stage" width="1000" height="600" aria-label="퍼즐 실험대"></canvas>
+    <div class="rowbtns" id="btns">
+      <button class="act primary" id="btnGo">▶ 굴려 보기</button>
+      <button class="act" id="btnRetry">↺ 공 다시 놓기</button>
+      <button class="act" id="btnUndo">한 선 지우기</button>
+      <button class="act" id="btnClear">처음부터</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+/* ===========================================================
+   물리 도전 퍼즐 (261124) — matter.js 로 계산하고 그리기는 직접 한다.
+   kind 'draw'  : 선을 그어(잉크 한도 안에서) 공을 바구니에 넣기. 잉크를 적게 쓸수록 별.
+   kind 'shoot' : 대포에서 끌어 당겨 쏘아 빨간 상자를 모두 받침대 아래로. 적게 쏠수록 별.
+   =========================================================== */
+var M = Matter, W = 1000, H = 600;
+var engine = M.Engine.create(), world = engine.world;
+engine.gravity.y = 1;
+engine.positionIterations = 8; engine.velocityIterations = 8;
+
+function R(x, y, w, h, o){ return {t:'rect', x:x, y:y, w:w, h:h, a:(o && o.a) || 0, color:(o && o.color) || '#5d7470'}; }
+var LEVELS = [
+  {name:'첫 미끄럼틀', kind:'draw', ink:700,
+   text:'공이 바구니에 들어가도록 <b>선을 그어</b> 길을 만드세요. 공은 ▶ 를 누르면 떨어져요.',
+   tip:'공은 빗면을 따라 굴러 내려가며 빨라져요. 높이가 낮아지는 만큼 위치 에너지가 운동 에너지로 바뀌어요.',
+   ball:{x:140, y:90, r:16}, goal:{x:770, y:470, w:150, h:110}, statics:[]},
+  {name:'벽 넘기', kind:'draw', ink:1100,
+   text:'가운데 벽을 넘어 오른쪽 바구니에 넣으세요. 공은 <b>처음 높이보다 높이</b> 올라갈 수 없어요.',
+   tip:'마찰이 거의 없어도 공은 출발한 높이보다 높이 오르지 못해요 — 역학적 에너지 보존이에요. 벽 꼭대기보다 높은 곳을 지나게 해야 해요.',
+   ball:{x:110, y:80, r:16}, goal:{x:800, y:470, w:140, h:110}, statics:[R(500, 430, 40, 340)]},
+  {name:'구멍 건너기', kind:'draw', ink:800,
+   text:'바닥 가운데에 큰 구멍이 있어요. 공이 구멍에 빠지지 않고 오른쪽 바구니까지 가게 하세요.',
+   tip:'빠르게 달리던 공은 선이 끊겨도 포물선을 그리며 날아가요. 짧은 선으로 점프대를 만들 수도 있어요!',
+   ball:{x:70, y:150, r:16}, goal:{x:850, y:522, w:130, h:100},
+   statics:[R(170, 300, 320, 20, {a:0.4}), R(160, 590, 320, 20), R(840, 590, 320, 20)]},
+  {name:'좁은 틈', kind:'draw', ink:1000,
+   text:'바구니가 선반 아래 숨어 있어요. 장애물을 피해 공을 바구니에 넣으세요.',
+   tip:'공의 길을 꺾을 때 너무 급하게 꺾으면 튀어 나가요. 완만하게 휘는 길이 속력을 잃지 않아요.',
+   ball:{x:880, y:70, r:15}, goal:{x:150, y:480, w:150, h:100},
+   statics:[R(300, 300, 460, 22), R(640, 190, 22, 200), R(470, 505, 22, 150)]},
+  {name:'상자 탑', kind:'shoot', shots:4,
+   text:'대포를 <b>뒤로 끌었다 놓아</b> 공을 쏘세요. 빨간 상자 3개를 모두 받침대 아래로 떨어뜨리면 성공!',
+   tip:'세게 당길수록 공이 빨라요. 빠르고 무거운 공일수록 운동량이 커서 상자를 더 세게 밀어요.',
+   cannon:{x:110, y:470}, platform:R(760, 450, 120, 20), targets:[[760, 415, 50, 50], [760, 365, 50, 50], [760, 315, 50, 50]], statics:[]},
+  {name:'벽 너머 탑', kind:'shoot', shots:4,
+   text:'높은 벽 너머에 탑이 있어요. 공을 높이 던져 포물선으로 넘겨 맞히세요.',
+   tip:'비스듬히 던진 공은 포물선을 그려요. 같은 빠르기라면 45° 쯤으로 던질 때 가장 멀리 가요.',
+   cannon:{x:110, y:520}, platform:R(820, 480, 80, 20), targets:[[820, 445, 40, 50], [820, 395, 40, 50], [820, 345, 40, 50]], statics:[R(480, 450, 40, 260)]},
+  {name:'무거운 상자', kind:'shoot', shots:5, heavy:true,
+   text:'이번 상자는 무거워요(하나가 공의 2.5배쯤). 상자 두 개를 받침대 밖으로 밀어내세요.',
+   tip:'무거운 물체일수록 움직이게 하기 어려워요(관성). 같은 공이라도 빠를수록 큰 충격량을 줄 수 있어요.',
+   cannon:{x:110, y:470}, platform:R(760, 450, 150, 20), targets:[[742, 415, 60, 50], [804, 415, 60, 50]], statics:[]},
+  {name:'두 탑', kind:'shoot', shots:5,
+   text:'가까운 탑과 먼 탑, 빨간 상자 4개를 모두 떨어뜨리세요.',
+   tip:'가까운 탑은 낮고 빠르게, 먼 탑은 높게 던져 보세요. 쏠 때마다 끄는 방향과 길이를 바꾸면 궤도가 달라져요.',
+   cannon:{x:90, y:500}, platform:null, plats:[R(470, 460, 140, 18), R(860, 380, 160, 18)],
+   targets:[[470, 425, 46, 50], [470, 375, 46, 50], [860, 345, 46, 50], [860, 295, 46, 50]], statics:[]}
+];
+
+var cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+var cur = 0, lv = null, bodies = [], ball = null, lines = [], inkUsed = 0, drawing = null;
+var running = false, shots = 0, targets = [], won = false, inGoalT = 0, runT = 0, aim = null;
+var rec = {};
+try { rec = JSON.parse(localStorage.getItem('fxPuzzle') || '{}') || {}; } catch (e) {}
+function saveRec(){ try { localStorage.setItem('fxPuzzle', JSON.stringify(rec)); } catch (e) {} }
+
+function staticBody(s){
+  return M.Bodies.rectangle(s.x, s.y, s.w, s.h, {isStatic:true, angle:s.a, friction:0.05, render:{fill:s.color}});
+}
+function buildLevel(i){
+  cur = i; lv = LEVELS[i];
+  M.Composite.clear(world, false);
+  bodies = []; lines = []; inkUsed = 0; shots = 0; won = false; running = false; aim = null; ball = null; targets = [];
+  var walls = [M.Bodies.rectangle(-30, H/2, 60, H*3, {isStatic:true}), M.Bodies.rectangle(W+30, H/2, 60, H*3, {isStatic:true})];
+  M.Composite.add(world, walls);
+  lv.statics.forEach(function(s){ var b = staticBody(s); b.plugin = {draw:s.color}; M.Composite.add(world, b); bodies.push(b); });
+  if (lv.kind === 'draw'){
+    var g = lv.goal, th = 12;
+    [[g.x - g.w/2, g.y, th, g.h], [g.x + g.w/2, g.y, th, g.h], [g.x, g.y + g.h/2, g.w + th, th]].forEach(function(p){
+      var b = M.Bodies.rectangle(p[0], p[1], p[2], p[3], {isStatic:true, friction:0.3}); b.plugin = {draw:'#d98e3b'};
+      M.Composite.add(world, b); bodies.push(b);
+    });
+    placeBall();
+  } else {
+    var plats = lv.plats || [lv.platform];
+    plats.forEach(function(p){ var b = staticBody(p); b.plugin = {draw:'#8a6a4a'}; M.Composite.add(world, b); bodies.push(b); });
+    lv.targets.forEach(function(t){
+      var b = M.Bodies.rectangle(t[0], t[1], t[2], t[3], {density:lv.heavy ? 0.006 : 0.002, friction:lv.heavy ? 0.15 : 0.6, restitution:0.05});
+      b.plugin = {draw:'#c1443c', target:true}; M.Composite.add(world, b); targets.push(b);
+    });
+    M.Composite.add(world, M.Bodies.rectangle(W/2, H + 200, W * 3, 40, {isStatic:true, isSensor:true}));
+  }
+  document.getElementById('lvTitle').textContent = (i + 1) + '. ' + lv.name;
+  document.getElementById('lvText').innerHTML = lv.text;
+  var draw = lv.kind === 'draw';
+  document.getElementById('btnGo').style.display = draw ? '' : 'none';
+  document.getElementById('btnRetry').style.display = draw ? '' : 'none';
+  document.getElementById('btnUndo').style.display = draw ? '' : 'none';
+  cv.style.cursor = draw ? 'crosshair' : 'grab';
+  msg('info', draw ? '캔버스 위를 <b>끌어서</b> 선을 그어요. 여러 번 그어도 돼요.' : '왼쪽 대포 가까이에서 <b>뒤로 끌었다가 놓으면</b> 공이 나가요.');
+  buildLevelBtns(); updateMeter();
+}
+function placeBall(){
+  if (ball) M.Composite.remove(world, ball);
+  var b = lv.ball;
+  ball = M.Bodies.circle(b.x, b.y, b.r, {restitution:0.2, friction:0.02, frictionAir:0.002, density:0.004, isStatic:true});
+  ball.plugin = {draw:'#246d78'};
+  M.Composite.add(world, ball);
+  running = false; inGoalT = 0; runT = 0;
+}
+function addLineSeg(a, b){
+  var dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+  if (L < 4) return null;
+  var s = M.Bodies.rectangle((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, L + 6, 8, {isStatic:true, angle:Math.atan2(dy, dx), friction:0.02, chamfer:{radius:3}});
+  s.plugin = {draw:'#173238', line:true};
+  M.Composite.add(world, s);
+  return s;
+}
+function updateMeter(){
+  var m = document.getElementById('meter');
+  if (lv.kind === 'draw') m.textContent = '잉크 ' + Math.round(inkUsed) + ' / ' + lv.ink;
+  else m.textContent = '쏜 공 ' + shots + ' / ' + lv.shots;
+}
+function msg(cls, html){ var e = document.getElementById('msg'); e.className = 'msg'; void e.offsetWidth; e.className = 'msg ' + cls; e.innerHTML = html; }
+function starsFor(){
+  if (lv.kind === 'draw'){ var r = inkUsed / lv.ink; return r <= 0.5 ? 3 : (r <= 0.8 ? 2 : 1); }
+  return shots <= 1 ? 3 : (shots <= 2 ? 2 : 1);
+}
+function win(){
+  if (won) return; won = true;
+  var s = starsFor();
+  if (!rec[cur] || rec[cur] < s){ rec[cur] = s; saveRec(); }
+  buildLevelBtns();
+  msg('ok', '🎉 성공! ' + '⭐'.repeat(s) + (s < 3 ? ' <span style="opacity:.75">— ' + (lv.kind === 'draw' ? '잉크를 더 적게 써 보면 별이 늘어요' : '더 적게 쏘아 보면 별이 늘어요') + '</span>' : '') +
+      '<br>💡 ' + lv.tip + (cur < LEVELS.length - 1 ? '<br><button class="act primary" style="margin-top:8px" onclick="buildLevel(' + (cur + 1) + ')">다음 퍼즐 ▶</button>' : '<br>모든 퍼즐을 풀었어요! 별 3개에 다시 도전해 보세요.'));
+  try { parent.postMessage({type:'fesicsPuzzle', level:cur, stars:s}, '*'); } catch (e) {}
+}
+function buildLevelBtns(){
+  var box = document.getElementById('levels'); box.innerHTML = '';
+  LEVELS.forEach(function(L, i){
+    var b = document.createElement('button');
+    b.className = 'lvl' + (i === cur ? ' on' : '') + (rec[i] ? ' done' : '');
+    b.textContent = (L.kind === 'draw' ? '✏️ ' : '🎯 ') + (i + 1) + (rec[i] ? ' ' + '★'.repeat(rec[i]) : '');
+    b.title = L.name;
+    b.onclick = function(){ buildLevel(i); };
+    box.appendChild(b);
+  });
+}
+
+/* ---------- 손가락·마우스 ---------- */
+function pos(ev){ var r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * W / r.width, (ev.clientY - r.top) * H / r.height]; }
+cv.addEventListener('pointerdown', function(ev){
+  ev.preventDefault(); cv.setPointerCapture(ev.pointerId);
+  var p = pos(ev);
+  if (lv.kind === 'draw'){
+    if (running || won) return;
+    if (inkUsed >= lv.ink){ msg('no', '잉크를 다 썼어요. ‘한 선 지우기’ 로 선을 지우고 다시 그어 보세요.'); return; }
+    drawing = {pts:[p], segs:[], ink:0};
+  } else {
+    if (won || shots >= lv.shots) return;
+    if (Math.hypot(p[0] - lv.cannon.x, p[1] - lv.cannon.y) < 140) aim = {from:[lv.cannon.x, lv.cannon.y], to:p};
+  }
+});
+cv.addEventListener('pointermove', function(ev){
+  var p = pos(ev);
+  if (drawing){
+    var last = drawing.pts[drawing.pts.length - 1], d = Math.hypot(p[0] - last[0], p[1] - last[1]);
+    if (d < 14) return;
+    if (inkUsed + d > lv.ink) return;
+    var s = addLineSeg(last, p);
+    if (s){ drawing.segs.push(s); drawing.pts.push(p); drawing.ink += d; inkUsed += d; updateMeter(); }
+  } else if (aim) aim.to = p;
+});
+function endPointer(){
+  if (drawing){ if (drawing.segs.length) lines.push(drawing); drawing = null; }
+  if (aim){
+    var dx = aim.from[0] - aim.to[0], dy = aim.from[1] - aim.to[1], L = Math.min(170, Math.hypot(dx, dy));
+    if (L > 15){
+      var k = L / Math.max(1, Math.hypot(dx, dy)), sp = 0.155;
+      var b = M.Bodies.circle(lv.cannon.x, lv.cannon.y, 14, {density:0.012, restitution:0.3, friction:0.3});
+      b.plugin = {draw:'#246d78', shot:true};
+      M.Composite.add(world, b);
+      M.Body.setVelocity(b, {x:dx * k * sp, y:dy * k * sp});
+      shots++; updateMeter();
+      setTimeout(checkShootEnd, 5500);
+    }
+    aim = null;
+  }
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+function checkShootEnd(){
+  if (won || lv.kind !== 'shoot') return;
+  var left = targets.filter(function(t){ return !fallen(t); }).length;
+  if (shots >= lv.shots && left) msg('no', '공을 다 썼어요. 상자 ' + left + '개가 남았어요. 아래 ‘처음부터’ 를 눌러 다시 도전!');
+}
+function fallen(t){
+  var plats = lv.plats || [lv.platform];
+  var top = Math.max.apply(null, plats.map(function(p){ return p.y; }));
+  return t.position.y > top + 40;
+}
+
+document.getElementById('btnGo').onclick = function(){
+  if (running) return;
+  placeBall(); M.Body.setStatic(ball, false); running = true; runT = 0;
+  msg('info', '굴러가는 중…');
+};
+document.getElementById('btnRetry').onclick = function(){ if (!won){ placeBall(); msg('info', '선은 그대로예요. 고쳐 그린 뒤 다시 ▶ 를 눌러요.'); } };
+document.getElementById('btnUndo').onclick = function(){
+  if (running || won || !lines.length) return;
+  var L = lines.pop(); L.segs.forEach(function(s){ M.Composite.remove(world, s); }); inkUsed -= L.ink; updateMeter();
+};
+document.getElementById('btnClear').onclick = function(){ buildLevel(cur); };
+
+/* ---------- 흐르기 ---------- */
+function tick(){
+  if (lv.kind === 'draw' && running && !won){
+    runT += 1 / 60;
+    var g = lv.goal, p = ball.position, sp = M.Vector.magnitude(ball.velocity);
+    var inside = p.x > g.x - g.w/2 && p.x < g.x + g.w/2 && p.y > g.y - g.h/2 - 10 && p.y < g.y + g.h/2;
+    inGoalT = inside && sp < 3 ? inGoalT + 1 / 60 : 0;
+    if (inGoalT > 0.6) win();
+    else if (p.y > H + 80 || p.x < -50 || p.x > W + 50){ running = false; msg('no', '공이 밖으로 떨어졌어요. 선을 고쳐 보세요. (‘한 선 지우기’)'); }
+    else if (runT > 14 && sp < 0.05){ running = false; msg('no', '공이 멈췄어요. 공이 끝까지 굴러가도록 선을 고쳐 보세요.'); }
+  }
+  if (lv.kind === 'shoot' && !won && targets.length && targets.every(fallen)) win();
+}
+function drawBody(b){
+  var v = b.vertices;
+  ctx.beginPath(); ctx.moveTo(v[0].x, v[0].y);
+  for (var i = 1; i < v.length; i++) ctx.lineTo(v[i].x, v[i].y);
+  ctx.closePath(); ctx.fill();
+}
+function render(){
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#f8fbfa'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(23,50,56,.05)'; ctx.lineWidth = 1;
+  for (var x = 0; x <= W; x += 50){ ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (var y = 0; y <= H; y += 50){ ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  if (lv.kind === 'draw'){
+    var g = lv.goal;
+    ctx.fillStyle = 'rgba(217,142,59,.12)'; ctx.fillRect(g.x - g.w/2, g.y - g.h/2, g.w, g.h);
+    ctx.fillStyle = '#96591c'; ctx.font = '700 18px "Noto Sans KR",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('🧺 바구니', g.x, g.y - g.h/2 - 12);
+    if (!running && ball){ ctx.fillStyle = 'rgba(36,109,120,.8)'; ctx.font = '600 14px "Noto Sans KR",sans-serif'; ctx.fillText('출발', lv.ball.x, lv.ball.y - 26); }
+  } else {
+    var c = lv.cannon;
+    ctx.fillStyle = '#4a636a'; ctx.beginPath(); ctx.arc(c.x, c.y, 26, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '600 13px "Noto Sans KR",sans-serif'; ctx.textAlign = 'center'; ctx.fillText('대포', c.x, c.y + 5);
+    if (aim){
+      var dx = aim.from[0] - aim.to[0], dy = aim.from[1] - aim.to[1], L = Math.min(170, Math.hypot(dx, dy)), k = L / Math.max(1, Math.hypot(dx, dy));
+      ctx.strokeStyle = 'rgba(193,68,60,.8)'; ctx.lineWidth = 4; ctx.setLineDash([8, 6]);
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + dx * k, c.y + dy * k); ctx.stroke(); ctx.setLineDash([]);
+      /* 미리 보기: 처음 몇 점만 (끝까지 그리면 퍼즐이 너무 쉬워진다) */
+      var vx = dx * k * 0.155, vy = dy * k * 0.155, px = c.x, py = c.y, gpf = engine.gravity.y * engine.gravity.scale * Math.pow(1000 / 60, 2);
+      ctx.fillStyle = 'rgba(193,68,60,.55)';
+      for (var s = 0; s < 14; s++){ px += vx * 2; py += vy * 2 + gpf * 2; vy += gpf * 2; ctx.beginPath(); ctx.arc(px, py, 3, 0, 6.2832); ctx.fill(); }
+      ctx.fillStyle = '#8e2f28'; ctx.font = '700 15px "Noto Sans KR",sans-serif';
+      var ang = Math.round(Math.atan2(dy, dx) * -180 / Math.PI);
+      ctx.fillText('각도 ' + ang + '° · 세기 ' + Math.round(L / 1.7) + '%', c.x + 90, c.y - 50);
+    }
+  }
+  M.Composite.allBodies(world).forEach(function(b){
+    if (!b.plugin || !b.plugin.draw) return;
+    ctx.fillStyle = b.plugin.draw; drawBody(b);
+  });
+  if (drawing && drawing.pts.length === 1){ ctx.fillStyle = '#173238'; ctx.beginPath(); ctx.arc(drawing.pts[0][0], drawing.pts[0][1], 4, 0, 6.2832); ctx.fill(); }
+}
+var last = 0, acc = 0;
+function loop(ts){
+  var dt = last ? Math.min(50, ts - last) : 16.67; last = ts; acc += dt;
+  while (acc >= 1000 / 60){ M.Engine.update(engine, 1000 / 60); tick(); acc -= 1000 / 60; }
+  render();
+  requestAnimationFrame(loop);
+}
+var m0 = /[?&]level=(\d+)/.exec(location.search);
+buildLevel(m0 ? Math.max(0, Math.min(LEVELS.length - 1, +m0[1] - 1)) : 0);
+requestAnimationFrame(loop);
+try { if (window.top === window.self) document.getElementById('backlink').style.display = 'block'; } catch (e) {}
+</script>
+<script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+</body>
+</html>
