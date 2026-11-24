@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>분모가 같은 분수 실험실 — 분모끼리 더하면 생기는 일</title>
+<style>
+:root{
+  --bg:#f6f9fc; --ink:#1f2937; --sub:#52627a; --line:#d7e0ec;
+  --card:#ffffff; --accent:#2563eb; --ok:#0f9d58; --no:#dc2626;
+}
+html{font-size:20px}
+@media (max-width:760px){html{font-size:19.5px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:1.2rem 0 3rem;
+  font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  color:var(--ink); line-height:1.6;
+  background-color:var(--bg);
+  background-image:radial-gradient(circle,#ccd7e6 1.3px,transparent 1.3px);
+  background-size:22px 22px;
+}
+.wrap{width:97%;max-width:1840px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .3rem}
+.lead{font-size:1rem;color:var(--sub);margin:0 0 1.1rem}
+.tabs{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.tab-btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.6rem 1.1rem;
+  border:2px solid var(--line);border-radius:.7rem;background:#fff;color:var(--sub);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s,transform .1s,filter .15s}
+.tab-btn:hover{filter:brightness(.97);border-color:#b9c8dc}
+.tab-btn:active{transform:translateY(2px) scale(.98)}
+.tab-btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid{display:grid;grid-template-columns:minmax(400px,480px) 1fr;gap:1rem;align-items:start}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:2px solid var(--line);border-radius:1rem;padding:1rem}
+.grid>*{min-width:0} /* 표가 넓어도 그리드 열이 화면 밖으로 늘어나지 않게 */
+.readout>*{min-width:0;overflow-wrap:anywhere}
+.card h2{font-size:1.1rem;margin:0 0 .7rem}
+canvas{width:100%;height:auto;display:block;border-radius:.7rem;background:#fff}
+.ctrl{margin:.9rem 0}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:1rem;font-weight:700;margin-bottom:.1rem}
+.ctrl .val{font-variant-numeric:tabular-nums}
+.chip{display:inline-block;width:.95rem;height:.95rem;border-radius:.25rem;margin-right:.4rem;vertical-align:-.1rem}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent;
+  cursor:pointer;touch-action:manipulation;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-moz-range-track{height:12px;border-radius:6px;background:#e3eaf4;border:1px solid #cfdbea}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#fff;border:4px solid var(--accent);margin-top:-7px;transition:transform .12s,box-shadow .12s}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;
+  border:4px solid var(--accent);transition:transform .12s,box-shadow .12s}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:active::-moz-range-thumb{transform:scale(.94);box-shadow:0 0 0 7px rgba(37,99,235,.18)}
+input[type=range]:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+.btn{font-family:inherit;font-size:1rem;font-weight:700;padding:.65rem 1.15rem;border:none;
+  border-radius:.7rem;background:var(--accent);color:#fff;cursor:pointer;transition:filter .15s,transform .1s}
+.btn.alt{background:#0f9d58}
+.btn:hover{filter:brightness(1.1)}
+.btn:active{transform:translateY(2px) scale(.98)}
+.btn:disabled{background:#aebdd0;cursor:not-allowed;filter:none;transform:none}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.9rem}
+.readout div{background:#f1f6fd;border:1px solid var(--line);border-radius:.6rem;padding:.55rem .7rem;font-size:.95rem}
+.readout b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.95rem;color:var(--sub);margin-top:.7rem}
+.tablewrap{max-height:26rem;overflow:auto;border:1px solid var(--line);border-radius:.7rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{padding:.5rem .45rem;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:#eaf1fa;font-weight:700;z-index:2}
+tbody tr:nth-child(even){background:#fafcff}
+.empty{padding:1.6rem;text-align:center;color:var(--sub);font-size:1rem}
+.ok{color:var(--ok);font-weight:700}
+.no{color:var(--no);font-weight:700}
+.concl{background:#eef7ff;border:2px solid #a9cff5;border-radius:.8rem;padding:.9rem 1rem;font-size:1.05rem;margin-top:1rem}
+.hidden{display:none}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.8rem;margin-top:.9rem}
+.stat{background:#f4f8fe;border:1px solid var(--line);border-radius:.7rem;padding:.8rem}
+.stat h3{margin:0 0 .3rem;font-size:1rem}
+.stat p{margin:0;font-size:.95rem;color:var(--sub)}
+.stat .big{font-size:1.3rem;font-weight:800;color:var(--ink);margin-bottom:.2rem}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:normal;overflow-wrap:anywhere;max-width:100%}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem;display:block;max-width:100%;overflow-x:auto}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left;white-space:normal}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>분모가 같은 분수 실험실 — 분모끼리 더하면 생기는 일</h1>
+  <p class="lead">분모가 같은 두 분수를 막대나 원 조각으로 모으거나(덧셈) 덜어 내어(뺄셈) 답을 세고, 분모끼리도 더한 답과 띠 길이를 견준다.</p>
+
+  <div class="tabs">
+    <button class="tab-btn on" id="tabA">🔬 자유 탐구</button>
+    <button class="tab-btn" id="tabB">✅ 데이터 확인</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="수학 원리">
+<div class="fx-p-card">
+<h2>📖 수학 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — 분모가 같으면 분자끼리만 더하고 빼요</h3>
+<p>분모는 전체(1)를 몇 조각으로 똑같이 나눴는지, 곧 <b>조각의 크기</b>를 말하고, 분자는 그 조각이 <b>몇 개</b>인지를 말해요. 2/7 + 3/7은 1/7 조각 2개와 3개를 모은 것이니 1/7 조각 5개, 곧 <b>5/7</b>이에요. 조각의 크기는 바뀌지 않으니 분모는 7 그대로예요.</p>
+<h3>⚙️ 왜 그럴까</h3>
+<ul>
+<li>1/5 + 1/5를 5등분 띠에 색칠하면 2칸이에요. 그래서 2/5예요.</li>
+<li>분모끼리도 더해 2/10이라고 하면, 10등분 띠의 2칸은 2/5 띠 길이의 절반밖에 안 돼요. 더했는데 오히려 작아진 셈이라 이상해요.</li>
+<li>뺄셈도 같아요. 6/8 − 2/8은 1/8 조각 6개에서 2개를 덜어 내 4개가 남으니 4/8이에요.</li>
+<li>1에서 빼려면 1을 분모가 같은 분수로 바꿔요. 1 = 5/5 → 5/5 − 3/5 = 2/5.</li>
+<li>합이 1보다 크면 1과 몇 분의 몇으로 읽어요. 5/7 + 4/7 = 9/7 = 1과 2/7.</li>
+</ul>
+<h3>🧮 이 실험의 계산 방법</h3>
+<p>분모 = 전체를 나눈 조각 수(조각의 크기), 분자 = 조각의 개수 → 덧셈은 조각을 모으고 뺄셈은 덜어 낸 뒤 남은 조각 세기 → 분모끼리도 더한(뺀) 답과 비교</p>
+<div class="fx-model"><b>📌 자주 하는 오해</b><br>· "분자는 분자끼리, 분모는 분모끼리 더한다" → 분모를 더하면 조각을 더 잘게 자른 셈이 되어 답이 실제의 절반으로 작아져요.<br>· "1 − 3/5 는 계산할 수 없다" → 1을 5/5로 바꾸면 분모가 같은 뺄셈이 돼요.</div>
+<h3>🌍 생활 속에서</h3>
+<ul><li>피자 8조각 중 내가 3조각, 동생이 2조각을 먹으면 둘이 먹은 양은 3/8 + 2/8 = 5/8판이에요. 남은 양은 1 − 5/8 = 3/8판이에요.</li></ul>
+</div>
+</section>
+
+
+  <section id="paneA">
+    <div class="grid">
+      <div class="card">
+        <h2 id="cvTitle">실험판</h2>
+        <canvas id="cv" role="img" aria-label="분모가 같은 분수 실험실 실험 그림 — 결과는 옆의 측정 결과 글로 확인할 수 있어요"></canvas>
+      </div>
+      <div class="card">
+        <h2>조절하기</h2>
+        <div id="controls"></div>
+        <div class="btns">
+          <button class="btn" id="btnAct">실행</button>
+        </div>
+        <div class="readout" id="readout"></div>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <h2>기록표 <span style="font-weight:400;font-size:.95rem;color:var(--sub)">(<span id="cntA">0</span>개 기록됨)</span></h2>
+      <div class="tablewrap"><table><thead id="thA"></thead><tbody id="tbA"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="paneB" class="hidden">
+    <div class="card">
+      <h2>내가 기록한 데이터 분석</h2>
+      <div id="lack" class="empty">데이터 부족 — 기록이 4개 이상 있어야 분석할 수 있다. (지금 <span id="cntB">0</span>개)</div>
+      <div id="analysis" class="hidden">
+        <div class="tablewrap"><table><thead id="thB"></thead><tbody id="tbB"></tbody></table></div>
+        <div class="statgrid" id="statgrid"></div>
+        <div class="concl" id="concl"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+
+function lbl(ctx,t,x,y,c,sz,al){ctx.fillStyle=c;ctx.font='bold '+(sz||18)+'px sans-serif';ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillText(t,x,y);}
+function box(ctx,x,y,w,h){ctx.fillStyle='#f1f6fd';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#c7d8ee';ctx.lineWidth=2;ctx.strokeRect(x,y,w,h);}
+function r3(v){return Math.round(v*1000)/1000;}
+/* 분수 글: 0, 1, 2 처럼 나누어떨어지면 자연수, 1보다 크면 '1과 2/7' (대분수) */
+function fs(n,d){
+  if(n===0) return '0';
+  if(n%d===0) return ''+(n/d);
+  if(n>d) return Math.floor(n/d)+'과 '+(n%d)+'/'+d;
+  return n+'/'+d;
+}
+var OPS=['덧셈 (+)','뺄셈 (−)'], MODELS=['막대 모형','원 모형'];
+var C_A='#93c5fd', C_A2='#2563eb', C_B='#86efac', C_B2='#16a34a', C_OUT='#fecaca', C_W='#fca5a5', C_W2='#dc2626';
+
+/* 분자는 분모보다 클 수 없고, 뺄셈에서는 빼는 수가 첫째 수보다 클 수 없다 — 막대도 같이 맞춘다 */
+function fix(S){
+  S.p=Math.min(S.p,S.d); S.q=Math.min(S.q,S.d);
+  if(S.op===1 && S.q>S.p) S.q=S.p;
+  ['p','q'].forEach(function(id){
+    var el=document.getElementById('s_'+id), v=document.getElementById('v_'+id);
+    if(el && +el.value!==S[id]){ el.value=S[id]; }
+    if(v) v.textContent=S[id];
+  });
+}
+function calc(S){
+  fix(S);
+  var d=S.d,p=S.p,q=S.q,add=(S.op===0),n=add?(p+q):(p-q);
+  return {d:d,p:p,q:q,add:add,n:n,
+          expr:fs(p,d)+(add?' + ':' − ')+fs(q,d),
+          real:fs(n,d),
+          wrong:add?((p+q)+'/'+(2*d)):((p-q)+'/0'),
+          wv:add?(p+q)/(2*d):null};
+}
+/* 막대 하나: cells 는 칸마다 색(null 이면 빈칸), cross 는 X 표시할 칸 */
+function bar(ctx,x,y,w,h,d,cells,edge,cross){
+  var i,cw=w/d;
+  ctx.fillStyle='#f8fafc';ctx.fillRect(x,y,w,h);
+  for(i=0;i<d;i++){ if(cells[i]){ ctx.fillStyle=cells[i]; ctx.fillRect(x+i*cw,y,cw,h); } }
+  ctx.strokeStyle='#9aa8bb';ctx.lineWidth=1.3;
+  for(i=1;i<d;i++){ ctx.beginPath();ctx.moveTo(x+i*cw,y);ctx.lineTo(x+i*cw,y+h);ctx.stroke(); }
+  if(cross){ ctx.strokeStyle='#b91c1c';ctx.lineWidth=2;
+    for(i=0;i<d;i++){ if(cross[i]){ ctx.beginPath();ctx.moveTo(x+i*cw+5,y+5);ctx.lineTo(x+(i+1)*cw-5,y+h-5);ctx.moveTo(x+(i+1)*cw-5,y+5);ctx.lineTo(x+i*cw+5,y+h-5);ctx.stroke(); } } }
+  ctx.strokeStyle=edge||'#334155';ctx.lineWidth=2.5;ctx.strokeRect(x,y,w,h);
+}
+/* 원 하나: 12시 방향부터 시계 방향으로 d 조각 */
+function pie(ctx,cx,cy,r,d,cells,edge,cross){
+  var i,a0,a1;
+  ctx.fillStyle='#f8fafc';ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();
+  for(i=0;i<d;i++){
+    a0=-Math.PI/2+i*2*Math.PI/d; a1=a0+2*Math.PI/d;
+    if(cells[i]){ ctx.fillStyle=cells[i];ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,a0,a1);ctx.closePath();ctx.fill(); }
+  }
+  ctx.strokeStyle='#9aa8bb';ctx.lineWidth=1.3;
+  if(d>1){ for(i=0;i<d;i++){ a0=-Math.PI/2+i*2*Math.PI/d; ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+r*Math.cos(a0),cy+r*Math.sin(a0));ctx.stroke(); } }
+  if(cross){ ctx.strokeStyle='#b91c1c';ctx.lineWidth=2;
+    for(i=0;i<d;i++){ if(cross[i]){ var am=-Math.PI/2+(i+0.5)*2*Math.PI/d, mx=cx+r*0.62*Math.cos(am), my=cy+r*0.62*Math.sin(am), k=Math.min(7,r*0.5*Math.PI/d+2);
+      ctx.beginPath();ctx.moveTo(mx-k,my-k);ctx.lineTo(mx+k,my+k);ctx.moveTo(mx+k,my-k);ctx.lineTo(mx-k,my+k);ctx.stroke(); } } }
+  ctx.strokeStyle=edge||'#334155';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();
+}
+function fill(d,from,to,col){ var a=[],i; for(i=0;i<d;i++){ a.push((i>=from&&i<to)?col:null); } return a; }
+
+var LAB = {
+  cw:440, ch:470, cvTitle:'분수 조각판',
+  action:'조각을 세어 계산하기',
+  hint0:'분모(전체를 몇 조각으로 나눌지)와 두 분자를 정하고 계산해 보자. 1에서 빼려면 첫째 분자를 분모와 같게(5/5 = 1) 하자.',
+  sliders:[
+    {id:'op',label:'계산',min:0,max:1,value:0,color:'#7c3aed',fmt:function(v){return OPS[v];}},
+    {id:'d',label:'분모 (전체를 몇 조각으로)',min:2,max:12,value:7,color:'#475569',unit:'조각'},
+    {id:'p',label:'첫째 분수의 분자',min:1,max:12,value:2,color:'#2563eb',unit:''},
+    {id:'q',label:'둘째 분수의 분자',min:1,max:12,value:3,color:'#16a34a',unit:''},
+    {id:'m',label:'모형',min:0,max:1,value:0,color:'#b45309',fmt:function(v){return MODELS[v];}}
+  ],
+  readout:function(S,ran){
+    var c=calc(S);
+    return [{k:c.add?'분모끼리도 더하면':'분모끼리도 빼면',v:c.add?c.wrong:'분모가 0'},
+            {k:'실제 답',v:ran?c.real:'세어 보자'}];
+  },
+  doneMsg:function(S){
+    var c=calc(S);
+    if(c.add) return c.expr+' → 1/'+c.d+' 조각 '+c.p+'개와 '+c.q+'개를 모으면 1/'+c.d+' 조각 '+c.n+'개, 곧 '+c.real+'. '
+      +'분모끼리도 더한 답('+c.wrong+')은 실제 답의 절반 길이밖에 안 된다.';
+    return c.expr+' → '+c.p+'/'+c.d+'에서 1/'+c.d+' 조각 '+c.q+'개를 덜어 내면 '+c.n+'개가 남아 '+c.real+'. 분모는 '+c.d+' 그대로다.';
+  },
+  draw:function(ctx,S,t,ran){
+    var c=calc(S), d=c.d, p=c.p, q=c.q, n=c.n, i;
+    var go=(t===null)?0:Math.min(1,Math.max(0,(t-0.15)/0.7));     /* 조각 옮기기 진행 */
+    var done=(t!==null&&t>=0.85);
+    lbl(ctx,c.expr+' = '+(done?c.real:'?'),24,34,'#1d4ed8',22);
+    lbl(ctx,'1을 '+d+'조각으로 똑같이 나눈 것 — 한 조각은 1/'+d,24,56,'#52627a',14);
+    var k=Math.round((c.add?(p+q):q)*go);                    /* 지금까지 옮긴(덜어 낸) 조각 수 */
+    var resA=[],resB=[],crA=[],crB=[];                        /* 결과 1번째·2번째 묶음 */
+    for(i=0;i<2*d;i++){
+      var col=null, cr=false;
+      if(c.add){ if(i<Math.min(k,p)) col=C_A; else if(i>=p&&i<k) col=C_B; }
+      else { if(i<p) col=(i>=p-k)?C_OUT:C_A; cr=(i<p&&i>=p-k); }
+      if(i<d){ resA.push(col); crA.push(cr); } else { resB.push(col); crB.push(cr); }
+    }
+    var two=c.add&&(p+q>d);
+    if(S.m===0){
+      var BX=70,BW=340,BH=34;
+      bar(ctx,BX,66,BW,BH,d,fill(d,0,p,C_A),C_A2);
+      lbl(ctx,fs(p,d),BX-8,90,C_A2,17,'right');
+      bar(ctx,BX,112,BW,BH,d,fill(d,0,q,c.add?C_B:C_W),c.add?C_B2:C_W2);
+      lbl(ctx,(c.add?'+ ':'− ')+fs(q,d),BX-8,136,c.add?C_B2:C_W2,17,'right');
+      lbl(ctx,c.add?'모으면 — 같은 크기 조각끼리 세기':'덜어 내면 — 남은 조각 세기',BX,172,'#334155',15);
+      bar(ctx,BX,182,BW,BH,d,resA,'#334155',crA);
+      lbl(ctx,'=',BX-8,206,'#334155',17,'right');
+      if(two){ bar(ctx,BX,224,BW,BH,d,resB,'#334155'); lbl(ctx,'1을 넘는 조각',BX+BW,272,'#52627a',12,'right'); }
+      if(c.add&&done){
+        var wv=fill(2*d,0,p+q,C_W);
+        lbl(ctx,'분모끼리도 더한 '+c.wrong+' 을(를) 띠로 그리면',BX,two?292:262,C_W2,14);
+        bar(ctx,BX,two?298:268,BW,26,2*d,wv,C_W2);
+        lbl(ctx,c.wrong,BX-8,two?317:287,C_W2,15,'right');
+      }
+    } else {
+      var R=40, Y=118;
+      pie(ctx,70,Y,R,d,fill(d,0,p,C_A),C_A2);
+      lbl(ctx,c.add?'+':'−',128,Y+8,'#334155',24,'center');
+      pie(ctx,186,Y,R,d,fill(d,0,q,c.add?C_B:C_W),c.add?C_B2:C_W2);
+      lbl(ctx,'=',246,Y+8,'#334155',24,'center');
+      lbl(ctx,fs(p,d),70,Y+R+22,C_A2,16,'center');
+      lbl(ctx,fs(q,d),186,Y+R+22,c.add?C_B2:C_W2,16,'center');
+      if(two){ pie(ctx,310,Y,38,d,resA,'#334155'); pie(ctx,392,Y,38,d,resB,'#334155'); }
+      else { pie(ctx,320,Y,R,d,resA,'#334155',crA); }
+      lbl(ctx,done?c.real:'?',two?351:320,Y+R+22,'#334155',16,'center');
+      if(c.add&&done){
+        pie(ctx,70,250,36,2*d,fill(2*d,0,p+q,C_W),C_W2);
+        lbl(ctx,'분모끼리도 더한 '+c.wrong,120,244,C_W2,15);
+        lbl(ctx,'→ 실제 답보다 작아요',120,268,C_W2,15);
+      }
+    }
+    box(ctx,20,330,400,128);
+    if(t===null||!done){
+      lbl(ctx,'답은 1/'+d+' 조각이 몇 개일까?',38,362,'#1f2937',19);
+      lbl(ctx,'분모 '+d+' = 조각의 크기, 분자 = 조각의 개수',38,392,'#52627a',15);
+      if(!c.add&&p===d) lbl(ctx,'1 = '+d+'/'+d+' 로 바꾸어 빼요',38,420,'#52627a',15);
+    } else {
+      lbl(ctx,'실제 답: '+c.expr+' = '+(c.add?'':(p===d?(d+'/'+d+' − '+q+'/'+d+' = '):''))+(n>d||n===0||n%d===0?(n+'/'+d+' = '):'')+c.real,38,362,'#15803d',17);
+      lbl(ctx,'분모는 '+d+' 그대로 — 조각 크기가 같으니까',38,390,'#334155',15);
+      lbl(ctx,c.add?('분모끼리도 더하면 '+c.wrong+' → 실제 답의 절반'):('분모끼리도 빼면 '+d+' − '+d+' = 0 → 말이 안 돼요'),38,418,'#b91c1c',15);
+      if(n>d) lbl(ctx,'1보다 커요: '+n+'/'+d+' = '+c.real,38,444,'#52627a',15);
+    }
+  },
+  record:function(S){
+    var c=calc(S);
+    return {op:S.op,add:c.add,d:c.d,p:c.p,q:c.q,n:c.n,expr:c.expr,real:c.real,rv:r3(c.n/c.d),
+            wrong:c.wrong,wv:c.add?r3(c.wv):null,less:c.add?(c.wv<c.n/c.d):null,over:(c.n>c.d)};
+  },
+  guess:{label:'답의 분자 (색칠된 조각 수)',key:'n',tol:0},
+  headA:['번호','식','실제 답','1/분모 조각 수','분모끼리도 계산하면','그 답이 실제보다 작은가?'],
+  rowA:function(r,i){
+    return [i+1,r.expr,'<b>'+r.real+'</b>',r.n+'개 (1/'+r.d+')',
+            r.add?r.wrong:'분모 0 — 말이 안 됨',
+            r.add?('<span class="'+(r.less?'ok':'no')+'">'+(r.less?'○ 작음':'×')+'</span>'):'—'];
+  },
+  analyze:function(rec){
+    var rows=[],adds=0,subs=0,less=0,over=0,fromOne=0;
+    for(var i=0;i<rec.length;i++){
+      var r=rec[i];
+      if(r.add){ adds++; if(r.less) less++; } else { subs++; if(r.p===r.d) fromOne++; }
+      if(r.over) over++;
+      rows.push([r.expr,'<b>'+r.real+'</b>',r.n+'개',
+                 r.add?(r.wrong+' ('+r.wv+')'):'분모 0',
+                 r.add?('<span class="'+(r.less?'ok':'no')+'">'+(r.less?'○':'×')+'</span>'):'—',
+                 r.rv]);
+    }
+    var stats=[
+      {t:'분모끼리도 더한 답이 실제 합보다 작았던 횟수',big:adds?(less+' / '+adds):'덧셈 기록 없음',
+       p:adds?'조각을 두 배로 잘게 자른 셈이라 길이가 딱 절반이 된다.':'덧셈도 기록해 보자.'},
+      {t:'뺄셈 기록',big:subs+'개',
+       p:subs?('그중 1에서 뺀 것 '+fromOne+'개. 분모끼리 빼면 분모가 0이 되어 말이 안 된다.'):'1 − 3/5 같은 뺄셈도 기록해 보자.'},
+      {t:'답이 1보다 컸던 기록',big:over+'개',p:over?'1을 넘으면 1과 몇 분의 몇으로 읽는다.':'5/7 + 4/7 처럼 합이 1을 넘는 덧셈도 해 보자.'}
+    ];
+    var concl;
+    if(adds<2||subs<1){
+      concl='<b>더 해 보자</b> — 덧셈을 두 번 이상, 뺄셈(1 − 3/5 같은)도 한 번 이상 기록해야 비교할 수 있다.';
+    } else {
+      concl='<b>정리</b> — 분모가 같은 분수는 조각의 크기가 같다. 그래서 <b>분자(조각의 개수)끼리만 더하거나 빼고, 분모는 그대로</b> 둔다. '
+           +'분모끼리도 더한 답은 '+adds+'번 가운데 '+less+'번 실제 합보다 작았다 — 조각을 두 배로 잘게 자른 셈이라 띠 길이가 절반이 된다. '
+           +'1에서 뺄 때는 1을 5/5처럼 분모가 같은 분수로 바꾸어 뺀다.';
+    }
+    return {head:['식','실제 답','조각 수','분모끼리도 계산한 답','실제보다 작은가?','실제 답의 값'],rows:rows,stats:stats,concl:concl};
+  }
+};
+
+
+/* ================= 공통 엔진 ================= */
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  cv.width = LAB.cw; cv.height = LAB.ch;
+  cv.style.maxWidth = LAB.cw + 'px';
+  var ctx = cv.getContext('2d');
+  document.getElementById('cvTitle').textContent = LAB.cvTitle;
+
+  var S = {}, records = [], animating = false, ran = false, ACT_LABEL = null;
+  var DUR = 2400, MIN = 4;
+
+  var h = '', i;
+  for(i=0;i<LAB.sliders.length;i++){
+    var s = LAB.sliders[i];
+    h += '<div class="ctrl"><div class="row"><span><span class="chip" style="background:' + s.color + '"></span>'
+       + s.label + '</span><span class="val" id="v_' + s.id + '"></span></div>'
+       + '<input type="range" id="s_' + s.id + '" aria-label="' + s.label + '" min="' + s.min + '" max="' + s.max
+       + '" step="' + (s.step || 1) + '" value="' + s.value + '"></div>';
+  }
+  document.getElementById('controls').innerHTML = h;
+
+  /* ===== 먼저 맞혀 보기 (261123) — 실행 전에 결과를 적거나 골라 두면 실행 뒤 채점한다 ===== */
+  var GUESS = LAB.guess || null, gIn = null, gLast = null;
+  if(GUESS){
+    var gd = document.createElement('div');
+    gd.className = 'ctrl';
+    gd.style.cssText = 'background:#fff8ee;border:2px dashed #d98e3b;border-radius:.7rem;padding:.7rem .8rem';
+    var gh = '<div class="row" style="display:block"><span>✏️ 먼저 맞혀 보기 — ' + GUESS.label + '</span></div>';
+    if(GUESS.opts){
+      gh += '<select id="s_guess" aria-label="예측 고르기" style="width:100%;font-family:inherit;font-size:1rem;padding:.45rem .5rem;border:2px solid var(--line);border-radius:.6rem;background:#fff"><option value="">— 고르지 않음 —</option>';
+      for(var gj=0; gj<GUESS.opts.length; gj++){ gh += '<option value="' + gj + '">' + GUESS.opts[gj] + '</option>'; }
+      gh += '</select>';
+    } else {
+      gh += '<input type="number" id="s_guess" step="any" aria-label="예측 적기" placeholder="숫자를 적어 보자" style="width:100%;font-family:inherit;font-size:1rem;padding:.45rem .5rem;border:2px solid var(--line);border-radius:.6rem">';
+    }
+    gh += '<p class="hint" style="margin:.35rem 0 0">비워 두고 실행해도 된다. 적어 두면 실행 뒤 맞았는지 채점해 준다.</p>';
+    gd.innerHTML = gh;
+    document.getElementById('controls').appendChild(gd);
+    gIn = document.getElementById('s_guess');
+  }
+  function gActual(rec){
+    if(!GUESS) return null;
+    var v = GUESS.get ? GUESS.get(rec, S) : rec[GUESS.key];
+    if(v === null || v === undefined || v === '' || v === '-') return null;
+    if(typeof v === 'number' && !isFinite(v)) return null;
+    return v;
+  }
+  function gGrade(rec){
+    if(!GUESS) return rec;
+    var act = gActual(rec), raw = gIn ? gIn.value : '';
+    rec.gAct = act; rec.gGuess = null; rec.gHit = null; gLast = null;
+    if(raw === '' || act === null) return rec;
+    if(GUESS.opts){
+      var gi = parseInt(raw, 10);
+      if(!(gi >= 0)) return rec;
+      rec.gGuess = GUESS.opts[gi];
+      rec.gHit = (gi === Number(act));
+    } else {
+      var gv = parseFloat(raw);
+      if(!isFinite(gv)) return rec;
+      rec.gGuess = gv;
+      var tol = (GUESS.tol || 0) + (GUESS.rel || 0) * Math.abs(Number(act));
+      rec.gHit = (Math.abs(gv - Number(act)) <= tol + 1e-9);
+    }
+    gLast = rec;
+    return rec;
+  }
+  function gShow(v){ return (GUESS && GUESS.opts) ? GUESS.opts[Number(v)] : v; }
+  function gMsg(){
+    if(!gLast) return '';
+    return ' ✏️ 내 예측 ' + gLast.gGuess + ' → 실제 ' + gShow(gLast.gAct)
+         + (gLast.gHit ? ' · 맞았다!' : ' · 틀렸다. 왜 그런지 따져 보자.');
+  }
+  function headAx(){ return GUESS ? LAB.headA.concat(['내 예측','채점']) : LAB.headA; }
+  function rowAx(r, i){
+    var c = LAB.rowA(r, i);
+    if(GUESS){
+      c = c.concat([
+        (r.gGuess === null || r.gGuess === undefined) ? '—' : r.gGuess,
+        (r.gHit === null || r.gHit === undefined) ? '—'
+          : '<span class="' + (r.gHit ? 'ok' : 'no') + '">' + (r.gHit ? '맞음' : '틀림') + '</span>'
+      ]);
+    }
+    return c;
+  }
+  function gAug(res){
+    if(!GUESS || !res) return res;
+    var tried = 0, hit = 0, gk;
+    for(gk = 0; gk < records.length; gk++){
+      if(records[gk].gHit === true || records[gk].gHit === false){ tried++; if(records[gk].gHit) hit++; }
+    }
+    if(res.stats){
+      res.stats = res.stats.concat([{
+        t: '먼저 맞혀 보기 채점',
+        big: tried ? (hit + ' / ' + tried + ' 맞음') : '예측 없음',
+        p: tried ? ('예측한 값: ' + GUESS.label + ' — 틀린 기록은 위 표에서 조건과 함께 살펴보자.')
+                 : ('실행 전에 ' + GUESS.label + ' 을(를) 적어 두면 여기서 채점된다.')
+      }]);
+    }
+    if(tried){
+      res.concl = String(res.concl || '') + '<br>· <b>내 예측</b>은 ' + tried + '번 가운데 ' + hit + '번 맞았다.'
+        + (hit === tried ? ' 어떤 규칙으로 맞혔는지 말로 적어 보자.' : ' 틀린 조건을 골라 한 번 더 해 보자.');
+    }
+    return res;
+  }
+
+  var btnAct = document.getElementById('btnAct');
+  var btnRec = document.createElement('button'); /* 자동 기록: 기록 버튼 제거 */
+  var hint = document.getElementById('hint');
+  btnAct.textContent = LAB.action;
+
+  function readSliders(){
+    for(var i=0;i<LAB.sliders.length;i++){
+      var s = LAB.sliders[i];
+      var el = document.getElementById('s_' + s.id);
+      S[s.id] = parseFloat(el.value);
+      document.getElementById('v_' + s.id).textContent = s.fmt ? s.fmt(S[s.id]) : (S[s.id] + (s.unit || ''));
+    }
+  }
+  function lock(on){
+    for(var i=0;i<LAB.sliders.length;i++){ document.getElementById('s_' + LAB.sliders[i].id).disabled = on; }
+    btnAct.disabled = on || ran;
+    btnRec.disabled = on || !ran;
+  }
+  function readout(){
+    var arr = LAB.readout(S, ran), s = '';
+    for(var i=0;i<arr.length;i++){ s += '<div>' + arr[i].k + '<b>' + arr[i].v + '</b></div>'; }
+    document.getElementById('readout').innerHTML = s;
+  }
+  function paint(t){
+    ctx.clearRect(0,0,LAB.cw,LAB.ch);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,LAB.cw,LAB.ch);
+    ctx.strokeStyle = '#e5ecf5'; ctx.lineWidth = 2; ctx.strokeRect(1,1,LAB.cw-2,LAB.ch-2);
+    LAB.draw(ctx, S, t, ran);
+  }
+  function onSlide(){
+    if(animating) return;
+    readSliders(); ran = false;
+    if(ACT_LABEL !== null){ btnAct.textContent = ACT_LABEL; }
+    btnAct.disabled = false; btnRec.disabled = true;
+    hint.textContent = LAB.hint0;
+    readout(); paint(null);
+  }
+  for(i=0;i<LAB.sliders.length;i++){
+    document.getElementById('s_' + LAB.sliders[i].id).addEventListener('input', onSlide);
+  }
+
+  btnAct.addEventListener('click', function(){
+    if(animating || ran) return;
+    cv.scrollIntoView({behavior:'smooth', block:'center'});
+    animating = true; lock(true);
+    var t0 = performance.now();
+    function frame(now){
+      var p = Math.max(0, (now - t0) / DUR);
+      if(p > 1) p = 1;
+      paint(p);
+      if(p < 1){ requestAnimationFrame(frame); }
+      else {
+        animating = false; ran = true; lock(false);
+        if(ACT_LABEL === null) ACT_LABEL = btnAct.textContent;
+        btnAct.textContent = '값을 바꾸면 다시 실행';
+        records.push(gGrade(LAB.record(S)));
+        if(!window.__fxNudged && records.length >= (typeof MIN === 'number' ? MIN : 4)){
+          window.__fxNudged = true;
+          /* 기록이 분석에 필요한 만큼 모이면 '데이터 확인' 으로 가자고 알린다 (261120) */
+          (function(){
+            var host = document.getElementById('hint'), tb = document.getElementById('tabB');
+            if(!host || !tb || document.getElementById('fxNudge')) return;
+            var d = document.createElement('p');
+            d.id = 'fxNudge'; d.className = 'hint';
+            d.style.cssText = 'margin-top:.6rem;color:#1d4ed8;font-weight:700';
+            d.appendChild(document.createTextNode('기록이 ' + records.length + '개 모였어요. 이제 결과를 살펴볼까요? '));
+            var b = document.createElement('button');
+            b.type = 'button'; b.className = 'btn'; b.style.marginTop = '.4rem';
+            b.textContent = '데이터 확인 보기 →';
+            b.addEventListener('click', function(){ tb.click(); tb.scrollIntoView({behavior:'smooth', block:'start'}); });
+            d.appendChild(b);
+            host.parentNode.insertBefore(d, host.nextSibling);
+          })();
+        }
+        renderA(); renderB();
+        hint.textContent = String(LAB.doneMsg(S)).replace(/\s*기록해 보자\.?\s*$/, '') + ' (자동 기록됨 · ' + records.length + '개)' + gMsg();
+        readout(); paint(1);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+
+
+  function th(list){
+    var s = '<tr>';
+    for(var i=0;i<list.length;i++){ s += '<th>' + list[i] + '</th>'; }
+    return s + '</tr>';
+  }
+  function renderA(){
+    document.getElementById('cntA').textContent = records.length;
+    document.getElementById('thA').innerHTML = th(headAx());
+    var tb = document.getElementById('tbA');
+    if(records.length === 0){
+      tb.innerHTML = '<tr><td colspan="' + headAx().length + '" class="empty">아직 기록이 없다.</td></tr>';
+      return;
+    }
+    var s = '';
+    for(var i=0;i<records.length;i++){
+      var cells = rowAx(records[i], i);
+      s += '<tr>';
+      for(var j=0;j<cells.length;j++){ s += '<td>' + cells[j] + '</td>'; }
+      s += '</tr>';
+    }
+    tb.innerHTML = s;
+  }
+  function renderB(){
+    document.getElementById('cntB').textContent = records.length;
+    var lack = document.getElementById('lack'), an = document.getElementById('analysis');
+    if(records.length < MIN){ lack.classList.remove('hidden'); an.classList.add('hidden'); return; }
+    lack.classList.add('hidden'); an.classList.remove('hidden');
+    var res = gAug(LAB.analyze(records));
+    document.getElementById('thB').innerHTML = th(res.head);
+    var s = '';
+    for(var i=0;i<res.rows.length;i++){
+      s += '<tr>';
+      for(var j=0;j<res.rows[i].length;j++){ s += '<td>' + res.rows[i][j] + '</td>'; }
+      s += '</tr>';
+    }
+    document.getElementById('tbB').innerHTML = s;
+    var g = '';
+    for(var k=0;k<res.stats.length;k++){
+      g += '<div class="stat"><h3>' + res.stats[k].t + '</h3><p class="big">' + res.stats[k].big
+         + '</p><p>' + res.stats[k].p + '</p></div>';
+    }
+    document.getElementById('statgrid').innerHTML = g;
+    document.getElementById('concl').innerHTML = res.concl;
+  }
+
+  var tabA = document.getElementById('tabA'), tabB = document.getElementById('tabB');
+  var paneA = document.getElementById('paneA'), paneB = document.getElementById('paneB');
+  tabA.addEventListener('click', function(){
+    tabA.classList.add('on'); tabB.classList.remove('on');
+    paneA.classList.remove('hidden'); paneB.classList.add('hidden');
+  });
+  tabB.addEventListener('click', function(){
+    tabB.classList.add('on'); tabA.classList.remove('on');
+    paneB.classList.remove('hidden'); paneA.classList.add('hidden');
+    renderB();
+  });
+
+  readSliders(); readout(); paint(null);
+  hint.textContent = LAB.hint0;
+  renderA(); renderB();
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 수학 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+<!-- fxNoteLink:start -->
+<style>
+.fx-note-cta{margin-top:18px;padding:16px 18px;border-radius:14px;background:#fff8ee;border:1px dashed #d98e3b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:.98rem;line-height:1.6}
+.fx-note-cta a{display:inline-block;background:#173238;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:10px;white-space:nowrap}
+.fx-note-cta a:hover{filter:brightness(1.15)}
+</style>
+<script>
+(function(){
+  var href='../notes/fesicsMathLabs/elem34_same_denominator_lab.html';
+  var ok=function(el){ return el && !/^(BUTTON|A|INPUT|NAV)$/.test(el.tagName) ? el : null; };
+  var host=ok(document.getElementById('validationContent'))||ok(document.getElementById('verifyContent'))||ok(document.getElementById('verifyTab'))
+    ||ok(document.getElementById('panel-verify'))||ok(document.getElementById('panel-validate'))||ok(document.getElementById('verifyBody'))
+    ||ok(document.querySelector('#tab-validate .card, #tab-validate, #tab-verify .card, #tab-verify'))
+    ||ok(document.querySelector('section#verify, section#validate, #verify.panel, #validate.panel'))
+    ||ok(document.querySelector('#paneB .card, #paneB'))
+    ||ok(document.querySelector('.app, main, .wrap'))||document.body;
+  if(host){
+    var d=document.createElement('div'); d.className='fx-note-cta';
+    d.innerHTML='<div>📝 실험을 마쳤다면 <b>자습 노트</b>에서 실험에서 본 현상을 원리로 정리해 보세요.</div><a href="'+href+'">자습 노트 열기 →</a>';
+    host.appendChild(d);
+  }
+})();
+</script>
+<!-- fxNoteLink:end -->
+<!-- fxSound:start --><script src="../fxsound.js?v=b3780f8e33f3" defer></script><!-- fxSound:end --><!-- labKit:start --><script src="../labkit.js?v=fbfd009b3511" defer></script><!-- labKit:end -->
+<script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --></body>
+</html>
