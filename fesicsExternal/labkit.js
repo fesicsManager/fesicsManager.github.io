@@ -546,21 +546,27 @@
   // '~는 커질 것 같아요' 의 주어로 쓰면 말이 안 되는 결과 이름 (261125)
   var SKIP_B = /같나|맞나|같음|같은|없음|있음|아니오|방식|방법|방향|대안|대상|종류|모드|부호|모양|상태|조건|자리|관계/;
   // 이름 안에 기호가 남아 있으면 말이 어색해진다 (261125)
-  var BAD_CHAR = /[()[\]{}<>=×÷±←→∠√$—–−○●△□▲■/\\|:：⁰-₟①-⑳]/;
+  var BAD_CHAR = /[()[\]{}<>=×÷±←→∠√$—–−○●△□▲■°′″/\\|:：⁰-₟]/;
   // 결과 이름 자리에 들어온 '문장' (261125)
   var SENTENCE = /(세요|보자|봅시다|이면|으면|려면|해요|어요|아요|예요|네요|이다|습니다|겠다|인가|은가|는가)$/;
 
   function tidyName(t) {
     t = (t || '').replace(/\s+/g, ' ').trim();
     t = t.replace(/^[0-9.\-+]+\s*/, '');
+    // 차례를 나타내는 동그라미 숫자는 이름이 아니다 — '② 기울기' → '기울기' (261125)
+    t = t.replace(/[①-⑳]/g, ' ').replace(/\s+/g, ' ').trim();
     // 괄호로 묶인 덧붙임은 어디에 있든 뺀다 — '위 선(바깥 꼬리) 길이' → '위 선 길이'
-    for (var p = 0; p < 3 && /\([^()]*\)/.test(t); p++) t = t.replace(/\([^()]*\)/g, ' ');
+    for (var p = 0; p < 3 && /\([^()]*\)/.test(t); p++) t = t.replace(/\([^()]*\)/g, '');
     t = t.replace(/\s+/g, ' ').trim();
     // 끝에 붙은 값·단위·줄표를 더 남지 않을 때까지 떼어 낸다 (261125)
     for (var n = 0; n < 4; n++) {
       var before = t;
-      t = t.replace(/[-+]?[0-9][0-9.,]*\s*[^\s]{0,4}$/, '').trim();   // 끝에 붙은 값·단위
+      // 끝에 붙은 값·단위 ('길이 12 cm'). 다만 '1행 1열' 처럼 차례를 세는 말은 이름의 일부다.
+      if (!/[0-9]+\s*(행|열|번|번째|개|차|쪽|단계|항)$/.test(t)) {
+        t = t.replace(/[-+]?[0-9][0-9.,]*\s*[^\s]{0,4}$/, '').trim();
+      }
       t = t.replace(/[.,·:：=~\-–—]+$/, '').trim();                    // 끝에 붙은 문장 부호·줄표
+      t = t.replace(/^의\s+/, '').replace(/\s*의$/, '').trim();        // 앞뒤에 남은 '의'
       if (t === before) break;
     }
     return t;
@@ -568,9 +574,10 @@
   function isName(t) {
     return !!t && t.length >= 2 && t.length <= 16 && /[가-힣]/.test(t) &&
            !/^[0-9]/.test(t) && !SKIP_CTRL.test(t) && !BAD_CHAR.test(t) &&
-           !/[a-zA-Z]\s*의(\s|$)/.test(t) &&   // 'a 의 x' 처럼 기호가 섞여 끊긴 이름
+           !/[a-zA-Z]\s+의(\s|$)/.test(t) &&   // 'a 의 x' 처럼 기호가 섞여 끊긴 이름
            !/^(에서|에게|으로|부터|까지)/.test(t) &&  // 조사로 시작 = 앞이 잘린 이름
-           !/^[a-zA-Z]\s/.test(t);            // 'x 에 넣을 값' 처럼 수식에서 잘린 이름
+           !/^[a-zA-Z]\s+(에서|에게|에|의|을|를|이|가)(\s|$)/.test(t) &&  // 'x 에 넣을 값' 처럼 잘린 이름
+           !/(\S+)\s+\1\s+\1/.test(t);        // '값 값 값' 처럼 되풀이된 말
   }
   function nodeName(node, skipEl) {
     if (!node || node.nodeType !== 1) return '';
@@ -635,10 +642,16 @@
     return '';
   }
   // 받침이 있으면 앞엣것, 없으면 뒤엣것
+  // 끝 글자를 소리 내어 읽었을 때 받침이 있으면 앞엣것(을·은), 없으면 뒤엣것(를·는)
+  var JONG_LETTER = /[lmnLMN]/;              // 엘·엠·엔
+  var JONG_DIGIT = /[013678]/;               // 영·일·삼·육·칠·팔
   function josa(word, withJong, without) {
+    var ch = word.charAt(word.length - 1);
     var c = word.charCodeAt(word.length - 1);
-    if (c < 0xAC00 || c > 0xD7A3) return without;
-    return ((c - 0xAC00) % 28) ? withJong : without;
+    if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28) ? withJong : without;
+    if (/[a-zA-Z]/.test(ch)) return JONG_LETTER.test(ch) ? withJong : without;
+    if (/[0-9]/.test(ch)) return JONG_DIGIT.test(ch) ? withJong : without;
+    return without;
   }
   function predictIdeas() {
     try {
