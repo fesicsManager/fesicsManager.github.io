@@ -52,8 +52,18 @@ canvas#stage{width:100%;max-width:100%;height:auto;display:block;border-radius:1
 .kbhelp kbd{font-family:'IBM Plex Mono',monospace;font-size:12px;background:#eef4f3;border:1px solid #c8d8d5;
   border-bottom-width:2px;border-radius:5px;padding:1px 5px;color:var(--ink);}
 /* 휴대폰에서는 자리만 차지한다 — 읽어 주는 장치에는 그대로 남긴다 */
-@media (max-width:640px){.kbhelp{position:absolute;width:1px;height:1px;margin:-1px;padding:0;
-  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}}
+/* 좁은 화면에서도 단추는 보인다 — 확대해 쓰거나 키보드를 꽂아 쓰는 학생이 있다 (261125) */
+.kbwrap{margin:8px 0 0;}
+.kbwrap>summary{display:inline-block;cursor:pointer;font-size:13px;color:var(--ink-soft);
+  background:#f6faf9;border:1px solid #c8d8d5;border-radius:999px;padding:4px 11px;list-style:none;}
+.kbwrap>summary::-webkit-details-marker{display:none;}
+.kbwrap>summary:hover{background:#eef4f3;color:var(--ink);}
+.kbwrap>summary:focus-visible{outline:3px solid #2f8f9d;outline-offset:2px;}
+.kbnow{margin:7px 0 0;font-size:13px;color:var(--ink-soft);display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.kbnow button,.kbnow select{font-size:12.5px;background:#fff;border:1px solid #c8d8d5;border-radius:8px;
+  padding:3px 8px;cursor:pointer;color:var(--ink);font-family:inherit;}
+.kbnow button:focus-visible,.kbnow select:focus-visible{outline:3px solid #2f8f9d;outline-offset:2px;}
+.kbnow .selnow{font-weight:700;color:var(--ink);}
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
   clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}
 .rowbtns{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;}
@@ -100,10 +110,22 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
       <div class="tools" id="tools"></div>
       <canvas id="stage" tabindex="0" role="application"
         aria-label="빛 실험대. 스페이스 키로 부품을 차례로 고르고, 화살표 키로 옮깁니다."></canvas>
-      <p class="kbhelp" id="kbhelp">손이 불편하거나 마우스가 없을 때 — 실험대를 <kbd>Tab</kbd> 으로 고른 뒤
+      <details class="kbwrap" id="kbwrap"><summary>키보드 도움말</summary>
+        <p class="kbhelp" id="kbhelp">손이 불편하거나 마우스가 없을 때 — 실험대를 <kbd>Tab</kbd> 으로 고른 뒤
         <kbd>Space</kbd> <b>다음 부품 고르기</b> · <kbd>←↑↓→</kbd> 옮기기(<kbd>Shift</kbd> 와 함께 누르면 잘게) ·
         <kbd>,</kbd> <kbd>.</kbd> 돌리기 · <kbd>Delete</kbd> 지우기 · <kbd>Esc</kbd> 고른 것 풀기 ·
-        <kbd>?</kbd> 지금 값을 읽어 주기.</p>
+        <kbd>?</kbd> 지금 값 읽기 · <kbd>R</kbd> <b>빛과 상이 어떻게 됐는지</b> 읽기.
+        실험대에서 나갈 때는 <kbd>Tab</kbd>, 되돌아올 때는 <kbd>Shift</kbd>+<kbd>Tab</kbd> 입니다.
+        키를 두 개 같이 누르기 어려우면 아래 <b>부품 고르기</b> 목록과 <b>돌리기</b> 단추를 쓰세요.</p></details>
+      <p class="kbnow">
+        <label for="partPick" style="font-size:12.5px">부품 고르기</label>
+        <select id="partPick"><option value="">— 놓인 부품 없음 —</option></select>
+        <button type="button" id="btnRotL" title="고른 부품을 왼쪽으로 돌려요.">↺ 왼쪽으로</button>
+        <button type="button" id="btnRotR" title="고른 부품을 오른쪽으로 돌려요.">↻ 오른쪽으로</button>
+        <select id="rotStep" title="한 번에 돌아가는 각도"><option value="1">1°씩</option><option value="5" selected>5°씩</option><option value="15">15°씩</option></select>
+        <button type="button" id="btnSayRay">빛과 상 읽기</button>
+        <span class="selnow" id="selNow"></span>
+      </p>
       <p class="sr" id="say" role="status" aria-live="polite"></p>
       <div class="rowbtns">
         <button class="act on" id="btnAxis" title="중심선과 초점 표시를 보이거나 숨겨요. 단추에 불이 들어와 있으면 보이는 중이에요.">중심선(광축)·초점</button>
@@ -681,8 +703,24 @@ function drawObj(o, sel){
   /* 고른 표시 + 돌리는 손잡이 */
   if (sel){
     var rr = (p.r || p.h || p.size || p.w || 60);
-    ctx.strokeStyle = 'rgba(217,142,59,.9)'; ctx.lineWidth = lw(1.6); ctx.setLineDash([lw(5), lw(4)]);
+    /* 점선 원만으로는 '돌리는 손잡이' 와 '골라졌다' 가 구분되지 않았다 —
+       고른 부품에는 굵은 테두리와 모서리 표식을 더한다 (261125) */
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(16,24,28,.85)'; ctx.lineWidth = lw(5.5);
     ctx.beginPath(); ctx.arc(o.x, o.y, rr + lw(16), 0, 6.2832); ctx.stroke();
+    ctx.strokeStyle = '#ffd166'; ctx.lineWidth = lw(2.6);
+    ctx.beginPath(); ctx.arc(o.x, o.y, rr + lw(16), 0, 6.2832); ctx.stroke();
+    var rc = rr + lw(16), tick = lw(9);
+    ctx.lineWidth = lw(3.2);
+    for (var qd = 0; qd < 4; qd++){
+      var aa = qd * Math.PI / 2 + Math.PI / 4;
+      var cx0 = o.x + Math.cos(aa) * rc, cy0 = o.y + Math.sin(aa) * rc;
+      ctx.beginPath();
+      ctx.moveTo(cx0 - Math.cos(aa) * tick, cy0 - Math.sin(aa) * tick);
+      ctx.lineTo(cx0 + Math.cos(aa) * tick, cy0 + Math.sin(aa) * tick);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(217,142,59,.9)'; ctx.lineWidth = lw(1.6); ctx.setLineDash([lw(5), lw(4)]);
     ctx.setLineDash([]);
     var hp = handlePos(o);
     ctx.fillStyle = '#d98e3b';
@@ -924,6 +962,75 @@ function readOptics(){
         : Math.round(info.b) + ' cm' + (info.b < 0 ? ' (허상)' : '');
   return '물체 거리 ' + Math.round(info.a) + ' cm, 상 거리 ' + b + '.';
 }
+/* 같은 종류가 여러 개면 번호를 붙인다 — '볼록렌즈 2' 로 찾을 수 있게 (261125) */
+function objLabel(o){
+  if (!o) return '';
+  var n = objName(o), same = obs.filter(function(q){ return q.type === o.type; });
+  if (same.length < 2) return n;
+  for (var i = 0; i < same.length; i++) if (same[i] === o) return n + ' ' + (i + 1);
+  return n;
+}
+/* 놓은 뒤 '지금 빛이 어떻게 됐나' 를 글로 — 그림을 볼 수 없는 학생에게는 이것이 결과다
+   (261125, 18차 1순위) */
+function rayText(){
+  if (!obs.length) return '실험대가 비어 있어요. 위의 부품 단추로 부품을 놓으세요.';
+  var src = obs.filter(function(o){ return isSource(o.type); });
+  var elx = obs.filter(function(o){ return isLens(o.type) || isMirror(o.type); });
+  var sol = obs.filter(function(o){ return isSolid(o.type); });
+  var scr = obs.filter(function(o){ return o.type === 'screen'; });
+  var bits = ['놓인 부품 ' + obs.length + '개 — ' + obs.map(objLabel).join(', ') + '.'];
+  if (!src.length) bits.push('빛을 내는 것이 없어서 광선이 그려지지 않아요.');
+  else {
+    var nray = 0;
+    try { traceAll(); nray = rays.length; } catch (e) { nray = -1; }
+    bits.push('빛줄기 ' + (nray < 0 ? '수를 셀 수 없어요' : nray + '줄기') + '가 나아가고 있어요.');
+  }
+  if (level >= 2){
+    var info = null;
+    try { info = imageInfo(); } catch (e) {}
+    if (!obs.some(function(o){ return o.type === 'object'; }))
+      bits.push('물체가 없어서 상은 생기지 않아요.');
+    else if (!elx.length)
+      bits.push('렌즈나 거울이 없어서 상은 생기지 않아요.');
+    else if (!info)
+      bits.push('물체가 ' + objLabel(elx[0]) + ' 에 너무 가까이 붙어 있어 상의 자리를 셈할 수 없어요. 물체를 더 멀리 옮기세요.');
+    else if (!isFinite(info.b))
+      bits.push('물체가 바로 초점 자리에 있어요. 지나온 빛이 나란해져서, 스크린을 어디에 놓아도 상이 맺히지 않아요.');
+    else if (info.b > 0)
+      bits.push('물체 거리 ' + Math.round(info.a) + ' cm, 상 거리 ' + Math.round(info.b) +
+                ' cm — 스크린에 맺히는 실상이고 ' + (info.m < 0 ? '거꾸로' : '바로') + ' 섰어요.' +
+                sizeWord(info.m) +
+                (scr.length ? ' 스크린은 가로 ' + Math.round(scr[0].x) + ' 에 있어요.' : ' 스크린은 아직 없어요.'));
+    else
+      bits.push('물체 거리 ' + Math.round(info.a) + ' cm, 상 거리 ' + Math.round(info.b) +
+                ' cm — 음수이니 ' + (isMirror(info.el.type) ? '거울 뒤쪽' : '물체와 같은 쪽') +
+                '에 보이는 허상이에요. 스크린에는 비출 수 없어요.' + sizeWord(info.m));
+  }
+  if (sol.length) bits.push('빛이 꺾여 지나는 것도 ' + sol.length + '개 있어요 — ' +
+                            sol.map(objLabel).join(', ') + '.');
+  return bits.join(' ');
+}
+/* 화살표를 열 번 누르면 열 번 말하던 것을 — 마지막 한 번만 (261125) */
+var sayTimer = null;
+function sayLater(msg){
+  if (sayTimer) clearTimeout(sayTimer);
+  sayTimer = setTimeout(function(){ sayTimer = null; say(msg); }, 320);
+}
+/* Tab 으로 닿는 부품 목록 — 스페이스를 거푸 누르지 않고 이름으로 고른다 */
+function buildPartPick(){
+  var sel = document.getElementById('partPick');
+  if (!sel) return;
+  if (!obs.length){ sel.innerHTML = '<option value="">— 놓인 부품 없음 —</option>'; }
+  else {
+    sel.innerHTML = '<option value="">— 고른 부품 없음 —</option>' +
+      obs.map(function(o, i){
+        return '<option value="' + o.id + '">' + (i + 1) + '. ' + objLabel(o) + '</option>';
+      }).join('');
+  }
+  sel.value = selId ? String(selId) : '';
+  var now = document.getElementById('selNow');
+  if (now){ var o2 = selObj(); now.textContent = o2 ? '선택됨 · ' + objLabel(o2) : ''; }
+}
 function kbPick(back){
   if (!obs.length){ say('실험대가 비어 있어요. 위의 부품 단추로 먼저 놓으세요.'); return; }
   var i = -1;
@@ -933,14 +1040,19 @@ function kbPick(back){
   selId = obs[i].id;
   buildProps(); redraw();
   var o = obs[i];
-  say(objName(o) + ' — ' + (i + 1) + '번째, 모두 ' + obs.length + '개. ' + whereWord(o) + '. ' + readOptics());
+  say(objLabel(o) + ' 골랐어요 — ' + (i + 1) + ' / ' + obs.length + '. ' + whereWord(o) + '. ' + readOptics());
 }
 cv.addEventListener('focus', function(){
-  say('빛 실험대입니다. 부품 ' + obs.length + '개가 놓여 있어요. ' +
-      '스페이스로 차례로 고르고, 화살표로 옮기세요.');
+  say('빛 실험대입니다. 스페이스로 부품을 고르고 방향키로 옮기세요. 놓인 부품은 ' +
+      obs.length + '개' + (selObj() ? ', 지금 고른 것은 ' + objLabel(selObj()) : '') +
+      '. 나갈 때는 탭, 전체 키는 아래 키보드 도움말에 있어요.');
 });
 cv.addEventListener('keydown', function(ev){
   var k = ev.key, o = selObj(), step = ev.shiftKey ? 2 : 10;
+  /* 키를 꾹 눌러 생긴 반복 입력으로 고른 것이 휙휙 넘어가거나 지워지지 않게 (261125) */
+  if (ev.repeat && (k === ' ' || k === 'Enter' || k === 'Delete' || k === 'Backspace')){
+    ev.preventDefault(); return;
+  }
   if (k === ' ' || k === 'Enter'){ kbPick(ev.shiftKey); }
   else if (k === 'Escape'){ selId = null; buildProps(); redraw(); say('고른 것을 풀었어요.'); }
   else if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown'){
@@ -952,7 +1064,7 @@ cv.addEventListener('keydown', function(ev){
       if (k === 'ArrowUp')    o.y = Math.max(10, o.y - step);
       if (k === 'ArrowDown')  o.y = Math.min(H - 10, o.y + step);
       buildProps(); redraw(); save();
-      say(objName(o) + ' — ' + whereWord(o) + '. ' + readOptics());
+      sayLater(objLabel(o) + ' — ' + whereWord(o) + '. ' + readOptics());
     }
   }
   else if (k === ',' || k === '<' || k === '.' || k === '>'){
@@ -961,23 +1073,24 @@ cv.addEventListener('keydown', function(ev){
       snapshot();
       o.ang += (k === ',' || k === '<' ? -1 : 1) * (ev.shiftKey ? 1 : 5) * Math.PI / 180;
       buildProps(); redraw(); save();
-      say(objName(o) + ' — ' + whereWord(o) + '. ' + readOptics());
+      sayLater(objLabel(o) + ' — ' + whereWord(o) + '. ' + readOptics());
     }
   }
   else if (k === 'Delete' || k === 'Backspace'){
     if (!o){ say('고른 부품이 없어요.'); }
     else {
       snapshot();
-      var nm2 = objName(o);
+      var nm2 = objLabel(o);
       obs = obs.filter(function(q){ return q !== o; });
       selId = null; buildProps(); redraw(); save();
       say(eul(nm2) + ' 지웠어요. 남은 부품 ' + obs.length + '개.');
     }
   }
   else if (k === '?' || k === '/'){
-    say(o ? objName(o) + ' — ' + whereWord(o) + '. ' + readOptics()
+    say(o ? objLabel(o) + ' — ' + whereWord(o) + '. ' + readOptics()
           : '고른 부품이 없어요. 놓인 부품은 ' + obs.length + '개. ' + readOptics());
   }
+  else if (k === 'r' || k === 'R' || k === 'ㄱ') say(rayText());
   else return;                /* 나머지 키는 브라우저에 넘긴다 (Tab 포함) */
   ev.preventDefault();
 });
@@ -1015,6 +1128,7 @@ function buildTools(){
 /* ---------- 값 바꾸기 ---------- */
 function buildProps(){
   var box = document.getElementById('propBox');
+  try { buildPartPick(); } catch (e) {}
   var o = obs.filter(function(q){ return q.id === selId; })[0];
   if (!o){ box.innerHTML = '<div class="empty-msg">부품을 누르면 값을 바꿀 수 있어요.</div>'; return; }
   var nm = {laser:'레이저', beam:'나란한 빛', point:'점 광원', object:'물체',
@@ -1205,6 +1319,33 @@ function undo(){
   buildProps(); redraw(); save();
 }
 document.getElementById('btnUndo').onclick = undo;
+/* 키 두 개를 같이 누르기 어려운 학생을 위한 길 — 목록으로 고르고 단추로 돌린다 (261125) */
+(function(){
+  var sel = document.getElementById('partPick');
+  if (sel) sel.onchange = function(){
+    selId = sel.value ? parseInt(sel.value, 10) : null;
+    buildProps(); redraw();
+    var o = selObj();
+    say(o ? objLabel(o) + ' 골랐어요. ' + whereWord(o) + '. ' + readOptics() : '고른 것을 풀었어요.');
+  };
+  function rot(dir){
+    var o = selObj();
+    if (!o){ say('먼저 부품을 고르세요.'); return; }
+    var stp = parseFloat((document.getElementById('rotStep') || {}).value || 5);
+    snapshot();
+    o.ang += dir * stp * Math.PI / 180;
+    buildProps(); redraw(); save();
+    say(objLabel(o) + ' — ' + whereWord(o) + '. ' + readOptics());
+  }
+  var bl = document.getElementById('btnRotL'), br = document.getElementById('btnRotR');
+  if (bl) bl.onclick = function(){ rot(-1); };
+  if (br) br.onclick = function(){ rot(1); };
+  var bs = document.getElementById('btnSayRay');
+  if (bs) bs.onclick = function(){ say(rayText()); };
+  var d = document.getElementById('kbwrap');
+  if (d && window.innerWidth > 640) d.open = true;
+  try { buildPartPick(); } catch (e) {}
+})();
 
 /* ---------- 지금 장면을 주소에 담기 (261124) ----------
    선생님이 '이 장면을 열어 보세요' 를 링크로 줄 길이 없었고, 학생도 학교에서 만든 것을

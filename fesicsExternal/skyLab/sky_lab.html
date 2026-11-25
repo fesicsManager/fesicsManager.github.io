@@ -67,8 +67,13 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
 .kbhelp kbd{font-family:'IBM Plex Mono',monospace;font-size:12px;background:#eef4f3;border:1px solid #c8d8d5;
   border-bottom-width:2px;border-radius:5px;padding:1px 5px;color:var(--ink);}
 /* 휴대폰에서는 자리만 차지한다 — 읽어 주는 장치에는 그대로 남긴다 */
-@media (max-width:640px){.kbhelp{position:absolute;width:1px;height:1px;margin:-1px;padding:0;
-  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}}
+/* 좁은 화면에서도 단추는 보인다 — 확대해 쓰거나 키보드를 꽂아 쓰는 학생이 있다 (261125) */
+.kbwrap{margin:8px 0 0;}
+.kbwrap>summary{display:inline-block;cursor:pointer;font-size:13px;color:var(--ink-soft);
+  background:#f6faf9;border:1px solid #c8d8d5;border-radius:999px;padding:4px 11px;list-style:none;}
+.kbwrap>summary::-webkit-details-marker{display:none;}
+.kbwrap>summary:hover{background:#eef4f3;color:var(--ink);}
+.kbwrap>summary:focus-visible{outline:3px solid #2f8f9d;outline-offset:2px;}
 .hidden{display:none !important;}
 </style>
 </head>
@@ -89,9 +94,13 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
     <section class="card">
       <canvas id="dome" role="img"
         aria-label="오늘 하늘. 해와 달이 지나는 길을 그린 그림. 값은 아래 ‘해’·‘달’ 칸에 글로도 적혀 있습니다."></canvas>
-      <p class="kbhelp">손이 불편하거나 마우스가 없을 때 — 이 실험실은 <b>모두 단추와 막대</b>로 다룹니다.
+      <details class="kbwrap" id="kbwrap"><summary>키보드 도움말</summary>
+        <p class="kbhelp">손이 불편하거나 마우스가 없을 때 — 이 실험실은 <b>모두 단추와 막대</b>로 다룹니다.
         <kbd>Tab</kbd> 으로 날짜·시각·위도 막대까지 간 뒤 <kbd>←→</kbd> 로 바꾸면 됩니다.
-        바뀐 고도·낮의 길이는 아래 <b>해</b> 칸에서 바로 읽어 줍니다.</p>
+        다음 조작으로 갈 때는 <kbd>Tab</kbd>, 앞으로 되돌아올 때는 <kbd>Shift</kbd>+<kbd>Tab</kbd> 입니다.
+        막대를 움직이면 바뀐 고도·남중 고도·낮의 길이·해 뜨고 지는 때와 <b>방향</b>을
+        아래 <b>해</b> 칸에서 바로 읽어 줍니다. 하늘 그림은 눈으로 보는 것이고,
+        값은 모두 그 칸에 글로 적혀 있습니다.</p></details>
       <div class="rowbtns">
         <button class="act" id="btnPlay" title="고른 날의 시각을 흘려 하루 동안 해와 별이 지나는 길을 보여 줘요.">하루 돌리기</button>
         <button class="act" id="btnYear" title="날짜를 하루씩 넘겨 한 해 동안 달라지는 모습을 보여 줘요.">한 해 돌리기</button>
@@ -126,7 +135,9 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
           <div><span id="lbNoon">남중 고도</span><b id="roNoon">—</b></div>
           <div><span>낮의 길이</span><b id="roDay">—</b></div>
           <div><span>해 뜨는 때</span><b id="roRise">—</b></div>
+          <div><span>해 뜨는 방향</span><b id="roRiseAz">—</b></div>
           <div><span>해 지는 때</span><b id="roSet">—</b></div>
+          <div><span>해 지는 방향</span><b id="roSetAz">—</b></div>
         </div>
         <div class="note" id="polarWords" style="display:none"></div>
         <div class="note" id="sunWords" style="display:none">고도는 <b>지평선을 기준으로</b> 잰 각도예요. 지평선 위는 양수, 아래는 음수예요. 방위는 해가 어느 <b>쪽</b>에 있는지예요. 해가 하루 중 가장 높이 떴을 때의 고도를, 그때 해가 남쪽에 있으면 <b>남중 고도</b>라고 해요.</div>
@@ -237,18 +248,20 @@ function altAz(ra, dec, lst, lat){
 /* 해 뜨고 지는 때 — 1분씩 훑어서 찾는다(균시차·경도까지 저절로 들어간다) */
 function sunDay(day, lat){
   var prev = null, rise = null, set = null, maxAlt = -90, maxMin = 0, above = 0;
+  var riseAz = null, setAz = null;
   for (var m = 0; m <= 1440; m += 1){
     var jd = jdOf(day, m), sp = sunPos(jd);
     var aa = altAz(sp.ra, sp.dec, lstDeg(jd), lat);
     if (aa.alt > maxAlt){ maxAlt = aa.alt; maxMin = m; }
     if (aa.alt > -0.833) above++;
     if (prev !== null){
-      if (prev <= -0.833 && aa.alt > -0.833) rise = m;
-      if (prev > -0.833 && aa.alt <= -0.833) set = m;
+      /* 해가 어느 쪽에서 떠서 어느 쪽으로 지는지 — 계절을 견주는 활동에 필요하다 (261125) */
+      if (prev <= -0.833 && aa.alt > -0.833){ rise = m; riseAz = aa.az; }
+      if (prev > -0.833 && aa.alt <= -0.833){ set = m; setAz = aa.az; }
     }
     prev = aa.alt;
   }
-  return {rise:rise, set:set, maxAlt:maxAlt, noonMin:maxMin, dayMin:above};
+  return {rise:rise, set:set, riseAz:riseAz, setAz:setAz, maxAlt:maxAlt, noonMin:maxMin, dayMin:above};
 }
 
 /* ---------- 별 ---------- */
@@ -681,6 +694,12 @@ function updateReadouts(){
            : (dm <= 1)    ? '없음 (하루 종일 안 떠요)' : '—';
   document.getElementById('roRise').textContent = info.rise === null ? noRS : hhmm(info.rise);
   document.getElementById('roSet').textContent  = info.set  === null ? noRS : hhmm(info.set);
+  function azWord(a){
+    if (a === null || a === undefined) return '없음';
+    return azName(a) + (level >= 2 ? ' ' + a.toFixed(0) + '°' : '');
+  }
+  document.getElementById('roRiseAz').textContent = azWord(info.riseAz);
+  document.getElementById('roSetAz').textContent  = azWord(info.setAz);
   document.getElementById('sunWords').style.display = level <= 1 ? '' : 'none';
   /* 해 뜨는 때가 '없음' 으로만 떠서, 백야·극야라는 말이 어디에도 없었다 (261123) */
   var pw = document.getElementById('polarWords');
@@ -793,6 +812,9 @@ tog('btnSeason', function(){ return showSeason; }, function(v){ showSeason = v; 
 tog('btnStars',  function(){ return showStars; },  function(v){ showStars = v; });
 tog('btnTrail',  function(){ return showTrail; },  function(v){ showTrail = v; });
 tog('btnMoon',   function(){ return showMoon; },   function(v){ showMoon = v; });
+/* 넓은 화면에서는 도움말을 펴 둔다 (261125) */
+(function(){ var d = document.getElementById('kbwrap');
+  if (d && window.innerWidth > 640) d.open = true; })();
 document.getElementById('btnPlay').onclick = function(){
   playDay = !playDay; playYear = false;
   this.classList.toggle('on', playDay);

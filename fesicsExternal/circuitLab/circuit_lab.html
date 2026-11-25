@@ -79,9 +79,18 @@ button.act[disabled]{opacity:.45;cursor:default;}
 .kbhelp b{color:var(--ink);}
 .kbhelp kbd{font-family:'IBM Plex Mono',monospace;font-size:12px;background:#eef4f3;border:1px solid #c8d8d5;
   border-bottom-width:2px;border-radius:5px;padding:1px 5px;color:var(--ink);}
-/* 휴대폰에서는 자리만 차지한다 — 읽어 주는 장치에는 그대로 남긴다 */
-@media (max-width:640px){.kbhelp{position:absolute;width:1px;height:1px;margin:-1px;padding:0;
-  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}}
+/* 좁은 화면에서도 단추는 보인다 — 확대해 쓰거나 키보드를 꽂아 쓰는 학생이 있다 (261125) */
+.kbwrap{margin:8px 0 0;}
+.kbwrap>summary{display:inline-block;cursor:pointer;font-size:13px;color:var(--ink-soft);
+  background:#f6faf9;border:1px solid #c8d8d5;border-radius:999px;padding:4px 11px;list-style:none;}
+.kbwrap>summary::-webkit-details-marker{display:none;}
+.kbwrap>summary:hover{background:#eef4f3;color:var(--ink);}
+.kbwrap>summary:focus-visible{outline:3px solid #2f8f9d;outline-offset:2px;}
+.kbwrap[open]>summary{margin-bottom:2px;}
+.kbnow{margin:6px 0 0;font-size:13px;color:var(--ink-soft);}
+.kbnow button{font-size:12.5px;background:#fff;border:1px solid #c8d8d5;border-radius:8px;
+  padding:3px 9px;margin-right:5px;cursor:pointer;color:var(--ink);}
+.kbnow button:focus-visible{outline:3px solid #2f8f9d;outline-offset:2px;}
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
   clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}
 
@@ -121,9 +130,14 @@ input[type=number]{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15
       <div class="tools" id="tools"></div>
       <canvas id="board" tabindex="0" role="application"
         aria-label="회로를 만드는 모눈판. 화살표 키로 칸을 옮기고, 스페이스 키로 부품을 놓습니다."></canvas>
-      <p class="kbhelp" id="kbhelp">손이 불편하거나 마우스가 없을 때 — 모눈판을 <kbd>Tab</kbd> 으로 고른 뒤
+      <details class="kbwrap" id="kbwrap"><summary>키보드 도움말</summary>
+        <p class="kbhelp" id="kbhelp">손이 불편하거나 마우스가 없을 때 — 모눈판을 <kbd>Tab</kbd> 으로 고른 뒤
         <kbd>←↑↓→</kbd> 칸 옮기기 · <kbd>Space</kbd> 한 번 더 눌러 <b>시작점과 끝점</b> 찍기(부품이 놓입니다) ·
-        <kbd>Esc</kbd> 시작점 취소 · <kbd>Delete</kbd> 그 자리 지우기 · <kbd>?</kbd> 지금 무엇이 있는지 읽어 주기.</p>
+        <kbd>Esc</kbd> 시작점 취소 · <kbd>Delete</kbd> 그 자리 지우기 ·
+        <kbd>?</kbd> 지금 자리와 값 읽기 · <kbd>C</kbd> <b>회로가 어떻게 이어졌는지</b> 읽기.
+        모눈판에서 나갈 때는 <kbd>Tab</kbd>, 되돌아올 때는 <kbd>Shift</kbd>+<kbd>Tab</kbd> 입니다.
+        가로는 오른쪽으로, 세로는 아래로 갈수록 숫자가 커집니다.</p></details>
+      <p class="kbnow"><button type="button" id="btnSayWire">연결 상태 읽기</button><button type="button" id="btnSayVal">지금 값 읽기</button></p>
       <p class="sr" id="say" role="status" aria-live="polite"></p>
       <div class="rowbtns">
         <button class="act" id="btnZoomIn">화면 크게</button><button class="act" id="btnZoomOut">화면 작게</button><button class="act" id="btnUndo" title="마지막으로 한 일을 한 단계 되돌려요.">되돌리기</button>
@@ -880,7 +894,7 @@ cv.addEventListener('pointercancel', function(){ drag.on = false; drag.moved = f
 /* ---------- 키보드만으로 만들기 (261125) ----------
    마우스를 쓰지 못해도 모눈 위에 칸 하나를 '커서'로 두고 옮겨 가며
    시작점·끝점을 찍어 부품을 놓는다. 끌기와 똑같은 결과가 나오게 맞췄다. */
-var kb = {on:false, x:2, y:7, ax:null, ay:null};
+var kb = {on:false, x:2, y:7, ax:null, ay:null, closed:false};
 
 function toolName(t){
   for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].t === t) return TOOLS[i].name;
@@ -927,10 +941,17 @@ function kbMove(dx, dy){
   kb.x = Math.max(0, Math.min(GW, kb.x + dx));
   kb.y = Math.max(0, Math.min(GH, kb.y + dy));
   kbSee();
-  say('가로 ' + kb.x + ', 세로 ' + kb.y + ' — ' + whatAt(kb.x, kb.y) +
-      (kb.ax === null ? '' : ' · 시작점에서 ' +
-        (Math.abs(kb.x - kb.ax) >= Math.abs(kb.y - kb.ay)
-          ? Math.abs(kb.x - kb.ax) + '칸 가로' : Math.abs(kb.y - kb.ay) + '칸 세로')));
+  var tail = '';
+  if (kb.ax !== null){
+    /* 비스듬히 움직여도 곧게만 놓이니, 확정 전에 '실제' 끝점을 알려 준다 (261125) */
+    var ex = kb.x, ey = kb.y;
+    if (Math.abs(ex - kb.ax) >= Math.abs(ey - kb.ay)) ey = kb.ay; else ex = kb.ax;
+    /* 곧은 줄 위에 있으면 커서가 곧 끝점이다 — 같은 말을 두 번 하지 않는다 */
+    tail = (ex === kb.x && ey === kb.y)
+      ? ' · 시작점에서 ' + (Math.abs(kb.x - kb.ax) + Math.abs(kb.y - kb.ay)) + '칸'
+      : ' · 비스듬해서 끝점은 가로 ' + ex + ', 세로 ' + ey + ' 이 됩니다.';
+  }
+  say('가로 ' + kb.x + ', 세로 ' + kb.y + ' — ' + whatAt(kb.x, kb.y) + tail);
 }
 function kbPut(){
   kb.on = true;
@@ -966,23 +987,139 @@ function kbPut(){
   }
   kb.ax = null; kb.ay = null;
   changed();
-  say(eul(toolName(tool)) + ' 놓았어요. ' + readSummary());
+  say(eul(toolName(tool)) + ' 놓았어요.' + closedNote());
+}
+/* ---------- 회로가 어떻게 이어졌는지 글로 (261125, 18차 1순위) ----------
+   그림만 보고는 알 수 없는 학생을 위해 — 전지 단자부터 만나는 부품 순서,
+   갈라지는 자리, 끊어진 끝, 닫혔는지를 말로 풀어 준다.                      */
+function kbKey(x, y){ return x + ',' + y; }
+function kbGraph(openSwitchBreaks){
+  var deg = {}, inc = {};
+  for (var i = 0; i < els.length; i++){
+    var e = els[i], a = kbKey(e.x1, e.y1), b = kbKey(e.x2, e.y2);
+    deg[a] = (deg[a] || 0) + 1; deg[b] = (deg[b] || 0) + 1;
+    if (openSwitchBreaks && e.type === 'switch' && !e.props.closed) continue;
+    (inc[a] = inc[a] || []).push({to:b, e:e});
+    (inc[b] = inc[b] || []).push({to:a, e:e});
+  }
+  return {deg:deg, inc:inc};
+}
+/* 전지 한쪽 단자에서 다른 단자까지, 전지 자신을 빼고 가장 짧은 길 */
+function kbPathAcross(bat, openSwitchBreaks){
+  var g = kbGraph(openSwitchBreaks);
+  var from = kbKey(bat.x1, bat.y1), to = kbKey(bat.x2, bat.y2);
+  var prev = {}, seen = {}, q = [from];
+  seen[from] = 1;
+  while (q.length){
+    var cur = q.shift();
+    if (cur === to) break;
+    var list = g.inc[cur] || [];
+    for (var k = 0; k < list.length; k++){
+      if (list[k].e === bat || seen[list[k].to]) continue;
+      seen[list[k].to] = 1;
+      prev[list[k].to] = {node:cur, e:list[k].e};
+      q.push(list[k].to);
+    }
+  }
+  if (!seen[to] || to === from) return null;
+  var parts = [], nodes = [to], at = to;
+  while (prev[at]){
+    if (prev[at].e.type !== 'wire') parts.unshift(prev[at].e);
+    at = prev[at].node;
+    nodes.push(at);
+  }
+  return {parts:parts, nodes:nodes, deg:g.deg};
+}
+function kbPartWord(e){
+  var n = toolName(e.type);
+  if (e.type === 'bulb')     return n + ' ' + e.props.R + ' Ω';
+  if (e.type === 'resistor') return n + ' ' + e.props.R + ' Ω';
+  if (e.type === 'switch')   return (e.props.closed ? '닫힌 ' : '열린 ') + n;
+  return n;
+}
+/* 닫힌 길이 있나 — 알림을 '바뀔 때만' 하려고 따로 뽑아 둔다 */
+function kbClosed(){
+  var bat = els.filter(function(e){ return e.type === 'battery' || e.type === 'acsource'; });
+  for (var i = 0; i < bat.length; i++) if (kbPathAcross(bat[i], true)) return true;
+  return false;
+}
+function wiringText(){
+  if (!els.length) return '모눈판이 비어 있어요.';
+  var bat = els.filter(function(e){ return e.type === 'battery' || e.type === 'acsource'; });
+  var g = kbGraph(true), ends = [], n;
+  for (n in g.deg) if (g.deg[n] === 1) ends.push(n);
+  var endWord = ends.length
+    ? ' 한쪽만 이어진 끝이 ' + ends.length + ' 군데 있어요 — ' +
+      ends.slice(0, 4).map(function(c){ var p = c.split(','); return '가로 ' + p[0] + ' 세로 ' + p[1]; }).join(' · ') +
+      (ends.length > 4 ? ' 등' : '') + '.'
+    : '';
+  if (!bat.length) return '전지가 없어요. 부품 줄에서 전지를 고르고 모눈판에 놓으세요.' + endWord;
+
+  var out = [];
+  for (var i = 0; i < bat.length; i++){
+    var b = bat[i], head = bat.length > 1 ? ('전지 ' + (i + 1) + ': ') : '';
+    var path = kbPathAcross(b, true);
+    if (!path){
+      var loose = kbPathAcross(b, false);
+      if (loose){
+        var opens = loose.parts.filter(function(e){ return e.type === 'switch' && !e.props.closed; });
+        out.push(head + (opens.length
+          ? '길은 이어져 있지만 스위치가 열려 있어서 전류가 흐르지 않아요. 스위치를 닫으세요.'
+          : '회로가 열려 있어 전류가 흐르지 않아요.'));
+      } else {
+        out.push(head + '회로가 열려 있어 전류가 흐르지 않아요. 전지의 두 단자가 아직 이어지지 않았어요.');
+      }
+      continue;
+    }
+    var forks = 0;
+    for (var j = 0; j < path.nodes.length; j++) if (path.deg[path.nodes[j]] >= 3) forks++;
+    if (forks){
+      /* 갈래가 있으면 한 줄로 늘어놓을 수 없다 — 지어내지 말고 있는 것만 알린다 */
+      var all = els.filter(function(e){
+        return e.type !== 'wire' && e.type !== 'battery' && e.type !== 'acsource';
+      }).map(kbPartWord);
+      out.push(head + '닫힌 회로입니다. 갈라지는 자리가 ' + forks + ' 군데 있어요. 놓인 부품은 ' +
+               (all.length ? all.join(', ') + ' 입니다.' : '없어요.') +
+               ' 어느 부품이 어느 갈래에 있는지는 아직 말로 풀어 주지 못합니다.');
+    } else {
+      var w = path.parts.map(kbPartWord);
+      var seq = w.length === 0 ? '전선만 지나'
+              : w.length === 1 ? w[0] + josa(w[0], '을', '를') + ' 지나'
+              : w.join(', ') + ' 를 차례로 지나';
+      out.push(head + '닫힌 직렬 회로입니다. 갈라지는 길은 없어요. 전지의 +극에서 출발하면 ' +
+               seq + ' −극으로 돌아옵니다.');
+    }
+  }
+  return out.join(' ') + endWord;
 }
 function readSummary(){
   /* 화면이 가려져 그리기가 멈춘 동안에도 읽어 주는 값은 지금 값이어야 한다 */
   try { updateReadouts(); } catch (e) {}
+  if (!kbClosed()) return '회로가 열려 있어 전류가 흐르지 않아요.';
   var i = document.getElementById('roI'), v = document.getElementById('roV');
   if (!i || !v) return '';
   return '전체 전류 ' + i.textContent + ', 전지 전압 ' + v.textContent + '.';
 }
+/* 닫힘·열림이 바뀐 때만 알린다 — 놓을 때마다 값을 읽으면 설치 확인이 묻힌다 */
+function closedNote(){
+  var now = kbClosed();
+  if (kb.closed === now) return '';
+  kb.closed = now;
+  return now ? ' 전지 양 단자 사이에 닫힌 경로가 생겼어요.' : ' 닫힌 경로가 끊겼어요.';
+}
 cv.addEventListener('focus', function(){
   kb.on = true;
-  say('모눈판입니다. 지금 고른 것은 ' + toolName(tool) +
-      '. 화살표로 옮기고 스페이스로 시작점과 끝점을 찍으세요. 지금 자리는 가로 ' +
-      kb.x + ', 세로 ' + kb.y + ' — ' + whatAt(kb.x, kb.y) + '.');
+  kb.closed = kbClosed();
+  say('모눈판입니다. 방향키로 옮기고 스페이스로 시작점을 찍으세요. 지금 고른 것은 ' +
+      toolName(tool) + ', 자리는 가로 ' + kb.x + ', 세로 ' + kb.y + ' — ' + whatAt(kb.x, kb.y) +
+      '. 나갈 때는 탭, 전체 키는 아래 키보드 도움말에 있어요.');
 });
 cv.addEventListener('keydown', function(ev){
   var k = ev.key, step = ev.shiftKey ? 5 : 1;
+  /* 키를 꾹 눌러 생긴 반복 입력이 끝점으로 처리되지 않게 (261125) */
+  if (ev.repeat && (k === ' ' || k === 'Enter' || k === 'Delete' || k === 'Backspace')){
+    ev.preventDefault(); return;
+  }
   if (k === 'ArrowLeft')       kbMove(-step, 0);
   else if (k === 'ArrowRight') kbMove(step, 0);
   else if (k === 'ArrowUp')    kbMove(0, -step);
@@ -998,11 +1135,12 @@ cv.addEventListener('keydown', function(ev){
     var hit = elAt({x:kb.x, y:kb.y});
     if (hit){ snapshot(); var nmz = hit.type === 'wire' ? '선' : toolName(hit.type);
               els = els.filter(function(e){ return e !== hit; }); selId = null; changed();
-              say(eul(nmz) + ' 지웠어요.'); }
+              say(eul(nmz) + ' 지웠어요.' + closedNote()); }
     else say('여기엔 지울 것이 없어요.');
   }
   else if (k === '?' || k === '/') say('가로 ' + kb.x + ', 세로 ' + kb.y + ' — ' +
       whatAt(kb.x, kb.y) + '. ' + readSummary());
+  else if (k === 'c' || k === 'C' || k === 'ㅊ') say(wiringText());
   else return;              /* 우리가 쓰지 않는 키는 브라우저에 넘긴다 (Tab 포함) */
   ev.preventDefault();
 });
@@ -1597,6 +1735,13 @@ function setZoom(mul){
 document.getElementById('btnZoomIn').onclick  = function(){ setZoom(1.45); };
 document.getElementById('btnZoomOut').onclick = function(){ setZoom(1/1.45); };
 document.getElementById('btnUndo').onclick = undo;
+/* 키보드·읽어 주는 장치로 닿는 길 — 캔버스에 들어가지 않고도 상태를 듣는다 (261125) */
+document.getElementById('btnSayWire').onclick = function(){ say(wiringText()); };
+document.getElementById('btnSayVal').onclick  = function(){ say(readSummary()); };
+(function(){
+  var d = document.getElementById('kbwrap');
+  if (d && window.innerWidth > 640) d.open = true;
+})();
 document.getElementById('btnClear').onclick = function(){
   if (!els.length) return;
   snapshot(); els = []; selId = null; simTime = 0; changed();
