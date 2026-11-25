@@ -317,6 +317,14 @@ function txt(c, s, x, y, o){
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 /* 좁은 화면: 띄어쓰기에서 줄을 나눠 쓰고 다음 줄의 y 를 돌려준다 */
+/* 좁은 화면: 그리지 않고 줄 수만 센다 */
+function nLines(c, s, maxW, bold){
+  c.font = (bold ? '700 ' : '') + '18px ' + FONT;
+  var words = String(s).split(' '), line = '', n = 1;
+  for (var i = 0; i < words.length; i++){ var t = line ? line + ' ' + words[i] : words[i];
+    if (line && c.measureText(t).width > maxW){ n++; line = words[i]; } else line = t; }
+  return n;
+}
 function wrapT(c, s, x, y, maxW, lh, o){
   o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
   var ws = String(s).split(' '), line = '', n = 0;
@@ -456,7 +464,7 @@ var LAB = (function(){
       }
       function rw(x){ return '이자 ' + f(x.it, 2) + ' · 원금 ' + f(x.pr, 2) + ' · 남은 원금 ' + f(x.bal, 2); }
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 480 ? 440 : 420; },
         idle: '상환 방식·연이율·기간을 고른 뒤 <b>상환 스케줄 만들기</b>를 누르세요.',
         shortHint: '웹툰 조건(원리금 균등 · 연 6% · 12개월)부터 해 보고, 같은 조건에서 원금 균등으로 바꿔 총이자를 비교하세요.',
         params: [
@@ -471,7 +479,9 @@ var LAB = (function(){
         draw: function(c, W, H, p, r, tau){
           var n = NS[p.n], S = r ? r.S : sched(p.m, AR[p.a], n), mx = 0;
           S.rows.forEach(function(x){ mx = Math.max(mx, x.pay); });
-          var ay = axisFrom(0, mx * 1.12), bx = W >= 620 ? 80 : 62, bw = W - bx - 24, nar = W < 480, ph = H - (nar ? 142 : 120);   /* 좁은 화면: 아래 설명 두 줄 자리 */
+          var bS = r && tau >= 1 ? '총이자 ' + f(S.ti, 2) + '만 원 · 1회차 원금 ' + f(S.rows[0].pr, 2) + ' → 마지막 ' + f(S.rows[n - 1].pr, 2) : r ? '한 달씩 갚는 중…' : '점선 = 매달 ' + f(P0 / n, 2) + '만 원씩 원금이 준다는 생각';
+          var nar = W < 480, nb = nar ? Math.max(2, nLines(c, bS, W - 28, true)) : 1;
+          var ay = axisFrom(0, mx * 1.12), bx = W >= 620 ? 80 : 62, bw = W - bx - 24, ph = H - (nar ? 120 + (nb - 1) * 22 : 120);   /* 좁은 화면: 아래 설명 두 줄 자리 */
           var P = plotBox(c, bx, 30, bw, ph, [0, n, n / 4], [0, ay.hi, ay.step], '회차 (개월)', '낸 돈 (만 원)');
           txt(c, '■ 원금', bx + 4, 20, {color:PAL[0], bold:true}); txt(c, '■ 이자', bx + 84, 20, {color:PAL[4], bold:true});
           var show = r ? Math.min(n, Math.ceil(tau * n)) : 0, gap = Math.max(0.5, (P.X(1) - P.X(0)) * 0.15);
@@ -479,9 +489,8 @@ var LAB = (function(){
             c.fillStyle = PAL[0]; c.fillRect(x1, P.Y(x.pr), w, P.Y(0) - P.Y(x.pr));
             c.fillStyle = PAL[4]; c.fillRect(x1, P.Y(x.pay), w, P.Y(x.pr) - P.Y(x.pay)); }
           if (!r) seg(c, P.X(0), P.Y(P0 / n), P.X(n), P.Y(P0 / n), PAL[6], 2, [7, 5]);
-          var bS = r && tau >= 1 ? '총이자 ' + f(S.ti, 2) + '만 원 · 1회차 원금 ' + f(S.rows[0].pr, 2) + ' → 마지막 ' + f(S.rows[n - 1].pr, 2) : r ? '한 달씩 갚는 중…' : '점선 = 매달 ' + f(P0 / n, 2) + '만 원씩 원금이 준다는 생각';
           var bO = {bold:true, color:r && tau >= 1 ? PAL[0] : r ? '#1E2833' : PAL[6]};
-          if (nar) wrapT(c, bS, 16, H - 34, W - 28, 22, bO);   /* 좁은 화면: 두 줄로 */
+          if (nar) wrapT(c, bS, 16, H - 12 - (nb - 1) * 22, W - 28, 22, bO);   /* 좁은 화면: 두 줄로 */
           else txt(c, bS, 16, H - 12, bO);
         },
         stats: function(p, r){

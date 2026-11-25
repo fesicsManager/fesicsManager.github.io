@@ -315,6 +315,14 @@ function txt(c, s, x, y, o){
   c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
 }
 // 좁은 화면용: 띄어쓰기에서 줄을 나눠 그리고 다음 줄 y 를 돌려줌
+/* 좁은 화면: 그리지 않고 줄 수만 센다 */
+function nLines(c, s, maxW, bold){
+  c.font = (bold ? '700 ' : '') + '18px ' + FONT;
+  var words = String(s).split(' '), line = '', n = 1;
+  for (var i = 0; i < words.length; i++){ var t = line ? line + ' ' + words[i] : words[i];
+    if (line && c.measureText(t).width > maxW){ n++; line = words[i]; } else line = t; }
+  return n;
+}
 function wtxt(c, s, x, y, maxW, o, lh){
   o = o || {}; o.maxW = maxW; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT;
   var words = String(s).split(' '), line = '';
@@ -448,7 +456,7 @@ var LAB = (function(){
       function rng(seed){ var s = seed >>> 0; return function(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
       function binom(rn, n, q){ var x = 0; for (var i = 0; i < n; i++) if (rn() < q) x++; return x; }
       return {
-        sceneHeight: 420,
+        sceneHeight: function (w){ return w < 560 ? 460 : 420; },
         idle: '표본 크기·횟수·방법을 고른 뒤 <b>모의 조사 돌리기</b>를 누르세요.',
         shortHint: '100명과 400명을 각각 20번 이상 돌려 흔들림(표준편차)을 비교하세요. 4배로 늘리면 몇 분의 1이 되나요?',
         params: [
@@ -468,7 +476,9 @@ var LAB = (function(){
           return {n:n, reps:reps, v:v, min:s[0], max:s[reps - 1], lo:lo, hi:hi, m:m, sd:sd, th:Math.sqrt(PT * (1 - PT) / n) * 100, first:first};
         },
         draw: function(c, W, H, p, r, tau){
-          var gx = 30, gw = W - 60, gy = 40, gh = H - 130, X = function(v){ return gx + v / 80 * gw; };
+          var bs = r && tau >= 1 ? NS[p.n].toLocaleString() + '명 × ' + r.reps + '번: ' + f(r.min, 0) + '~' + f(r.max, 0) + '%, 표준편차 ' + f(r.sd, 1) + '%p' : r ? '뽑는 중…' : '찬성 40% 모집단 (가상)';
+          var nw = W < 560, nb = nw ? nLines(c, bs, W - 24, true) : 1;
+          var gx = 30, gw = W - 60, gy = 40, gh = nw ? H - 154 - Math.max(0, nb - 2) * 24 : H - 130, X = function(v){ return gx + v / 80 * gw; };
           c.fillStyle = '#F7F9FC'; c.fillRect(gx, gy, gw, gh);
           [0, 20, 40, 60, 80].forEach(function(v){ seg(c, X(v), gy + gh, X(v), gy + gh + 6, '#8C99A8', 1.5); txt(c, v + '%', X(v), gy + gh + 26, {align:'center', color:'#4A5868'}); });
           seg(c, gx, gy + gh, gx + gw, gy + gh, '#8C99A8', 1.5);
@@ -482,9 +492,9 @@ var LAB = (function(){
               txt(c, fs1, X(r.first * 100) + (fr ? -4 : 4), gy + 40, {color:PAL[6], bold:true, align:fr ? 'right' : 'left'}); }
           }
           seg(c, X(40), gy - 6, X(40), gy + gh, '#1E2833', 2, [6, 4]); txt(c, '실제 40%', X(40) + 4, gy + 16, {bold:true});
-          var bs = r && tau >= 1 ? NS[p.n].toLocaleString() + '명 × ' + r.reps + '번: ' + f(r.min, 0) + '~' + f(r.max, 0) + '%, 표준편차 ' + f(r.sd, 1) + '%p' : r ? '뽑는 중…' : '찬성 40% 모집단 (가상)';
           c.font = '700 18px ' + FONT;
-          if (c.measureText(bs).width > W - 24) wtxt(c, bs, 16, H - 42, W - 24, {bold:true}, 24);   /* 좁은 화면: 두 줄 */
+          if (nw && nb > 1) wtxt(c, bs, 16, H - 18 - (nb - 1) * 24, W - 24, {bold:true}, 24);
+          else if (c.measureText(bs).width > W - 24) wtxt(c, bs, 16, H - 42, W - 24, {bold:true}, 24);   /* 좁은 화면: 두 줄 */
           else txt(c, bs, 16, H - 18, {bold:true});
         },
         stats: function(p, r){
