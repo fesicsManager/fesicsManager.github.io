@@ -527,7 +527,8 @@ return (function(){
             var b2 = ph(tau, 0.5, 0.9);
             bars(c, [{n:'한 달 안에 원작 찾아 읽음 (30명 중)', v:x.read, max:30, col:PAL[1], u:'명', hi:true}, {n:'그중 ‘영화와 다른 점’을 찾음', v:x.diff, max:Math.max(1, x.read), col:PAL[5], u:x.diff == null ? '' : ' / ' + x.read}], 20, y0, W - 40, b2);
           }
-          if (tau > 0.9) wrapT(c, '핵심 반응 ' + r.pct + '% · 나의 예측 ' + p.g + '% (차이 ' + sgn(r.diff, 0) + '%p)', 20, H - 30, W - 40, 18, {bold:true, size:15, color:PAL[3]});
+          if (tau > 0.9){ var kS = '핵심 반응 ' + r.pct + '% · 나의 예측 ' + p.g + '% (차이 ' + sgn(r.diff, 0) + '%p)';
+            wrapT(c, kS, 20, Math.min(H - 30, H - 12 - (lines(c, kS, W - 40, {bold:true, size:15}).length - 1) * 18), W - 40, 18, {bold:true, size:15, color:PAL[3]}); }
         },
         stats: function(p, r){
           var x = r.x, s = [['조건', x.n]];
@@ -555,9 +556,23 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){

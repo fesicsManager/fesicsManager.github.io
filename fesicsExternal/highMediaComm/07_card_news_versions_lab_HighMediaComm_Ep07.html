@@ -552,9 +552,23 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){

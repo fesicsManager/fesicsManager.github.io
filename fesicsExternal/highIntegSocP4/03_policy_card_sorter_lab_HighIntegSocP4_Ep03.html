@@ -435,7 +435,10 @@ function hbars(items, max){
 
 /* ================= 실험별 설정 ================= */
 var LAB = (function(){
-      var CW = 900; function tf(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width, al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; if (mw > 30 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
+      var CW = 900; function tf(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width, al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; if (o.mw){ mw = Math.min(mw, o.mw); var ss = String(s).trim(); /* 칸 폭(o.mw)보다 많이 길면 두 줄로 */
+        if (w > mw / 0.72 && !o.one){ var cut = ss.indexOf('(') > 0 ? ss.indexOf('(') : -1, best = 1e9; if (cut < 0) for (var q = 1; q < ss.length; q++){ if (ss[q] === ' ' || ss[q - 1] === '·'){ var d = Math.abs(q - ss.length / 2); if (d < best){ best = d; cut = q; } } }
+          if (cut > 0){ var o2 = Object.assign({}, o, {one:true}), lh = o.lh || 9; tf(c, ss.slice(0, cut).trim(), x, y - lh, o2); tf(c, ss.slice(cut).trim(), x, y + lh, o2); return; } } }
+      if (mw > (o.mw ? 8 : 30) && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
       var CD = [
         {n:'결혼 이민자에게 한국어 교육 제공', s:'한국어 교육', b:2, why:'사회 적응 지원 — 두 관점 모두에서 쓰임', keep:'고유 언어를 버리라고 하지 않음', chg:'한국어로도 소통할 수 있게 도움'},
         {n:'학교에서 부모 나라 언어도 함께 배우게 하는 이중 언어 교육', s:'이중 언어 교육', b:1, why:'다문화주의 요소 — 고유 언어를 지키며 함께 배움', keep:'부모 나라 언어', chg:'두 언어를 함께 쓰게 함'},
@@ -462,8 +465,8 @@ var LAB = (function(){
           BX.forEach(function(b, i){ var x = 20 + i * bw, on = r && tau >= 0.8 && r.b === i;
             c.fillStyle = on ? ['#FBE3D6', '#E2F2E4', '#E6EEF8'][i] : '#F4F6F9'; c.strokeStyle = on ? PAL[[4, 1, 0][i]] : '#C3CBD5'; c.lineWidth = on ? 3 : 1.5;
             c.fillRect(x + 6, by, bw - 12, 110); c.strokeRect(x + 6, by, bw - 12, 110);
-            tf(c, BI[i], x + bw / 2, by + 30, {align:'center', bold:true, color:on ? '#26313D' : '#6A7787'});
-            tf(c, b, x + bw / 2, by + 96, {align:'center', color:'#4A5868'});
+            if (!on) tf(c, BI[i], x + bw / 2, by + 30, {align:'center', bold:true, color:on ? '#26313D' : '#6A7787', mw:W < 300 ? bw - 14 : 0}); /* 카드가 내려앉으면 이름이 가려지므로 그리지 않음 */
+            tf(c, b, x + bw / 2, by + 96, {align:'center', color:'#4A5868', mw:W < 300 ? bw - 14 : 0});
             if (i === 0){ c.fillStyle = '#C9A27A'; c.beginPath(); c.arc(x + bw / 2, by + 60, 16, 0, Math.PI * 2); c.fill(); }
             else if (i === 1){ [PAL[1], PAL[2], PAL[4], PAL[0]].forEach(function(cc, j){ c.fillStyle = cc; c.beginPath(); c.arc(x + bw / 2 - 18 + j * 12, by + 60 + (j % 2) * 6, 7, 0, Math.PI * 2); c.fill(); }); }
             else { c.fillStyle = '#8CA3BF'; c.fillRect(x + bw / 2 - 34, by + 62, 68, 8); } });
@@ -496,9 +499,23 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){

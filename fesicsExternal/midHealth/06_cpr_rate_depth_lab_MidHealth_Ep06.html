@@ -474,10 +474,11 @@ var LAB = (function(){
           c.fillStyle = r && r.j.dep === '알맞음' ? PAL[1] : '#E08A2E'; c.fillRect(gx + 4, gy, 22, shownD * sc);
           for (var cm = 0; cm <= 7; cm++){ seg(c, gx + 30, gy + cm * sc, gx + 36, gy + cm * sc, '#8C99A8', 1); if (cm % 1 === 0 && cm > 0) tfit(c, cm + '', gx + 40, gy + cm * sc + 6, {color:'#4A5868'}); }
           tfit(c, '깊이(cm)', gx + 15, gy + gh + 26, {align:'center', color:'#4A5868'});
-          var tx = gx + 76, cnt = r ? Math.round(n * k) : 0;
-          tfit(c, '센 횟수 ' + cnt + '회', tx, 90, {bold:true});
-          tfit(c, '기준: 분당 100~120회', tx, 122, {color:'#4A5868'}); tfit(c, '약 5cm · 다 올라오게', tx, 150, {color:'#4A5868'});
-          if (r && tau >= 1){ tfit(c, '마네킹 표시:', tx, 200, {color:'#4A5868'}); tfit(c, r.j.show, tx, 230, {bold:true, color:r.j.ok ? PAL[1] : PAL[4]}); }
+          var tx = gx + 76, cnt = r ? Math.round(n * k) : 0, ty = 0;
+          if (W < 300 && tx + 150 > W){ tx = 16; ty = gy + gh + 64 - 90; } /* 좁으면 글을 그림 아래로 */
+          tfit(c, '센 횟수 ' + cnt + '회', tx, 90 + ty, {bold:true});
+          tfit(c, '기준: 분당 100~120회', tx, 122 + ty, {color:'#4A5868'}); tfit(c, '약 5cm · 다 올라오게', tx, 150 + ty, {color:'#4A5868'});
+          if (r && tau >= 1){ tfit(c, '마네킹 표시:', tx, 200 + (ty ? ty - 20 : 0), {color:'#4A5868'}); tfit(c, r.j.show, tx, 230 + (ty ? ty - 20 : 0), {bold:true, color:r.j.ok ? PAL[1] : PAL[4]}); }
           tfit(c, '연습용 마네킹 · 1분을 줄여서 보여 줌', 16, 28, {bold:true});
         },
         stats: function(p, r){
@@ -508,9 +509,23 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){

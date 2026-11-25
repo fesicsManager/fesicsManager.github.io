@@ -465,13 +465,13 @@ var LAB = (function(){
           return {d:d, pr:pr, lk:lk, diff:d.b - d.a, ratio:d.a ? d.b / d.a : null};
         },
         draw: function(c, W, H, p, r, tau){ CW = W;
-          var d = IN[p.i], k = r ? Math.min(1, tau / 0.7) : 0, mx = Math.max(d.a, d.b, 1), bx = 40, bw = Math.min(70, W * 0.14), bh = 170, by = 40;
+          var d = IN[p.i], k = r ? Math.min(1, tau / 0.7) : 0, mx = Math.max(d.a, d.b, 1), bx = 40, bw = Math.min(70, W * 0.14), bh = 170, by = W < 340 ? 60 : 40; /* 좁으면 막대를 내려 제목과 값이 안 겹치게 */
           seg(c, bx - 10, by + bh, bx + 3 * bw + 20, by + bh, '#8C99A8', 1.5);
           [[d.a, '10년 전', '#A8B4C2'], [d.b, '지금', PAL[0]]].forEach(function(q, j){ var x = bx + j * (bw + 30), h = r ? bh * q[0] / mx * (j ? k : 1) : bh * q[0] / mx * (j ? 0 : 1);
             c.fillStyle = q[2]; c.fillRect(x, by + bh - h, bw, h);
             tf(c, q[1], x + bw / 2, by + bh + 22, {align:'center', color:'#4A5868'});
             if (!j || (r && tau >= 0.7)) tf(c, comma(q[0]), x + bw / 2, by + bh - h - 8, {align:'center', bold:true}); });
-          tf(c, d.n + ' (' + d.u + ')', bx, by - 14, {bold:true});
+          tf(c, d.n + ' (' + d.u + ')', bx, W < 340 ? 26 : by - 14, {bold:true});
           var px = bx + 2 * bw + 70, pw = W - px - 16;
           if (pw > 120){ c.fillStyle = '#EEF6EF'; c.fillRect(px, by, pw, 70); c.fillStyle = '#FBECE6'; c.fillRect(px, by + 90, pw, 70);
             tf(c, '편해진 사람', px + 10, by + 24, {bold:true, color:PAL[1]}); tf(c, r ? d.plus : '?', px + 10, by + 52);
@@ -510,9 +510,23 @@ var LAB = (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){

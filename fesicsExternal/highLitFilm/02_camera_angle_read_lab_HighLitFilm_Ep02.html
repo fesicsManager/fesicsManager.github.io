@@ -506,7 +506,8 @@ return (function(){
         compute: function(p){ var x = SH[p.s], t = top(x.v); return {x:x, t:t, ok:p.g === t}; },
         draw: function(c, W, H, p, r, tau){
           var x = SH[p.s], half = (W - 50) / 2, sy = 30, sh = 170;
-          tx(c, '촬영 자리 (옆에서 본 도식)', 20, 20, {size:13, color:'#4A5868'});
+          c.font = '13px ' + FONT; var nar = c.measureText('촬영 자리 (옆에서 본 도식)').width > half + 6; /* 좁으면 두 칸 제목을 줄여 쓴다 */
+          tx(c, nar ? '촬영 자리' : '촬영 자리 (옆에서 본 도식)', 20, 20, {size:13, color:'#4A5868'});
           rbox(c, 20, sy, half, sh, '#F7F9FC', '#D3DAE3', 1);
           var fy = sy + sh - 22; c.strokeStyle = '#9AA6B4'; c.lineWidth = 2; c.beginPath(); c.moveTo(26, fy); c.lineTo(14 + half, fy); c.stroke();
           var px = 20 + half * 0.72, ps = 34; person(c, px, fy - ps * 0.45, ps, PAL[0]);
@@ -517,7 +518,7 @@ return (function(){
           c.setLineDash([4, 4]); c.strokeStyle = PAL[4]; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx, cy); c.lineTo(x.cam === 3 ? px + 30 : px, x.cam === 3 ? fy - 20 : tgy); c.stroke(); c.setLineDash([]);
           tx(c, ['하이 앵글 · 멀리', '아이 레벨 · 가까이', '로 앵글 · 가까이', '시점 쇼트'][x.cam], 28, sy + sh - 4, {size:12, bold:true, color:'#4A5868'});
           var rx = 30 + half;
-          tx(c, '관객이 보는 화면', rx, 20, {size:13, color:'#4A5868'});
+          tx(c, nar ? '관객 화면' : '관객이 보는 화면', rx, 20, {size:13, color:'#4A5868'});
           rbox(c, rx, sy, half, sh, '#20262E');
           var mx = rx + half / 2, a = r ? ph(tau, 0, 0.4) : 1;
           if (x.cam === 0){ c.strokeStyle = '#59636F'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(rx + 8, sy + sh - 6); c.lineTo(mx - 14, sy + 40); c.moveTo(rx + half - 8, sy + sh - 6); c.lineTo(mx + 14, sy + 40); c.stroke(); person(c, mx, sy + 62, 14, '#F3D9B5'); }
@@ -525,7 +526,7 @@ return (function(){
           else if (x.cam === 2){ c.fillStyle = '#F3D9B5'; c.beginPath(); c.moveTo(mx - half * 0.36, sy + sh); c.lineTo(mx - half * 0.16, sy + 60); c.lineTo(mx + half * 0.16, sy + 60); c.lineTo(mx + half * 0.36, sy + sh); c.closePath(); c.fill(); c.beginPath(); c.arc(mx, sy + 42, Math.min(22, half * 0.12), 0, Math.PI * 2); c.fill(); }
           else { var jit = r ? Math.sin(tau * 60) * 2 : 1.5; rbox(c, mx - half * 0.28 + jit, sy + 24, half * 0.56, sh - 60, '#fff'); for (var k = 0; k < 4; k++){ c.fillStyle = k === 2 ? PAL[4] : '#B8C2CE'; c.fillRect(mx - half * 0.2 + jit, sy + 44 + k * 20, half * 0.4, 6); } c.fillStyle = '#F0C9A0'; c.beginPath(); c.ellipse(mx - half * 0.3 + jit, sy + sh - 30, 16, 11, 0.5, 0, Math.PI * 2); c.ellipse(mx + half * 0.3 + jit, sy + sh - 30, 16, 11, -0.5, 0, Math.PI * 2); c.fill(); }
           c.globalAlpha = 1;
-          if (!r){ wrapT(c, '나의 예측: ' + IM[p.g], 20, H - 18, W - 40, 18, {color:'#4A5868', size:15}); return; }
+          if (!r){ var pS = '나의 예측: ' + IM[p.g]; wrapT(c, pS, 20, H - 18 - (lines(c, pS, W - 40, {size:15}).length - 1) * 18, W - 40, 18, {color:'#4A5868', size:15}); return; }
           var b = ph(tau, 0.4, 0.85), y0 = sy + sh + 34;
           bars(c, IM.map(function(m, j){ return {n:m, v:x.v[j], max:20, col:[PAL[0], PAL[2], PAL[4]][j], u:' / 20', hi:j === r.t}; }), 20, y0, W - 100, b, 44);
           if (tau > 0.85) mark(c, W - 40, y0 + 50, 22, r.ok ? '○' : '✕', r.ok ? PAL[1] : PAL[4], ph(tau, 0.85, 1));
@@ -553,9 +554,23 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){

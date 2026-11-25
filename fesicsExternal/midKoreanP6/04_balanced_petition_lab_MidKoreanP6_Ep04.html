@@ -490,18 +490,22 @@ return (function(){
           tx(c, v.k + (sm ? '' : ' · 같은 주장, 다른 방식'), 20, 28, {bold:true, size:sm ? 15 : 17, color:v.col});
           tx(c, '모은 자료 (일주일 관찰·설문)' + (useData ? '' : (sm ? ' — A엔 없음' : ' — A에는 담기지 않음')), 20, 56, {size:13, bold:true, color:useData ? PAL[0] : '#8C99A8'});
           c.globalAlpha = useData ? (r ? 0.4 + 0.6 * ph(tau, 0, 0.4) : 1) : 0.3;
-          var lx = 70, bw = (W - lx - 20) * (sm ? 0.42 : 0.5);
+          var lx = 70, bw = (W - lx - 20) * (sm ? 0.42 : 0.5), tiny = W < 300; /* 아주 좁으면 두 막대를 한 줄 위아래로 */
+          if (tiny) bw = W - lx - 50;
           GR.forEach(function(g, i){
             var y = 72 + i * 30;
             tx(c, g[0], 20, y + 13, {size:13, bold:true, base:'middle'});
+            if (tiny){ c.fillStyle = PAL[0]; c.fillRect(lx, y + 2, bw * g[1] / 34, 11); tx(c, g[1] + '명', lx + bw * g[1] / 34 + 4, y + 8, {size:11, base:'middle', color:PAL[0]});
+              c.fillStyle = '#E6EBF1'; c.fillRect(lx, y + 16, bw, 8); c.fillStyle = PAL[6]; c.fillRect(lx, y + 16, bw * g[2] / 100, 8); tx(c, g[2] + '%', lx + bw + 4, y + 21, {size:11, base:'middle', color:PAL[6]}); return; }
             c.fillStyle = PAL[0]; c.fillRect(lx, y + 4, bw * g[1] / 34, 16);
             tx(c, g[1] + '명', lx + bw * g[1] / 34 + 4, y + 13, {size:12, base:'middle', color:PAL[0]});
             var x2 = lx + bw + 44, bw2 = W - 20 - x2 - 40;
             c.fillStyle = '#E6EBF1'; c.fillRect(x2, y + 4, bw2, 16); c.fillStyle = PAL[6]; c.fillRect(x2, y + 4, bw2 * g[2] / 100, 16);
             tx(c, g[2] + '%', x2 + bw2 + 4, y + 13, {size:12, base:'middle', color:PAL[6]});
           });
+          if (tiny){ c.font = '12px ' + FONT; tx(c, '위: 쓴 학생', 20, 172, {size:12, color:PAL[0]}); tx(c, '아래: 못 썼다', 30 + c.measureText('위: 쓴 학생').width, 172, {size:12, color:PAL[6]}); } else {
           tx(c, '쓴 학생(하루 평균)', lx, 172, {size:12, color:PAL[0]});
-          tx(c, '못 썼다', lx + bw + 44, 172, {size:12, color:PAL[6]});
+          tx(c, '못 썼다', lx + bw + 44, 172, {size:12, color:PAL[6]}); }
           tx(c, sm ? '사정: 좁은 운동장, 공놀이는 한 무리만' : '사정: 운동장이 좁아 공을 쓰는 활동은 한 번에 한 무리만', 20, 194, {size:12, color:'#4A5868'});
           c.globalAlpha = 1;
           tx(c, '건의문에 담은 내용', 20, 226, {bold:true, size:14, color:'#26313D'});
@@ -547,9 +551,23 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){

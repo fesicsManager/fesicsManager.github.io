@@ -505,7 +505,7 @@ return (function(){
         return 10 * (cs + 2);
       }
       return {
-        sceneHeight: 520,
+        sceneHeight: function(w){ return w < 300 ? 680 : 520; }, /* 좁으면 두 판을 위아래로 */
         idle: '장면 종류와 나의 예측을 고른 뒤 <b>웹툰과 실제 비교하기</b>를 누르세요.',
         shortHint: '여섯 종류를 모두 비교해 보세요. 가장 크게 키운 장면과 아예 뺀 장면을 찾으세요.',
         params: [
@@ -517,6 +517,13 @@ return (function(){
           c.__W = W;
           var k = K[p.k], a = r ? ph(tau, 0, 0.7) : 0, y = 12;
           var cs = Math.max(8, Math.min(16, Math.floor(((W - 60) / 2) / 10) - 2)), gw = 10 * (cs + 2), gx1 = Math.max(20, W / 4 - gw / 2), gx2 = Math.min(W - 20 - gw, W * 3 / 4 - gw / 2);
+          if (W < 300){ /* 좁으면 두 판이 겹치므로 위아래로 쌓는다 */
+            cs = Math.max(8, Math.min(12, Math.floor((W - 60) / 10) - 2)); gw = 10 * (cs + 2); var gx = (W - gw) / 2;
+            [['웹툰 「옥상 위의 계절」 30회', PAL[3], 'w', k.w], ['연구원 20명의 평일 학교 시간', PAL[1], 'r', k.r]].forEach(function(q){
+              fitC(c, q[0], W / 2, y + 16, W - 40, {bold:true, size:15, color:q[1]}); y += 28;
+              waffle(c, gx, y, cs, q[2], p.k, r ? a : 0); y += gw + 10;
+              fitC(c, r ? q[3] + '%' : '?%', W / 2, y + 20, gw, {bold:true, size:22, color:KC[p.k]}); y += 40; });
+          } else {
           fitC(c, '웹툰 「옥상 위의 계절」 30회', gx1 + gw / 2, y + 16, gw + 10, {bold:true, size:15, color:PAL[3]});
           fitC(c, '연구원 20명의 평일 학교 시간', gx2 + gw / 2, y + 16, gw + 10, {bold:true, size:15, color:PAL[1]});
           y += 28;
@@ -524,7 +531,7 @@ return (function(){
           y += gw + 10;
           fitC(c, r ? k.w + '%' : '?%', gx1 + gw / 2, y + 20, gw, {bold:true, size:22, color:KC[p.k]});
           fitC(c, r ? k.r + '%' : '?%', gx2 + gw / 2, y + 20, gw, {bold:true, size:22, color:KC[p.k]});
-          y += 40;
+          y += 40; }
           K.forEach(function(x, j){
             var on = j === p.k;
             c.fillStyle = on ? KC[j] : '#D5DCE4'; c.fillRect(20, y + j * 22 - 12, 12, 12);
@@ -563,9 +570,23 @@ return (function(){
 var p = {}, running = false, result = null, records = [];
 var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
 
+var needH = 0, needW = 0; /* 좁은 화면에서 그린 글이 아래로 넘치면 장면을 그만큼 늘린다(넓은 화면 모양 불변) */
+function baseH(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1; return typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight; }
 function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
-  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
-function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+  if (_w !== needW){ needW = _w; needH = 0; }
+  scene.style.height = Math.round(Math.max(baseH(), needH) * _k) + 'px'; }
+function textBottom(o, r, tau){ /* 글자는 그리지 않고 아래 끝만 잰다 */
+  var c0 = o.c, s0 = c0.getTransform().d, bot = 0;
+  c0.fillText = c0.strokeText = function(s, x, y){ try { var t = this.getTransform(), m = this.measureText(String(s));
+    if (Math.abs(t.b) < 1e-3 && String(s).trim()) var px = +((/(d+(?:.d+)?)px/.exec(this.font) || [0, 16])[1]); bot = Math.max(bot, (t.d * (y + Math.max(m.actualBoundingBoxDescent || 0, px * 0.25)) + t.f) / s0); } catch(e){} };
+  c0.save(); try { LAB.draw(c0, o.W, o.H, p, r, tau); } catch(e){} c0.restore();
+  delete c0.fillText; delete c0.strokeText; return bot; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return;
+  if (o.W < 340){ var bot = textBottom(o, r, tau);
+    if (bot > o.H + 1){ var old = needH, nh = Math.min(Math.ceil(bot + 10), baseH() + 400);
+      if (nh > needH){ needH = nh; sizeScene(); o = fitCanvas(scene);
+        if (textBottom(o, r, tau) > o.H + 1){ needH = old; sizeScene(); o = fitCanvas(scene); } } } }
+  o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
 function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
 
 function buildControls(){
