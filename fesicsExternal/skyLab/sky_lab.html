@@ -726,6 +726,9 @@ function figureText(info, sa){
   if (showStars)  extra.push('별');
   if (showTrail)  extra.push('별이 지나간 자리');
   if (extra.length) bits.push('그림에는 ' + extra.join(', ') + '도 함께 그려져 있습니다.');
+  /* 길이 그려져 있다는 말만으로는 견줄 수 없다 — 값을 얻는 길까지 적는다 (19차 3순위) */
+  if (showSeason) bits.push('보기 줄의 하지·동지·춘분·추분 단추를 누르면 그날로 옮겨 가며 ' +
+                            '해 뜨는 방향, 가장 높은 고도, 해 지는 방향, 낮의 길이를 같은 차례로 읽어 줍니다.');
   box.textContent = bits.join(' ');
 }
 /* 해의 고도를 소리 높낮이로 — 지평선 아래면 '없음' 소리 (261125) */
@@ -793,6 +796,47 @@ function updateReadouts(){
     document.getElementById('roMAlt').textContent = cur.ma.alt.toFixed(1) + '°';
     document.getElementById('roMAz').textContent = azName(cur.ma.az) + (level >= 2 ? ' ' + cur.ma.az.toFixed(0) + '°' : '');
   }
+}
+
+/* ---------- 계절 비교 (261125, 19차 3순위) ----------
+   "길이 네 개 그려져 있다" 는 말에는 값도, 고르는 길도 없었다.
+   하지·동지를 단추로 고르고, 고를 때마다 같은 네 값을 같은 차례로 읽어 준다.   */
+function say(msg){
+  var b = document.getElementById('say');
+  if (!b) return;
+  b.textContent = (b.textContent === msg) ? msg + ' ' : msg;   /* 같은 말은 건너뛰어서 */
+}
+/* 보기 단추를 누를 때마다 같은 네 값을 같은 차례로 — 두 계절을 견줄 수 있게 */
+var lastSeason = null;
+function fourValues(){
+  var info = todayInfo();
+  function azw(a){ return (a === null || a === undefined) ? '없음' : azName(a) + ' ' + a.toFixed(0) + '도'; }
+  var dm = info.dayMin;
+  return {
+    rise: azw(info.riseAz),
+    noon: info.maxAlt.toFixed(1) + '도',
+    set:  azw(info.setAz),
+    len:  (dm >= 1439) ? '하루 종일' : (dm <= 1 ? '없음, 해가 안 떠요'
+          : Math.floor(dm / 60) + '시간 ' + (dm % 60) + '분'),
+    maxAlt: info.maxAlt, dayMin: dm
+  };
+}
+function exampleSay(name){
+  var v = fourValues(), before = lastSeason;
+  var msg = name + ' — ' + monthDay(day)[0] + '월 ' + monthDay(day)[1] + '일, ' +
+            (lat >= 0 ? '북위 ' : '남위 ') + Math.abs(lat).toFixed(1) + '도. 해 뜨는 방향 ' +
+            v.rise + ', 가장 높은 고도 ' + v.noon + ', 해 지는 방향 ' + v.set +
+            ', 낮의 길이 ' + v.len + '.';
+  /* 두 날을 다 듣고 머릿속에서 빼기까지 시키지 않는다. 보는 곳이 같을 때만 견준다 */
+  if (before && before.n !== name && before.lat === lat &&
+      isFinite(before.v.maxAlt) && isFinite(v.maxAlt)){
+    var dA = v.maxAlt - before.v.maxAlt, dD = v.dayMin - before.v.dayMin;
+    msg += ' ' + before.n + '보다 가장 높은 고도는 ' + Math.abs(dA).toFixed(1) + '도 ' +
+           (dA >= 0 ? '높고' : '낮고') + ', 낮의 길이는 ' + Math.floor(Math.abs(dD) / 60) +
+           '시간 ' + (Math.abs(dD) % 60) + '분 ' + (dD >= 0 ? '깁니다.' : '짧습니다.');
+  }
+  lastSeason = {n:name, lat:lat, v:v};
+  say(msg);
 }
 
 /* ---------- 고도-시각 그래프 ---------- */
@@ -870,7 +914,12 @@ function tog(id, get, set){
   var b = document.getElementById(id);
   b.onclick = function(){ set(!get()); b.classList.toggle('on', get()); render(); };
 }
-tog('btnSeason', function(){ return showSeason; }, function(v){ showSeason = v; });
+tog('btnSeason', function(){ return showSeason; }, function(v){
+  showSeason = v;
+  /* 길을 그려 놓기만 하면 볼 수 없는 학생에게는 아무것도 아니다 — 무엇을 하면 되는지 말한다 */
+  if (v) say('계절별 해의 길 비교예요. 보는 곳은 그대로 두고, 보기 줄의 하지·동지·춘분·추분 단추로 날짜를 고르세요. ' +
+             '고를 때마다 해 뜨는 방향, 가장 높은 고도, 해 지는 방향, 낮의 길이를 같은 차례로 읽어 줍니다.');
+});
 tog('btnStars',  function(){ return showStars; },  function(v){ showStars = v; });
 tog('btnTrail',  function(){ return showTrail; },  function(v){ showTrail = v; });
 tog('btnMoon',   function(){ return showMoon; },   function(v){ showMoon = v; });
@@ -906,6 +955,7 @@ var EXAMPLES = [
   {name:'하지', lv:1, go:function(){ day = 172; minute = 750; lat = 37.5; showSeason = true; }},
   {name:'동지', lv:1, go:function(){ day = 356; minute = 750; lat = 37.5; showSeason = true; }},
   {name:'춘분', lv:1, go:function(){ day = 80; minute = 750; lat = 37.5; showSeason = true; }},
+  {name:'추분', lv:1, go:function(){ day = 266; minute = 750; lat = 37.5; showSeason = true; }},
   {name:'적도에서', lv:2, go:function(){ day = 172; minute = 750; lat = 0; showSeason = true; }},
   {name:'북극에서 — 해가 안 져요(백야)', lv:1, go:function(){ day = 172; minute = 60; lat = 89; showSeason = true; }},
   {name:'겨울 밤하늘', lv:1, go:function(){ day = 15; minute = 1260; lat = 37.5; showStars = true; showTrail = false; }},
@@ -927,6 +977,7 @@ function buildExamples(){
         document.getElementById(id).classList.toggle('on', v);
       });
       dayKey = ''; syncLabels(); render(); save();
+      exampleSay(x.name);     /* 그림을 볼 수 없어도 네 값으로 견줄 수 있게 (19차 3순위) */
     };
     box.appendChild(b);
   });

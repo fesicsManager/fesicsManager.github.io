@@ -961,7 +961,12 @@ function readOptics(){
   if (!info) return '';
   var b = (Math.abs(info.b) > 1e6 || !isFinite(info.b)) ? '무한대'
         : Math.round(info.b) + ' cm' + (info.b < 0 ? ' (허상)' : '');
-  return '물체 거리 ' + Math.round(info.a) + ' cm, 상 거리 ' + b + '.';
+  var fs = screenFocus(info);
+  var tail = !fs ? ''
+    : fs.landed ? ' 스크린에 맺혔어요.'
+    : fs.wrongSide ? ' 스크린은 상과 반대쪽.'
+    : ' 스크린이 ' + Math.round(fs.dist) + ' cm ' + (fs.away ? '모자라요.' : '지나쳤어요.');
+  return '물체 거리 ' + Math.round(info.a) + ' cm, 상 거리 ' + b + '.' + tail;
 }
 /* 같은 종류가 여러 개면 번호를 붙인다 — '볼록렌즈 2' 로 찾을 수 있게 (261125) */
 function objLabel(o){
@@ -973,6 +978,51 @@ function objLabel(o){
 }
 /* 놓은 뒤 '지금 빛이 어떻게 됐나' 를 글로 — 그림을 볼 수 없는 학생에게는 이것이 결과다
    (261125, 18차 1순위) */
+/* ---------- 상이 지금 스크린에 맺혔나 (261125, 19차 2순위) ----------
+   '스크린에 맺히는 실상' 이라고만 하면 학생은 저 스크린에 맺힌 줄 듣는다.
+   렌즈를 기준으로 상과 스크린을 같은 자(축 위 거리)로 재서,
+   맺혔는지 · 어느 쪽으로 얼마나 옮겨야 하는지를 말한다.                      */
+function screenFocus(info){
+  if (!info || !isFinite(info.b) || info.b <= 0) return null;
+  var scr = obs.filter(function(o){ return o.type === 'screen'; })[0];
+  if (!scr) return null;
+  var n = info.n;
+  var ai = (info.base[0] - info.el.x) * n[0] + (info.base[1] - info.el.y) * n[1];
+  var as = (scr.x - info.el.x) * n[0] + (scr.y - info.el.y) * n[1];
+  var st = tv(scr.ang);
+  var lat = Math.abs((info.base[0] - scr.x) * st[0] + (info.base[1] - scr.y) * st[1]);
+  var half = (scr.props && scr.props.r) || 95;
+  var rem = Math.abs(ai - as);
+  return {scr:scr, dist:rem, wrongSide:(ai * as) < 0, lat:lat, miss:lat > half,
+          away:Math.abs(ai) > Math.abs(as),
+          landed:(rem <= 10 && lat <= half && (ai * as) >= 0)};
+}
+function elWord(info){ return isMirror(info.el.type) ? '거울' : '렌즈'; }
+function focusWord(info, fs){
+  if (!fs) return '';
+  if (fs.landed) return ' 지금 스크린에 상이 맺혀 있어요.';
+  var w = fs.wrongSide
+    ? ' 스크린이 상과 반대쪽에 있어요. 상이 생기는 쪽으로 옮기세요.'
+    : ' 스크린을 ' + (fs.away ? elWord(info) + '에서 멀어지는 쪽으로' : elWord(info) + ' 쪽으로') +
+      ' ' + Math.round(fs.dist) + ' cm 옮기면 상이 맺혀요.';
+  return ' 지금 스크린에는 선명한 상이 맺히지 않아요.' + w +
+         (fs.miss ? ' 스크린이 옆으로도 비껴 있어서, 그 자리에서도 판에 닿지 않아요.' : '');
+}
+/* 맺히는 순간은 따로 알린다 — 짧은 음 두 번과 한마디 */
+var lastLanded = false;
+function focusPing(){
+  var info = null;
+  try { info = imageInfo(); } catch (e) {}
+  var fs = screenFocus(info);
+  if (!fs || !fs.landed){ lastLanded = false; return ''; }
+  if (lastLanded) return '';
+  lastLanded = true;
+  if (window.FxA11y && FxA11y.sound){
+    FxA11y.tone(400, 0, 400, 110);
+    setTimeout(function(){ FxA11y.tone(400, 0, 400, 110); }, 170);
+  }
+  return ' 상이 스크린에 맺혔어요.';
+}
 function rayText(){
   if (!obs.length) return '실험대가 비어 있어요. 위의 부품 단추로 부품을 놓으세요.';
   var src = obs.filter(function(o){ return isSource(o.type); });
@@ -997,11 +1047,21 @@ function rayText(){
       bits.push('물체가 ' + objLabel(elx[0]) + ' 에 너무 가까이 붙어 있어 상의 자리를 셈할 수 없어요. 물체를 더 멀리 옮기세요.');
     else if (!isFinite(info.b))
       bits.push('물체가 바로 초점 자리에 있어요. 지나온 빛이 나란해져서, 스크린을 어디에 놓아도 상이 맺히지 않아요.');
-    else if (info.b > 0)
-      bits.push('물체 거리 ' + Math.round(info.a) + ' cm, 상 거리 ' + Math.round(info.b) +
-                ' cm — 스크린에 맺히는 실상이고 ' + (info.m < 0 ? '거꾸로' : '바로') + ' 섰어요.' +
-                sizeWord(info.m) +
-                (scr.length ? ' 스크린은 가로 ' + Math.round(scr[0].x) + ' 에 있어요.' : ' 스크린은 아직 없어요.'));
+    else if (info.b > 0){
+      var fs = screenFocus(info), ew = elWord(info);
+      var line = '물체 거리 ' + Math.round(info.a) + ' cm. ' +
+                 (info.m < 0 ? '거꾸로 선' : '바로 선') + ' 실상이 ' + ew + '에서 ' +
+                 Math.round(info.b) + ' cm 떨어진 곳에 생겨요.' + sizeWord(info.m);
+      line += scr.length
+        ? focusWord(info, fs)
+        : ' 스크린이 아직 없어요. 스크린을 놓고 ' + ew + '에서 ' + Math.round(info.b) +
+          ' cm 자리에 두면 상이 맺혀요.';
+      /* 상이 실험대 밖이면 스크린을 거기 놓을 수가 없다 — 그 말을 안 하면 학생이 헛수고를 한다 */
+      if (info.base && (info.base[0] < 0 || info.base[0] > W || info.base[1] < 0 || info.base[1] > H))
+        line += ' 다만 그 자리는 실험대 밖이라 스크린을 놓을 수 없어요. 물체를 ' + ew +
+                '에서 더 멀리 옮기면 상이 가까이 다가와요.';
+      bits.push(line);
+    }
     else
       bits.push('물체 거리 ' + Math.round(info.a) + ' cm, 상 거리 ' + Math.round(info.b) +
                 ' cm — 음수이니 ' + (isMirror(info.el.type) ? '거울 뒤쪽' : '물체와 같은 쪽') +
@@ -1031,7 +1091,7 @@ function soundOptics(){
 var sayTimer = null;
 function sayLater(msg){
   if (sayTimer) clearTimeout(sayTimer);
-  sayTimer = setTimeout(function(){ sayTimer = null; say(msg); soundOptics(); }, 320);
+  sayTimer = setTimeout(function(){ sayTimer = null; say(msg + focusPing()); soundOptics(); }, 320);
 }
 /* Tab 으로 닿는 부품 목록 — 스페이스를 거푸 누르지 않고 이름으로 고른다 */
 function buildPartPick(){

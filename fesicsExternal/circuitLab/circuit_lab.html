@@ -909,6 +909,9 @@ function say(msg){
 }
 /* 받침이 있으면 앞말, 없으면 뒷말 — '전구를 / 선을' 이 바르게 나오게 */
 function josa(w, a, b){
+  /* '전구 2' 처럼 숫자로 끝나면 읽는 소리로 받침을 가린다 — 일·삼·육·칠·팔·십 은 받침 있음 */
+  var last = w.charAt(w.length - 1);
+  if (last >= '0' && last <= '9') return ('136780'.indexOf(last) >= 0) ? a : b;
   for (var i = w.length - 1; i >= 0; i--){
     var c = w.charCodeAt(i);
     if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28) ? a : b;
@@ -916,6 +919,8 @@ function josa(w, a, b){
   return b;
 }
 function eul(w){ return w + josa(w, '을', '를'); }
+function neun(w){ return w + josa(w, '은', '는'); }
+function iga(w){ return w + josa(w, '이', '가'); }
 function nameAt(x, y){
   var hit = elAt({x:x, y:y});
   if (!hit) return null;
@@ -924,10 +929,10 @@ function nameAt(x, y){
 function whatAt(x, y){
   var hit = elAt({x:x, y:y});
   if (!hit) return '빈 칸';
-  if (hit.type === 'wire') return '선';
-  var s = toolName(hit.type);
+  if (hit.type === 'wire') return '선 — 지우려면 Delete';
+  var s = partLabel(hit);
   if (hit.type === 'switch') s += hit.props.closed ? ' (닫힘)' : ' (열림)';
-  return s;
+  return s + ' — 지우려면 Delete';
 }
 function kbSee(){
   /* 커서가 보이는 자리를 벗어나면 화면을 따라 옮긴다 */
@@ -988,7 +993,7 @@ function kbPut(){
   }
   kb.ax = null; kb.ay = null;
   changed();
-  say(eul(toolName(tool)) + ' 놓았어요.' + closedNote());
+  say(eul(tool === 'wire' ? '선' : partLabel(els[els.length - 1])) + ' 놓았어요.' + closedNote());
   soundCurrent();
 }
 /* ---------- 회로가 어떻게 이어졌는지 글로 (261125, 18차 1순위) ----------
@@ -1032,12 +1037,107 @@ function kbPathAcross(bat, openSwitchBreaks){
   }
   return {parts:parts, nodes:nodes, deg:g.deg};
 }
-function kbPartWord(e){
-  var n = toolName(e.type);
-  if (e.type === 'bulb')     return n + ' ' + e.props.R + ' Ω';
-  if (e.type === 'resistor') return n + ' ' + e.props.R + ' Ω';
-  if (e.type === 'switch')   return (e.props.closed ? '닫힌 ' : '열린 ') + n;
+/* ---------- 부품을 이름으로 가리키기 (261125, 19차 1순위) ----------
+   '전구 10 Ω, 전구 10 Ω' 로는 어느 전구를 말하는지 알 수 없다.
+   놓은 차례대로 번호를 붙여 '전구 1 / 전구 2' 로 부르고, 값은 뒤에 따로 모아 읽는다. */
+function partCount(t){
+  var n = 0;
+  for (var i = 0; i < els.length; i++) if (els[i].type === t) n++;
   return n;
+}
+function partNo(e){
+  var n = 0;
+  for (var i = 0; i < els.length; i++){
+    if (els[i].type === e.type) n++;
+    if (els[i] === e) return n;
+  }
+  return n;
+}
+function partLabel(e){
+  if (!e) return '끝';
+  if (e.type === 'wire') return '선';
+  var n = toolName(e.type);
+  return partCount(e.type) > 1 ? n + ' ' + partNo(e) : n;
+}
+function kbPartWord(e){
+  var s = partLabel(e);
+  if (e.type === 'switch') s += e.props.closed ? '(닫힘)' : '(열림)';
+  return s;
+}
+/* 저항값은 차례 설명에 섞지 않고 뒤에 모아 둔다 — 들으면서 개수를 세기 쉽게 */
+function resText(parts){
+  var rs = parts.filter(function(e){ return e.type === 'bulb' || e.type === 'resistor'; });
+  if (!rs.length) return '';
+  var same = rs.every(function(e){ return e.props.R === rs[0].props.R; });
+  if (rs.length === 1) return ' ' + neun(partLabel(rs[0])) + ' ' + rs[0].props.R + ' Ω 이에요.';
+  if (same) return ' ' + (rs.length === 2 ? '두' : rs.length + ' 개') + ' ' + toolName(rs[0].type) +
+                   '의 저항은 각각 ' + rs[0].props.R + ' Ω 이에요.';
+  return ' ' + rs.map(function(e){ return neun(partLabel(e)) + ' ' + e.props.R + ' Ω'; }).join(', ') + ' 이에요.';
+}
+/* 끝 하나를 '전지 1의 +극', '전구 2의 오른쪽 끝' 처럼 부른다 — 좌표만으로는 어디인지 모른다 */
+function endWordOf(e, x, y){
+  if (!e) return '끝';
+  if (e.type === 'battery') return partLabel(e) + '의 ' + ((x === e.x1 && y === e.y1) ? '+극' : '−극');
+  var side;
+  if (e.x1 !== e.x2) side = (x === Math.min(e.x1, e.x2)) ? '왼쪽' : '오른쪽';
+  else               side = (y === Math.min(e.y1, e.y2)) ? '위쪽' : '아래쪽';
+  return partLabel(e) + '의 ' + side + ' 끝';
+}
+/* 선 토막의 끝은 '선의 왼쪽 끝' 이라 해 봐야 어디인지 모른다.
+   선을 따라가 처음 만나는 부품 이름을 빌려 '전구 2 쪽 선의 끝' 으로 부른다 */
+function wireEndWord(x, y){
+  var seen = {}, at = kbKey(x, y), guard = 0;
+  while (guard++ < 200){
+    seen[at] = 1;
+    var next = null;
+    for (var i = 0; i < els.length; i++){
+      var e = els[i], a = kbKey(e.x1, e.y1), b = kbKey(e.x2, e.y2);
+      if (a !== at && b !== at) continue;
+      var other = (a === at) ? b : a;
+      if (e.type !== 'wire') return partLabel(e) + ' 쪽 선의 끝';
+      if (!seen[other]) next = other;
+    }
+    if (!next) return '선의 끝';
+    at = next;
+  }
+  return '선의 끝';
+}
+function looseEnds(){
+  var g = kbGraph(false), out = [], n;
+  for (n in g.deg){
+    if (g.deg[n] !== 1) continue;
+    var q = n.split(','), x = +q[0], y = +q[1], owner = null;
+    for (var i = 0; i < els.length; i++){
+      var e = els[i];
+      if ((e.x1 === x && e.y1 === y) || (e.x2 === x && e.y2 === y)){ owner = e; break; }
+    }
+    out.push({x:x, y:y, e:owner,
+              word:(owner && owner.type === 'wire') ? wireEndWord(x, y) : endWordOf(owner, x, y)});
+  }
+  return out;
+}
+/* 끊긴 끝을 이름으로 말하고, 그 둘을 이으면 닫히는지 미리 넣어 보고 알려 준다 */
+function joinHint(){
+  var L = looseEnds();
+  if (!L.length) return '';
+  var txt = ' 한쪽만 이어진 끝이 ' + L.length + ' 군데 있어요 — ' +
+    L.slice(0, 4).map(function(q){ return q.word + '(가로 ' + q.x + ' 세로 ' + q.y + ')'; }).join(' · ') +
+    (L.length > 4 ? ' 등' : '') + '.';
+  if (L.length === 2){
+    var probe = {id:-1, type:'wire', x1:L[0].x, y1:L[0].y, x2:L[1].x, y2:L[1].y, props:{}};
+    els.push(probe);
+    var ok = false;
+    try { ok = kbClosed(); } catch (err) {}
+    els.pop();
+    if (ok){
+      var straight = (L[0].x === L[1].x) || (L[0].y === L[1].y);
+      txt += straight
+        ? ' 이 둘을 선으로 이으면 회로가 닫혀요 — 선 도구를 고르고 ' + L[0].word +
+          '에서 스페이스, ' + L[1].word + '에서 스페이스를 누르세요.'
+        : ' 이 둘을 이으면 회로가 닫혀요. 곧은 줄이 아니라서 선을 두 번 나누어 이어야 해요.';
+    }
+  }
+  return txt;
 }
 /* 닫힌 길이 있나 — 알림을 '바뀔 때만' 하려고 따로 뽑아 둔다 */
 function kbClosed(){
@@ -1046,30 +1146,26 @@ function kbClosed(){
   return false;
 }
 function wiringText(){
-  if (!els.length) return '모눈판이 비어 있어요.';
+  if (!els.length) return '모눈판이 비어 있어요. 부품 줄에서 하나 고르고 스페이스를 두 번 눌러 놓으세요.';
   var bat = els.filter(function(e){ return e.type === 'battery' || e.type === 'acsource'; });
-  var g = kbGraph(true), ends = [], n;
-  for (n in g.deg) if (g.deg[n] === 1) ends.push(n);
-  var endWord = ends.length
-    ? ' 한쪽만 이어진 끝이 ' + ends.length + ' 군데 있어요 — ' +
-      ends.slice(0, 4).map(function(c){ var p = c.split(','); return '가로 ' + p[0] + ' 세로 ' + p[1]; }).join(' · ') +
-      (ends.length > 4 ? ' 등' : '') + '.'
-    : '';
+  var endWord = joinHint();
   if (!bat.length) return '전지가 없어요. 부품 줄에서 전지를 고르고 모눈판에 놓으세요.' + endWord;
 
   var out = [];
   for (var i = 0; i < bat.length; i++){
-    var b = bat[i], head = bat.length > 1 ? ('전지 ' + (i + 1) + ': ') : '';
+    var b = bat[i], bl = partLabel(b);
+    var head = bat.length > 1 ? (bl + ': ') : '';
     var path = kbPathAcross(b, true);
     if (!path){
       var loose = kbPathAcross(b, false);
       if (loose){
         var opens = loose.parts.filter(function(e){ return e.type === 'switch' && !e.props.closed; });
         out.push(head + (opens.length
-          ? '길은 이어져 있지만 스위치가 열려 있어서 전류가 흐르지 않아요. 스위치를 닫으세요.'
+          ? '길은 이어져 있지만 ' + iga(opens.map(partLabel).join(', ')) +
+            ' 열려 있어서 전류가 흐르지 않아요. 선택 도구로 눌러 닫으세요.'
           : '회로가 열려 있어 전류가 흐르지 않아요.'));
       } else {
-        out.push(head + '회로가 열려 있어 전류가 흐르지 않아요. 전지의 두 단자가 아직 이어지지 않았어요.');
+        out.push(head + '회로가 열려 있어 전류가 흐르지 않아요. ' + bl + '의 두 단자가 아직 이어지지 않았어요.');
       }
       continue;
     }
@@ -1079,17 +1175,18 @@ function wiringText(){
       /* 갈래가 있으면 한 줄로 늘어놓을 수 없다 — 지어내지 말고 있는 것만 알린다 */
       var all = els.filter(function(e){
         return e.type !== 'wire' && e.type !== 'battery' && e.type !== 'acsource';
-      }).map(kbPartWord);
-      out.push(head + '닫힌 회로입니다. 갈라지는 자리가 ' + forks + ' 군데 있어요. 놓인 부품은 ' +
-               (all.length ? all.join(', ') + ' 입니다.' : '없어요.') +
-               ' 어느 부품이 어느 갈래에 있는지는 아직 말로 풀어 주지 못합니다.');
+      });
+      out.push(head + '닫힌 회로예요. 갈라지는 자리가 ' + forks + ' 군데 있어요. 놓인 부품은 ' +
+               (all.length ? all.map(kbPartWord).join(', ') + '예요.' : '없어요.') +
+               resText(all) +
+               ' 어느 부품이 어느 갈래에 있는지는 아직 말로 풀어 주지 못해요.');
     } else {
       var w = path.parts.map(kbPartWord);
       var seq = w.length === 0 ? '전선만 지나'
-              : w.length === 1 ? w[0] + josa(w[0], '을', '를') + ' 지나'
-              : w.join(', ') + ' 를 차례로 지나';
-      out.push(head + '닫힌 직렬 회로입니다. 갈라지는 길은 없어요. 전지의 +극에서 출발하면 ' +
-               seq + ' −극으로 돌아옵니다.');
+              : w.length === 1 ? eul(w[0]) + ' 지나'
+              : eul(w.join(', ')) + ' 차례로 지나';
+      out.push(head + '닫힌 직렬 회로예요. ' + bl + '의 +극에서 출발하면 ' + seq + ' ' +
+               bl + '의 −극으로 돌아와요. 갈라지는 길은 없어요.' + resText(path.parts));
     }
   }
   return out.join(' ') + endWord;
@@ -1123,7 +1220,8 @@ function closedNote(){
   var now = kbClosed();
   if (kb.closed === now) return '';
   kb.closed = now;
-  return now ? ' 전지 양 단자 사이에 닫힌 경로가 생겼어요.' : ' 닫힌 경로가 끊겼어요.';
+  /* 끊겼을 때는 어디를 이어야 하는지까지 — 끊겼다는 말만으로는 다음 수를 못 둔다 (19차 1순위) */
+  return now ? ' 전지 양 단자 사이에 닫힌 경로가 생겼어요.' : ' 닫힌 경로가 끊겼어요.' + joinHint();
 }
 cv.addEventListener('focus', function(){
   kb.on = true;
@@ -1153,7 +1251,7 @@ cv.addEventListener('keydown', function(ev){
   else if (k === 'Delete' || k === 'Backspace'){
     kb.on = true;
     var hit = elAt({x:kb.x, y:kb.y});
-    if (hit){ snapshot(); var nmz = hit.type === 'wire' ? '선' : toolName(hit.type);
+    if (hit){ snapshot(); var nmz = partLabel(hit);
               els = els.filter(function(e){ return e !== hit; }); selId = null; changed();
               say(eul(nmz) + ' 지웠어요.' + closedNote()); soundCurrent(); }
     else say('여기엔 지울 것이 없어요.');
