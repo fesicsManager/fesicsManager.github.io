@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script src="/fesicsExternal/fxbig.js"></script><script src="/fesicsExternal/fxfit.js?v=1"></script>
+<script id="fxRafThrottle">
+(function(){
+  if (window.__fxRafThrottled) return; window.__fxRafThrottled = true;
+  var raf = window.requestAnimationFrame.bind(window), last = Date.now(), lastFrame = 0;
+  function poke(){ last = Date.now(); }
+  ['pointerdown','pointermove','keydown','touchstart','wheel','scroll','input','change','click'].forEach(function(ev){
+    window.addEventListener(ev, poke, {passive:true, capture:true});
+  });
+  window.requestAnimationFrame = function(cb){
+    var idle = Date.now() - last;
+    if (idle < 20000) return raf(cb);
+    var minGap = idle < 120000 ? 50 : 200;          /* 20 fps, then 5 fps while idle */
+    return raf(function(ts){
+      var now = performance.now();
+      if (now - lastFrame >= minGap){ lastFrame = now; cb(ts); }
+      else window.requestAnimationFrame(cb);
+    });
+  };
+})();
+</script>
+<meta charset="UTF-8">
+<!-- labgen:midTech -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LED는 아무 방향으로 꽂아도 켜지나 | 중학교 기술·가정 (기술)</title>
+<style>
+:root{
+  --ink:#1E2833; --sub:#4A5868; --line:#D4DCE5; --paper:#FFFFFF; --bg:#EEF2F6; --dot:#C3CDD9;
+  --pri:#2B5FA3; --pri-d:#1F4B85; --pri-soft:rgba(43,95,163,.16);
+  --ep:#3867B0; --ek:#E08A2E; --heat:#C8463D;
+}
+html{font-size:21px}
+@media (max-width:760px){html{font-size:20px}}
+@media (max-width:420px){html{font-size:19px}}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); font-size:1rem; line-height:1.55; word-break:keep-all; overflow-wrap:anywhere;
+  font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  background-color:var(--bg);
+  background-image:radial-gradient(var(--dot) 1.2px, transparent 1.4px);
+  background-size:22px 22px;
+}
+.container{width:97%; max-width:1840px; margin:0 auto; padding:1.2rem 0 2.5rem}
+header h1{font-size:1.6rem; margin:0 0 .35rem; letter-spacing:-.01em; line-height:1.3}
+header p{margin:0; color:var(--sub); max-width:62ch}
+
+/* 탭 */
+.tabs{display:flex; gap:.5rem; margin:1.1rem 0 1rem; flex-wrap:wrap}
+.tab{
+  font:inherit; font-weight:700; padding:.55rem 1.1rem; border-radius:999px; cursor:pointer;
+  border:2px solid var(--line); background:var(--paper); color:var(--sub);
+  transition:background .18s, color .18s, border-color .18s, transform .12s, filter .18s;
+}
+.tab:hover{border-color:var(--pri); color:var(--pri); transform:translateY(-1px)}
+.tab:active{transform:translateY(1px) scale(.98)}
+.tab[aria-selected="true"]{background:var(--pri); border-color:var(--pri); color:#fff}
+.tab[aria-selected="true"]:hover{filter:brightness(1.08); color:#fff}
+.panel[hidden]{display:none}
+
+/* 레이아웃 */
+.lab{display:grid; grid-template-columns:minmax(400px,480px) minmax(0,1fr); gap:1rem; align-items:start}
+@media (min-width:1150px){.lab{grid-template-columns:minmax(540px,44%) minmax(0,1fr)}}
+@media (max-width:640px){.lab{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:1rem}
+.card + .card{margin-top:1rem}
+.card h2{font-size:1.15rem; margin:0 0 .6rem; line-height:1.35}
+.note{color:var(--sub); font-size:.95rem; margin:.6rem 0 0}
+
+#scene{width:100%; height:320px; display:block; border-radius:10px; background:#F7F9FC}
+
+/* 에너지 막대 */
+.ebar{display:flex; height:30px; border-radius:8px; overflow:hidden; background:#E6EBF1; margin-top:.8rem}
+.ebar div{height:100%; transition:none}
+.ebar .ep{background:var(--ep)} .ebar .ek{background:var(--ek)} .ebar .ht{background:var(--heat)}
+.elegend{display:grid; grid-template-columns:repeat(3,1fr); gap:.3rem; margin-top:.45rem; font-size:.95rem}
+.elegend > span{display:flex; align-items:flex-start; gap:.35rem; line-height:1.3}
+.elegend > span > span{display:block}
+.elegend i{width:14px; height:14px; border-radius:3px; flex:none; margin-top:.2rem}
+.elegend b{display:block; font-variant-numeric:tabular-nums}
+
+/* 조작부 */
+.ctrl{margin-bottom:.75rem}
+.ctrl .row{display:flex; justify-content:space-between; align-items:baseline}
+.ctrl .val{font-weight:700; color:var(--pri); font-variant-numeric:tabular-nums}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:30px; margin:0;
+  background:transparent; cursor:pointer; touch-action:manipulation; --p:50%;
+}
+input[type=range]:focus{outline:none}
+input[type=range]:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px; border-radius:6px}
+input[type=range]::-webkit-slider-runnable-track{
+  height:8px; border-radius:4px;
+  background:linear-gradient(to right, var(--pri) var(--p), #D5DDE6 var(--p));
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:24px; height:24px; border-radius:50%; margin-top:-8px;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]::-moz-range-track{height:8px; border-radius:4px; background:#D5DDE6}
+input[type=range]::-moz-range-progress{height:8px; border-radius:4px; background:var(--pri)}
+input[type=range]::-moz-range-thumb{
+  box-sizing:border-box; width:24px; height:24px; border-radius:50%;
+  background:#fff; border:3px solid var(--pri); transition:transform .15s, box-shadow .15s;
+}
+input[type=range]:hover::-moz-range-thumb{transform:scale(1.12); box-shadow:0 0 0 6px var(--pri-soft)}
+input[type=range]:active::-moz-range-thumb{transform:scale(1.22); box-shadow:0 0 0 9px var(--pri-soft)}
+input[type=range]:disabled{cursor:not-allowed; opacity:.45}
+input[type=range]:disabled::-webkit-slider-thumb{transform:none; box-shadow:none}
+
+.seg{display:grid; grid-template-columns:1fr 1fr; gap:.45rem}
+.seg button{
+  font:inherit; font-size:.95rem; text-align:left; line-height:1.3; padding:.5rem .6rem; cursor:pointer;
+  border:2px solid var(--line); border-radius:10px; background:#fff; color:var(--ink);
+  transition:border-color .18s, background .18s, transform .12s;
+}
+.seg button small{display:block; color:var(--sub); font-size:.95rem; font-variant-numeric:tabular-nums}
+.seg button:hover:not(:disabled){border-color:var(--pri); transform:translateY(-1px)}
+.seg button:active:not(:disabled){transform:translateY(1px) scale(.98)}
+.seg button[aria-pressed="true"]{border-color:var(--pri); background:#EAF1FA}
+.seg button:disabled{cursor:not-allowed; opacity:.5}
+
+.actions{display:flex; gap:.6rem; margin-top:1rem; flex-wrap:wrap}
+.btn{
+  font:inherit; font-weight:700; padding:.65rem 1.2rem; border-radius:12px; cursor:pointer;
+  border:2px solid var(--pri); background:var(--pri); color:#fff;
+  transition:filter .18s, transform .12s, background .18s, color .18s, opacity .18s;
+}
+.btn:hover:not(:disabled){filter:brightness(1.1); transform:translateY(-2px)}
+.btn:active:not(:disabled){transform:translateY(1px) scale(.97)}
+.btn.ghost{background:#fff; color:var(--pri)}
+.btn.ghost:hover:not(:disabled){background:#EAF1FA; filter:none}
+.btn.warn{background:#fff; color:#A33A32; border-color:#E0B4AF}
+.btn.warn:hover:not(:disabled){background:#FBEDEB; filter:none}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--pri-soft); outline-offset:2px}
+
+/* 측정 결과 */
+.stats{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:.5rem .9rem; margin:0}
+.stats div{border-left:4px solid var(--line); padding:.15rem 0 .15rem .6rem}
+.stats dt{color:var(--sub); font-size:.95rem}
+.stats dd{margin:0; font-weight:700; font-size:1.15rem; font-variant-numeric:tabular-nums}
+.stats .c-ep{border-color:var(--ep)} .stats .c-ek{border-color:var(--ek)} .stats .c-ht{border-color:var(--heat)}
+.msg{padding:.7rem .9rem; border-radius:10px; background:#F3F6FA; color:var(--sub); margin:0}
+.msg.stop{background:#FBEFE3; color:#8A4B12}
+
+/* 기록 표 */
+.tablewrap{max-height:430px; overflow:auto; border:1px solid var(--line); border-radius:10px}
+table{border-collapse:collapse; width:100%; font-size:.95rem; font-variant-numeric:tabular-nums}
+th,td{padding:.4rem .6rem; text-align:right; white-space:nowrap; border-bottom:1px solid #E8EDF2}
+th{position:sticky; top:0; background:#E9EFF6; z-index:1; font-weight:700}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+tbody tr:hover{background:#F5F8FB}
+.empty td{text-align:center; color:var(--sub); padding:1.2rem}
+.dotc{display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:.35rem; vertical-align:-1px}
+
+/* 데이터 검증 */
+.vgrid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem}
+@media (max-width:640px){.vgrid{grid-template-columns:minmax(0,1fr)}}
+.vgrid .card + .card{margin-top:0}
+.chart{width:100%; height:300px; display:block}
+.legend{display:flex; flex-wrap:wrap; gap:.4rem 1rem; font-size:.95rem; margin:0 0 1rem}
+.legend span{display:flex; align-items:center}
+.readout{margin:.6rem 0 0; padding:0; list-style:none}
+.readout li{padding:.2rem 0; font-variant-numeric:tabular-nums}
+.ask{margin:.6rem 0 0; color:var(--sub); font-size:.95rem}
+.shortage{text-align:center; padding:2.2rem 1rem}
+.shortage strong{display:block; font-size:1.3rem; margin-bottom:.4rem}
+.mtable{margin-top:.6rem}
+.mtable table{font-size:.95rem}
+.mtable h3{font-size:1rem; margin:.8rem 0 .3rem}
+
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+.seg.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.seg.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.seg.c4 button{text-align:center; padding:.5rem .3rem}
+.center td,.center th{text-align:center !important}
+.inlegend{display:flex; flex-wrap:wrap; gap:.3rem 1rem; font-size:.95rem; margin:0 0 .4rem}
+.inlegend span{display:flex; align-items:center}
+.gap-top{margin-top:.6rem}
+.wrap td{white-space:normal; text-align:left !important}
+.hbars{display:grid; gap:.5rem; margin:.4rem 0}
+.hb{display:grid; grid-template-columns:minmax(0,9rem) minmax(0,1fr) auto; gap:.6rem; align-items:center}
+.hb .ht{height:18px; background:#E6EBF1; border-radius:6px; overflow:hidden}
+.hb .ht i{display:block; height:100%}
+.hb b{font-variant-numeric:tabular-nums}
+</style>
+<style id="fxPrincipleCss">
+.fx-principle{display:none}
+.fx-principle.fx-open{display:block}
+.fx-hide{display:none!important}
+.fx-p-card{background:#fff;border:1px solid #d9e2e0;border-radius:16px;padding:20px 22px;margin:0 0 20px;line-height:1.75;font-size:1rem;color:#173238;box-shadow:0 4px 18px rgba(23,50,56,.06)}
+.fx-p-card h2{margin:0 0 14px;font-size:1.3rem;color:#173238}
+.fx-p-card h3{margin:20px 0 6px;font-size:1.08rem;color:#22707c}
+.fx-p-card p{margin:6px 0}
+.fx-p-card ul,.fx-p-card ol{margin:6px 0 6px 20px;padding:0}
+.fx-p-card li{margin:3px 0}
+.fx-p-card .fx-formula{display:inline-block;font-family:"IBM Plex Mono",Consolas,monospace;background:#eef2f0;border-radius:8px;padding:2px 9px;margin:2px 0;white-space:nowrap}
+.fx-p-card .fx-note{background:#fff7e8;border-left:4px solid #d98e3b;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card .fx-model{background:#eef6f7;border-left:4px solid #2f8f9d;border-radius:8px;padding:10px 14px;margin:14px 0}
+.fx-p-card table{border-collapse:collapse;margin:8px 0;font-size:.95rem}
+.fx-p-card th,.fx-p-card td{border:1px solid #d9e2e0;padding:5px 10px;text-align:left}
+.fx-p-card th{background:#eef2f0}
+.fx-p-details{margin:24px 0 0}
+.fx-p-details>summary{cursor:pointer;font-weight:700;font-size:1.1rem;padding:12px 16px;background:#eef6f7;border:1px solid #d9e2e0;border-radius:12px;color:#173238}
+.fx-p-details[open]>summary{border-radius:12px 12px 0 0}
+.fx-p-details .fx-p-card{border-radius:0 0 16px 16px;border-top:none}
+@media (max-width:640px){.fx-p-card{padding:16px 14px;font-size:.96rem}.fx-p-card .fx-formula{white-space:normal;max-width:100%}.fx-p-card table{display:block;max-width:100%;overflow-x:auto}}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>LED는 아무 방향으로 꽂아도 켜지나</h1>
+    <p>건전지 회로에 부품 하나를 골라 <b>방향만 바꿔 꽂아</b> 봅니다. LED(저항과 함께), 저항, 꼬마전구, 다이오드(꼬마전구와 함께) 가운데 무엇이 방향에 따라 결과가 달라지는지, 건전지를 더 넣으면 어떻게 되는지 보세요.<br><span style="font-size:.9em;color:#a86825">※ 표는 제로 랩의 실험 기록이에요. 전류 값은 빨간 LED 약 2 V, 다이오드 약 0.7 V, 저항 100 Ω, 꼬마전구(3 V용) 약 10 Ω으로 둔 단순 계산입니다. 전기 실습은 건전지 같은 낮은 전압의 교육용 부품으로만 하고, 벽 콘센트 전기로는 절대 실험하지 않아요. 공구·전기·움직이는 기계 실습은 보호안경 등 보호구를 갖추고 선생님 지도 아래에서만 하세요.</span></p>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-explore" aria-selected="true" aria-controls="panel-explore">🔬 자유 탐구</button>
+    <button class="tab" role="tab" id="tab-verify" aria-selected="false" aria-controls="panel-verify">✅ 결과 비교</button>
+  </div>
+
+<section id="fxPrinciple" class="fx-principle" hidden aria-label="기술 원리">
+<div class="fx-p-card">
+<h2>📖 기술 원리 — 어떤 원리로 이렇게 될까?</h2>
+<h3>🔑 핵심 원리 — LED와 다이오드에는 극성이 있다</h3>
+<p><b>다이오드</b>는 전류를 한 방향으로만 흐르게 하는 부품이고, <b>LED</b>는 빛을 내는 다이오드예요. 그래서 꽂는 방향, 곧 <b>극성</b>이 정해져 있습니다.</p>
+<ul>
+<li>LED는 보통 <b>긴 다리가 +극(애노드)</b>, 짧은 다리가 −극(캐소드). 긴 다리가 건전지 + 쪽으로 이어져야 켜져요.</li>
+<li>다이오드는 몸통의 <b>띠가 있는 쪽이 −극(캐소드)</b>. 거꾸로 꽂으면 전류가 거의 흐르지 않아요.</li>
+<li>꼬마전구와 저항은 극성이 없어 어느 방향으로 꽂아도 똑같이 동작해요.</li>
+</ul>
+<p><span class="fx-formula">LED 전류 ≈ (건전지 전압 − LED 전압 약 2 V) ÷ 저항</span></p>
+<h3>⚙️ 부품마다 맡은 일</h3>
+<ul>
+<li>건전지: 전기를 공급 · 저항: 전류를 줄여 LED를 보호 · 스위치: 길을 열고 닫음 · 다이오드: 한 방향으로만 흐르게 함(앞 방향일 때 약 0.7 V를 씀)</li>
+<li>극성 쓸모: 다이오드를 회로 앞에 달면 건전지를 거꾸로 넣어도 회로가 상하지 않게 막아 줘요.</li>
+<li>극성이 있는 부품: LED, 다이오드, 전해 축전기, 건전지 — 회로도 기호에도 방향이 표시돼요.</li>
+</ul>
+<h3>⚠️ 안전 약속</h3>
+<ul>
+<li>낮은 전압의 교육용 건전지로만 실습하고, 벽 콘센트 전기로는 절대 실험하지 않아요.</li>
+<li>건전지의 +극과 −극을 전선으로 바로 잇지 않아요(합선 → 전선과 건전지가 뜨거워짐).</li>
+<li>건전지를 마구 더하면 LED에 너무 센 전류가 흘러 망가질 수 있어요. 부품이 뜨거워지거나 타는 냄새가 나면 바로 건전지를 빼고 선생님께 알려요.</li>
+</ul>
+<div class="fx-model"><b>📌 실험 모형과 실제의 차이</b><br>
+· LED 전압(약 2 V)과 다이오드 전압(약 0.7 V)은 대략값이고, 꼬마전구는 저항이 일정하다고 단순하게 계산했어요. 실제 전구는 뜨거워질수록 저항이 커집니다.<br>
+· LED가 견디는 전류(보통 약 20 mA)는 제품마다 다르니 부품 설명서를 확인해요.</div>
+</div>
+</section>
+
+
+
+
+
+
+  <section class="panel" id="panel-explore" role="tabpanel">
+    <div class="lab">
+      <div>
+        <div class="card">
+          <canvas id="scene" aria-label="LED는 아무 방향으로 꽂아도 켜지나 실험 장면"></canvas>
+          <p class="note">전류는 건전지 +극에서 나와 −극으로 들어가요(노란 점의 움직임). LED·다이오드 기호의 삼각형이 가리키는 쪽으로만 전류가 흘러요.</p>
+        </div>
+        <div class="card">
+          <div id="controls"></div>
+          <div class="actions">
+            <button class="btn" id="runBtn">꽂고 스위치 켜기</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>결과</h2>
+          <div id="result"></div>
+        </div>
+        <div class="card">
+          <h2>기록한 데이터 <span id="recCount" style="color:var(--sub);font-weight:400"></span></h2>
+          <div class="tablewrap">
+            <table><thead><tr id="recHead"></tr></thead><tbody id="recBody"></tbody></table>
+          </div>
+          <div class="actions"><button class="btn warn" id="clearBtn" disabled>기록 모두 지우기</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-verify" role="tabpanel" hidden>
+    <div id="verifyBody"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ================= 공통 도구 ================= */
+var FONT = 'Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+var ANIM_MS = 2000;
+var PAL = ['#2B5FA3', '#2E9E78', '#A8702F', '#7657B3', '#C8463D', '#3A8FB7', '#D98E04', '#5C6B7A'];
+var $ = function(id){ return document.getElementById(id); };
+function f(x, d){ var s = x.toFixed(d); if (/^-0\.?0*$/.test(s)) s = s.slice(1); return s.replace('-', '−'); }
+function sgn(x, d){ var s = f(x, d); return (x > 0 && /[1-9]/.test(s) ? '+' : '') + s; }
+function decOf(step){ for (var d = 0; d < 4; d++){ var s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-6) return d; } return 4; }
+function fitCanvas(cv){
+  var dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  var k = window.fxZoom ? window.fxZoom(W) : 1;   // 넓은 화면에서 그림째 확대(글자도 같이 커진다)
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  var c = cv.getContext('2d'); c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+  return {c:c, W:W / k, H:H / k};
+}
+function niceStep(raw){
+  var mag = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / mag;
+  return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
+}
+function axisFrom(lo, hi){
+  if (hi - lo <= 0) hi = lo + 1;
+  var step = niceStep((hi - lo) / 4);
+  return {lo:Math.floor(lo / step + 1e-9) * step, hi:Math.ceil(hi / step - 1e-9) * step, step:step};
+}
+function txt(c, s, x, y, o){
+  o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; c.fillStyle = o.color || '#1E2833';
+  c.textAlign = o.align || 'left'; c.textBaseline = o.base || 'alphabetic'; c.fillText(s, x, y);
+}
+function seg(c, x1, y1, x2, y2, color, w, dash){ c.strokeStyle = color || '#1E2833'; c.lineWidth = w || 1.5; c.setLineDash(dash || []); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); c.setLineDash([]); }
+function meter(c, x, y, w, s){
+  c.fillStyle = '#26313D'; c.fillRect(x, y, w, 34);
+  txt(c, s, x + w - 10, y + 18, {bold:true, color:'#7CF0B0', align:'right', base:'middle'});
+}
+function arrow(c, x1, y1, x2, y2, color, lw){
+  var a = Math.atan2(y2 - y1, x2 - x1), h = 9;
+  c.strokeStyle = color; c.fillStyle = color; c.lineWidth = lw || 2;
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - h * Math.cos(a - 0.4), y2 - h * Math.sin(a - 0.4)); c.lineTo(x2 - h * Math.cos(a + 0.4), y2 - h * Math.sin(a + 0.4)); c.closePath(); c.fill();
+}
+function nmColor(nm){
+  var r = 0, g = 0, b = 0;
+  if (nm < 440){ r = -(nm - 440) / 60; b = 1; } else if (nm < 490){ g = (nm - 440) / 50; b = 1; }
+  else if (nm < 510){ g = 1; b = -(nm - 510) / 20; } else if (nm < 580){ r = (nm - 510) / 70; g = 1; }
+  else if (nm < 645){ r = 1; g = -(nm - 645) / 65; } else { r = 1; }
+  var fct = nm < 420 ? 0.4 + 0.6 * (nm - 380) / 40 : nm > 700 ? 0.4 + 0.6 * (780 - nm) / 80 : 1;
+  return [r, g, b].map(function(v){ return Math.round(255 * Math.pow(Math.max(0, v) * fct, 0.8)); });
+}
+function mean(a){ return a.reduce(function(s, x){ return s + x; }, 0) / a.length; }
+function dot(color){ return '<span class="dotc" style="background:' + color + '"></span>'; }
+function legend(items){ return '<div class="inlegend">' + items.map(function(it){ return '<span>' + dot(it.color) + it.label + '</span>'; }).join('') + '</div>'; }
+function distinct(arr){ var o = {}; arr.forEach(function(v){ o[v] = 1; }); return Object.keys(o).length; }
+function fit0(pts){ var n = 0, d = 0; pts.forEach(function(p){ n += p.x * p.y; d += p.x * p.x; }); return n / d; }
+function linfit(pts){
+  var n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  pts.forEach(function(p){ sx += p.x; sy += p.y; sxx += p.x * p.x; sxy += p.x * p.y; });
+  var k = (n * sxy - sx * sy) / (n * sxx - sx * sx); return {k:k, b:(sy - k * sx) / n};
+}
+function groupBy(arr, keyFn){ var g = {}; arr.forEach(function(d){ var k = keyFn(d); (g[k] = g[k] || []).push(d); }); return g; }
+function card(title, inner){ return '<div class="card"><h2>' + title + '</h2>' + inner + '</div>'; }
+function tableHTML(head, rows, cls){
+  return '<div class="tablewrap' + (cls ? ' ' + cls : '') + '"><table><thead><tr>' + head.map(function(h){ return '<th>' + h + '</th>'; }).join('') +
+    '</tr></thead><tbody>' + rows.map(function(r){ return '<tr>' + r.map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+}
+/* 산점도: series [{color, pts:[{x,y}], hollow}], lines [{k,b,from,to,color,dash} | {h,color,dash}] */
+function drawScatter(cv, opt){
+  var o = fitCanvas(cv), c = o.c, W = o.W, H = o.H;
+  if (!W) return;
+  var padL = 78, padR = 18, padT = 14, padB = 62, xs = [], ys = [];
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){ xs.push(p.x); ys.push(p.y); }); });
+  (opt.lines || []).forEach(function(l){ if (l.h != null) ys.push(l.h); });
+  if (!xs.length){ xs = [1]; ys = [1]; }
+  var head = opt.yHead || 1.08;
+  var xl = Math.min(0, Math.min.apply(null, xs)), xh = Math.max(0, Math.max.apply(null, xs));
+  var yl = Math.min(0, Math.min.apply(null, ys)), yh = Math.max(0, Math.max.apply(null, ys));
+  if (opt.square){ xl = yl = Math.min(xl, yl); xh = yh = Math.max(xh, yh); }
+  var ax = axisFrom(xl * 1.08, xh * 1.08), ay = opt.square ? ax : axisFrom(yl * head, yh * head);
+  if (opt.xHi != null){ ax = {lo:0, hi:opt.xHi, step:opt.xStep || niceStep(opt.xHi / 4)}; }
+  if (opt.tightX){ var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), px = (x1 - x0) * 0.1 || 1; ax = axisFrom(x0 - px, x1 + px); }
+  if (opt.tightY){ var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys), py = (y1 - y0) * 0.15 || 0.5; ay = axisFrom(y0 - py, y1 + py); }
+  var pw = W - padL - padR, ph = H - padT - padB;
+  var X = function(x){ return padL + (x - ax.lo) / (ax.hi - ax.lo) * pw; };
+  var Y = function(y){ return padT + ph - (y - ay.lo) / (ay.hi - ay.lo) * ph; };
+  c.clearRect(0, 0, W, H); c.font = '18px ' + FONT;
+  c.strokeStyle = '#E3E8EE'; c.lineWidth = 1; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((ax.hi - ax.lo) / ax.step), ny = Math.round((ay.hi - ay.lo) / ay.step);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = ax.lo + i * ax.step; c.beginPath(); c.moveTo(X(v), padT); c.lineTo(X(v), padT + ph); c.stroke(); c.fillText(f(v, decOf(ax.step)), X(v), padT + ph + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = ay.lo + i * ay.step; c.beginPath(); c.moveTo(padL, Y(v)); c.lineTo(padL + pw, Y(v)); c.stroke(); c.fillText(f(v, decOf(ay.step)), padL - 8, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(padL, padT); c.lineTo(padL, padT + ph); c.lineTo(padL + pw, padT + ph); c.stroke();
+  if (ay.lo < 0){ c.beginPath(); c.moveTo(padL, Y(0)); c.lineTo(padL + pw, Y(0)); c.stroke(); }
+  if (ax.lo < 0){ c.beginPath(); c.moveTo(X(0), padT); c.lineTo(X(0), padT + ph); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+  c.fillText(opt.xLabel, padL + pw / 2, H - 4);
+  c.save(); c.translate(18, padT + ph / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(opt.yLabel, 0, 0); c.restore();
+  c.save(); c.beginPath(); c.rect(padL, padT, pw, ph); c.clip();
+  (opt.lines || []).forEach(function(l){
+    c.strokeStyle = l.color; c.lineWidth = 2; c.setLineDash(l.dash ? [7, 5] : []); c.beginPath();
+    if (l.h != null){ c.moveTo(padL, Y(l.h)); c.lineTo(padL + pw, Y(l.h)); }
+    else {
+      var b = l.b || 0, x1 = Math.max(l.from != null ? l.from : ax.lo, ax.lo), x2 = Math.min(l.to != null ? l.to : ax.hi, ax.hi);
+      c.moveTo(X(x1), Y(l.k * x1 + b)); c.lineTo(X(x2), Y(l.k * x2 + b));
+    }
+    c.stroke();
+  });
+  c.setLineDash([]);
+  opt.series.forEach(function(s){ s.pts.forEach(function(p){
+    c.lineWidth = 2.5;
+    if (s.hollow){ c.fillStyle = '#fff'; c.strokeStyle = s.color; }
+    else { c.fillStyle = s.color; c.strokeStyle = '#fff'; }
+    c.beginPath(); c.arc(X(p.x), Y(p.y), 6.5, 0, Math.PI * 2); c.fill(); c.stroke();
+  }); });
+  c.restore();
+}
+
+/* 탐구 화면용 좌표축: xr, yr = [lo, hi, step] */
+function plotBox(c, x, y, w, h, xr, yr, xLabel, yLabel){
+  var X = function(v){ return x + (v - xr[0]) / (xr[1] - xr[0]) * w; }, Y = function(v){ return y + h - (v - yr[0]) / (yr[1] - yr[0]) * h; };
+  c.fillStyle = '#F7F9FC'; c.fillRect(x, y, w, h);
+  c.strokeStyle = '#E1E7EE'; c.lineWidth = 1; c.font = '18px ' + FONT; c.fillStyle = '#4A5868';
+  var i, v, nx = Math.round((xr[1] - xr[0]) / xr[2]), ny = Math.round((yr[1] - yr[0]) / yr[2]);
+  c.textAlign = 'center'; c.textBaseline = 'top';
+  for (i = 0; i <= nx; i++){ v = xr[0] + i * xr[2]; c.beginPath(); c.moveTo(X(v), y); c.lineTo(X(v), y + h); c.stroke(); c.fillText(f(v, decOf(xr[2])), X(v), y + h + 6); }
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (i = 0; i <= ny; i++){ v = yr[0] + i * yr[2]; c.beginPath(); c.moveTo(x, Y(v)); c.lineTo(x + w, Y(v)); c.stroke(); c.fillText(f(v, decOf(yr[2])), x - 6, Y(v)); }
+  c.strokeStyle = '#8C99A8'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + h); c.lineTo(x + w, y + h); c.stroke();
+  if (yr[0] < 0){ c.beginPath(); c.moveTo(x, Y(0)); c.lineTo(x + w, Y(0)); c.stroke(); }
+  if (xr[0] < 0){ c.beginPath(); c.moveTo(X(0), y); c.lineTo(X(0), y + h); c.stroke(); }
+  c.fillStyle = '#1E2833'; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(xLabel, x + w / 2, y + h + 30);
+  c.save(); c.translate(x - 54, y + h / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'middle'; c.fillText(yLabel, 0, 0); c.restore();
+  c.textBaseline = 'alphabetic';
+  return {X:X, Y:Y};
+}
+function glow(c, x, y, r, color, alpha){
+  if (alpha <= 0) return;
+  var g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, color); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.globalAlpha = Math.min(alpha, 1); c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.globalAlpha = 1;
+}
+function hbars(items, max){
+  return '<div class="hbars">' + items.map(function(it){
+    return '<div class="hb"><span class="hl">' + it.label + '</span><span class="ht"><i style="width:' + Math.max(0, Math.min(100, it.v / max * 100)) + '%;background:' + it.color + '"></i></span><b>' + it.text + '</b></div>';
+  }).join('') + '</div>';
+}
+
+/* ================= 실험별 설정 ================= */
+var LAB = (function(){
+      function uniq(a){ var o = []; a.forEach(function(v){ if (o.indexOf(v) < 0) o.push(v); }); return o; }
+      var CW = 900; function tfit(c, s, x, y, o){ o = o || {}; c.font = (o.bold ? '700 ' : '') + '18px ' + FONT; var w = c.measureText(String(s)).width, al = o.align || 'left', mw = al === 'center' ? 2 * Math.min(x, CW - x) - 8 : al === 'right' ? x - 8 : CW - x - 8; if (o.max) mw = Math.min(mw, o.max); if (mw > 40 && w > mw){ c.save(); c.translate(x, y); c.scale(mw / w, 1); txt(c, s, 0, 0, o); c.restore(); } else txt(c, s, x, y, o); }
+      var K = [{n:'LED (저항 100 Ω과 함께)', s:'LED', pol:true}, {n:'저항 (LED와 함께, 저항만 돌림)', s:'저항', pol:false}, {n:'꼬마전구 (3 V용)', s:'꼬마전구', pol:false}, {n:'다이오드 (꼬마전구와 함께)', s:'다이오드', pol:true}];
+      var D = ['처음 방향 (LED 긴 다리·다이오드 띠 반대쪽이 + 쪽)', '반대로 돌려 꽂기'], DS = ['처음 방향', '반대로'];
+      var BV = [{n:'1.5 V 건전지 2개 (3 V)', v:3}, {n:'1.5 V 건전지 3개 (4.5 V)', v:4.5}];
+      var VLED = 2.0, RS = 100, VD = 0.7, RB = 10, IMAX = 0.020, VB = 3.0;
+      function calc(k, d, V){
+        var rev = d === 1;
+        if (k === 0 || k === 1){ var on = k === 1 || !rev; if (!on) return {on:false, I:0, vp:V, note:'LED에 거꾸로 걸려 전류가 흐르지 않음'}; var I = (V - VLED) / RS; return {on:true, I:I, vp:VLED, bright:I / IMAX, warn:I > IMAX ? 'LED 권장 전류(약 20 mA)를 넘어 망가질 수 있음' : ''}; }
+        if (k === 2){ var I2 = V / RB; return {on:true, I:I2, vp:V, bright:(V / VB) * (V / VB), warn:V > VB + 0.01 ? '전구 정격(3 V)보다 높아 필라멘트가 끊어질 수 있음' : ''}; }
+        if (rev) return {on:false, I:0, vp:V, note:'다이오드에 거꾸로 걸려 전류가 흐르지 않음'};
+        var vb = V - VD, I3 = vb / RB; return {on:true, I:I3, vp:VD, vbulb:vb, bright:(vb / VB) * (vb / VB), warn:vb > VB + 0.01 ? '전구에 3 V보다 높은 전압이 걸려 끊어질 수 있음' : ''};
+      }
+      function ma(I){ return I >= 0.1 ? (I).toFixed(2) + ' A' : (I * 1000).toFixed(0) + ' mA'; }
+      function resistor(c, x, y, len, horiz){ c.fillStyle = '#E8D7B5'; c.strokeStyle = '#26313D'; c.lineWidth = 2; if (horiz){ c.fillRect(x - len / 2, y - 9, len, 18); c.strokeRect(x - len / 2, y - 9, len, 18); [0.3, 0.45, 0.6].forEach(function(f, i){ c.fillStyle = ['#8B4513', '#1E2833', '#8B4513'][i]; c.fillRect(x - len / 2 + len * f, y - 9, 5, 18); }); } }
+      function diodeSym(c, x, y, sz, down, led, lit){
+        // 세로 기호, down = 삼각형이 아래(전류가 위→아래)를 가리킴
+        var s = down ? 1 : -1;
+        c.fillStyle = led ? (lit ? '#FF4B3E' : '#F3B7B2') : '#26313D'; c.strokeStyle = '#26313D'; c.lineWidth = 2;
+        c.beginPath(); c.moveTo(x - sz, y - s * sz * 0.8); c.lineTo(x + sz, y - s * sz * 0.8); c.lineTo(x, y + s * sz * 0.8); c.closePath(); c.fill(); c.stroke();
+        seg(c, x - sz, y + s * sz * 0.8, x + sz, y + s * sz * 0.8, '#26313D', 3);
+        if (led){ arrow(c, x + sz + 2, y - 4, x + sz + 16, y - 14, lit ? '#FF4B3E' : '#C5CED8', 2); arrow(c, x + sz + 2, y + 6, x + sz + 16, y - 4, lit ? '#FF4B3E' : '#C5CED8', 2); }
+      }
+      function bulb(c, x, y, b){ if (b > 0) glow(c, x, y, 30 + 30 * Math.min(1.6, b), 'rgba(255,214,64,.9)', Math.min(1, 0.35 + b * 0.6)); c.strokeStyle = '#26313D'; c.lineWidth = 2; c.fillStyle = b > 0 ? '#FFE680' : '#F1F3F6'; c.beginPath(); c.arc(x, y, 16, 0, Math.PI * 2); c.fill(); c.stroke(); seg(c, x - 11, y - 11, x + 11, y + 11, '#26313D', 1.5); seg(c, x + 11, y - 11, x - 11, y + 11, '#26313D', 1.5); }
+      return {
+        sceneHeight: 380,
+        idle: '부품·방향·건전지를 고른 뒤 <b>꽂고 스위치 켜기</b>를 누르세요.',
+        shortHint: '네 부품을 모두 "처음 방향"과 "반대로"로 꽂아 보세요. 켜지지 않는 LED에 건전지를 하나 더 넣으면 켜지나요?',
+        params: [
+          {key:'k', type:'seg', label:'방향을 바꿔 볼 부품', cols:4, value:0, options:K.map(function(x){ return x.n; })},
+          {key:'d', type:'seg', label:'꽂는 방향', cols:2, value:1, options:D},
+          {key:'b', type:'seg', label:'건전지', cols:2, value:0, options:BV.map(function(x){ return x.n; })}
+        ],
+        compute: function(p){ var V = BV[p.b].v, q = calc(p.k, p.d, V); q.V = V; return q; },
+        draw: function(c, W, H, p, r, tau){ CW = W;
+          var V = BV[p.b].v, x0 = Math.max(60, W * 0.16), x1 = Math.min(W - 70, x0 + 460), y0 = 80, y1 = H - 90, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+          var q = r || {on:false, I:0}, sw = !!r, lit = r && r.on && tau > 0.15;
+          tfit(c, K[p.k].s + ' · ' + DS[p.d] + ' · ' + V + ' V', 16, 28, {bold:true});
+          // 전선
+          c.strokeStyle = '#26313D'; c.lineWidth = 3; c.beginPath(); c.moveTo(x0, cy - 30); c.lineTo(x0, y0); c.lineTo(x1, y0); c.lineTo(x1, y1); c.lineTo(x0, y1); c.lineTo(x0, cy + 30); c.stroke();
+          // 건전지 (+ 위)
+          c.fillStyle = '#FFFFFF'; c.fillRect(x0 - 26, cy - 30, 52, 60);
+          seg(c, x0 - 22, cy - 12, x0 + 22, cy - 12, '#26313D', 3); seg(c, x0 - 12, cy + 4, x0 + 12, cy + 4, '#26313D', 6);
+          txt(c, '+', x0 - 40, cy - 6, {bold:true, color:PAL[4]}); txt(c, '−', x0 - 40, cy + 16, {bold:true, color:PAL[0]});
+          tfit(c, V + ' V', x0 + 30, cy + 6, {color:'#4A5868'});
+          // 스위치 (아래 전선)
+          var sx = x0 + (x1 - x0) * 0.3; c.fillStyle = '#FFFFFF'; c.fillRect(sx - 22, y1 - 6, 44, 12); c.beginPath(); c.arc(sx - 18, y1, 4, 0, Math.PI * 2); c.arc(sx + 18, y1, 4, 0, Math.PI * 2); c.fillStyle = '#26313D'; c.fill();
+          if (sw) seg(c, sx - 18, y1, sx + 18, y1, '#26313D', 3); else seg(c, sx - 18, y1, sx + 14, y1 - 18, '#26313D', 3);
+          tfit(c, '스위치', sx, y1 + 28, {align:'center', color:'#4A5868'});
+          // 위 전선: 저항 또는 다이오드
+          var tx = cx;
+          if (p.k <= 1){ c.fillStyle = '#FFFFFF'; c.fillRect(tx - 34, y0 - 12, 68, 24); resistor(c, tx, y0, 60, true); tfit(c, '저항 100 Ω' + (p.k === 1 && p.d === 1 ? ' (돌림)' : ''), tx, y0 - 18, {align:'center', color:'#4A5868'}); }
+          if (p.k === 3){ c.fillStyle = '#FFFFFF'; c.fillRect(tx - 28, y0 - 18, 56, 36); c.save(); c.translate(tx, y0); c.rotate(-Math.PI / 2); diodeSym(c, 0, 0, 12, p.d !== 1, false, false); c.restore(); tfit(c, '다이오드 (띠 = −극)', tx, y0 - 22, {align:'center', color:'#4A5868'}); }
+          // 오른쪽 전선: LED 또는 전구
+          var ry = cy;
+          c.fillStyle = '#FFFFFF'; c.fillRect(x1 - 30, ry - 34, 60, 68);
+          if (p.k <= 1){ var fwd = p.k === 1 || p.d === 0; if (lit) glow(c, x1, ry, 46 * Math.min(1.5, 0.5 + q.bright), 'rgba(255,75,62,.9)', 0.8); diodeSym(c, x1, ry, 14, fwd, true, lit);
+            tfit(c, fwd ? '긴 다리(+)가 위 = + 쪽' : '긴 다리(+)가 아래 = − 쪽', x1 - 40, ry - 40, {align:'right', color:fwd ? PAL[1] : PAL[4], max:x1 - 50}); }
+          else bulb(c, x1, ry, lit ? q.bright : 0);
+          // 전류 점
+          if (r && r.on){ var per = 2 * (x1 - x0) + 2 * (y1 - y0), sp = Math.min(3, 0.6 + q.I * (p.k >= 2 ? 4 : 60)), n = 14;
+            for (var i = 0; i < n; i++){ var d = ((i / n + tau * sp) % 1) * per, px, py;
+              var a1 = (cy - 30 - y0), a2 = a1 + (x1 - x0), a3 = a2 + (y1 - y0), a4 = a3 + (x1 - x0);
+              if (d < a1){ px = x0; py = cy - 30 - d; } else if (d < a2){ px = x0 + d - a1; py = y0; } else if (d < a3){ px = x1; py = y0 + d - a2; } else if (d < a4){ px = x1 - (d - a3); py = y1; } else { continue; }
+              c.fillStyle = '#F2B544'; c.beginPath(); c.arc(px, py, 4, 0, Math.PI * 2); c.fill(); } }
+          if (r && tau >= 1){
+            tfit(c, r.on ? (p.k === 2 || p.k === 3 ? '전구 켜짐' : 'LED 켜짐') + ' · 전류 ' + ma(r.I) : (p.k === 3 ? '전구 꺼짐' : 'LED 꺼짐') + ' · 전류 0', 16, H - 34, {bold:true, color:r.on ? PAL[1] : PAL[4]});
+            if (r.warn) tfit(c, '⚠ ' + r.warn, 16, H - 10, {color:PAL[4]}); else if (!r.on) tfit(c, r.note, 16, H - 10, {color:'#4A5868'});
+          }
+        },
+        stats: function(p, r){
+          var V = BV[p.b].v, k = K[p.k], vtxt = p.k <= 1 ? (r.on ? 'LED 약 2 V · 저항 ' + (V - VLED).toFixed(1) + ' V' : 'LED에 거꾸로 ' + V + ' V') : p.k === 2 ? '전구 ' + V + ' V' : (r.on ? '다이오드 약 0.7 V · 전구 ' + r.vbulb.toFixed(1) + ' V' : '다이오드에 거꾸로 ' + V + ' V');
+          var interp = !r.on ? '방향 하나 때문에 꺼졌어요. 건전지를 더 넣어도 거꾸로 꽂힌 ' + (p.k === 0 ? 'LED' : '다이오드') + '로는 전류가 흐르지 않아요 — 돌려 꽂으면 켜져요' :
+            p.k === 1 || p.k === 2 ? '극성이 없는 부품이라 방향을 바꿔도 똑같이 동작해요' :
+            r.warn ? '켜지긴 하지만 전류가 너무 세요 — 건전지는 많을수록 좋은 게 아니에요' : p.k === 3 ? '다이오드가 약 0.7 V를 써서 전구가 조금 덜 밝아요. 한 방향으로만 흐르니 건전지를 거꾸로 넣으면 막아 줘요' : '긴 다리가 + 쪽이라 켜졌어요. 저항이 전류를 알맞게 줄여 LED를 보호해요';
+          return [['부품 · 방향', k.n + ' · ' + DS[p.d]], ['건전지', BV[p.b].n], ['결과', r.on ? '켜짐' : '꺼짐', r.on ? PAL[1] : PAL[4]],
+            ['흐르는 전류 (단순 계산)', r.on ? ma(r.I) : '0 (거의 흐르지 않음)'], ['부품에 걸린 전압', vtxt], ['극성이 있나', k.pol ? '있음' : '없음'],
+            ['해석', interp + (r.warn ? ' · ⚠ ' + r.warn : ''), PAL[3]]];
+        },
+        columns: ['부품', '방향', '건전지', '결과', '전류', '극성'],
+        record: function(p, r){ return {k:p.k, d:p.d, b:p.b, on:r.on, I:r.I, warn:!!r.warn}; },
+        row: function(d){ return [K[d.k].s, DS[d.d], BV[d.b].v + ' V', (d.on ? '켜짐' : '꺼짐') + (d.warn ? ' ⚠' : ''), d.on ? ma(d.I) : '0', K[d.k].pol ? '있음' : '없음']; },
+        verify: function(rec, box){
+          box.innerHTML = '<div class="vgrid">' +
+            card('부품 방향 바꿔 꽂기 표', '<div id="t6a"></div><p class="ask">어떤 부품이 방향에 따라 결과가 달라졌나요? 켜지지 않던 LED에 건전지를 더 넣었을 때와 LED를 돌려 꽂았을 때를 비교해, 무엇을 먼저 확인해야 하는지 말해 보세요.</p>') +
+            card('건전지 수와 전류 (켜졌을 때)', '<div id="t6b"></div><p class="ask">과제: 전기·전자 부품 다섯 가지를 골라 이름, 하는 일, 극성이 있는지를 표로 정리해 보세요. 그리고 "건전지를 거꾸로 넣어도 망가지지 않는 손전등" 회로를 부품 기호로 그려 보세요.</p>') + '</div>';
+          var rows = [];
+          K.forEach(function(k, i){ var cell = [0, 1].map(function(d){ var a = rec.filter(function(x){ return x.k === i && x.d === d; }); return a.length ? (a[a.length - 1].on ? '켜짐' : '꺼짐') : '(아직)'; });
+            if (cell[0] !== '(아직)' || cell[1] !== '(아직)') rows.push([k.s].concat(cell).concat([k.pol ? '있음' : '없음'])); });
+          $('t6a').innerHTML = tableHTML(['부품', '처음 방향', '반대로', '극성'], rows);
+          var seen = {}, it = [];
+          rec.forEach(function(d){ if (d.on) seen[d.k + '-' + d.b] = d; });
+          Object.keys(seen).sort().forEach(function(key){ var d = seen[key], isLed = d.k <= 1; it.push({label:K[d.k].s + ' · ' + BV[d.b].v + ' V', v:isLed ? d.I / 0.03 : d.I / 0.5, color:d.warn ? PAL[4] : PAL[1], text:ma(d.I) + (d.warn ? ' ⚠' : '')}); });
+          $('t6b').innerHTML = it.length ? hbars(it, 1) + '<p class="msg">막대 길이: LED는 30 mA, 전구는 0.5 A를 끝으로 둔 비교. ⚠ = 권장 범위를 넘음</p>' : '<p class="msg">켜진 경우가 쌓이면 나와요.</p>';
+        }
+      };
+    })();
+
+/* ================= 엔진 ================= */
+var p = {}, running = false, result = null, records = [];
+var scene = $('scene'), runBtn = $('runBtn'), recBtn = document.createElement('button'), clearBtn = $('clearBtn');
+
+function sizeScene(){ var _w = scene.clientWidth, _k = window.fxZoom ? window.fxZoom(_w) : 1;
+  scene.style.height = Math.round((typeof LAB.sceneHeight === 'function' ? LAB.sceneHeight(_w / _k) : LAB.sceneHeight) * _k) + 'px'; }
+function draw(r, tau){ var o = fitCanvas(scene); if (!o.W) return; o.c.clearRect(0, 0, o.W, o.H); LAB.draw(o.c, o.W, o.H, p, r, tau); }
+function paintSlider(el){ el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); }
+
+function buildControls(){
+  var box = $('controls');
+  LAB.params.forEach(function(q){
+    p[q.key] = q.value;
+    var wrap = document.createElement('div'); wrap.className = 'ctrl';
+    if (q.type === 'range'){
+      wrap.innerHTML = '<div class="row"><label for="r_' + q.key + '">' + q.label + '</label><span class="val" id="v_' + q.key + '"></span></div>' +
+        '<input type="range" id="r_' + q.key + '" min="' + q.min + '" max="' + q.max + '" step="' + q.step + '" value="' + q.value + '">';
+      box.appendChild(wrap);
+      var el = $('r_' + q.key);
+      el.addEventListener('input', function(){ p[q.key] = parseFloat(el.value); onParamChange(); });
+    } else {
+      wrap.innerHTML = '<div class="row"><span>' + q.label + '</span></div><div class="seg' + (q.cols ? ' c' + q.cols : '') + '" id="seg_' + q.key + '"></div>' +
+        (q.note ? '<p class="note">' + q.note + '</p>' : '');
+      box.appendChild(wrap);
+      var sb = $('seg_' + q.key);
+      q.options.forEach(function(html, i){
+        var b = document.createElement('button'); b.type = 'button'; b.innerHTML = html;
+        b.setAttribute('aria-pressed', i === q.value ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          if (running) return;
+          p[q.key] = i;
+          Array.prototype.forEach.call(sb.children, function(x, j){ x.setAttribute('aria-pressed', j === i ? 'true' : 'false'); });
+          onParamChange();
+        });
+        sb.appendChild(b);
+      });
+    }
+  });
+}
+function syncLabels(){
+  LAB.params.forEach(function(q){ if (q.type === 'range'){ $('v_' + q.key).textContent = q.fmt(p[q.key]); paintSlider($('r_' + q.key)); } });
+}
+function lockControls(on){
+  Array.prototype.forEach.call($('controls').querySelectorAll('input,button'), function(el){ el.disabled = on; });
+  runBtn.disabled = on;
+  clearBtn.disabled = on || records.length === 0;
+}
+function showIdle(){ $('result').innerHTML = '<p class="msg">' + LAB.idle + '</p>'; }
+function onParamChange(){ result = null; recBtn.disabled = true; syncLabels(); draw(null, 0); showIdle(); }
+function showStats(r){
+  $('result').innerHTML = '<dl class="stats">' + LAB.stats(p, r).map(function(s){
+    return '<div' + (s[2] ? ' style="border-color:' + s[2] + '"' : '') + '><dt>' + s[0] + '</dt><dd>' + s[1] + '</dd></div>';
+  }).join('') + '</dl>';
+}
+
+runBtn.addEventListener('click', function(){
+  scene.scrollIntoView({behavior:'smooth', block:'center'});
+  if (running) return;
+  var r = LAB.compute(p);
+  result = null; recBtn.disabled = true;
+  if (r.fail){ draw(null, 0); $('result').innerHTML = '<p class="msg stop">' + r.fail + '</p>'; return; }
+  running = true; lockControls(true);
+  $('result').innerHTML = '<p class="msg">진행 중…</p>';
+  setTimeout(function(){
+    var t0 = performance.now();
+    function step(now){
+      var tau = Math.max(0, Math.min((now - t0) / ANIM_MS, 1));
+      draw(r, tau);
+      if (tau < 1) requestAnimationFrame(step); else finish(r);
+    }
+    requestAnimationFrame(step);
+  }, 300);
+});
+function finish(r){ running = false; result = r; lockControls(false); showStats(r); autoRecord(); }
+function autoRecord(){ /* 측정이 끝나면 바로 기록 (기록 버튼 제거) */
+  if (!result) return;
+  var d = LAB.record(p, result);
+  (Array.isArray(d) ? d : [d]).forEach(function(x){ x._no = records.length + 1; records.push(x); });
+  renderTable();
+  if (!autoRecord.nudged && records.length >= (LAB.minRec || 4)) { autoRecord.nudged = true; nudgeVerify(); }
+}
+function nudgeVerify(){ /* 기록이 분석에 필요한 만큼 모이면 데이터 검증으로 가자고 알린다 */
+  var res = $('result'), tv = $('tab-verify'); if (!res || !tv) return;
+  var d = document.createElement('p'); d.className = 'msg';
+  d.innerHTML = '기록이 ' + records.length + '개 모였어요. 이제 결과를 분석해 볼까요? <button type="button" class="btn" style="margin-top:.5rem">데이터 검증 보기 →</button>';
+  d.querySelector('button').addEventListener('click', function(){ tv.click(); tv.scrollIntoView({behavior:'smooth', block:'start'}); });
+  res.appendChild(d);
+}
+
+clearBtn.addEventListener('click', function(){
+  if (!records.length || !confirm('기록한 데이터를 모두 지울까요?')) return;
+  records = []; renderTable();
+});
+function renderTable(){
+  var body = $('recBody');
+  $('recCount').textContent = records.length ? '(' + records.length + '개)' : '';
+  clearBtn.disabled = running || records.length === 0;
+  if (!records.length){
+    body.innerHTML = '<tr class="empty"><td colspan="' + (LAB.columns.length + 1) + '">아직 기록이 없어요. 실행하면 여기에 자동으로 쌓입니다.</td></tr>';
+    return;
+  }
+  body.innerHTML = records.map(function(d){
+    return '<tr><td>' + d._no + '</td>' + LAB.row(d).map(function(x){ return '<td>' + x + '</td>'; }).join('') + '</tr>';
+  }).join('');
+  var wrap = body.closest('.tablewrap'); wrap.scrollTop = wrap.scrollHeight;
+}
+function renderVerify(){
+  var box = $('verifyBody'), need = LAB.minRec || 4;
+  if (records.length < need){
+    box.innerHTML = '<div class="card shortage"><strong>데이터 부족</strong>분석하려면 기록이 ' + need + '개 이상 필요해요. 지금 ' + records.length + '개입니다. ' + LAB.shortHint + '</div>';
+    return;
+  }
+  LAB.verify(records, box);
+}
+function redrawExplore(){ if (running) return; sizeScene(); draw(result, result ? 1 : 0); }
+
+var tabs = [$('tab-explore'), $('tab-verify')], panels = [$('panel-explore'), $('panel-verify')];
+tabs.forEach(function(t, i){
+  t.addEventListener('click', function(){
+    tabs.forEach(function(x, j){ x.setAttribute('aria-selected', i === j ? 'true' : 'false'); });
+    panels.forEach(function(pn, j){ pn.hidden = i !== j; });
+    if (i === 1) renderVerify(); else redrawExplore();
+  });
+});
+var rt, lastW = window.innerWidth;
+window.addEventListener('resize', function(){
+  // 폭이 그대로면(사이트가 iframe 높이를 맞추거나 휴대폰 주소창이 접힐 때) 다시 그리지 않는다 —
+  // 다시 그리면 높이가 또 바뀌어 검증 화면이 계속 흔들리고 그래프·CSV 버튼이 깜빡였다
+  if (window.innerWidth === lastW) return;
+  lastW = window.innerWidth;
+  clearTimeout(rt);
+  rt = setTimeout(function(){ if (!panels[1].hidden) renderVerify(); else redrawExplore(); }, 120);
+});
+
+$('recHead').innerHTML = '<th>번호</th>' + LAB.columns.map(function(h){ return '<th>' + h + '</th>'; }).join('');
+buildControls(); syncLabels(); renderTable(); showIdle(); sizeScene(); draw(null, 0);
+})();
+</script>
+<script id="fxPrincipleJs">
+(function(){
+  var panel=document.getElementById('fxPrinciple'); if(!panel) return;
+  var tabs=document.querySelector('.tabs'); if(!tabs) return;
+  var first=tabs.querySelector('button'); if(!first) return;
+  var m=first.className.match(/\b(active|on|is-active|selected|current)\b/);
+  var actCls=m?m[1]:'active';
+  var btn=document.createElement('button');
+  btn.type='button'; btn.id='fxPrincipleBtn';
+  btn.className=first.className.replace(/\b(active|on|is-active|selected|current)\b/g,'').replace(/\s+/g,' ').trim();
+  if(first.getAttribute('role')) btn.setAttribute('role','tab');
+  if(first.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  btn.setAttribute('aria-controls','fxPrinciple');
+  btn.textContent='\uD83D\uDCD6 기술 원리';
+  tabs.appendChild(btn);
+  var bar=tabs;
+  while(bar.parentElement && bar.parentElement!==document.body && bar.parentElement.children.length<=2) bar=bar.parentElement;
+  bar.insertAdjacentElement('afterend', panel);
+  var hidden=[];
+  function open(){
+    hidden=[]; var el=panel.nextElementSibling;
+    while(el){
+      var cls=el.className||''; if(typeof cls!=='string') cls='';
+      if(!/^(SCRIPT|STYLE|FOOTER|TEMPLATE)$/.test(el.tagName) && !/\b(zl-nudge|toast|popup|mini-toast)\b/.test(cls) && getComputedStyle(el).position!=='fixed'){
+        el.classList.add('fx-hide'); hidden.push(el);
+      }
+      el=el.nextElementSibling;
+    }
+    panel.classList.add('fx-open'); panel.removeAttribute('hidden');
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'),function(b){ b.classList.remove(actCls); if(b.hasAttribute('aria-selected')) b.setAttribute('aria-selected','false'); });
+    btn.classList.add(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','true');
+    var y=tabs.getBoundingClientRect().top+window.pageYOffset-12; if(window.pageYOffset>y) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+  }
+  function close(){
+    hidden.forEach(function(el){ el.classList.remove('fx-hide'); }); hidden=[];
+    panel.classList.remove('fx-open'); panel.setAttribute('hidden','');
+    btn.classList.remove(actCls); if(btn.hasAttribute('aria-selected')) btn.setAttribute('aria-selected','false');
+  }
+  btn.addEventListener('click',function(e){ e.stopImmediatePropagation(); e.preventDefault(); if(!panel.classList.contains('fx-open')) open(); },true);
+  document.addEventListener('click',function(e){
+    if(!panel.classList.contains('fx-open')) return;
+    var t=e.target; if(!t || t===btn || btn.contains(t)) return;
+    if(tabs.contains(t)) close();
+  },true);
+})();
+</script>
+<!-- fxNoteLink:start -->
+<style>
+.fx-note-cta{margin-top:18px;padding:16px 18px;border-radius:14px;background:#fff8ee;border:1px dashed #d98e3b;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:.98rem;line-height:1.6}
+.fx-note-cta a{display:inline-block;background:#173238;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:10px;white-space:nowrap}
+.fx-note-cta a:hover{filter:brightness(1.15)}
+</style>
+<script>
+(function(){
+  var href='../notes/midTech/06_led_polarity_circuit_lab_MidTech_Ep06.html';
+  var ok=function(el){ return el && !/^(BUTTON|A|INPUT|NAV)$/.test(el.tagName) ? el : null; };
+  var host=ok(document.getElementById('validationContent'))||ok(document.getElementById('verifyContent'))||ok(document.getElementById('verifyTab'))
+    ||ok(document.getElementById('panel-verify'))||ok(document.getElementById('panel-validate'))||ok(document.getElementById('verifyBody'))
+    ||ok(document.querySelector('#tab-validate .card, #tab-validate, #tab-verify .card, #tab-verify'))
+    ||ok(document.querySelector('section#verify, section#validate, #verify.panel, #validate.panel'))
+    ||ok(document.querySelector('#paneB .card, #paneB'))
+    ||ok(document.querySelector('#panelB .card, #panelB'))
+    ||ok(document.querySelector('.app, main, .wrap'))||document.body;
+  if(host){
+    var d=document.createElement('div'); d.className='fx-note-cta';
+    d.innerHTML='<div>📝 실험을 마쳤다면 <b>자습 노트</b>에서 실험에서 본 현상을 원리로 정리해 보세요.</div><a href="'+href+'">자습 노트 열기 →</a>';
+    host.appendChild(d);
+  }
+})();
+</script>
+<!-- fxNoteLink:end -->
+<!-- fxTabbar:start --><script src="/fesicsExternal/fxtabbar.js?v=21bd71b0c705" defer></script><!-- fxTabbar:end --><!-- fxSceneTip:start --><script src="/fesicsExternal/fxscenetip.js?v=94d856087dbb" defer></script><!-- fxSceneTip:end --><script src="/fesicsExternal/embed-resize.js?v=f684373c431c"></script>
+</body>
+</html>
