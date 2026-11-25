@@ -539,19 +539,32 @@
   // 슬라이더 이름과 측정값 이름을 읽어 "A를 크게 하면 B는 ~" 문장을 짓는다.
   // 실험마다 화면 구조가 달라서 여러 방법으로 이름을 찾아본다. (261121)
   var SKIP_CTRL = /속도|배속|빠르기|확대|축소|줌|zoom|크게 보기|시간 흐름|재생|투명|밝기 조절/i;
+  // 결과 이름으로 쓰면 말이 안 되는 표 머리글 (261125)
+  var SKIP_RESULT = /^(번호|순서|회차|횟수|차례|이름|사람|구분|비고|항목|기록|측정한 사람|손)$/;
+  // '크게 하면' 이 어울리지 않는 고르기식 조작 — 두루뭉술한 문장으로 내려간다 (261125)
+  var SKIP_PICK = /고르|고를|선택|어느|무엇|누구|할까|볼까|같나|맞나|방식|방법|방향|대안|대상|종류|모드|부호|모양|상태|조건|자리|같음|같은|관계/;
+  // 이름 안에 기호가 남아 있으면 말이 어색해진다 (261125)
+  var BAD_CHAR = /[()[\]{}<>=×÷±→—–/\\|:：]/;
+  // 결과 이름 자리에 들어온 '문장' (261125)
+  var SENTENCE = /(해요|어요|아요|예요|네요|이다|습니다|겠다|인가|은가|는가)$/;
 
   function tidyName(t) {
     t = (t || '').replace(/\s+/g, ' ').trim();
     t = t.replace(/^[0-9.\-+]+\s*/, '');
-    t = t.replace(/[:：]\s*$/, '');
-    t = t.replace(/[-+]?[0-9][0-9.,]*\s*[^\s]{0,4}$/, '').trim();   // 끝에 붙은 값·단위
-    t = t.replace(/\([^)]*\)\s*$/, '').trim();                      // 끝에 붙은 괄호
-    t = t.replace(/[.,·:：]+$/, '').trim();
+    // 끝에 붙은 값·단위·괄호·줄표를 더 남지 않을 때까지 떼어 낸다 (261125)
+    for (var n = 0; n < 4; n++) {
+      var before = t;
+      t = t.replace(/[-+]?[0-9][0-9.,]*\s*[^\s]{0,4}$/, '').trim();   // 끝에 붙은 값·단위
+      t = t.replace(/\([^()]*\)\s*$/, '').trim();                     // 끝에 붙은 괄호
+      t = t.replace(/[.,·:：=~\-–—]+$/, '').trim();                    // 끝에 붙은 문장 부호·줄표
+      if (t === before) break;
+    }
     return t;
   }
   function isName(t) {
     return !!t && t.length >= 2 && t.length <= 14 && /[가-힣]/.test(t) &&
-           !/^[0-9]/.test(t) && !SKIP_CTRL.test(t);
+           !/^[0-9]/.test(t) && !SKIP_CTRL.test(t) && !BAD_CHAR.test(t) &&
+           !/(^|\s)[a-zA-Z]\s/.test(t);        // 'a 의 x' 처럼 기호가 섞여 끊긴 이름
   }
   function nodeName(node, skipEl) {
     if (!node || node.nodeType !== 1) return '';
@@ -580,16 +593,37 @@
     while (prev) { t = nodeName(prev); if (isName(t)) return t; prev = prev.previousElementSibling; }
     return '';
   }
+  // 조작하는 칸(슬라이더·고르기)의 이름들 — 이것들은 '결과'가 아니다 (261125)
+  function controlNames() {
+    var out = [];
+    var ctrls = document.querySelectorAll('input[type=range], select');
+    for (var i = 0; i < ctrls.length; i++) {
+      if (isOurs(ctrls[i])) continue;
+      var n = sliderName(ctrls[i]);
+      if (n) out.push(n);
+    }
+    return out;
+  }
+  function clashes(t, list) {
+    for (var i = 0; i < list.length; i++) {
+      if (t === list[i] || t.indexOf(list[i]) >= 0 || list[i].indexOf(t) >= 0) return true;
+    }
+    return false;
+  }
   function resultName(avoid) {
+    // 결과는 읽은 값이 적히는 자리에서만 찾는다. 표 머리글은 조작 칸 이름이 섞여 있어 쓰지 않는다.
     var sels = ['.readout span', '[class*=readout] span', '.analysis-card span', '[class*=analysis] span',
-                '[class*=stat] span', '[class*=result] span', '.measure span', '[class*=measure] span',
-                'dt', 'thead th'];
+                '[class*=stat] span', '[class*=result] span', '.measure span', '[class*=measure] span', 'dt'];
+    var ctrl = controlNames();
     for (var i = 0; i < sels.length; i++) {
       var list = document.querySelectorAll(sels[i]);
       for (var k = 0; k < list.length; k++) {
         if (isOurs(list[k])) continue;
         var t = tidyName(list[k].textContent);
-        if (isName(t) && t !== avoid && t.indexOf(avoid) < 0 && avoid.indexOf(t) < 0) return t;
+        if (!isName(t) || SKIP_RESULT.test(t) || SKIP_PICK.test(t) || SENTENCE.test(t)) continue;
+        if (t === avoid || t.indexOf(avoid) >= 0 || avoid.indexOf(t) >= 0) continue;
+        if (clashes(t, ctrl)) continue;
+        return t;
       }
     }
     return '';
@@ -605,11 +639,16 @@
       var rs = Array.prototype.filter.call(document.querySelectorAll('input[type=range]'),
         function (e) { return !isOurs(e); });
       var A = '';
-      for (var i = 0; i < rs.length && !A; i++) A = sliderName(rs[i]);
-      if (!A) return null;
-      var B = resultName(A);
-      if (!B) return null;
-      var head = A + josa(A, '을', '를') + ' 크게 하면 ' + B + josa(B, '은', '는') + ' ';
+      for (var i = 0; i < rs.length && !A; i++) {
+        var nm = sliderName(rs[i]);
+        if (nm && !SKIP_PICK.test(nm)) A = nm;     // 고르기식 조작은 건너뛴다
+      }
+      var B = A ? resultName(A) : '';
+      // 이름을 못 찾아도 빈 칸으로 두지 않는다 — 점점 두루뭉술한 문장으로 내려간다 (261125)
+      var head;
+      if (A && B) head = A + josa(A, '을', '를') + ' 크게 하면 ' + B + josa(B, '은', '는') + ' ';
+      else if (A) head = A + josa(A, '을', '를') + ' 크게 하면 결과도 ';
+      else head = '값을 크게 하면 결과도 ';
       return { a: A, b: B, list: [head + '커질 것 같아요', head + '작아질 것 같아요', head + '그대로일 것 같아요'] };
     } catch (e) { return null; }
   }
