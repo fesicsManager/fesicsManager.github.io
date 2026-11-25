@@ -542,29 +542,35 @@
   // 결과 이름으로 쓰면 말이 안 되는 표 머리글 (261125)
   var SKIP_RESULT = /^(번호|순서|회차|횟수|차례|이름|사람|구분|비고|항목|기록|측정한 사람|손)$/;
   // '크게 하면' 이 어울리지 않는 고르기식 조작 — 두루뭉술한 문장으로 내려간다 (261125)
-  var SKIP_PICK = /고르|고를|선택|어느|무엇|누구|할까|볼까|같나|맞나|방식|방법|방향|대안|대상|종류|모드|부호|모양|상태|조건|자리|같음|같은|관계/;
+  var SKIP_PICK = /고르|고를|선택|어느|무엇|누구|까(\s|$)|쓰면/;
+  // '~는 커질 것 같아요' 의 주어로 쓰면 말이 안 되는 결과 이름 (261125)
+  var SKIP_B = /같나|맞나|같음|같은|없음|있음|아니오|방식|방법|방향|대안|대상|종류|모드|부호|모양|상태|조건|자리|관계/;
   // 이름 안에 기호가 남아 있으면 말이 어색해진다 (261125)
-  var BAD_CHAR = /[()[\]{}<>=×÷±→—–/\\|:：]/;
+  var BAD_CHAR = /[()[\]{}<>=×÷±←→∠√$—–−○●△□▲■/\\|:：⁰-₟①-⑳]/;
   // 결과 이름 자리에 들어온 '문장' (261125)
-  var SENTENCE = /(해요|어요|아요|예요|네요|이다|습니다|겠다|인가|은가|는가)$/;
+  var SENTENCE = /(세요|보자|봅시다|이면|으면|려면|해요|어요|아요|예요|네요|이다|습니다|겠다|인가|은가|는가)$/;
 
   function tidyName(t) {
     t = (t || '').replace(/\s+/g, ' ').trim();
     t = t.replace(/^[0-9.\-+]+\s*/, '');
-    // 끝에 붙은 값·단위·괄호·줄표를 더 남지 않을 때까지 떼어 낸다 (261125)
+    // 괄호로 묶인 덧붙임은 어디에 있든 뺀다 — '위 선(바깥 꼬리) 길이' → '위 선 길이'
+    for (var p = 0; p < 3 && /\([^()]*\)/.test(t); p++) t = t.replace(/\([^()]*\)/g, ' ');
+    t = t.replace(/\s+/g, ' ').trim();
+    // 끝에 붙은 값·단위·줄표를 더 남지 않을 때까지 떼어 낸다 (261125)
     for (var n = 0; n < 4; n++) {
       var before = t;
       t = t.replace(/[-+]?[0-9][0-9.,]*\s*[^\s]{0,4}$/, '').trim();   // 끝에 붙은 값·단위
-      t = t.replace(/\([^()]*\)\s*$/, '').trim();                     // 끝에 붙은 괄호
       t = t.replace(/[.,·:：=~\-–—]+$/, '').trim();                    // 끝에 붙은 문장 부호·줄표
       if (t === before) break;
     }
     return t;
   }
   function isName(t) {
-    return !!t && t.length >= 2 && t.length <= 14 && /[가-힣]/.test(t) &&
+    return !!t && t.length >= 2 && t.length <= 16 && /[가-힣]/.test(t) &&
            !/^[0-9]/.test(t) && !SKIP_CTRL.test(t) && !BAD_CHAR.test(t) &&
-           !/(^|\s)[a-zA-Z]\s/.test(t);        // 'a 의 x' 처럼 기호가 섞여 끊긴 이름
+           !/[a-zA-Z]\s*의(\s|$)/.test(t) &&   // 'a 의 x' 처럼 기호가 섞여 끊긴 이름
+           !/^(에서|에게|으로|부터|까지)/.test(t) &&  // 조사로 시작 = 앞이 잘린 이름
+           !/^[a-zA-Z]\s/.test(t);            // 'x 에 넣을 값' 처럼 수식에서 잘린 이름
   }
   function nodeName(node, skipEl) {
     if (!node || node.nodeType !== 1) return '';
@@ -620,7 +626,7 @@
       for (var k = 0; k < list.length; k++) {
         if (isOurs(list[k])) continue;
         var t = tidyName(list[k].textContent);
-        if (!isName(t) || SKIP_RESULT.test(t) || SKIP_PICK.test(t) || SENTENCE.test(t)) continue;
+        if (!isName(t) || SKIP_RESULT.test(t) || SKIP_PICK.test(t) || SKIP_B.test(t) || SENTENCE.test(t)) continue;
         if (t === avoid || t.indexOf(avoid) >= 0 || avoid.indexOf(t) >= 0) continue;
         if (clashes(t, ctrl)) continue;
         return t;
@@ -645,11 +651,19 @@
       }
       var B = A ? resultName(A) : '';
       // 이름을 못 찾아도 빈 칸으로 두지 않는다 — 점점 두루뭉술한 문장으로 내려간다 (261125)
-      var head;
+      var head, tails = ['커질 것 같아요', '작아질 것 같아요', '그대로일 것 같아요'];
       if (A && B) head = A + josa(A, '을', '를') + ' 크게 하면 ' + B + josa(B, '은', '는') + ' ';
       else if (A) head = A + josa(A, '을', '를') + ' 크게 하면 결과도 ';
-      else head = '값을 크게 하면 결과도 ';
-      return { a: A, b: B, list: [head + '커질 것 같아요', head + '작아질 것 같아요', head + '그대로일 것 같아요'] };
+      else if (rs.length) head = '값을 크게 하면 결과도 ';
+      else {
+        // 슬라이더가 없는 실험 — '크게 한다'는 말이 안 맞는다
+        head = '바꿔 보면 결과가 ';
+        tails = ['달라질 것 같아요', '비슷할 것 같아요', '반대가 될 것 같아요'];
+      }
+      return {
+        a: A, b: B, tails: tails,
+        list: [head + tails[0], head + tails[1], head + tails[2]]
+      };
     } catch (e) { return null; }
   }
 
@@ -678,7 +692,7 @@
     if (idea) {
       var chips = el('div', 'lk-row lk-chips');
       chips.appendChild(el('span', 'lk-chiplab', '이대로 저장해도 되고, 눌러서 바꿔도 돼요:'));
-      ['커질 것 같아요', '작아질 것 같아요', '그대로일 것 같아요'].forEach(function (nm, k) {
+      idea.tails.forEach(function (nm, k) {
         chips.appendChild(button(nm, 'lk-chip', function () {
           inp.value = idea.list[k];
           inp.focus();
