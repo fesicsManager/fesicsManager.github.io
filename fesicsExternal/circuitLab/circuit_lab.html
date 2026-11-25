@@ -192,6 +192,7 @@ input[type=number]{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15
   </main>
 </div>
 
+<script src="/fesicsExternal/labA11y.js?v=261125"></script>
 <script>
 /* ===========================================================
    회로 실험실 — 노드 해석(MNA)으로 직류 회로를 푼다.
@@ -988,6 +989,7 @@ function kbPut(){
   kb.ax = null; kb.ay = null;
   changed();
   say(eul(toolName(tool)) + ' 놓았어요.' + closedNote());
+  soundCurrent();
 }
 /* ---------- 회로가 어떻게 이어졌는지 글로 (261125, 18차 1순위) ----------
    그림만 보고는 알 수 없는 학생을 위해 — 전지 단자부터 만나는 부품 순서,
@@ -1092,9 +1094,25 @@ function wiringText(){
   }
   return out.join(' ') + endWord;
 }
+/* 전류를 소리 높낮이로 — 눈으로 숫자를 못 보는 학생이 '세졌다/약해졌다' 를 느끼게 (261125)
+   0 A 는 낮은 소리 두 번('없음'), 그 위로는 0~2 A 를 220~1200Hz 에 로그로 편다 */
+function soundCurrent(){
+  if (!window.FxA11y || !FxA11y.sound) return;
+  if (!kbClosed()){ FxA11y.none(); return; }
+  var I = 0;
+  try { I = Math.abs((lastRes && lastRes.ok && lastRes.maxI) || 0); } catch (e) {}
+  if (!I){
+    var t = (document.getElementById('roI') || {}).textContent || '';
+    var num = parseFloat(t);
+    if (isFinite(num)) I = num * (/mA/.test(t) ? 1e-3 : (/µA/.test(t) ? 1e-6 : 1));
+  }
+  if (!isFinite(I) || I <= 0){ FxA11y.none(); return; }
+  FxA11y.tone(Math.log10(Math.max(1e-5, Math.min(2, I))), -5, Math.log10(2), 220);
+}
 function readSummary(){
   /* 화면이 가려져 그리기가 멈춘 동안에도 읽어 주는 값은 지금 값이어야 한다 */
   try { updateReadouts(); } catch (e) {}
+  soundCurrent();
   if (!kbClosed()) return '회로가 열려 있어 전류가 흐르지 않아요.';
   var i = document.getElementById('roI'), v = document.getElementById('roV');
   if (!i || !v) return '';
@@ -1115,7 +1133,9 @@ cv.addEventListener('focus', function(){
       '. 나갈 때는 탭, 전체 키는 아래 키보드 도움말에 있어요.');
 });
 cv.addEventListener('keydown', function(ev){
-  var k = ev.key, step = ev.shiftKey ? 5 : 1;
+  /* 학생이 바꾼 키를 본디 키로 되돌려 받는다 (261125) */
+  var k = (window.FxA11y ? FxA11y.map(ev.key) : ev.key), step = ev.shiftKey ? 5 : 1;
+  if (k === null) return;
   /* 키를 꾹 눌러 생긴 반복 입력이 끝점으로 처리되지 않게 (261125) */
   if (ev.repeat && (k === ' ' || k === 'Enter' || k === 'Delete' || k === 'Backspace')){
     ev.preventDefault(); return;
@@ -1135,7 +1155,7 @@ cv.addEventListener('keydown', function(ev){
     var hit = elAt({x:kb.x, y:kb.y});
     if (hit){ snapshot(); var nmz = hit.type === 'wire' ? '선' : toolName(hit.type);
               els = els.filter(function(e){ return e !== hit; }); selId = null; changed();
-              say(eul(nmz) + ' 지웠어요.' + closedNote()); }
+              say(eul(nmz) + ' 지웠어요.' + closedNote()); soundCurrent(); }
     else say('여기엔 지울 것이 없어요.');
   }
   else if (k === '?' || k === '/') say('가로 ' + kb.x + ', 세로 ' + kb.y + ' — ' +
@@ -1741,6 +1761,18 @@ document.getElementById('btnSayVal').onclick  = function(){ say(readSummary()); 
 (function(){
   var d = document.getElementById('kbwrap');
   if (d && window.innerWidth > 640) d.open = true;
+  if (window.FxA11y) FxA11y.setup({
+    lab: 'circuit',
+    into: '.kbnow',
+    canvas: '#board', canvasTone: 'light',
+    actions: [
+      {name:'시작점·끝점 찍기', key:' '},
+      {name:'시작점 취소',      key:'Escape'},
+      {name:'그 자리 지우기',   key:'Delete'},
+      {name:'지금 자리와 값 읽기', key:'?'},
+      {name:'연결 상태 읽기',   key:'c'}
+    ]
+  });
 })();
 document.getElementById('btnClear').onclick = function(){
   if (!els.length) return;

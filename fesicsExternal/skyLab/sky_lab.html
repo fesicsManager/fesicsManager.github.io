@@ -68,6 +68,9 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
   border-bottom-width:2px;border-radius:5px;padding:1px 5px;color:var(--ink);}
 /* 휴대폰에서는 자리만 차지한다 — 읽어 주는 장치에는 그대로 남긴다 */
 /* 좁은 화면에서도 단추는 보인다 — 확대해 쓰거나 키보드를 꽂아 쓰는 학생이 있다 (261125) */
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;}
+.kbnow{margin:7px 0 0;}
 .kbwrap{margin:8px 0 0;}
 .kbwrap>summary{display:inline-block;cursor:pointer;font-size:13px;color:var(--ink-soft);
   background:#f6faf9;border:1px solid #c8d8d5;border-radius:999px;padding:4px 11px;list-style:none;}
@@ -101,6 +104,10 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
         막대를 움직이면 바뀐 고도·남중 고도·낮의 길이·해 뜨고 지는 때와 <b>방향</b>을
         아래 <b>해</b> 칸에서 바로 읽어 줍니다. 하늘 그림은 눈으로 보는 것이고,
         값은 모두 그 칸에 글로 적혀 있습니다.</p></details>
+      <details class="kbwrap" id="figwrap"><summary>하늘 그림을 글로 읽기</summary>
+        <p class="kbhelp" id="figText" role="status" aria-live="polite"></p></details>
+      <p class="kbnow"></p>
+      <p class="sr" id="say" role="status" aria-live="polite"></p>
       <div class="rowbtns">
         <button class="act" id="btnPlay" title="고른 날의 시각을 흘려 하루 동안 해와 별이 지나는 길을 보여 줘요.">하루 돌리기</button>
         <button class="act" id="btnYear" title="날짜를 하루씩 넘겨 한 해 동안 달라지는 모습을 보여 줘요.">한 해 돌리기</button>
@@ -161,6 +168,7 @@ input[type=range]{width:100%;accent-color:var(--brass);height:9px;}
   </main>
 </div>
 
+<script src="/fesicsExternal/labA11y.js?v=261125"></script>
 <script>
 /* ===========================================================
    하늘 실험실 — 해·달·별의 자리를 실제 천문 계산으로 구한다.
@@ -675,6 +683,57 @@ function azName(a){
   return names[Math.round(wrap360(a) / 45) % 8];
 }
 
+/* 하늘 그림을 글로 — 그림을 볼 수 없는 학생에게는 이것이 그림이다 (261125, 18차)
+   말하는 차례: 어디에서 보는가 → 언제인가 → 해가 지금 어디 있는가 →
+   오늘 해가 어떤 길을 지나는가 → 달 → 그림에 함께 그린 것 */
+function figureText(info, sa){
+  var box = document.getElementById('figText');
+  if (!box) return;
+  var ns = lat >= 0 ? '북위' : '남위';
+  var bits = [];
+  bits.push('보는 곳은 ' + ns + ' ' + Math.abs(lat).toFixed(1) + '도, 동경 ' + LON +
+            '도. 날짜는 ' + monthDay(day)[0] + '월 ' + monthDay(day)[1] + '일, 시각은 ' +
+            hhmm(minute) + ' 입니다.');
+  /* 그리는 자리를 그대로 적는다 — proj() 를 재어 보면 남이 위, 동이 왼쪽이다.
+     별자리 그림과 같은 방식(남쪽을 보고 서서 올려다본 모습)이라 동서가 뒤집힌다 */
+  bits.push('그림은 하늘을 둥근 지붕처럼 펴 놓은 것이고, 둘레의 원이 지평선, ' +
+            '가운데 위쪽이 머리 위입니다. 위쪽이 남, 아래쪽이 북, 왼쪽이 동, 오른쪽이 서입니다. ' +
+            '땅을 내려다본 지도가 아니라 하늘을 올려다본 모습이라, ' +
+            '지도와 견주면 동쪽과 서쪽이 뒤바뀐 것처럼 보입니다.');
+  if (sa.alt > 0)
+    bits.push('해는 지금 ' + azName(sa.az) + '쪽 하늘, 지평선에서 ' + sa.alt.toFixed(1) +
+              '도 높이에 떠 있습니다.');
+  else
+    bits.push('해는 지금 지평선 아래 ' + Math.abs(sa.alt).toFixed(1) + '도에 있어 보이지 않습니다. ' +
+              '방향으로는 ' + azName(sa.az) + '쪽입니다.');
+  var dm = info.dayMin;
+  if (dm >= 1439) bits.push('오늘은 해가 하루 내내 지지 않습니다(백야).');
+  else if (dm <= 1) bits.push('오늘은 해가 하루 내내 뜨지 않습니다(극야).');
+  else bits.push('오늘 해는 ' + hhmm(info.rise) + ' 에 ' + azName(info.riseAz) + '쪽에서 떠서, ' +
+                 hhmm(info.noonMin) + ' 에 가장 높은 ' + info.maxAlt.toFixed(1) + '도에 이르고, ' +
+                 hhmm(info.set) + ' 에 ' + azName(info.setAz) + '쪽으로 집니다. 낮의 길이는 ' +
+                 Math.floor(dm / 60) + '시간 ' + (dm % 60) + '분입니다. ' +
+                 '그림에서는 이 길이 ' + azName(info.riseAz) + '쪽 지평선에서 ' +
+                 azName(info.setAz) + '쪽 지평선까지 이어진 곡선으로 그려집니다.');
+  if (showMoon)
+    bits.push('달은 ' + phaseName(cur.elong, cur.k) + '이고 ' + Math.round(cur.k * 100) +
+              '퍼센트가 밝습니다. 지금 ' + azName(cur.ma.az) + '쪽' +
+              (cur.ma.alt > 0
+                ? ' 하늘, 지평선에서 ' + cur.ma.alt.toFixed(1) + '도 높이에 떠 있습니다.'
+                : ' 지평선 아래 ' + Math.abs(cur.ma.alt).toFixed(1) + '도에 있어 보이지 않습니다.'));
+  var extra = [];
+  if (showSeason) extra.push('봄·여름·가을·겨울에 해가 지나는 길 네 개');
+  if (showStars)  extra.push('별');
+  if (showTrail)  extra.push('별이 지나간 자리');
+  if (extra.length) bits.push('그림에는 ' + extra.join(', ') + '도 함께 그려져 있습니다.');
+  box.textContent = bits.join(' ');
+}
+/* 해의 고도를 소리 높낮이로 — 지평선 아래면 '없음' 소리 (261125) */
+function soundSky(sa){
+  if (!window.FxA11y || !FxA11y.sound) return;
+  if (sa.alt <= 0){ FxA11y.none(); return; }
+  FxA11y.tone(sa.alt, 0, 90, 180);
+}
 function updateReadouts(){
   var info = todayInfo(), sa = cur.sa;
   document.getElementById('roAlt').textContent = sa.alt.toFixed(1) + '°';
@@ -722,6 +781,9 @@ function updateReadouts(){
          남위 34°를 그대로 넣으면 124° 가 나왔다. 절댓값을 적는다 (261124) */
       '<br>하루 중 가장 높을 때 해의 고도는 <b>90° − |위도 − 태양 적위|</b> 입니다(북위 +, 남위 −). 태양 적위가 0° 일 때는 <b>90° − |위도|</b> 로 줄어듭니다. 교과서의 이 어림은 춘분·추분 날짜에도 적위가 0° 에서 조금 벗어나 있어 값이 조금 다를 수 있습니다.';
   }
+
+  figureText(info, sa);
+  soundSky(sa);
 
   var mc = document.getElementById('moonCard');
   mc.style.display = showMoon ? '' : 'none';
@@ -814,7 +876,10 @@ tog('btnTrail',  function(){ return showTrail; },  function(v){ showTrail = v; }
 tog('btnMoon',   function(){ return showMoon; },   function(v){ showMoon = v; });
 /* 넓은 화면에서는 도움말을 펴 둔다 (261125) */
 (function(){ var d = document.getElementById('kbwrap');
-  if (d && window.innerWidth > 640) d.open = true; })();
+  if (d && window.innerWidth > 640) d.open = true;
+  if (window.FxA11y) FxA11y.setup({ lab:'sky', into:'.kbnow', actions: [],
+    canvas:'#dome', canvasTone:'dark' });
+})();
 document.getElementById('btnPlay').onclick = function(){
   playDay = !playDay; playYear = false;
   this.classList.toggle('on', playDay);
