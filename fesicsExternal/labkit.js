@@ -892,6 +892,30 @@
   // 실험 그림과 조작부터 보이게 한다(휴대폰에서 들어가자마자 실험이 보이게, 261117).
   var COMPACT = /[?&]compact=1(&|$)/.test(location.search);
 
+  // 바깥 화면(홈페이지 체험)이 iframe 높이를 내용에 맞출 수 있게 문서 높이를 알린다.
+  // 안 알리면 iframe 안쪽과 바깥쪽이 따로 굴러 휴대폰에서 스크롤이 두 개가 된다 (261126 사용자 지적).
+  var lastHeight = 0;
+  function sendHeight() {
+    if (window.parent === window || !parentOrigin) return;
+    var d = document.documentElement;
+    var b = document.body;
+    var h = Math.max(d ? d.scrollHeight : 0, b ? b.scrollHeight : 0, d ? d.offsetHeight : 0);
+    if (!h || Math.abs(h - lastHeight) < 8) return;
+    lastHeight = h;
+    try { window.parent.postMessage({ src: 'fesics-lab', type: 'height', height: h }, parentOrigin); } catch (e) {}
+  }
+  function watchHeight() {
+    sendHeight();
+    window.addEventListener('load', sendHeight);
+    window.addEventListener('resize', sendHeight);
+    // 실험 그림·표가 늦게 잡히므로 한동안 지켜본다
+    if (window.ResizeObserver && document.body) {
+      try { new ResizeObserver(sendHeight).observe(document.body); } catch (e) {}
+    }
+    var n = 0;
+    var t = setInterval(function () { sendHeight(); if (++n > 40) clearInterval(t); }, 500);
+  }
+
   function hideHead() {
     var h1 = document.querySelector('h1');
     if (!h1 || h1.closest('#fxPrinciple')) return;
@@ -915,6 +939,7 @@
     if (COMPACT) {
       hideHead();
       watchTables();
+      watchHeight();
       return;
     }
     mountPoe();
