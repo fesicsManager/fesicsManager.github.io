@@ -35,6 +35,22 @@
   summary{font-size:13.5px;color:var(--teal);cursor:pointer;font-weight:700;}
   pre{white-space:pre-wrap;font-family:inherit;font-size:13.5px;background:#f6fbfc;
     border:1.5px solid #cfe4e7;border-radius:8px;padding:10px 12px;margin:8px 0 0;}
+  /* 발표 화면 — 교실 뒤에서도 읽히게 (261127, 24차) */
+  #show{position:fixed;inset:0;z-index:50;background:#fff;color:var(--ink);
+    padding:58px 28px 28px;overflow:auto;font-size:24px;line-height:1.5;}
+  #show .shBar{position:fixed;top:10px;right:14px;display:flex;gap:8px;}
+  #show .shBar button{font-size:15px;padding:6px 14px;}
+  #shBody{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;justify-content:center;}
+  .shCol{flex:1 1 340px;max-width:560px;border:2px solid #cfe0dd;border-radius:14px;padding:16px 18px;}
+  .shName{font-size:30px;font-weight:700;color:var(--teal);margin-bottom:6px;}
+  .shCond{font-size:20px;color:var(--soft);margin-bottom:10px;}
+  .shTab{font-size:24px;}
+  .shTab th{font-size:20px;text-align:right;width:46%;background:#f6fbfc;}
+  .shTab td{font-size:32px;font-weight:700;}
+  .shConcl{margin-top:12px;font-size:24px;}
+  #show.hideConcl .shConcl{visibility:hidden;}
+  #shAsk{max-width:1100px;margin:26px auto 0;font-size:28px;font-weight:700;
+    color:var(--teal);text-align:center;}
   @media print{
     body{background:#fff;padding:0;}
     .card{border:0;padding:0;}
@@ -64,13 +80,26 @@
     <h2 id="outTitle">펼친 결과</h2>
     <div id="tables"></div>
     <div class="btns">
-      <button type="button" id="bAnon">고른 것만 이름 없이 보기</button>
+      <button type="button" id="bAnon">고른 것만 발표 화면으로</button>
       <button type="button" class="plain" id="bPrint">인쇄하기</button>
     </div>
-    <div id="anon"></div>
+    <p class="hint"><label>교실에 함께 띄울 토론 질문(없어도 됩니다)
+      <input type="text" id="ask" style="width:100%;margin-top:4px;font-family:inherit;font-size:14px;
+        border:1.5px solid #cfe0dd;border-radius:7px;padding:5px 8px;"
+        placeholder="예) 같은 전지인데 무엇이 달라졌지?"></label></p>
     <p class="hint">「혼자 다른 값」은 같은 실험실의 다른 조와 견주어 가장 많은 값과 다른 칸입니다.
        틀렸다는 뜻이 아니라 <b>먼저 들여다볼 곳</b>이라는 표시입니다.</p>
   </div>
+</div>
+
+<!-- 반 앞에 띄울 화면. 원본 표가 뒤에 비치면 실명이 보여 교실에서 못 썼다 (261127, 24차) -->
+<div id="show" class="hidden">
+  <div class="shBar">
+    <button type="button" id="shToggle">결론 보이기</button>
+    <button type="button" id="shClose">닫기 (Esc)</button>
+  </div>
+  <div id="shBody"></div>
+  <p id="shAsk"></p>
 </div>
 
 <script>
@@ -162,24 +191,36 @@ function parseBlock(b){
   return {lab:'모름', team:teamOf(head), raw:text, cells:[], cond:'', concl:''};
 }
 
-/* ---------- 혼자 다른 값 ---------- */
+/* ---------- 혼자 다른 값 ----------
+   처음에는 '가장 많은 값' 과 다르면 칠했는데, 7대7 로 갈리면 먼저 붙인 쪽이
+   이겨 색이 통째로 뒤집혔다 (261127, 24차). 과반일 때만 칠하고, 갈리면
+   어느 쪽에도 칠하지 않고 몇 조씩 갈렸는지만 적는다. */
 function oddFlags(rows){
-  if (rows.length < 3) return;
+  var split = [];
+  if (rows.length < 3) return split;
   var n = rows[0].cells.length;
   for (var c = 0; c < n; c++){
-    var count = {}, best = null, bestN = 0;
+    var count = {}, total = 0;
     rows.forEach(function(r){
       var v = r.cells[c].v;
       if (!v) return;
-      count[v] = (count[v] || 0) + 1;
-      if (count[v] > bestN){ bestN = count[v]; best = v; }
+      count[v] = (count[v] || 0) + 1; total++;
     });
-    if (bestN < 2) continue;           /* 가장 많은 값이 하나뿐이면 견줄 것이 없다 */
-    rows.forEach(function(r){
-      var v = r.cells[c].v;
-      if (v && v !== best) r.cells[c].odd = true;
-    });
+    var vals = Object.keys(count);
+    if (total < 3 || vals.length < 2) continue;
+    vals.sort(function(a, b){ return count[b] - count[a]; });
+    if (count[vals[0]] * 2 > total){          /* 과반이 있을 때만 */
+      rows.forEach(function(r){
+        var v = r.cells[c].v;
+        if (v && v !== vals[0]) r.cells[c].odd = true;
+      });
+    } else {
+      split.push('갈린 값 — ' + rows[0].cells[c].k + ' : '
+        + vals.map(function(v){ return v + ' (' + count[v] + '조)'; }).join(' · ')
+        + '. 어느 쪽에도 표시하지 않았어요.');
+    }
   }
+  return split;
 }
 
 /* ---------- 그리기 ---------- */
@@ -191,8 +232,10 @@ function render(){
   ['회로','빛','하늘','모름'].forEach(function(lab){
     var rows = byLab[lab];
     if (!rows) return;
-    oddFlags(rows);
-    html += '<h2 style="margin-top:14px">' + lab + ' — ' + rows.length + '조</h2><table><tr>'
+    var split = oddFlags(rows);
+    html += '<h2 style="margin-top:14px">' + lab + ' — ' + rows.length + '조</h2>';
+    split.forEach(function(t){ html += '<p class="flag">' + esc(t) + '</p>'; });
+    html += '<table><tr>'
           + '<th class="pick">고름</th><th style="width:66px">조</th>';
     rows[0].cells.forEach(function(c){ html += '<th>' + esc(c.k) + '</th>'; });
     html += '<th>같게 둔 조건 · 보는 곳</th><th>결론</th><th>볼 곳</th></tr>';
@@ -249,20 +292,48 @@ $('bAnon').onclick = function(){
   for (var i = 0; i < boxes.length; i++)
     if (boxes[i].checked) picked.push(+boxes[i].getAttribute('data-i'));
   if (!picked.length){ msg('먼저 보여 줄 조를 골라 주세요. 둘을 고르면 견주기 좋아요.'); return; }
+  if (picked.length > 3){ msg('한 화면에는 세 조까지 띄울 수 있어요.'); return; }
   var label = 'ABCDEFGHIJKLMN';
-  var out = picked.map(function(i, n){
+  var ask = ($('ask').value || '').trim();
+  var html = '';
+  picked.forEach(function(i, n){
     var r = parsed.filter(function(x){ return x.idx === i; })[0];
-    if (!r) return '';
-    /* 조 번호도, 결론에 붙은 사람 이름도 가린다 — 반 앞에 띄울 글이다 */
-    var body = r.raw.split('\n')
-      .filter(function(l){ return !/^\[?\s*\d+\s*조/.test(l.trim()); })
-      .map(function(l){ return l.replace(/^(\s+)[^\s—][^—]{0,14}—\s*/, '$1○○ — '); })
-      .join('\n').replace(/\s*\d+조/g, '');
-    return '〈' + label[n] + '〉\n' + body;
-  }).join('\n\n');
-  $('anon').innerHTML = '<pre>' + esc(out) + '</pre>';
-  msg('고른 ' + picked.length + '조를 이름 없이 폈어요. 이 칸만 띄워 보여 주세요.');
+    if (!r) return;
+    html += '<div class="shCol"><div class="shName">〈' + label[n] + '〉</div>'
+          + '<div class="shCond">' + esc(r.cond || '조건 적지 않음') + '</div><table class="shTab">';
+    r.cells.forEach(function(c){
+      html += '<tr><th>' + esc(c.k) + '</th><td>' + (c.v ? esc(c.v) : '—') + '</td></tr>';
+    });
+    html += '</table><div class="shConcl' + (ask ? '' : '') + '">'
+          + (r.concl ? esc(maskNames(r.concl)) : '결론 없음') + '</div></div>';
+  });
+  $('shBody').innerHTML = html;
+  $('shAsk').textContent = ask;
+  $('shAsk').style.display = ask ? '' : 'none';
+  $('show').classList.remove('hidden');
+  $('show').classList.add('hideConcl');
+  $('shToggle').textContent = '결론 보이기';
+  document.body.style.overflow = 'hidden';
+  msg('발표 화면을 열었어요. 결론은 먼저 가려 두었으니, 읽어 보고 [결론 보이기] 를 누르세요.');
 };
+/* 결론에 이름이 섞여 들어오는 일이 있다 — 반 앞에 띄우기 전에 가린다 */
+function maskNames(t){
+  return t.split(' / ').map(function(one){
+    return one.replace(/^[^\s—-][^—]{0,14}—\s*/, '○○ — ');
+  }).join('  ·  ');
+}
+$('shToggle').onclick = function(){
+  var on = $('show').classList.toggle('hideConcl');
+  this.textContent = on ? '결론 보이기' : '결론 가리기';
+};
+$('shClose').onclick = function(){
+  $('show').classList.add('hidden');
+  document.body.style.overflow = '';
+};
+document.addEventListener('keydown', function(ev){
+  if (ev.key === 'Escape' && !$('show').classList.contains('hidden')) $('shClose').click();
+});
+
 $('bSample').onclick = function(){
   $('raw').value = [
     '3조 · 11/27',
