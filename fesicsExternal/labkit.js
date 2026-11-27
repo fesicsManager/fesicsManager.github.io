@@ -658,7 +658,11 @@
   var SKIP_COUNT = /^(평균|합계|개수|모두)|(\s|^)수$|칸$|번째$/;   // '자료 수'·'평균 칸'은 결과 이름으로 어색하다
   // '어떻게 내리나요?' 처럼 묻는 말, '7번째 시행에…' 처럼 숫자로 시작하는 이름은 문장에 넣으면 어색하다 (261127)
   // 커진다·작아진다고 말할 수 없는 결과 이름 — 두루뭉술한 끝말로 내려간다 (261127)
-  var NOT_SIZE = /(음|됨|임|함|판정|여부|적중|성공|실패|모습|이용)$/;
+  // 재어서 커지고 작아지는 이름인가 (머리글을 믿기 어려운 틀에서만 씨다)
+  var QUANT = /(량|값|수치|거리|시간|높이|크기|세기|비|율|차|속력|속도|힘|온도|압력|에너지|점수|기울기|넓이|길이|무게|양|개수|지수|배율|농도|부피|질량|전압|전류|저항|밝기|각도|비율|확률|기간|횟수)$/;
+  // 숙라이더로 만들었어도 '크게 한다'고 말할 수 없는 조작 칸 (261127)
+  var CHOICEY = /방법|방식|종류|모드|모양|상태|대상|유형|위치|방향/;
+  var NOT_SIZE = /(음|됨|임|함|판정|여부|가능|적중|성공|실패|모습|이용|대비|예상|나이대|차례|순서)$/;
   var ASK_LABEL = /[?？]$|나요|까요|할까|볼까/;
   function ctrlLabel(ctrl) {
     var row = ctrl.querySelector('.row');
@@ -678,21 +682,61 @@
     if (cut >= 2) t = t.slice(0, cut).trim();
     return t;
   }
+  // 고르기 단추 묶음의 이름 (틀이 다른 실험용)
+  function segLabel(seg) {
+    var node = seg, up = 0;
+    while (node && up < 3) {
+      var prev = node.previousElementSibling;
+      while (prev) { var t = nodeName(prev); if (isName(t)) return t; prev = prev.previousElementSibling; }
+      node = node.parentNode; up++;
+      if (!node || node.nodeType !== 1) break;
+    }
+    return '';
+  }
+  // 이 실험에서 바꿀 수 있는 칸들 — 실험 틀이 달라도 찾도록 (261127)
+  function controlList() {
+    var out = [], i;
+    var box = document.getElementById('controls');
+    var rows = box && !isOurs(box) ? box.querySelectorAll('.ctrl') : [];
+    if (rows.length) {
+      for (i = 0; i < rows.length; i++) {
+        var rng = rows[i].querySelector('input[type=range]'), sg = rows[i].querySelector('.seg');
+        if (!rng && !sg) continue;
+        out.push({ name: ctrlLabel(rows[i]), range: !!rng, seg: sg });
+      }
+      if (out.length) return out;
+    }
+    var rs = document.querySelectorAll('input[type=range]');
+    for (i = 0; i < rs.length; i++) { if (!isOurs(rs[i])) out.push({ name: sliderName(rs[i]), range: true, seg: null }); }
+    var gs = document.querySelectorAll('.seg, [role=radiogroup]');
+    for (i = 0; i < gs.length; i++) {
+      if (isOurs(gs[i]) || gs[i].querySelectorAll('button, [role=radio]').length < 2) continue;
+      out.push({ name: segLabel(gs[i]), range: false, seg: gs[i] });
+    }
+    return out;
+  }
+  // 기록표 머리글 — 실험을 돌리기 전에도 결과 이름을 알 수 있는 자리
+  function headerNames() {
+    var out = [], i, k, head = document.getElementById('recHead');
+    if (head) { var h1 = head.querySelectorAll('th'); for (k = 0; k < h1.length; k++) out.push(tidyName(h1[k].textContent)); }
+    if (out.length) return { names: out, curated: true };
+    // 틀이 다른 실험: 기록표(tbody 에 id 가 붙은 표)의 머리글만 본다
+    var ts = document.querySelectorAll('table');
+    for (i = 0; i < ts.length; i++) {
+      if (isOurs(ts[i]) || !ts[i].querySelector('tbody[id]')) continue;
+      var tr = ts[i].querySelector('thead tr') || ts[i].querySelector('tr');
+      if (!tr) continue;
+      var th = tr.querySelectorAll('th');
+      if (th.length < 2) continue;
+      for (k = 0; k < th.length; k++) out.push(tidyName(th[k].textContent));
+    }
+    return { names: out, curated: false };
+  }
   function labInfo() {
     try {
-      var box = document.getElementById('controls');
-      if (!box || isOurs(box)) return null;
-      var rows = box.querySelectorAll('.ctrl');
-      if (!rows.length) return null;
-      var labels = [], list = [], i, k;
-      for (i = 0; i < rows.length; i++) {
-        var nm = ctrlLabel(rows[i]);
-        if (nm) labels.push(nm);
-        var rng = rows[i].querySelector('input[type=range]');
-        var seg = rows[i].querySelector('.seg');
-        if (!rng && !seg) continue;
-        list.push({ name: nm, range: !!rng, seg: seg });
-      }
+      var list = controlList(), labels = [], i;
+      if (!list.length) return null;
+      for (i = 0; i < list.length; i++) if (list[i].name) labels.push(list[i].name);
       // 조작할 칸: 슬라이더를 먼저 보고, 없으면 고르기 단추를 쓴다
       var ctrl = null;
       for (var pass = 0; pass < 2 && !ctrl; pass++) {
@@ -702,15 +746,15 @@
           ctrl = list[i];
           break;
         }
-        if (ctrl) break;
       }
       if (!ctrl) return null;
-      // 결과 칸: 기록표 머리글 가운데 조작 칸과 겹치지 않는 것. 뒤쪽 칸일수록 결과에 가깝다
-      var out = '', size = true, head = document.getElementById('recHead');
-      var ths = head ? head.querySelectorAll('th') : [];
-      for (k = 0; k < ths.length; k++) {
-        var t = tidyName(ths[k].textContent);
+      // 결과 칸: 머리글 가운데 조작 칸과 겹치지 않는 것. 뒤쪽 칸일수록 결과에 가깝다
+      var out = '', size = true, hd = headerNames(), heads = hd.names;
+      for (i = 0; i < heads.length; i++) {
+        var t = heads[i];
         if (!isName(t) || SKIP_RESULT.test(t) || SKIP_B.test(t) || SKIP_COUNT.test(t)) continue;
+        // 머리글을 고르게 다듬어 둔 틀이 아니면, 재어서 커지고 작아지는 이름만 받는다 (261127)
+        if (!hd.curated && !QUANT.test(t)) continue;
         if (clashes(t, labels)) continue;
         out = t;
         size = !NOT_SIZE.test(t);   // '맞음'·'판정' 같은 이름은 '커진다'고 말할 수 없다
@@ -749,7 +793,7 @@
       if (info) {
         var A = info.ctrl.name, B = info.size ? info.out : '', head;
         var tailB = B ? B + josa(B, '은', '는') + ' ' : '';
-        if (info.ctrl.range) {
+        if (info.ctrl.range && !CHOICEY.test(A)) {
           head = A + josa(A, '을', '를') + ' 크게 하면 ' + (tailB || '결과도 ');
         } else {
           var opt = otherOption(info.ctrl);
