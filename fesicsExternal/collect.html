@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>제출 글 모아 보기 — FEsics 실험실</title>
+<style>
+  :root{--ink:#173238;--soft:#4a636a;--line:#9fb3b0;--teal:#246d78;--warn:#96591c;}
+  *{box-sizing:border-box;}
+  body{margin:0;padding:18px;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;
+       color:var(--ink);background:#eef2f0;line-height:1.6;}
+  .wrap{max-width:1040px;margin:0 auto;}
+  h1{font-size:21px;margin:0 0 2px;}
+  .sub{font-size:13.5px;color:var(--soft);margin:0 0 14px;}
+  .card{background:#fff;border:1px solid #d5e0dc;border-radius:12px;padding:16px 18px;margin:0 0 14px;}
+  h2{font-size:15.5px;margin:0 0 8px;}
+  textarea{width:100%;min-height:150px;font-family:inherit;font-size:13.5px;color:var(--ink);
+    background:#fcfefe;border:1.5px solid var(--line);border-radius:8px;padding:8px 10px;resize:vertical;}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  button{font-family:inherit;font-size:14px;font-weight:700;padding:8px 16px;border-radius:999px;
+    border:1.5px solid #bfdfe2;background:#f2fafb;color:var(--teal);cursor:pointer;}
+  button.plain{border-color:#d5e0dc;background:#fff;color:var(--soft);}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;}
+  th,td{border:1px solid #cfe0dd;padding:6px 8px;text-align:center;vertical-align:top;}
+  th{background:#f2fafb;font-weight:700;color:var(--soft);font-size:12.5px;}
+  td.left{text-align:left;}
+  .odd{background:#fdf4e8;color:var(--warn);font-weight:700;}
+  .miss{color:#b03a3a;font-weight:700;}
+  .flag{font-size:12.5px;color:var(--warn);}
+  .msg{font-size:14px;color:var(--warn);min-height:22px;margin:8px 0 0;}
+  .hint{font-size:12.5px;color:var(--soft);margin:8px 0 0;line-height:1.55;}
+  .hidden{display:none !important;}
+  .pick{width:34px;}
+  details{margin-top:10px;}
+  summary{font-size:13.5px;color:var(--teal);cursor:pointer;font-weight:700;}
+  pre{white-space:pre-wrap;font-family:inherit;font-size:13.5px;background:#f6fbfc;
+    border:1.5px solid #cfe4e7;border-radius:8px;padding:10px 12px;margin:8px 0 0;}
+  @media print{
+    body{background:#fff;padding:0;}
+    .card{border:0;padding:0;}
+    #inCard,.btns,.msg,.hint{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>제출 글 모아 보기</h1>
+  <p class="sub">학생들이 「제출용 글 복사」로 낸 글을 과제방에서 한꺼번에 긁어다 아래에 붙이세요.
+     조마다 한 덩이씩 끊어 표로 펼치고, <b>빠진 기록</b>과 <b>혼자 다른 값</b>,
+     <b>견준 조건이 다른 것</b>을 표시합니다. 서버로 보내지 않고 이 화면에서만 다룹니다.</p>
+
+  <div class="card" id="inCard">
+    <h2>붙여넣기</h2>
+    <textarea id="raw" placeholder="조와 조 사이는 빈 줄로 띄우세요. 세 실험실의 글을 섞어 붙여도 됩니다."></textarea>
+    <div class="btns">
+      <button type="button" id="bRun">표로 펼치기</button>
+      <button type="button" class="plain" id="bSample">보기글 넣어 보기</button>
+      <button type="button" class="plain" id="bClear">지우기</button>
+    </div>
+    <p class="msg" id="msg"></p>
+  </div>
+
+  <div class="card hidden" id="outCard">
+    <h2 id="outTitle">펼친 결과</h2>
+    <div id="tables"></div>
+    <div class="btns">
+      <button type="button" id="bAnon">고른 것만 이름 없이 보기</button>
+      <button type="button" class="plain" id="bPrint">인쇄하기</button>
+    </div>
+    <div id="anon"></div>
+    <p class="hint">「혼자 다른 값」은 같은 실험실의 다른 조와 견주어 가장 많은 값과 다른 칸입니다.
+       틀렸다는 뜻이 아니라 <b>먼저 들여다볼 곳</b>이라는 표시입니다.</p>
+  </div>
+</div>
+
+<script>
+/* 수업 다음 날, 교사가 14조의 글을 받아 놓고 할 수 있는 일이 없었다 (261127, 23차 1순위 3번).
+   서버에 모으려면 로그인이 필요해 지금은 둘 수 없다. 과제방에 이미 붙어 있는 글을
+   긁어다 붙이면 표로 펼쳐 주는 것까지가 로그인 없이 할 수 있는 전부다. */
+var KEY = 'fxCollectRaw';
+function $(id){ return document.getElementById(id); }
+function msg(t){ $('msg').textContent = t; }
+function esc(s){ return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ---------- 읽기 ---------- */
+function teamOf(s){
+  var m = /(\d+)\s*조/.exec(s || '');
+  return m ? m[1] + '조' : '';
+}
+function afterColon(line){
+  var i = line.indexOf(':');
+  return i < 0 ? '' : line.slice(i + 1).trim();
+}
+function pick(text, re){
+  var m = re.exec(text);
+  return m ? m[1].trim() : '';
+}
+
+function parseBlock(b){
+  var lines = b.split('\n').map(function(x){ return x.replace(/\s+$/, ''); })
+               .filter(function(x){ return x.trim(); });
+  if (!lines.length) return null;
+  var head = lines[0], text = lines.join('\n');
+
+  if (/^\[빛 실험대/.test(head)){
+    var far = '', near = '';
+    lines.forEach(function(l){
+      if (/^2f 바깥/.test(l)) far = afterColon(l);
+      if (/^f와 2f 사이/.test(l)) near = afterColon(l);
+    });
+    return {lab:'빛', team:teamOf(head), raw:text,
+      f: pick(head, /f\s*=\s*([0-9.]+)\s*cm/),
+      cells:[
+        {k:'2f 바깥 a', v:pick(far, /a\s*=\s*([0-9.\-]+)/)},
+        {k:'2f 바깥 b', v:pick(far, /b\s*=\s*([0-9.\-]+)/)},
+        {k:'f~2f a',   v:pick(near, /a\s*=\s*([0-9.\-]+)/)},
+        {k:'f~2f b',   v:pick(near, /b\s*=\s*([0-9.\-]+)/)}
+      ],
+      cond: pick(head, /f\s*=\s*([0-9.]+\s*cm)/),
+      concl: pick(text, /^결론\s*:\s*(.*)$/m)};
+  }
+
+  if (/^\[하늘 실험실/.test(head)){
+    var su = '', wi = '', suLat = '', wiLat = '';
+    lines.forEach(function(l){
+      if (/^하지/.test(l)){ su = afterColon(l); suLat = pick(l, /\(([^)]+)\)/); }
+      if (/^동지/.test(l)){ wi = afterColon(l); wiLat = pick(l, /\(([^)]+)\)/); }
+    });
+    return {lab:'하늘', team:teamOf(head), raw:text,
+      cells:[
+        {k:'하지 낮', v:pick(su, /낮의 길이\s*([^,]+)/)},
+        {k:'하지 남중', v:pick(su, /남중 고도\s*([0-9.\-]+)/)},
+        {k:'동지 낮', v:pick(wi, /낮의 길이\s*([^,]+)/)},
+        {k:'동지 남중', v:pick(wi, /남중 고도\s*([0-9.\-]+)/)}
+      ],
+      cond: (suLat && wiLat && suLat !== wiLat) ? suLat + ' / ' + wiLat : (suLat || wiLat),
+      condBad: !!(suLat && wiLat && suLat !== wiLat),
+      concl: pick(text, /^결론\s*:\s*(.*)$/m)};
+  }
+
+  if (/\[직렬\]/.test(text) || /\[병렬\]/.test(text)){
+    var se = pick(text, /\[직렬\]\s*(.*)$/m), pa = pick(text, /\[병렬\]\s*(.*)$/m);
+    var names = [];
+    var mark = lines.indexOf('[결론]');
+    if (mark >= 0) for (var i = mark + 1; i < lines.length; i++){
+      var t = lines[i].trim();
+      if (/^\[/.test(t)) break;
+      if (t) names.push(t.replace(/^[-·\s]+/, ''));
+    }
+    var one = pick(text, /^\[결론\][ 	]*(.+)$/m);   /* 줄바꿈을 넘어가 이름 줄을 다시 집던 것 */
+    if (one && one !== '-') names.push(one);
+    return {lab:'회로', team:teamOf(head), raw:text,
+      cells:[
+        {k:'직렬 전류', v:pick(se, /전체 전류\s*([0-9.\-]+)/)},
+        {k:'직렬 저항', v:pick(se, /전체 저항\s*([0-9.\-]+)/)},
+        {k:'병렬 전류', v:pick(pa, /전체 전류\s*([0-9.\-]+)/)},
+        {k:'병렬 저항', v:pick(pa, /전체 저항\s*([0-9.\-]+)/)}
+      ],
+      cond: pick(text, /\[같게 둔 조건\]\s*(.*)$/m),
+      concl: names.join(' / ')};
+  }
+  return {lab:'모름', team:teamOf(head), raw:text, cells:[], cond:'', concl:''};
+}
+
+/* ---------- 혼자 다른 값 ---------- */
+function oddFlags(rows){
+  if (rows.length < 3) return;
+  var n = rows[0].cells.length;
+  for (var c = 0; c < n; c++){
+    var count = {}, best = null, bestN = 0;
+    rows.forEach(function(r){
+      var v = r.cells[c].v;
+      if (!v) return;
+      count[v] = (count[v] || 0) + 1;
+      if (count[v] > bestN){ bestN = count[v]; best = v; }
+    });
+    if (bestN < 2) continue;           /* 가장 많은 값이 하나뿐이면 견줄 것이 없다 */
+    rows.forEach(function(r){
+      var v = r.cells[c].v;
+      if (v && v !== best) r.cells[c].odd = true;
+    });
+  }
+}
+
+/* ---------- 그리기 ---------- */
+var parsed = [];
+function render(){
+  var byLab = {};
+  parsed.forEach(function(r){ (byLab[r.lab] = byLab[r.lab] || []).push(r); });
+  var html = '', idx = 0;
+  ['회로','빛','하늘','모름'].forEach(function(lab){
+    var rows = byLab[lab];
+    if (!rows) return;
+    oddFlags(rows);
+    html += '<h2 style="margin-top:14px">' + lab + ' — ' + rows.length + '조</h2><table><tr>'
+          + '<th class="pick">고름</th><th style="width:66px">조</th>';
+    rows[0].cells.forEach(function(c){ html += '<th>' + esc(c.k) + '</th>'; });
+    html += '<th>같게 둔 조건 · 보는 곳</th><th>결론</th><th>볼 곳</th></tr>';
+    rows.forEach(function(r){
+      r.idx = idx++;
+      var flags = [];
+      var missing = r.cells.filter(function(c){ return !c.v; }).length;
+      if (missing) flags.push('기록 ' + missing + '칸 빔');
+      if (!r.concl) flags.push('결론 없음');
+      if (r.condBad) flags.push('견준 곳이 다름');
+      if (r.cells.some(function(c){ return c.odd; })) flags.push('혼자 다른 값');
+      html += '<tr><td class="pick"><input type="checkbox" data-i="' + r.idx + '"></td>'
+            + '<td>' + esc(r.team || '—') + '</td>';
+      r.cells.forEach(function(c){
+        html += '<td class="' + (c.v ? (c.odd ? 'odd' : '') : 'miss') + '">'
+              + (c.v ? esc(c.v) : '빔') + '</td>';
+      });
+      html += '<td class="left">' + esc(r.cond || '—') + '</td>'
+            + '<td class="left">' + (r.concl ? esc(r.concl) : '<span class="miss">없음</span>') + '</td>'
+            + '<td class="flag">' + (flags.length ? esc(flags.join(' · ')) : '') + '</td></tr>';
+    });
+    html += '</table>';
+  });
+  $('tables').innerHTML = html;
+  $('outTitle').textContent = '펼친 결과 — 모두 ' + parsed.length + '조';
+  $('outCard').classList.remove('hidden');
+  $('anon').innerHTML = '';
+}
+
+function run(){
+  var text = $('raw').value.replace(/\r/g, '');
+  try { localStorage.setItem(KEY, text); } catch (e) {}
+  var blocks = text.split(/\n\s*\n/).map(function(b){ return b.trim(); })
+                   .filter(function(b){ return b; });
+  if (!blocks.length){ msg('붙여넣은 글이 없어요. 조와 조 사이는 빈 줄로 띄우세요.'); return; }
+  parsed = blocks.map(parseBlock).filter(Boolean);
+  var unknown = parsed.filter(function(r){ return r.lab === '모름'; }).length;
+  msg(unknown ? (parsed.length + '덩이 가운데 ' + unknown + '덩이는 어느 실험실 글인지 몰라 따로 두었어요.')
+              : (parsed.length + '덩이를 펼쳤어요.'));
+  render();
+}
+
+$('bRun').onclick = run;
+$('bPrint').onclick = function(){ window.print(); };
+$('bClear').onclick = function(){
+  $('raw').value = ''; parsed = [];
+  $('outCard').classList.add('hidden');
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  msg('지웠어요.');
+};
+$('bAnon').onclick = function(){
+  var picked = [];
+  var boxes = $('tables').querySelectorAll('input[type=checkbox]');
+  for (var i = 0; i < boxes.length; i++)
+    if (boxes[i].checked) picked.push(+boxes[i].getAttribute('data-i'));
+  if (!picked.length){ msg('먼저 보여 줄 조를 골라 주세요. 둘을 고르면 견주기 좋아요.'); return; }
+  var label = 'ABCDEFGHIJKLMN';
+  var out = picked.map(function(i, n){
+    var r = parsed.filter(function(x){ return x.idx === i; })[0];
+    if (!r) return '';
+    /* 조 번호도, 결론에 붙은 사람 이름도 가린다 — 반 앞에 띄울 글이다 */
+    var body = r.raw.split('\n')
+      .filter(function(l){ return !/^\[?\s*\d+\s*조/.test(l.trim()); })
+      .map(function(l){ return l.replace(/^(\s+)[^\s—][^—]{0,14}—\s*/, '$1○○ — '); })
+      .join('\n').replace(/\s*\d+조/g, '');
+    return '〈' + label[n] + '〉\n' + body;
+  }).join('\n\n');
+  $('anon').innerHTML = '<pre>' + esc(out) + '</pre>';
+  msg('고른 ' + picked.length + '조를 이름 없이 폈어요. 이 칸만 띄워 보여 주세요.');
+};
+$('bSample').onclick = function(){
+  $('raw').value = [
+    '3조 · 11/27',
+    '[예상] 병렬이 더 크다 — 길이 둘이라서',
+    '[직렬] 전체 전류 75 mA · 전체 저항 20 Ω',
+    '[병렬] 전체 전류 300 mA · 전체 저항 5 Ω',
+    '[같게 둔 조건] 전지와 전구는 그대로, 잇는 방법만 바꿨다',
+    '[결론]',
+    '  김민수 — 병렬이 전류가 4배 많다',
+    '  이서연 — 갈라 놓으면 저항이 줄어 전류가 커진다',
+    '',
+    '5조 · 11/27',
+    '[예상] 두 쪽이 같다',
+    '[직렬] 전체 전류 75 mA · 전체 저항 20 Ω',
+    '[병렬] 전체 전류 150 mA · 전체 저항 5 Ω',
+    '[같게 둔 조건] -',
+    '[결론] -',
+    '',
+    '7조 · 11/27',
+    '[예상] 병렬이 더 크다',
+    '[직렬] 전체 전류 75 mA · 전체 저항 20 Ω',
+    '[병렬] 전체 전류 300 mA · 전체 저항 5 Ω',
+    '[같게 둔 조건] 전지 1.5 V, 전구 10 Ω 두 개',
+    '[결론]',
+    '  박지호 — 병렬에서 전지가 더 많이 내보낸다',
+    '',
+    '[하늘 실험실] 2조',
+    '하지 (북위 37.5도) : 낮의 길이 14시간 45분, 남중 고도 75.9°',
+    '동지 (북위 50.0도) : 낮의 길이 8시간 4분, 남중 고도 16.6°',
+    '결론 : 동지가 훨씬 짧다',
+    '※ 두 줄의 보는 곳이 다릅니다. 같은 곳에서 다시 적어 보세요.',
+    '',
+    '[하늘 실험실] 4조',
+    '하지 (북위 37.5도) : 낮의 길이 14시간 45분, 남중 고도 75.9°',
+    '동지 (북위 37.5도) : 낮의 길이 9시간 34분, 남중 고도 29.1°',
+    '결론 : 하지가 낮이 5시간 11분 더 길고 남중 고도도 46.8도 더 높았다'
+  ].join('\n');
+  run();
+};
+
+try {
+  var saved = localStorage.getItem(KEY);
+  if (saved){ $('raw').value = saved; run(); }
+} catch (e) {}
+</script>
+</body>
+</html>
