@@ -452,6 +452,8 @@ var LAB = (function(){
         return {n:'내가 짠 조사', who:w.n, when:t.n, q:q.n, mine:true,
           res:Math.max(0, Math.min(100, Math.round(w.base + t.d + q.d))), ck:[w.ck, t.ck, q.ck]};
       }
+      /* ②의 누구에게·언제·무엇을·예측 칸은 '내가 짠 조사'를 골랐을 때만 결과를 바꾼다 */
+      function mine(p){ return p.m === 1 && p.sv === 3; }
       function median(a){ var s = a.slice().sort(function(x, y){ return x - y; }), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
       return {
         sceneHeight: 420,
@@ -459,13 +461,13 @@ var LAB = (function(){
         shortHint: '①에서 세로축 시작값을 3가지 이상 바꿔 기록하고, ②의 세 조사, ③의 두 경우도 기록해 보세요.',
         params: [
           {key:'m', type:'seg', label:'점검 항목', cols:3, value:0, options:MD},
-          {key:'ax', type:'range', label:'① 세로축 시작값', min:0, max:81, step:1, value:80, fmt:function(v){ return v + '%'; }},
-          {key:'sv', type:'seg', label:'② 조사', cols:3, value:0, options:SV.map(function(s){ return s.n + ' · ' + s.who; }).concat(['내가 짠 조사 (아래 세 칸)'])},
-          {key:'who', type:'seg', label:'② 내가 짠 조사 — 누구에게', cols:2, value:1, options:WHO.map(function(x){ return x.n; })},
-          {key:'when', type:'seg', label:'② 언제', cols:2, value:0, options:WHEN2.map(function(x){ return x.n; })},
-          {key:'what', type:'seg', label:'② 무엇을', cols:1, value:1, options:WHAT.map(function(x){ return x.n; })},
-          {key:'pr', type:'range', label:'② 먼저 예측: 독서율이 몇 %로 나올까?', min:0, max:100, step:5, value:0, fmt:function(v){ return v === 0 ? '예측 안 함' : v + '%'; }},
-          {key:'out', type:'seg', label:'③ 용돈 자료', cols:2, value:1, options:['19명만', '100만 원 받는 1명 포함 (20명)']}
+          {key:'ax', type:'range', label:'① 세로축 시작값', show:function(p){ return p.m === 0; }, min:0, max:81, step:1, value:80, fmt:function(v){ return v + '%'; }},
+          {key:'sv', type:'seg', label:'② 조사', cols:3, value:0, show:function(p){ return p.m === 1; }, options:SV.map(function(s){ return s.n + ' · ' + s.who; }).concat(['내가 짠 조사 (아래 세 칸)'])},
+          {key:'who', type:'seg', label:'② 내가 짠 조사 — 누구에게', cols:2, value:1, show:mine, options:WHO.map(function(x){ return x.n; })},
+          {key:'when', type:'seg', label:'② 언제', cols:2, value:0, show:mine, options:WHEN2.map(function(x){ return x.n; })},
+          {key:'what', type:'seg', label:'② 무엇을', cols:1, value:1, show:mine, options:WHAT.map(function(x){ return x.n; })},
+          {key:'pr', type:'range', label:'② 먼저 예측: 독서율이 몇 %로 나올까?', show:mine, min:0, max:100, step:5, value:0, fmt:function(v){ return v === 0 ? '예측 안 함' : v + '%'; }},
+          {key:'out', type:'seg', label:'③ 용돈 자료', cols:2, value:1, show:function(p){ return p.m === 2; }, options:['19명만', '100만 원 받는 1명 포함 (20명)']}
         ],
         compute: function(p){
           if (p.m === 0){ var vis = (84 - p.ax) / (82 - p.ax); return {m:0, vis:vis, real:84 / 82, ax:p.ax}; }
@@ -581,7 +583,7 @@ function buildControls(){
   var box = $('controls');
   LAB.params.forEach(function(q){
     p[q.key] = q.value;
-    var wrap = document.createElement('div'); wrap.className = 'ctrl';
+    var wrap = document.createElement('div'); wrap.className = 'ctrl'; wrap.id = 'ctrl_' + q.key;
     if (q.type === 'range'){
       wrap.innerHTML = '<div class="row"><label for="r_' + q.key + '">' + q.label + '</label><span class="val" id="v_' + q.key + '"></span></div>' +
         '<input type="range" id="r_' + q.key + '" min="' + q.min + '" max="' + q.max + '" step="' + q.step + '" value="' + q.value + '">';
@@ -607,7 +609,21 @@ function buildControls(){
     }
   });
 }
+/* show(p) 가 있는 선택지는 의미 있을 때만 보이고, 숨길 때는 기본값으로 되돌린다 */
+function applyShow(){
+  LAB.params.forEach(function(q){
+    if (!q.show) return;
+    var on = !!q.show(p), w = $('ctrl_' + q.key);
+    if (w) w.style.display = on ? '' : 'none';
+    if (!on && p[q.key] !== q.value){
+      p[q.key] = q.value;
+      if (q.type === 'range') $('r_' + q.key).value = q.value;
+      else Array.prototype.forEach.call($('seg_' + q.key).children, function(x, j){ x.setAttribute('aria-pressed', j === q.value ? 'true' : 'false'); });
+    }
+  });
+}
 function syncLabels(){
+  applyShow();
   LAB.params.forEach(function(q){ if (q.type === 'range'){ $('v_' + q.key).textContent = q.fmt(p[q.key]); paintSlider($('r_' + q.key)); } });
 }
 function lockControls(on){
