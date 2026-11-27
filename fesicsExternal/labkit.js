@@ -544,7 +544,7 @@
   // '크게 하면' 이 어울리지 않는 고르기식 조작 — 두루뭉술한 문장으로 내려간다 (261125)
   var SKIP_PICK = /고르|고를|선택|어느|무엇|누구|까(\s|$)|쓰면/;
   // '~는 커질 것 같아요' 의 주어로 쓰면 말이 안 되는 결과 이름 (261125)
-  var SKIP_B = /같나|맞나|같음|같은|없음|있음|아니오|방식|방법|방향|대안|대상|종류|모드|부호|모양|상태|조건|자리|관계/;
+  var SKIP_B = /같나|맞나|맞음|틀림|같음|같은|없음|있음|아니오|방식|방법|방향|대안|대상|종류|모드|부호|모양|상태|조건|자리|관계/;
   // 이름 안에 기호가 남아 있으면 말이 어색해진다 (261125)
   var BAD_CHAR = /[()[\]{}<>=×÷±←→∠√$—–−○●△□▲■°′″/\\|:：⁰-₟]/;
   // 결과 이름 자리에 들어온 '문장' (261125)
@@ -653,29 +653,133 @@
     if (/[0-9]/.test(ch)) return JONG_DIGIT.test(ch) ? withJong : without;
     return without;
   }
+  // 실험이 스스로 밝혀 둔 이름 — 외부 실험 틀(LAB)의 조작 칸(params)과 기록표 머리글(columns).
+  // DOM 을 더듬어 찾는 것보다 정확하고, 실험을 돌리기 전에도 결과 이름을 알 수 있다 (261127 사용자: '결과' 말고 구체적으로)
+  var SKIP_COUNT = /^(평균|합계|개수|모두)|(\s|^)수$|칸$|번째$/;   // '자료 수'·'평균 칸'은 결과 이름으로 어색하다
+  // '어떻게 내리나요?' 처럼 묻는 말, '7번째 시행에…' 처럼 숫자로 시작하는 이름은 문장에 넣으면 어색하다 (261127)
+  // 커진다·작아진다고 말할 수 없는 결과 이름 — 두루뭉술한 끝말로 내려간다 (261127)
+  var NOT_SIZE = /(음|됨|임|함|판정|여부|적중|성공|실패|모습|이용)$/;
+  var ASK_LABEL = /[?？]$|나요|까요|할까|볼까/;
+  function ctrlLabel(ctrl) {
+    var row = ctrl.querySelector('.row');
+    if (!row) return '';
+    var raw = (row.textContent || '').trim();
+    if (/^[0-9]/.test(raw)) return '';
+    var t = nodeName(row);
+    return ASK_LABEL.test(t) ? '' : t;
+  }
+  function optText(btn) {
+    var c = btn.cloneNode(true);
+    var sm = c.querySelectorAll('small, .val, [class*=val]');
+    for (var i = sm.length - 1; i >= 0; i--) sm[i].parentNode.removeChild(sm[i]);
+    // 단추 글귀는 '20명' 처럼 숫자가 뜻을 가지므로 앞 숫자를 지우지 않는다. 괄호 설명만 덜어 낸다
+    var t = (c.textContent || '').replace(/\s+/g, ' ').trim();
+    var cut = t.indexOf('(');
+    if (cut >= 2) t = t.slice(0, cut).trim();
+    return t;
+  }
+  function labInfo() {
+    try {
+      var box = document.getElementById('controls');
+      if (!box || isOurs(box)) return null;
+      var rows = box.querySelectorAll('.ctrl');
+      if (!rows.length) return null;
+      var labels = [], list = [], i, k;
+      for (i = 0; i < rows.length; i++) {
+        var nm = ctrlLabel(rows[i]);
+        if (nm) labels.push(nm);
+        var rng = rows[i].querySelector('input[type=range]');
+        var seg = rows[i].querySelector('.seg');
+        if (!rng && !seg) continue;
+        list.push({ name: nm, range: !!rng, seg: seg });
+      }
+      // 조작할 칸: 슬라이더를 먼저 보고, 없으면 고르기 단추를 쓴다
+      var ctrl = null;
+      for (var pass = 0; pass < 2 && !ctrl; pass++) {
+        for (i = 0; i < list.length; i++) {
+          if (pass === 0 ? !list[i].range : list[i].range) continue;
+          if (!isName(list[i].name) || SKIP_PICK.test(list[i].name)) continue;
+          ctrl = list[i];
+          break;
+        }
+        if (ctrl) break;
+      }
+      if (!ctrl) return null;
+      // 결과 칸: 기록표 머리글 가운데 조작 칸과 겹치지 않는 것. 뒤쪽 칸일수록 결과에 가깝다
+      var out = '', size = true, head = document.getElementById('recHead');
+      var ths = head ? head.querySelectorAll('th') : [];
+      for (k = 0; k < ths.length; k++) {
+        var t = tidyName(ths[k].textContent);
+        if (!isName(t) || SKIP_RESULT.test(t) || SKIP_B.test(t) || SKIP_COUNT.test(t)) continue;
+        if (clashes(t, labels)) continue;
+        out = t;
+        size = !NOT_SIZE.test(t);   // '맞음'·'판정' 같은 이름은 '커진다'고 말할 수 없다
+      }
+      return { ctrl: ctrl, out: out, size: size };
+    } catch (e) { return null; }
+  }
+  // 받침이 없거나 ㄹ 받침이면 '로', 아니면 '으로'
+  function roJosa(word) {
+    var ch = word.charAt(word.length - 1), c = word.charCodeAt(word.length - 1);
+    if (c >= 0xAC00 && c <= 0xD7A3) { var j = (c - 0xAC00) % 28; return (j === 0 || j === 8) ? '로' : '으로'; }
+    if (/[036]/.test(ch)) return '으로';              // 영·삼·육 — 받침이 있고 ㄹ 이 아니다
+    if (/[a-zA-Z]/.test(ch)) return /[mnMN]/.test(ch) ? '으로' : '로';
+    return '로';
+  }
+  // 고르기 단추에서 지금 고른 것 말고 다른 것 하나 (예: 투영법 → '등적')
+  function otherOption(ctrl) {
+    if (!ctrl.seg) return '';
+    var bs = ctrl.seg.querySelectorAll('button'), opts = [], cur = 0;
+    for (var i = 0; i < bs.length; i++) {
+      var t = optText(bs[i]);
+      opts.push(t && t.length <= 14 ? t : '');
+      if (bs[i].getAttribute('aria-pressed') === 'true') cur = i;
+    }
+    var real = opts.filter(function (x) { return !!x; });
+    if (real.length < 2) return '';
+    for (var n = 1; n <= opts.length; n++) { var v = opts[(cur + n) % opts.length]; if (v) return v; }
+    return '';
+  }
+  var TAIL_SIZE = ['커질 것 같아요', '작아질 것 같아요', '그대로일 것 같아요'];
+  var TAIL_VAGUE = ['달라질 것 같아요', '비슷할 것 같아요', '반대가 될 것 같아요'];
   function predictIdeas() {
     try {
+      // ① 실험이 알려 준 이름으로 — '공기 습도를 크게 하면 일교차는 …' (261127)
+      var info = labInfo();
+      if (info) {
+        var A = info.ctrl.name, B = info.size ? info.out : '', head;
+        var tailB = B ? B + josa(B, '은', '는') + ' ' : '';
+        if (info.ctrl.range) {
+          head = A + josa(A, '을', '를') + ' 크게 하면 ' + (tailB || '결과도 ');
+        } else {
+          var opt = otherOption(info.ctrl);
+          head = A + josa(A, '을', '를') + (opt ? " '" + opt + "'" + roJosa(opt) + ' 바꾸면 ' : ' 바꾸면 ') + (tailB || '결과가 ');
+        }
+        var t1 = (B || info.ctrl.range) ? TAIL_SIZE : TAIL_VAGUE;
+        return { a: A, b: B, tails: t1, list: [head + t1[0], head + t1[1], head + t1[2]] };
+      }
+      // ② 틀을 모르는 실험은 화면을 더듬어 찾는다 (예전 방식)
       var rs = Array.prototype.filter.call(document.querySelectorAll('input[type=range]'),
         function (e) { return !isOurs(e); });
-      var A = '';
-      for (var i = 0; i < rs.length && !A; i++) {
+      var A2 = '';
+      for (var i = 0; i < rs.length && !A2; i++) {
         var nm = sliderName(rs[i]);
-        if (nm && !SKIP_PICK.test(nm)) A = nm;     // 고르기식 조작은 건너뛴다
+        if (nm && !SKIP_PICK.test(nm)) A2 = nm;     // 고르기식 조작은 건너뛴다
       }
-      var B = A ? resultName(A) : '';
+      var B2 = A2 ? resultName(A2) : '';
       // 이름을 못 찾아도 빈 칸으로 두지 않는다 — 점점 두루뭉술한 문장으로 내려간다 (261125)
-      var head, tails = ['커질 것 같아요', '작아질 것 같아요', '그대로일 것 같아요'];
-      if (A && B) head = A + josa(A, '을', '를') + ' 크게 하면 ' + B + josa(B, '은', '는') + ' ';
-      else if (A) head = A + josa(A, '을', '를') + ' 크게 하면 결과도 ';
-      else if (rs.length) head = '값을 크게 하면 결과도 ';
+      var head2, tails = TAIL_SIZE;
+      if (A2 && B2) head2 = A2 + josa(A2, '을', '를') + ' 크게 하면 ' + B2 + josa(B2, '은', '는') + ' ';
+      else if (A2) head2 = A2 + josa(A2, '을', '를') + ' 크게 하면 결과도 ';
+      else if (rs.length) head2 = '값을 크게 하면 결과도 ';
       else {
         // 슬라이더가 없는 실험 — '크게 한다'는 말이 안 맞는다
-        head = '바꿔 보면 결과가 ';
-        tails = ['달라질 것 같아요', '비슷할 것 같아요', '반대가 될 것 같아요'];
+        head2 = '바꿔 보면 결과가 ';
+        tails = TAIL_VAGUE;
       }
       return {
-        a: A, b: B, tails: tails,
-        list: [head + tails[0], head + tails[1], head + tails[2]]
+        a: A2, b: B2, tails: tails,
+        list: [head2 + tails[0], head2 + tails[1], head2 + tails[2]]
       };
     } catch (e) { return null; }
   }
