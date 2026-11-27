@@ -27,6 +27,7 @@
   .odd{background:#fdf4e8;color:var(--warn);font-weight:700;}
   .miss{color:#b03a3a;font-weight:700;}
   .flag{font-size:12.5px;color:var(--warn);}
+  .why{font-size:12px;color:#8a5a12;margin-top:3px;line-height:1.45;}
   .msg{font-size:14px;color:var(--warn);min-height:22px;margin:8px 0 0;}
   .hint{font-size:12.5px;color:var(--soft);margin:8px 0 0;line-height:1.55;}
   .hidden{display:none !important;}
@@ -63,7 +64,7 @@
   <h1>제출 글 모아 보기</h1>
   <p class="sub">학생들이 「제출용 글 복사」로 낸 글을 과제방에서 한꺼번에 긁어다 아래에 붙이세요.
      조마다 한 덩이씩 끊어 표로 펼치고, <b>빠진 기록</b>과 <b>혼자 다른 값</b>,
-     <b>견준 조건이 다른 것</b>을 표시합니다. 서버로 보내지 않고 이 화면에서만 다룹니다.</p>
+     <b>견준 조건이 다른 것</b>, <b>값끼리 계산이 안 맞는 것</b>을 표시합니다. 서버로 보내지 않고 이 화면에서만 다룹니다.</p>
 
   <div class="card" id="inCard">
     <h2>붙여넣기</h2>
@@ -88,7 +89,9 @@
         border:1.5px solid #cfe0dd;border-radius:7px;padding:5px 8px;"
         placeholder="예) 같은 전지인데 무엇이 달라졌지?"></label></p>
     <p class="hint">「혼자 다른 값」은 같은 실험실의 다른 조와 견주어 가장 많은 값과 다른 칸입니다.
-       틀렸다는 뜻이 아니라 <b>먼저 들여다볼 곳</b>이라는 표시입니다.</p>
+       「값 확인 필요」는 <b>그 조의 기록끼리</b> 계산이 안 맞는 것입니다 — 회로는 전지 1.5 V 로 보고
+       I = V/R, 빛은 1/a + 1/b = 1/f, 하늘은 적어 낸 날짜·위도로 다시 셉니다.
+       둘 다 틀렸다는 뜻이 아니라 <b>먼저 들여다볼 곳</b>이라는 표시입니다.</p>
   </div>
 </div>
 
@@ -162,6 +165,7 @@ function parseBlock(b){
         {k:'동지 낮', v:pick(wi, /낮의 길이\s*([^,]+)/)},
         {k:'동지 남중', v:pick(wi, /남중 고도\s*([0-9.\-]+)/)}
       ],
+      lats: {su: latNum(suLat), wi: latNum(wiLat)},
       cond: (suLat && wiLat && suLat !== wiLat) ? suLat + ' / ' + wiLat : (suLat || wiLat),
       condBad: !!(suLat && wiLat && suLat !== wiLat),
       concl: pick(text, /^결론\s*:\s*(.*)$/m)};
@@ -223,6 +227,120 @@ function oddFlags(rows){
   return split;
 }
 
+/* ---------- 값 확인 필요 (261127, 24차 1순위 3번) ----------
+   여기까지는 '남들과 다른지' 만 보았다. 한 조의 기록끼리 계산이 맞는지는
+   보지 않아, 열네 조가 모두 같게 틀리면 아무 표시도 나지 않았다.
+   회로는 I = V/R, 빛은 1/a + 1/b = 1/f, 하늘은 그 줄의 날짜·위도로 다시 센다.
+   틀렸다고 쓰지 않는다 — 교사가 보고 판단할 일이라 '확인 필요' 로만 적는다. */
+function latNum(s){
+  if (!s) return null;
+  var m = /([0-9.]+)/.exec(s);
+  if (!m) return null;
+  var v = parseFloat(m[1]);
+  if (!isFinite(v)) return null;
+  return /남위|^\s*-|S\s*$/.test(s) ? -v : v;
+}
+function num(v){
+  if (!v) return null;
+  var x = parseFloat(v);
+  return isFinite(x) ? x : null;
+}
+function hm(v){                 /* '14시간 45분' → 885 */
+  var m = /(\d+)\s*시간\s*(\d+)\s*분/.exec(v || '');
+  if (m) return (+m[1]) * 60 + (+m[2]);
+  return null;
+}
+function hmWord(min){ return Math.floor(min / 60) + '시간 ' + (min % 60) + '분'; }
+
+/* 하늘 — 실험실의 식을 그대로 옮겨 온다. 다른 식으로 어림하면 표시가 틀린다. */
+var SKY = (function(){
+  var D2R = Math.PI / 180, R2D = 180 / Math.PI, LON = 127.0, TZ = 9, YEAR = 2026;
+  function sin(d){ return Math.sin(d * D2R); }
+  function cos(d){ return Math.cos(d * D2R); }
+  function wrap360(x){ x = x % 360; return x < 0 ? x + 360 : x; }
+  var Y = YEAR - 1, A = Math.floor(Y / 100), B = 2 - A + Math.floor(A / 4);
+  var JD0 = Math.floor(365.25 * (Y + 4716)) + Math.floor(30.6001 * 14) + B - 1524.5;
+  function jdOf(day, minutes){ return JD0 + day + (minutes / 1440) - (TZ / 24); }
+  function lstDeg(jd){ return wrap360(280.46061837 + 360.98564736629 * (jd - 2451545.0) + LON); }
+  function sunPos(jd){
+    var n = jd - 2451545.0;
+    var L = wrap360(280.460 + 0.9856474 * n), g = wrap360(357.528 + 0.9856003 * n);
+    var lam = L + 1.915 * sin(g) + 0.020 * sin(2 * g), eps = 23.439 - 0.0000004 * n;
+    return {ra: wrap360(Math.atan2(cos(eps) * sin(lam), cos(lam)) * R2D),
+            dec: Math.asin(sin(eps) * sin(lam)) * R2D};
+  }
+  function alt(ra, dec, lst, lat){
+    var H = wrap360(lst - ra);
+    var sa = Math.max(-1, Math.min(1, sin(lat) * sin(dec) + cos(lat) * cos(dec) * cos(H)));
+    return Math.asin(sa) * R2D;
+  }
+  return function(day, lat){
+    var maxAlt = -90, above = 0;
+    for (var m = 0; m <= 1440; m++){
+      var jd = jdOf(day, m), sp = sunPos(jd);
+      var aa = alt(sp.ra, sp.dec, lstDeg(jd), lat);
+      if (aa > maxAlt) maxAlt = aa;
+      if (aa > -0.833) above++;
+    }
+    return {maxAlt: maxAlt, dayMin: above};
+  };
+})();
+
+function checkRow(r){
+  var out = [];
+  if (r.lab === '회로'){
+    [[0, 1, '직렬'], [2, 3, '병렬']].forEach(function(it){
+      var I = num(r.cells[it[0]].v), R = num(r.cells[it[1]].v);
+      if (I === null || R === null || R <= 0) return;
+      var exp = 1500 / R;                         /* 전지 1.5 V = 1500 mV */
+      var tol = Math.max(0.5, 1500 / (R * R) * 0.005 + 0.1);
+      if (Math.abs(I - exp) > tol)
+        out.push('값 확인 필요 · ' + it[2] + ' — 1.5 V와 ' + r.cells[it[1]].v + ' Ω이면 '
+               + (Math.round(exp * 10) / 10) + ' mA예요. 기록은 ' + r.cells[it[0]].v + ' mA예요.');
+    });
+    return out;
+  }
+  if (r.lab === '빛'){
+    var f = num(r.f);
+    if (f === null || f <= 0) return out;
+    [[0, 1, '2f 바깥'], [2, 3, 'f와 2f 사이']].forEach(function(it){
+      var a = num(r.cells[it[0]].v), b = num(r.cells[it[1]].v);
+      if (a === null || b === null) return;
+      if (a <= f){
+        out.push('값 확인 필요 · ' + it[2] + ' — a = ' + a + ' cm 는 초점(' + f
+               + ' cm) 안쪽이라 스크린에 상이 맺히지 않아요.');
+        return;
+      }
+      var exp = a * f / (a - f);
+      var tol = Math.max(1, 0.5 * (1 + f * f / ((a - f) * (a - f))));
+      if (Math.abs(b - exp) > tol)
+        out.push('값 확인 필요 · ' + it[2] + ' — f = ' + f + ' cm 에서 a = ' + a
+               + ' cm 이면 b 는 ' + Math.round(exp) + ' cm 예요. 기록은 '
+               + r.cells[it[1]].v + ' cm 예요.');
+    });
+    return out;
+  }
+  if (r.lab === '하늘'){
+    var L = r.lats || {};
+    [[0, 1, '하지', 172, L.su], [2, 3, '동지', 356, L.wi]].forEach(function(it){
+      var lat = it[4];
+      if (lat === null || lat === undefined) return;
+      var dm = hm(r.cells[it[0]].v), al = num(r.cells[it[1]].v);
+      if (dm === null && al === null) return;
+      var v = SKY(it[3], lat);
+      var where = (lat >= 0 ? '북위 ' : '남위 ') + Math.abs(lat).toFixed(1) + '도';
+      if (dm !== null && Math.abs(dm - v.dayMin) > 1)
+        out.push('값 확인 필요 · ' + it[2] + ' — ' + where + '에서 낮의 길이는 '
+               + hmWord(v.dayMin) + '이에요. 기록은 ' + hmWord(dm) + '이에요.');
+      if (al !== null && Math.abs(al - v.maxAlt) > 0.1)
+        out.push('값 확인 필요 · ' + it[2] + ' — ' + where + '의 남중 고도는 '
+               + v.maxAlt.toFixed(1) + '°예요. 기록은 ' + r.cells[it[1]].v + '°예요.');
+    });
+    return out;
+  }
+  return out;
+}
+
 /* ---------- 그리기 ---------- */
 var parsed = [];
 function render(){
@@ -238,7 +356,7 @@ function render(){
     html += '<table><tr>'
           + '<th class="pick">고름</th><th style="width:66px">조</th>';
     rows[0].cells.forEach(function(c){ html += '<th>' + esc(c.k) + '</th>'; });
-    html += '<th>같게 둔 조건 · 보는 곳</th><th>결론</th><th>볼 곳</th></tr>';
+    html += '<th>같게 둔 조건 · 보는 곳</th><th>결론</th><th style="width:200px">볼 곳</th></tr>';
     rows.forEach(function(r){
       r.idx = idx++;
       var flags = [];
@@ -247,6 +365,8 @@ function render(){
       if (!r.concl) flags.push('결론 없음');
       if (r.condBad) flags.push('견준 곳이 다름');
       if (r.cells.some(function(c){ return c.odd; })) flags.push('혼자 다른 값');
+      var why = checkRow(r);
+      if (why.length) flags.push('값 확인 필요');
       html += '<tr><td class="pick"><input type="checkbox" data-i="' + r.idx + '"></td>'
             + '<td>' + esc(r.team || '—') + '</td>';
       r.cells.forEach(function(c){
@@ -255,7 +375,9 @@ function render(){
       });
       html += '<td class="left">' + esc(r.cond || '—') + '</td>'
             + '<td class="left">' + (r.concl ? esc(r.concl) : '<span class="miss">없음</span>') + '</td>'
-            + '<td class="flag">' + (flags.length ? esc(flags.join(' · ')) : '') + '</td></tr>';
+            + '<td class="flag">' + (flags.length ? esc(flags.join(' · ')) : '')
+            + why.map(function(t){ return '<div class="why">' + esc(t) + '</div>'; }).join('')
+            + '</td></tr>';
     });
     html += '</table>';
   });
